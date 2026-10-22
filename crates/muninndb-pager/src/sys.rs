@@ -239,6 +239,15 @@ pub(crate) fn create_locked(path: &Path) -> Result<LockedFile, LockError> {
     }
 }
 
+/// An injected fault of the lock step (tests only): `WouldBlock` stands for another opener holding the lock.
+fn lock_fault(error: io::Error) -> LockError {
+    if error.kind() == io::ErrorKind::WouldBlock {
+        LockError::InUse
+    } else {
+        LockError::Io(error)
+    }
+}
+
 /// Removes a file [`create_locked`] just created but could not lock. When another opener holds it (it took it
 /// for a leftover in the instant before the lock), that opener removes it.
 fn discard_created(path: &Path, error: &LockError) {
@@ -250,7 +259,7 @@ fn discard_created(path: &Path, error: &LockError) {
 #[cfg(unix)]
 fn posix_lock(file: &File) -> Result<(), LockError> {
     use rustix::fs::{FlockOperation, fcntl_lock};
-    before(Op::Lock, Path::new("")).map_err(LockError::Io)?;
+    before(Op::Lock, Path::new("")).map_err(lock_fault)?;
     match fcntl_lock(file, FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(()),
         Err(e) if e == rustix::io::Errno::AGAIN || e == rustix::io::Errno::ACCESS => {
@@ -262,7 +271,7 @@ fn posix_lock(file: &File) -> Result<(), LockError> {
 
 #[cfg(not(unix))]
 fn handle_lock(file: &File) -> Result<(), LockError> {
-    before(Op::Lock, Path::new("")).map_err(LockError::Io)?;
+    before(Op::Lock, Path::new("")).map_err(lock_fault)?;
     match file.try_lock() {
         Ok(()) => Ok(()),
         Err(fs::TryLockError::WouldBlock) => Err(LockError::InUse),

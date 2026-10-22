@@ -460,6 +460,19 @@ fn a_creation_that_cannot_lock_leaves_nothing_behind() {
     assert_only_a_complete_store(tmp.path());
 }
 
+/// When another opener holds the file a creation just made (it took it for a leftover), the creation reports
+/// "Store in use" and leaves the file to that opener, which removes it (R3-inuse-branch-coverage-dropped).
+#[test]
+fn a_creation_whose_file_another_opener_holds_leaves_it_to_that_opener() {
+    let tmp = tempfile::tempdir().unwrap();
+    fail(Op::Lock, 0, io::ErrorKind::WouldBlock);
+    let error = Pager::open(tmp.path(), &options()).err().unwrap();
+    faults::reset();
+    assert_eq!(error.kind(), ErrorKind::StoreInUse, "{error}");
+    assert_eq!(names(tmp.path()), vec![NEW_DATA_FILE.to_owned()]);
+    assert_only_a_complete_store(tmp.path());
+}
+
 const TRY_OPEN_ENV: &str = "MUNINN_TEST_TRY_OPEN";
 
 /// S2 of the fork-safe lock: a failed second open in the same process does not release the lock, so another
