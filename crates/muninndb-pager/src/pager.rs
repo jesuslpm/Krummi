@@ -448,7 +448,7 @@ impl Pager {
             Storage::File(f) => sys::sync(&f.file, &f.path),
             Storage::Memory(_) => Ok(()),
         };
-        result.map_err(|e| self.write_failed(e, 0))
+        result.map_err(|e| self.fail_flush(e))
     }
 
     /// Flushes the written pages to the disk. A failure makes the store refuse writes until it is reopened.
@@ -588,6 +588,17 @@ impl Pager {
     /// writes until it is reopened (G12).
     pub(crate) fn fail_write(&self, source: io::Error, requested: u64) -> Error {
         self.write_failed(source, requested)
+    }
+
+    /// Classifies a failed flush to the disk: always the I/O class, whatever its cause, and the store refuses
+    /// writes until it is reopened (G12, J12 of the Journal PRD). What the flush was for may or may not be on the
+    /// disk, so nothing may be written after it.
+    pub(crate) fn fail_flush(&self, source: io::Error) -> Error {
+        self.writes_disabled.store(true, Ordering::Release);
+        Error::Io {
+            folder: self.folder.clone().unwrap_or_default(),
+            source,
+        }
     }
 
     fn write_failed(&self, source: io::Error, requested: u64) -> Error {

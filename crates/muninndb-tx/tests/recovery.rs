@@ -917,3 +917,29 @@ fn b2_damage_in_a_commit_made_durable_by_a_rollover_is_reported() {
     flip(deferred_file, offset + 64 + 10);
     assert_eq!(open_err(folder.path()).kind(), ErrorKind::Damaged);
 }
+
+/// R1 of the review (J12, G12): a failed flush of the journal is the I/O class whatever its cause, also a lack of
+/// space, and the store refuses writes, so no later commit can follow the record it left behind.
+#[test]
+fn r1_a_journal_flush_that_fails_for_lack_of_space_refuses_writes() {
+    let (source, engine) = Run::start();
+    let pages = reserve(&engine, 1, "kept");
+    testing::inject(
+        Op::Sync,
+        testing::count(Op::Sync),
+        Action::Fail(std::io::ErrorKind::StorageFull),
+    );
+    let mut tx = engine.write(None).unwrap();
+    put(&mut tx, pages[0], "failed");
+    assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::Io);
+    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+    assert_eq!(engine.make_durable().unwrap_err().kind(), ErrorKind::Io);
+    let run = Run::finish(source, vec![]);
+    let folder = run.killed();
+    let engine = open(folder.path());
+    let seen = texts(&engine, &pages)[0].clone();
+    assert!(
+        matches!(seen.as_deref(), Some("kept" | "failed")),
+        "{seen:?}"
+    );
+}

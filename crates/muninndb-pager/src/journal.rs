@@ -309,7 +309,7 @@ impl Journal {
                 // Entire or absent after a reopen (J12): the record stays as it is.
                 guard.armed = false;
                 guard.current.len = offset + record.len() as u64;
-                return Err(pager.fail_write(e, 0));
+                return Err(pager.fail_flush(e));
             }
         }
         guard.armed = false;
@@ -328,7 +328,7 @@ impl Journal {
     /// Flushes the current file and goes on in a new one, whose name is made durable first.
     fn roll(&self, state: &mut State, pager: &Pager) -> Result<()> {
         if let Some(current) = &state.current {
-            sys::sync(&current.file, &current.path).map_err(|e| pager.fail_write(e, 0))?;
+            sys::sync(&current.file, &current.path).map_err(|e| pager.fail_flush(e))?;
             state.synced_upto = state.written_upto;
         }
         let number = state.next_number;
@@ -337,7 +337,7 @@ impl Journal {
         if let Err(e) = sys::sync_dir(&self.folder) {
             drop(file);
             let _ = sys::remove(&path);
-            return Err(pager.fail_write(e, 0));
+            return Err(pager.fail_flush(e));
         }
         state.next_number += 1;
         state.files.push_back((number, state.written_upto));
@@ -372,7 +372,7 @@ impl Journal {
             .current
             .as_ref()
             .expect("unsynced commits are in the current file");
-        sys::sync(&current.file, &current.path).map_err(|e| pager.fail_write(e, 0))?;
+        sys::sync(&current.file, &current.path).map_err(|e| pager.fail_flush(e))?;
         state.synced_upto = state.written_upto;
         Ok(())
     }
