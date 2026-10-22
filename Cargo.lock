@@ -118,6 +118,7 @@ dependencies = [
  "rustix",
  "tempfile",
  "trybuild",
+ "windows-sys",
  "xxhash-rust",
  "zerocopy",
 ]
