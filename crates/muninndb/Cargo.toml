@@ -1,0 +1,17 @@
+[package]
+name = "muninndb"
+version = "0.1.0"
+description = "MuninnDB: an embedded transactional storage engine inspired by Voron"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+muninndb-pager = { version = "0.1.0", path = "../muninndb-pager" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

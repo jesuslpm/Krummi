@@ -1,0 +1,27 @@
+[package]
+name = "muninndb-pager"
+version = "0.1.0"
+description = "Paged data file of MuninnDB: the only crate allowed to use unsafe code"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+memmap2 = "0.9.12"
+xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
+zerocopy = { version = "0.8.63", features = ["derive"] }
+
+# D12: the Pager is the only crate allowed to use unsafe code. Every unsafe block must carry a SAFETY comment.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1.5", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+trybuild = "1.0.122"
