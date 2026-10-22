@@ -237,32 +237,17 @@ pub(crate) fn rename_open_no_replace(file: &File, from: &Path, to: &Path) -> io:
 
 #[cfg(windows)]
 fn rename_open_impl(file: &File, _from: &Path, to: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_RENAME_INFO, FileRenameInfo, SetFileInformationByHandle,
-    };
+    use windows_sys::Win32::Storage::FileSystem::{FileRenameInfo, SetFileInformationByHandle};
     // `from` is always this handle's file: nobody can delete it while it is open without delete sharing.
-    // The name is NUL-terminated even though FileNameLength gives its length: kernel32 converts it to an NT path
-    // as a NUL-terminated string, and without the terminator it reads past the end of the name.
-    let name: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    let name_bytes = (name.len() - 1) * size_of::<u16>();
-    let size = std::mem::offset_of!(FILE_RENAME_INFO, FileName) + name.len() * size_of::<u16>();
-    // A u64 buffer gives the alignment FILE_RENAME_INFO needs (it holds a handle).
-    let mut buffer = vec![0u64; size.div_ceil(size_of::<u64>())];
-    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-    // SAFETY: `buffer` is zeroed, aligned for FILE_RENAME_INFO and at least `size` bytes long, so the header
-    // fields and the `name.len()` UTF-16 units (terminator included) written from `FileName` on stay inside it.
-    // Zero means ReplaceIfExists = false and no root directory (`to` is an absolute path). The handle is valid
-    // for the call, which reads at most `size` bytes from `info`.
+    let (buffer, size) = rename_info(to);
+    // SAFETY: `buffer` holds a FILE_RENAME_INFO of `size` bytes built by `rename_info`, and the handle is valid
+    // for the call, which reads at most `size` bytes from it.
     let ok = unsafe {
-        (*info).FileNameLength = name_bytes as u32;
-        let target = std::ptr::addr_of_mut!((*info).FileName).cast::<u16>();
-        std::ptr::copy_nonoverlapping(name.as_ptr(), target, name.len());
         SetFileInformationByHandle(
             file.as_raw_handle(),
             FileRenameInfo,
-            info.cast(),
+            buffer.as_ptr().cast(),
             size as u32,
         )
     };
@@ -270,6 +255,75 @@ fn rename_open_impl(file: &File, _from: &Path, to: &Path) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     file.sync_all()
+}
+
+/// Builds a FILE_RENAME_INFO for renaming to `to` without replacing it, and returns it with its size in bytes.
+///
+/// The name is NUL-terminated even though FileNameLength gives its length (without the terminator): kernel32
+/// converts it to an NT path as a NUL-terminated string, and without the terminator it reads past the name.
+#[cfg(windows)]
+fn rename_info(to: &Path) -> (Vec<u64>, usize) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_RENAME_INFO;
+    let name: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    let size = std::mem::offset_of!(FILE_RENAME_INFO, FileName) + name.len() * size_of::<u16>();
+    // A u64 buffer gives the alignment FILE_RENAME_INFO needs (it holds a handle).
+    let mut buffer = vec![0u64; size.div_ceil(size_of::<u64>())];
+    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    // SAFETY: `buffer` is zeroed, aligned for FILE_RENAME_INFO and at least `size` bytes long, so the header
+    // fields and the `name.len()` UTF-16 units (terminator included) written from `FileName` on stay inside it.
+    // Zero means ReplaceIfExists = false and no root directory (`to` is an absolute path).
+    unsafe {
+        (*info).FileNameLength = ((name.len() - 1) * size_of::<u16>()) as u32;
+        let target = std::ptr::addr_of_mut!((*info).FileName).cast::<u16>();
+        std::ptr::copy_nonoverlapping(name.as_ptr(), target, name.len());
+    }
+    (buffer, size)
+}
+
+#[cfg(all(test, windows))]
+mod rename_info_tests {
+    use super::rename_info;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use windows_sys::Win32::Storage::FileSystem::FILE_RENAME_INFO;
+
+    /// The rename once read past the target name when no zero followed it (R3-001 of the CI review).
+    #[test]
+    fn the_target_name_is_nul_terminated_inside_the_buffer() {
+        for length in 1..=12 {
+            let to = Path::new(r"C:\stores")
+                .join("s".repeat(length))
+                .join("muninn.data");
+            let units: Vec<u16> = to.as_os_str().encode_wide().collect();
+            let (buffer, size) = rename_info(&to);
+            let bytes: Vec<u8> = buffer.iter().flat_map(|w| w.to_ne_bytes()).collect();
+            let length_at = std::mem::offset_of!(FILE_RENAME_INFO, FileNameLength);
+            let name_at = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
+            let declared =
+                u32::from_ne_bytes(bytes[length_at..length_at + 4].try_into().unwrap()) as usize;
+            assert_eq!(
+                declared,
+                units.len() * 2,
+                "FileNameLength excludes the terminator"
+            );
+            assert_eq!(
+                size,
+                name_at + units.len() * 2 + 2,
+                "the size covers the terminator"
+            );
+            let written: Vec<u16> = bytes[name_at..size]
+                .chunks(2)
+                .map(|c| u16::from_ne_bytes([c[0], c[1]]))
+                .collect();
+            assert_eq!(&written[..units.len()], &units[..]);
+            assert_eq!(written[units.len()], 0, "the name is followed by a NUL");
+            assert!(
+                bytes[..4].iter().all(|b| *b == 0),
+                "ReplaceIfExists is false"
+            );
+        }
+    }
 }
 
 #[cfg(unix)]
