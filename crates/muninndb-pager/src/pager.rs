@@ -114,7 +114,10 @@ impl Pager {
             if only_leftover {
                 discard_leftover(folder)?;
             }
-            create(folder)?;
+            match create(folder, max_size)? {
+                Created::Store(pager) => return Ok(pager),
+                Created::Retry => continue,
+            }
         }
     }
 
@@ -545,14 +548,22 @@ fn create_error(folder: &Path, source: io::Error) -> Error {
     }
 }
 
+/// What a creation attempt produced.
+enum Created {
+    Store(Pager),
+    /// The folder changed under this opener (another opener created the store or discarded this opener's
+    /// `muninn.data.new`): the caller looks at the folder again.
+    Retry,
+}
+
 /// Creates a store in an empty folder: prepares it in `muninn.data.new` under the store lock, flushes it and
-/// renames it to `muninn.data` without replacing an existing one (P8).
+/// renames it to `muninn.data` without replacing an existing one, keeping the file open and locked from start
+/// to end (P8, P9).
 ///
-/// Returning `Ok` means the folder changed and the caller must look at it again: the new store is opened (and
-/// locked) through the normal path, so when several openers race exactly one of them gets the store and the
-/// others get [`Error::StoreInUse`]. Another opener may also have discarded this opener's `muninn.data.new` as
-/// a leftover before it was locked; the caller then simply looks at the folder again.
-fn create(folder: &Path) -> Result<()> {
+/// Another opener can only discard this opener's `muninn.data.new` in the instant between its creation and its
+/// lock (and only on Unix: on Windows it is opened without delete sharing). The rename then finds that the file
+/// at `muninn.data.new` is no longer this one, and the caller looks at the folder again.
+fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
     let new_path = folder.join(NEW_DATA_FILE);
     let data_path = folder.join(DATA_FILE);
     let file = match sys::create_new(&new_path) {
@@ -565,6 +576,10 @@ fn create(folder: &Path) -> Result<()> {
         Err(e) => return Err(create_error(folder, e)),
     };
     let ours = sys::FileIdentity::of(&file);
+    let discard = |file: File| {
+        drop(file);
+        ours.remove_if_same(&new_path);
+    };
     let prepared = (|| {
         lock(&file, folder)?;
         let mut pages = vec![0u8; HEADER_PAGES as usize * PAGE_SIZE];
@@ -574,27 +589,34 @@ fn create(folder: &Path) -> Result<()> {
             .map_err(|e| create_error(folder, e))?;
         sys::sync(&file, &new_path).map_err(|e| create_error(folder, e))
     })();
-    // The handle is released before the rename: Windows cannot rename a file that is open without delete
-    // sharing, and the store is locked again when the caller opens it.
-    drop(file);
     if let Err(error) = prepared {
-        ours.remove_if_same(&new_path);
+        discard(file);
         return Err(error);
     }
-    match sys::rename_no_replace(&new_path, &data_path) {
-        Ok(()) => sys::sync_dir(folder).map_err(|e| create_error(folder, e)),
+    match sys::rename_open_no_replace(&file, &new_path, &data_path) {
+        Ok(()) => {}
         // Another opener created the store first: discard what this one prepared.
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-            ours.remove_if_same(&new_path);
-            Ok(())
+            discard(file);
+            return Ok(Created::Retry);
         }
-        // Another opener discarded it as a leftover in the instant before it was locked.
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        // Another opener discarded this file as a leftover before it was locked.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Created::Retry),
         Err(e) => {
-            ours.remove_if_same(&new_path);
-            Err(create_error(folder, e))
+            discard(file);
+            return Err(create_error(folder, e));
         }
     }
+    sys::sync_dir(folder).map_err(|e| create_error(folder, e))?;
+    let map = map_new(&file, &data_path, INITIAL_SIZE, folder)?;
+    Ok(Created::Store(file_pager(
+        folder,
+        file,
+        data_path,
+        INITIAL_SIZE,
+        map,
+        max_size,
+    )))
 }
 
 #[cfg(test)]

@@ -45,9 +45,18 @@ pub(crate) fn create_new(path: &Path) -> io::Result<File> {
     before(Op::CreateFile, path)?;
     let mut options = fs::OpenOptions::new();
     options.read(true).write(true).create_new(true);
-    // While the store is prepared, nobody else may delete the file (see `is_sharing_violation`).
+    // While the store is prepared, nobody else may delete the file (see `is_sharing_violation`), and the
+    // handle itself can rename it (see `rename_open_no_replace`).
     #[cfg(windows)]
-    std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 0x1 | 0x2); // FILE_SHARE_READ | WRITE
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const GENERIC_READ: u32 = 0x8000_0000;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
+        const DELETE: u32 = 0x0001_0000;
+        const FILE_SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+        options.access_mode(GENERIC_READ | GENERIC_WRITE | DELETE);
+        options.share_mode(FILE_SHARE_READ_WRITE);
+    }
     let file = options.open(path)?;
     #[cfg(test)]
     hooks::record(faults::Recorded::Create(path.to_path_buf()));
@@ -76,18 +85,27 @@ impl FileIdentity {
         }
     }
 
-    /// Removes `path` if it is still this file. On Windows another opener's file cannot be deleted while it
-    /// prepares it (it is opened without delete sharing), so the removal is attempted directly.
-    pub(crate) fn remove_if_same(&self, path: &Path) {
+    /// Whether `path` is this file. Always true on Windows, where another opener's file cannot replace this
+    /// one while it is open (it is opened without delete sharing).
+    pub(crate) fn is_at(&self, path: &Path) -> bool {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            let same = fs::metadata(path).ok().map(|m| (m.dev(), m.ino()));
-            if same.is_none() || same != self.0 {
-                return;
-            }
+            let at_path = fs::metadata(path).ok().map(|m| (m.dev(), m.ino()));
+            at_path.is_some() && at_path == self.0
         }
-        let _ = remove(path);
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            true
+        }
+    }
+
+    /// Removes `path` if it is still this file.
+    pub(crate) fn remove_if_same(&self, path: &Path) {
+        if self.is_at(path) {
+            let _ = remove(path);
+        }
     }
 }
 
@@ -202,11 +220,13 @@ pub(crate) fn sync(file: &File, path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Renames `from` to `to`, failing with `AlreadyExists` instead of replacing `to`. On Windows the rename is
-/// written through to the disk before returning.
-pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+/// Renames the open file `file`, created at `from` by [`create_new`], to `to`, failing with `AlreadyExists`
+/// instead of replacing `to`, and with `NotFound` when `from` is no longer `file` (another opener discarded it).
+/// The file stays open, so its lock is never released. On Windows the rename goes through the handle and is
+/// flushed before returning.
+pub(crate) fn rename_open_no_replace(file: &File, from: &Path, to: &Path) -> io::Result<()> {
     before(Op::Rename, from)?;
-    rename_no_replace_impl(from, to)?;
+    rename_open_impl(file, from, to)?;
     #[cfg(test)]
     hooks::record(faults::Recorded::Rename(
         from.to_path_buf(),
@@ -216,24 +236,47 @@ pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn rename_no_replace_impl(from: &Path, to: &Path) -> io::Result<()> {
+fn rename_open_impl(file: &File, _from: &Path, to: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
-    let wide = |p: &Path| {
-        p.as_os_str()
-            .encode_wide()
-            .chain(Some(0))
-            .collect::<Vec<u16>>()
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_RENAME_INFO, FileRenameInfo, SetFileInformationByHandle,
     };
-    let (from, to) = (wide(from), wide(to));
-    // SAFETY: both arguments are valid, NUL-terminated UTF-16 strings that outlive the call; without
-    // MOVEFILE_REPLACE_EXISTING the call fails when `to` exists.
-    let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) };
+    // `from` is always this handle's file: nobody can delete it while it is open without delete sharing.
+    let name: Vec<u16> = to.as_os_str().encode_wide().collect();
+    let name_bytes = name.len() * size_of::<u16>();
+    let size = std::mem::offset_of!(FILE_RENAME_INFO, FileName) + name_bytes;
+    // A u64 buffer gives the alignment FILE_RENAME_INFO needs (it holds a handle).
+    let mut buffer = vec![0u64; size.div_ceil(size_of::<u64>())];
+    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    // SAFETY: `buffer` is zeroed, aligned for FILE_RENAME_INFO and at least `size` bytes long, so the header
+    // fields and the `name.len()` UTF-16 units written from `FileName` on stay inside it. Zero means
+    // ReplaceIfExists = false and no root directory (`to` is an absolute path). The handle is valid for the
+    // call, which reads `size` bytes from `info`.
+    let ok = unsafe {
+        (*info).FileNameLength = name_bytes as u32;
+        let target = std::ptr::addr_of_mut!((*info).FileName).cast::<u16>();
+        std::ptr::copy_nonoverlapping(name.as_ptr(), target, name.len());
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileRenameInfo,
+            info.cast(),
+            size as u32,
+        )
+    };
     if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
+        return Err(io::Error::last_os_error());
     }
+    file.sync_all()
+}
+
+#[cfg(unix)]
+fn rename_open_impl(file: &File, from: &Path, to: &Path) -> io::Result<()> {
+    // The caller holds the file's lock, so another opener cannot discard it between this check and the rename.
+    if !FileIdentity::of(file).is_at(from) {
+        return Err(io::Error::from(io::ErrorKind::NotFound));
+    }
+    rename_no_replace_impl(from, to)
 }
 
 #[cfg(target_os = "linux")]
@@ -250,7 +293,7 @@ fn rename_no_replace_impl(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(all(unix, not(target_os = "linux")))]
 fn rename_no_replace_impl(from: &Path, to: &Path) -> io::Result<()> {
     fs::hard_link(from, to)?;
     fs::remove_file(from)
@@ -266,7 +309,7 @@ pub(crate) fn remove(path: &Path) -> io::Result<()> {
 }
 
 /// Makes the entries of `dir` (creations and renames) durable. Windows has no directory flush: renames are
-/// written through instead (see [`rename_no_replace`]).
+/// flushed through the renamed file instead (see [`rename_open_no_replace`]).
 pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     before(Op::SyncDir, dir)?;
     #[cfg(unix)]
