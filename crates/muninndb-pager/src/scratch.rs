@@ -13,7 +13,9 @@
 //! that start afterwards read the newest version too. Only one [`ScratchWriter`] exists at a time, so no two
 //! writes of a page overlap.
 
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::mem::size_of;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -124,6 +126,7 @@ impl Scratch {
         Ok(ScratchWriter {
             snapshot,
             _guard: guard,
+            _not_shared: PhantomData,
         })
     }
 
@@ -303,10 +306,14 @@ impl Drop for Snapshot<'_> {
     }
 }
 
-/// The one writer of the scratch area. It stays on the thread that created it.
+/// The one writer of the scratch area. It stays on the thread that created it and cannot be shared between
+/// threads, so no two flushes or publications ever overlap.
 pub struct ScratchWriter<'a> {
     snapshot: Snapshot<'a>,
+    /// Not `Send`: the writer stays on its thread.
     _guard: MutexGuard<'a, ()>,
+    /// Not `Sync`: the writer is never shared.
+    _not_shared: PhantomData<Cell<()>>,
 }
 
 impl<'a> ScratchWriter<'a> {
@@ -318,7 +325,7 @@ impl<'a> ScratchWriter<'a> {
     /// Writes in place every newest version that no open snapshot is older than, after retiring the versions
     /// that no snapshot can read any more. Versions written before a failure leave the scratch area; the rest
     /// stay for a later flush.
-    pub fn flush(&self) -> Result<()> {
+    pub fn flush(&mut self) -> Result<()> {
         let scratch = self.snapshot.scratch;
         let mut pending: Vec<(u64, u64, Arc<SealedPage>)> = {
             let mut state = scratch.lock();
@@ -355,7 +362,7 @@ impl<'a> ScratchWriter<'a> {
     /// # Panics
     ///
     /// If a page is a header page or beyond the end of the store.
-    pub fn publish(&self, pages: Vec<(u64, SealedPage)>) -> u64 {
+    pub fn publish(&mut self, pages: Vec<(u64, SealedPage)>) -> u64 {
         let scratch = self.snapshot.scratch;
         let page_count = scratch.pager().page_count();
         let mut state = scratch.lock();

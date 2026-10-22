@@ -102,6 +102,60 @@ impl Error {
         }
     }
 
+    /// A copy of this error, of the same class and with the same data; an operating-system cause is copied as
+    /// its kind and message. A write transaction keeps its first failure to report it again on commit (T11).
+    pub fn duplicate(&self) -> Error {
+        let source = |e: &io::Error| io::Error::new(e.kind(), e.to_string());
+        match self {
+            Error::Access { folder, source: e } => Error::Access {
+                folder: folder.clone(),
+                source: source(e),
+            },
+            Error::StoreInUse { folder } => Error::StoreInUse {
+                folder: folder.clone(),
+            },
+            Error::NotAStore { folder } => Error::NotAStore {
+                folder: folder.clone(),
+            },
+            Error::Damaged { folder, page } => Error::Damaged {
+                folder: folder.clone(),
+                page: *page,
+            },
+            Error::DifferentFormat {
+                folder,
+                found,
+                expected,
+            } => Error::DifferentFormat {
+                folder: folder.clone(),
+                found: *found,
+                expected: *expected,
+            },
+            Error::DiskFull { folder } => Error::DiskFull {
+                folder: folder.clone(),
+            },
+            Error::Io { folder, source: e } => Error::Io {
+                folder: folder.clone(),
+                source: source(e),
+            },
+            Error::InvalidOptions { reason } => Error::InvalidOptions { reason },
+            Error::MaxSize { max_size, needed } => Error::MaxSize {
+                max_size: *max_size,
+                needed: *needed,
+            },
+            Error::OutOfMemory { requested } => Error::OutOfMemory {
+                requested: *requested,
+            },
+            Error::Timeout { folder, limit } => Error::Timeout {
+                folder: folder.clone(),
+                limit: *limit,
+            },
+            Error::Misuse { folder, reason } => Error::Misuse {
+                folder: folder.clone(),
+                reason,
+            },
+        }
+    }
+
     /// Classifies a failed write, size change or flush: lack of space is [`Error::DiskFull`], memory exhaustion
     /// is [`Error::OutOfMemory`], anything else is [`Error::Io`].
     pub(crate) fn from_write(folder: &std::path::Path, source: io::Error, requested: u64) -> Error {
