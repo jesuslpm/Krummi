@@ -1,0 +1,22 @@
+# Local AI runtime state
+.atl/
+
+# Rust build output
+/target/
+
+# Python bytecode (skill scripts and their tests)
+__pycache__/
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
+# Per-copy Engram project (each worktree gets its own)
+.engram/
+
+# Per-copy work folder for acceptance runs and generated datasets
+/work/
+
+# Slide deck and narration audio (kept locally, not versioned)
+/docs/methodology/slides.md
+/docs/methodology/slides.html
+/docs/methodology/audio/*.mp3

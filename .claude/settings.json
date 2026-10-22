@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; b='\\'; d=\"${d//\"$b\"//}\"; [ -f \"$d/.git\" ] || exit 0; p=$(command -v python || command -v python3) || { echo 'Guarda de worktrees: no se encontró Python (python ni python3); la guarda no se aplicó.' >&2; exit 1; }; \"$p\" -I \"$d/.claude/hooks/worktree_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
