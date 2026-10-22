@@ -42,6 +42,7 @@ fn ac7_ac_t7_queued_requests_get_the_write_in_arrival_order_and_expired_ones_lea
     both(|engine| {
         let order = Mutex::new(Vec::new());
         let holder = engine.write(None).unwrap();
+        let (expired, has_expired) = mpsc::channel();
         thread::scope(|s| {
             let order = &order;
             s.spawn(move || {
@@ -50,10 +51,12 @@ fn ac7_ac_t7_queued_requests_get_the_write_in_arrival_order_and_expired_ones_lea
                 tx.commit().unwrap();
             });
             wait_until(|| engine.queued() == 1);
+            // B's limit is long enough for C to queue behind it even on a loaded machine.
             s.spawn(move || {
-                let error = engine.write(Some(Duration::from_millis(50))).err().unwrap();
+                let error = engine.write(Some(LONG)).err().unwrap();
                 assert_eq!(error.kind(), ErrorKind::Timeout);
                 order.lock().unwrap().push("B expired");
+                expired.send(()).unwrap();
             });
             wait_until(|| engine.queued() == 2);
             s.spawn(move || {
@@ -62,7 +65,8 @@ fn ac7_ac_t7_queued_requests_get_the_write_in_arrival_order_and_expired_ones_lea
                 tx.commit().unwrap();
             });
             wait_until(|| engine.queued() == 3);
-            wait_until(|| engine.queued() == 2);
+            has_expired.recv().unwrap();
+            assert_eq!(engine.queued(), 2, "B left the queue");
             drop(holder);
         });
         assert_eq!(*order.lock().unwrap(), ["B expired", "A", "C"]);
@@ -235,7 +239,7 @@ fn ac_t18_nobody_jumps_the_queue_at_the_hand_off() {
                 order.lock().unwrap().push("C");
                 tx.commit().unwrap();
             });
-            wait_until(|| engine.queued() >= 1 && !order.lock().unwrap().contains(&"C"));
+            wait_until(|| engine.queued() == 2); // C queued behind A during the hand-off
             resume.send(()).unwrap();
         });
         engine.set_hook(None);
