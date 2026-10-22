@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 
 use crate::error::{Error, Result};
 use crate::format::Header;
@@ -185,8 +185,11 @@ impl Scratch {
     /// Transfers to `muninn.data` the durable versions that no read needs any more, unless a transfer is already
     /// running (J5). It never waits for another transfer, so it never blocks a writer or a reader.
     pub fn transfer(&self) -> Result<()> {
-        let Ok(guard) = self.flushing.try_lock() else {
-            return Ok(());
+        let guard = match self.flushing.try_lock() {
+            Ok(guard) => guard,
+            // A transfer that panicked left nothing half done that the next one cannot redo.
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return Ok(()),
         };
         let hook = self
             .transfer_hook

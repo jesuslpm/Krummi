@@ -290,6 +290,7 @@ impl Journal {
         let offset = current.len;
         let mut guard = WipeOnFailure {
             current,
+            pager,
             offset,
             armed: true,
         };
@@ -420,6 +421,7 @@ impl Journal {
 /// read as a commit, not even after a power cut that keeps the record's write (J12).
 struct WipeOnFailure<'a> {
     current: &'a mut Current,
+    pager: &'a Pager,
     offset: u64,
     armed: bool,
 }
@@ -428,8 +430,11 @@ impl Drop for WipeOnFailure<'_> {
     fn drop(&mut self) {
         if self.armed {
             let zeros = [0u8; RECORD_HEADER];
-            if sys::write_at(&self.current.file, &self.current.path, self.offset, &zeros).is_ok() {
-                let _ = sys::sync(&self.current.file, &self.current.path);
+            let wiped = sys::write_at(&self.current.file, &self.current.path, self.offset, &zeros)
+                .and_then(|()| sys::sync(&self.current.file, &self.current.path));
+            if let Err(e) = wiped {
+                // The record may still be whole: nothing may follow it, so the store refuses writes (G12).
+                let _ = self.pager.fail_flush(e);
             }
         }
     }

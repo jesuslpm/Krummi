@@ -943,3 +943,29 @@ fn r1_a_journal_flush_that_fails_for_lack_of_space_refuses_writes() {
         "{seen:?}"
     );
 }
+
+/// Review advisory: when the wipe of a failed append also fails, the record may be whole, so the store refuses
+/// writes and no later commit can reuse its number.
+#[test]
+fn a_failed_wipe_after_a_failed_append_refuses_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = open(tmp.path());
+    let pages = reserve(&engine, 1, "kept");
+    testing::reset();
+    let writes = testing::count(Op::Write);
+    testing::inject(
+        Op::Write,
+        writes,
+        Action::Fail(std::io::ErrorKind::StorageFull),
+    );
+    testing::inject(
+        Op::Write,
+        writes + 1,
+        Action::Fail(std::io::ErrorKind::Other),
+    );
+    let mut tx = engine.write(None).unwrap();
+    put(&mut tx, pages[0], "failed");
+    assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::DiskFull);
+    testing::reset();
+    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+}
