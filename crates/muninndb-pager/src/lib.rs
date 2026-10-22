@@ -21,5 +21,8 @@ pub use scratch::{
 #[cfg(feature = "test-hooks")]
 pub mod testing {
     pub use crate::sys::Op;
-    pub use crate::sys::faults::{Action, inject, reset};
+    pub use crate::sys::faults::{
+        Action, Model, Recorded, abort_at, count, inject, materialize, points, reset,
+        start_recording, take_recording,
+    };
 }

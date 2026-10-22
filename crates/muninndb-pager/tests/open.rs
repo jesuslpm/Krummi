@@ -19,7 +19,7 @@ fn ac_p1_a_missing_folder_is_created_with_a_new_store() {
     let pager = open(&folder);
     let info = pager.info();
     assert_eq!(info.format_version, FORMAT_VERSION);
-    assert_eq!(info.format_version, 1);
+    assert_eq!(info.format_version, 2);
     assert_eq!(info.page_size, 8192);
     assert!(
         info.size_bytes <= 1_048_576 && info.size_bytes.is_multiple_of(8192),
@@ -333,4 +333,62 @@ fn the_data_file_name_does_not_depend_on_the_path_length() {
             "folder name of {length} characters"
         );
     }
+}
+
+/// AC-J6: a store written by modules 1 and 2, with the header layout of format 1, is of an older format.
+#[test]
+fn ac_j6_a_store_of_format_1_is_refused_as_older_without_touching_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    open(tmp.path()).close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let mut bytes = file_bytes(&data);
+    let v1 = muninndb_pager::format::encode_v1(1, 1);
+    for offset in muninndb_pager::format::HEADER_COPY_OFFSETS {
+        let offset = offset as usize;
+        bytes[offset..offset + muninndb_pager::format::RAW_HEADER_SIZE].fill(0);
+        bytes[offset..offset + v1.len()].copy_from_slice(&v1);
+    }
+    std::fs::write(&data, &bytes).unwrap();
+    match open_err(tmp.path()) {
+        muninndb_pager::Error::DifferentFormat {
+            found, expected, ..
+        } => assert_eq!((found, expected), (1, 2)),
+        other => panic!("expected a different format, got {other:?}"),
+    }
+    assert_eq!(file_bytes(&data), bytes);
+}
+
+/// J6: each header write replaces the copy that is not the current one, so a damaged current copy leaves the
+/// previous header (P6).
+#[test]
+fn header_writes_alternate_between_the_two_copies() {
+    use muninndb_pager::format::{HEADER_COPY_OFFSETS, Header, header_copies};
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let pager = open(tmp.path());
+    for applied in 1..=3 {
+        pager
+            .write_header(Header {
+                applied_txid: applied,
+                journal_first: applied + 1,
+                ..pager.header()
+            })
+            .unwrap();
+    }
+    pager.close().unwrap();
+    let copies = header_copies(&file_bytes(&data));
+    let applied: Vec<u64> = copies.iter().map(|c| c.unwrap().applied_txid).collect();
+    assert!(applied.contains(&3) && applied.contains(&2), "{applied:?}");
+    let pager = open(tmp.path());
+    assert_eq!(pager.header().applied_txid, 3);
+    assert_eq!(pager.header().revision, 4);
+    pager.close().unwrap();
+    let newest = copies
+        .iter()
+        .position(|c| c.unwrap().applied_txid == 3)
+        .unwrap();
+    damage_byte(&data, HEADER_COPY_OFFSETS[newest] as usize + 9);
+    let pager = open(tmp.path());
+    assert_eq!(pager.header().applied_txid, 2);
+    pager.close().unwrap();
 }

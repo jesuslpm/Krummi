@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::Path;
 
-use memmap2::{Mmap, MmapOptions};
+use memmap2::{Mmap, MmapMut, MmapOptions};
 
 #[cfg(any(test, feature = "test-hooks"))]
 pub(crate) use faults::hooks;
@@ -28,6 +28,10 @@ pub enum Op {
     Lock,
     /// Registering a snapshot (module 2), which can run out of memory.
     Snapshot,
+    /// Reading a journal file (module 3).
+    Read,
+    /// Creating, growing or removing the files and the folder of the temporary area (module 3).
+    Temp,
 }
 
 #[inline]
@@ -334,18 +338,77 @@ pub(crate) fn write_at(file: &File, path: &Path, offset: u64, buf: &[u8]) -> io:
 
 /// Reads up to `buf.len()` bytes from the start of the file; returns how many were read.
 pub(crate) fn read_start(file: &File, buf: &mut [u8]) -> io::Result<usize> {
+    read_from(file, buf, 0)
+}
+
+/// Reads up to `buf.len()` bytes from `offset` of a journal file; returns how many were read (fewer at its end).
+pub(crate) fn read_at(file: &File, path: &Path, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+    before(Op::Read, path)?;
+    read_from(file, buf, offset)
+}
+
+fn read_from(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
     let mut done = 0;
     while done < buf.len() {
+        let at = offset + done as u64;
         #[cfg(unix)]
-        let n = std::os::unix::fs::FileExt::read_at(file, &mut buf[done..], done as u64)?;
+        let n = std::os::unix::fs::FileExt::read_at(file, &mut buf[done..], at)?;
         #[cfg(windows)]
-        let n = std::os::windows::fs::FileExt::seek_read(file, &mut buf[done..], done as u64)?;
+        let n = std::os::windows::fs::FileExt::seek_read(file, &mut buf[done..], at)?;
         if n == 0 {
             break;
         }
         done += n;
     }
     Ok(done)
+}
+
+/// Opens an existing journal file for reading.
+pub(crate) fn open_read(path: &Path) -> io::Result<File> {
+    before(Op::Read, path)?;
+    File::open(path)
+}
+
+/// Creates the folder of the temporary area.
+pub(crate) fn create_temp_dir(path: &Path) -> io::Result<()> {
+    before(Op::Temp, path)?;
+    fs::create_dir(path)
+}
+
+/// Creates a file of the temporary area with `len` bytes reserved on disk and maps it for reading and writing.
+/// Its operations are not recorded: the temporary area never takes part in recovery.
+pub(crate) fn create_temp_file(path: &Path, len: u64) -> io::Result<(File, MmapMut)> {
+    before(Op::Temp, path)?;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    let mapped = (|| {
+        reserve_space(&file, 0, len)?;
+        let len = usize::try_from(len).map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
+        // SAFETY: the file was just created by this process inside the store's folder, which the store's lock
+        // (D6, P9) keeps other MuninnDB instances out of; the temporary area writes and reads it only through this
+        // mapping, under the rules of `crate::temp`. Another program modifying it is outside the scope of the PRD
+        // (P16).
+        unsafe { MmapOptions::new().len(len).map_mut(&file) }
+    })();
+    match mapped {
+        Ok(map) => Ok((file, map)),
+        Err(e) => {
+            let _ = fs::remove_file(path);
+            Err(e)
+        }
+    }
+}
+
+/// Removes the folder of the temporary area with everything in it; a missing folder is not an error.
+pub(crate) fn remove_temp_dir(path: &Path) -> io::Result<()> {
+    before(Op::Temp, path)?;
+    match fs::remove_dir_all(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
 }
 
 /// Grows the file from `old_len` to `new_len` bytes, reserving the space on disk so that a lack of space shows

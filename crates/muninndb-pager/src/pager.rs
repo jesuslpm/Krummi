@@ -65,6 +65,24 @@ pub struct Pager {
     storage: Storage,
     max_size: Option<u64>,
     writes_disabled: AtomicBool,
+    /// The current header and the copy the next header write goes to (J6 of the Journal PRD).
+    header: Mutex<HeaderState>,
+}
+
+#[derive(Clone, Copy)]
+struct HeaderState {
+    header: Header,
+    /// Index in [`format::HEADER_COPY_OFFSETS`] of the copy the next write replaces: never the current one.
+    next_copy: usize,
+}
+
+impl HeaderState {
+    fn new(header: Header, current_copy: usize) -> HeaderState {
+        HeaderState {
+            header,
+            next_copy: 1 - current_copy,
+        }
+    }
 }
 
 enum Storage {
@@ -188,10 +206,40 @@ impl Pager {
             })),
             max_size,
             writes_disabled: AtomicBool::new(false),
+            header: Mutex::new(HeaderState::new(Header::new_store(), 0)),
         })
     }
 
-    /// Information about the store.
+    /// The folder of the store, or `None` for a temporary store.
+    pub fn folder(&self) -> Option<&Path> {
+        self.folder.as_deref()
+    }
+
+    /// The current header.
+    pub fn header(&self) -> Header {
+        self.header.lock().unwrap().header
+    }
+
+    /// Writes `header` with the next revision into the header copy that is not the current one, and flushes it
+    /// (J6 of the Journal PRD), so that a torn write leaves the other copy intact (P6). A temporary store only
+    /// keeps it in memory. A failure makes the store refuse writes like any other (G12).
+    pub fn write_header(&self, header: Header) -> Result<()> {
+        self.check_writable()?;
+        let mut state = self.header.lock().unwrap();
+        let header = Header {
+            revision: state.header.revision + 1,
+            ..header
+        };
+        if let Storage::File(f) = &self.storage {
+            let offset = format::HEADER_COPY_OFFSETS[state.next_copy];
+            sys::write_at(&f.file, &f.path, offset, &header.encode())
+                .and_then(|()| sys::sync(&f.file, &f.path))
+                .map_err(|e| self.write_failed(e, 0))?;
+        }
+        state.header = header;
+        state.next_copy = 1 - state.next_copy;
+        Ok(())
+    }
     pub fn info(&self) -> Info {
         let len = self.len();
         Info {
@@ -386,6 +434,16 @@ impl Pager {
     /// Like [`Pager::ensure_pages`], but a growth never takes the store beyond `limit` bytes either: what the
     /// maximum size leaves once the other memory of the store is counted (T14 of the Transactions PRD).
     pub fn ensure_pages_within(&self, page_count: u64, limit: Option<u64>) -> Result<()> {
+        self.grow(page_count, limit, true)
+    }
+
+    /// Like [`Pager::ensure_pages`], but ignoring the maximum size: recovery restores the pages of the commits it
+    /// applies even beyond it (J8 of the Journal PRD).
+    pub(crate) fn ensure_pages_unbounded(&self, page_count: u64) -> Result<()> {
+        self.grow(page_count, None, false)
+    }
+
+    fn grow(&self, page_count: u64, limit: Option<u64>, bounded: bool) -> Result<()> {
         self.check_writable()?;
         let needed = page_count.saturating_mul(PAGE_SIZE_U64);
         match &self.storage {
@@ -394,7 +452,7 @@ impl Pager {
                 if needed <= state.len {
                     return Ok(());
                 }
-                let new_len = self.next_size(state.len, needed, limit)?;
+                let new_len = self.next_size(state.len, needed, limit, bounded)?;
                 sys::reserve(&f.file, &f.path, state.len, new_len)
                     .map_err(|e| self.write_failed(e, new_len - state.len))?;
                 match sys::map(&f.file, &f.path, new_len) {
@@ -413,7 +471,7 @@ impl Pager {
                 if needed <= state.len {
                     return Ok(());
                 }
-                let new_len = self.next_size(state.len, needed, limit)?;
+                let new_len = self.next_size(state.len, needed, limit, bounded)?;
                 let requested = new_len - state.len;
                 let chunk = sys::alloc_zeroed(requested as usize)
                     .map_err(|_| Error::OutOfMemory { requested })?;
@@ -445,13 +503,16 @@ impl Pager {
     }
 
     /// The size the store grows to when it needs `needed` bytes and has `len` (P10, P11).
-    fn next_size(&self, len: u64, needed: u64, limit: Option<u64>) -> Result<u64> {
+    fn next_size(&self, len: u64, needed: u64, limit: Option<u64>, bounded: bool) -> Result<u64> {
         let Some(needed) = needed.checked_next_multiple_of(PAGE_SIZE_U64) else {
             return Err(Error::MaxSize {
                 max_size: self.max_size.unwrap_or(u64::MAX - u64::MAX % PAGE_SIZE_U64),
                 needed,
             });
         };
+        if !bounded {
+            return Ok(needed);
+        }
         let cap = match (self.max_size, limit) {
             (Some(max), Some(limit)) => Some(max.min(limit)),
             (max, limit) => max.or(limit),
@@ -611,7 +672,7 @@ fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
         folder: folder.to_path_buf(),
         source,
     })?;
-    match format::read_header_pages(&start[..read]) {
+    let header = match format::read_header_pages(&start[..read]) {
         HeaderRead::NotAStore => {
             return Err(Error::NotAStore {
                 folder: folder.to_path_buf(),
@@ -630,8 +691,12 @@ fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
                 expected: FORMAT_VERSION,
             });
         }
-        HeaderRead::Found(_) => {}
-    }
+        HeaderRead::Found(header) => header,
+    };
+    // The copy the header was read from is the current one; with two equal copies, either.
+    let copies = format::header_copies(&start[..read]);
+    let current_copy = usize::from(copies[0] != Some(header));
+    let header = HeaderState::new(header, current_copy);
     let file_len = file
         .metadata()
         .map_err(|source| Error::Io {
@@ -642,7 +707,7 @@ fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
     // An incomplete final page, left by an interrupted growth, is ignored (P11).
     let len = file_len - file_len % PAGE_SIZE_U64;
     let map = map_new(&file, &path, len, folder)?;
-    Ok(file_pager(folder, file, path, len, map, max_size))
+    Ok(file_pager(folder, file, path, len, map, max_size, header))
 }
 
 fn map_new(file: &File, path: &Path, len: u64, folder: &Path) -> Result<Mmap> {
@@ -662,8 +727,10 @@ fn file_pager(
     len: u64,
     map: Mmap,
     max_size: Option<u64>,
+    header: HeaderState,
 ) -> Pager {
     Pager {
+        header: Mutex::new(header),
         folder: Some(folder.to_path_buf()),
         storage: Storage::File(FileStorage {
             file,
@@ -782,6 +849,7 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
         INITIAL_SIZE,
         map,
         max_size,
+        HeaderState::new(Header::new_store(), 0),
     )))
 }
 
