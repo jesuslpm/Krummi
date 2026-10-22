@@ -1,0 +1,15 @@
+# Store text files with LF in the repository and check them out with LF on every
+# platform, regardless of each developer's core.autocrlf setting.
+* text=auto eol=lf
+
+# Windows batch files need CRLF to run correctly.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never touch line endings or show text diffs.
+*.mp3 binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
