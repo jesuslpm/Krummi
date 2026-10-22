@@ -205,19 +205,49 @@ pub(crate) fn create_locked(path: &Path) -> Result<LockedFile, LockError> {
         let mut guard = lock_table::table();
         let table = guard.get_or_insert_with(Default::default);
         let file = create_new(path).map_err(LockError::Io)?;
-        let id = identity(&file.metadata().map_err(LockError::Io)?);
-        posix_lock(&file)?;
-        table.insert(id, Vec::new());
-        Ok(LockedFile {
-            file: Some(file),
-            id,
-        })
+        let locked = file
+            .metadata()
+            .map_err(LockError::Io)
+            .and_then(|meta| posix_lock(&file).map(|()| identity(&meta)));
+        match locked {
+            Ok(id) => {
+                table.insert(id, Vec::new());
+                Ok(LockedFile {
+                    file: Some(file),
+                    id,
+                })
+            }
+            Err(error) => {
+                drop(file);
+                discard_created(path, &error);
+                Err(error)
+            }
+        }
     }
     #[cfg(not(unix))]
     {
         let file = create_new(path).map_err(LockError::Io)?;
-        handle_lock(&file)?;
-        Ok(LockedFile { file: Some(file) })
+        match handle_lock(&file) {
+            Ok(()) => Ok(LockedFile { file: Some(file) }),
+            Err(error) => {
+                drop(file);
+                discard_created(path, &error);
+                Err(error)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn discard_created_for_test(path: &Path, error: &LockError) {
+    discard_created(path, error);
+}
+
+/// Removes a file [`create_locked`] just created but could not lock. When another opener holds it (it took it
+/// for a leftover in the instant before the lock), that opener removes it.
+fn discard_created(path: &Path, error: &LockError) {
+    if matches!(error, LockError::Io(_)) {
+        let _ = remove(path);
     }
 }
 

@@ -386,30 +386,83 @@ fn store_file_names_are_case_insensitive_on_windows() {
 }
 
 /// S1 of the fork-safe lock: a child process spawned while the store is open does not keep it locked. The
-/// child stays between fork and exec for two seconds, holding copies of the parent's descriptors.
+/// child signals once it is between fork and exec, where it holds copies of the parent's descriptors, and
+/// stays there for two seconds while the parent drops and reopens the store.
 #[cfg(unix)]
 #[test]
 fn a_child_process_spawned_while_the_store_is_open_does_not_keep_it_locked() {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
     use std::os::unix::process::CommandExt;
     use std::time::Duration;
     let tmp = tempfile::tempdir().unwrap();
     let pager = Pager::open(tmp.path(), &options()).unwrap();
-    let spawner = std::thread::spawn(|| {
+    let (mut parent_end, child_end) = UnixStream::pair().unwrap();
+    let spawner = std::thread::spawn(move || {
         let mut command = Command::new("true");
-        // SAFETY: the closure only sleeps, which is async-signal-safe, between fork and exec.
+        // SAFETY: the closure only writes one byte to a socket and sleeps, both plain system calls that are
+        // safe between fork and exec.
         unsafe {
-            command.pre_exec(|| {
+            command.pre_exec(move || {
+                (&child_end).write_all(b"x")?;
                 std::thread::sleep(Duration::from_secs(2));
                 Ok(())
             });
         }
         command.status().unwrap()
     });
-    std::thread::sleep(Duration::from_millis(500));
+    let mut signal = [0u8; 1];
+    parent_end.read_exact(&mut signal).unwrap();
     drop(pager);
     let reopened = Pager::open(tmp.path(), &options());
     assert!(spawner.join().unwrap().success());
     reopened.unwrap().close().unwrap();
+}
+
+/// S2 of the fork-safe lock: a symbolic link to the store's folder leads to the same store, in this process
+/// and in another one.
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_the_store_folder_is_the_same_store() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("store");
+    let alias = tmp.path().join("alias");
+    let pager = Pager::open(&folder, &options()).unwrap();
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    assert_eq!(
+        Pager::open(&alias, &options()).err().unwrap().kind(),
+        ErrorKind::StoreInUse
+    );
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "pager::tests::child_helper_try_open",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(TRY_OPEN_ENV, &alias)
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).contains("TRY_OPEN=StoreInUse"));
+    pager.close().unwrap();
+}
+
+/// A creation whose lock fails for an I/O reason leaves no `muninn.data.new` behind (R3-001 of the review).
+#[test]
+fn a_creation_that_cannot_lock_leaves_nothing_behind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join(NEW_DATA_FILE);
+    let error = sys::LockError::Io(io::Error::other("lock failed"));
+    fs::write(&path, b"just created").unwrap();
+    sys::discard_created_for_test(&path, &error);
+    assert!(names(tmp.path()).is_empty());
+    fs::write(&path, b"another opener holds it").unwrap();
+    sys::discard_created_for_test(&path, &sys::LockError::InUse);
+    assert_eq!(
+        names(tmp.path()),
+        vec![NEW_DATA_FILE.to_owned()],
+        "the holder removes it"
+    );
 }
 
 const TRY_OPEN_ENV: &str = "MUNINN_TEST_TRY_OPEN";
