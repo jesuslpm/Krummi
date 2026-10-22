@@ -6,6 +6,7 @@
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// The class of an [`Error`], for callers that only need to branch on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,6 +33,11 @@ pub enum ErrorKind {
     MaxSize,
     /// The system did not provide the memory the store needs.
     OutOfMemory,
+    /// A request for a write transaction waited for its whole limit without getting its turn (T4).
+    Timeout,
+    /// The engine was called in an order or with values it does not accept, such as a second write transaction
+    /// on the same thread (T5). Distinct from [`ErrorKind::InvalidOptions`], which is about opening a store.
+    Misuse,
 }
 
 /// An engine error.
@@ -65,6 +71,16 @@ pub enum Error {
     MaxSize { max_size: u64, needed: u64 },
     /// See [`ErrorKind::OutOfMemory`]. `requested` is in bytes.
     OutOfMemory { requested: u64 },
+    /// See [`ErrorKind::Timeout`]. `folder` is `None` for a temporary store; `limit` is the limit requested.
+    Timeout {
+        folder: Option<PathBuf>,
+        limit: Duration,
+    },
+    /// See [`ErrorKind::Misuse`]. `folder` is `None` for a temporary store.
+    Misuse {
+        folder: Option<PathBuf>,
+        reason: &'static str,
+    },
 }
 
 impl Error {
@@ -81,6 +97,8 @@ impl Error {
             Error::InvalidOptions { .. } => ErrorKind::InvalidOptions,
             Error::MaxSize { .. } => ErrorKind::MaxSize,
             Error::OutOfMemory { .. } => ErrorKind::OutOfMemory,
+            Error::Timeout { .. } => ErrorKind::Timeout,
+            Error::Misuse { .. } => ErrorKind::Misuse,
         }
     }
 
@@ -113,10 +131,7 @@ impl fmt::Display for Error {
                 folder.display()
             ),
             Error::Damaged { folder, page } => {
-                let store = folder.as_ref().map_or_else(
-                    || "temporary store".to_owned(),
-                    |p| format!("store {}", p.display()),
-                );
+                let store = store_name(folder);
                 match page {
                     Some(page) => write!(f, "page {page} of {store} is damaged"),
                     None => write!(f, "{store} is damaged and cannot be opened"),
@@ -149,8 +164,24 @@ impl fmt::Display for Error {
             Error::OutOfMemory { requested } => {
                 write!(f, "out of memory while reserving {requested} bytes")
             }
+            Error::Timeout { folder, limit } => write!(
+                f,
+                "no write transaction was available on {} within {limit:?}",
+                store_name(folder)
+            ),
+            Error::Misuse { folder, reason } => {
+                write!(f, "misuse of {}: {reason}", store_name(folder))
+            }
         }
     }
+}
+
+/// "store <folder>", or "temporary store" when there is no folder.
+fn store_name(folder: &Option<PathBuf>) -> String {
+    folder.as_ref().map_or_else(
+        || "temporary store".to_owned(),
+        |p| format!("store {}", p.display()),
+    )
 }
 
 impl std::error::Error for Error {

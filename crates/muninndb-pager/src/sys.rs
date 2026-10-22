@@ -10,12 +10,12 @@ use std::path::Path;
 
 use memmap2::{Mmap, MmapOptions};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 pub(crate) use faults::hooks;
 
 /// The operations tests can target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Op {
+pub enum Op {
     CreateFile,
     Write,
     Reserve,
@@ -26,15 +26,17 @@ pub(crate) enum Op {
     Alloc,
     Map,
     Lock,
+    /// Registering a snapshot (module 2), which can run out of memory.
+    Snapshot,
 }
 
 #[inline]
 fn before(op: Op, path: &Path) -> io::Result<()> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     {
         hooks::before(op, path)
     }
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-hooks")))]
     {
         let _ = (op, path);
         Ok(())
@@ -59,7 +61,7 @@ pub(crate) fn create_new(path: &Path) -> io::Result<File> {
         options.share_mode(FILE_SHARE_READ_WRITE);
     }
     let file = options.open(path)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Create(path.to_path_buf()));
     Ok(file)
 }
@@ -321,7 +323,7 @@ pub(crate) fn write_at(file: &File, path: &Path, offset: u64, buf: &[u8]) -> io:
             done += n;
         }
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Write(
         path.to_path_buf(),
         offset,
@@ -357,7 +359,7 @@ pub(crate) fn reserve(file: &File, path: &Path, old_len: u64, new_len: u64) -> i
         let _ = file.set_len(old_len);
     }
     result?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::SetLen(path.to_path_buf(), new_len));
     Ok(())
 }
@@ -402,7 +404,7 @@ fn write_zeros(file: &File, old_len: u64, new_len: u64) -> io::Result<()> {
 pub(crate) fn sync(file: &File, path: &Path) -> io::Result<()> {
     before(Op::Sync, path)?;
     file.sync_all()?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Sync(path.to_path_buf()));
     Ok(())
 }
@@ -414,7 +416,7 @@ pub(crate) fn sync(file: &File, path: &Path) -> io::Result<()> {
 pub(crate) fn rename_open_no_replace(file: &File, from: &Path, to: &Path) -> io::Result<()> {
     before(Op::Rename, from)?;
     rename_open_impl(file, from, to)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Rename(
         from.to_path_buf(),
         to.to_path_buf(),
@@ -546,7 +548,7 @@ fn rename_no_replace_impl(from: &Path, to: &Path) -> io::Result<()> {
 pub(crate) fn remove(path: &Path) -> io::Result<()> {
     before(Op::Remove, path)?;
     fs::remove_file(path)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Remove(path.to_path_buf()));
     Ok(())
 }
@@ -557,7 +559,7 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     before(Op::SyncDir, dir)?;
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::SyncDir(dir.to_path_buf()));
     Ok(())
 }
@@ -573,6 +575,11 @@ pub(crate) fn alloc_zeroed(len: usize) -> io::Result<Box<[u8]>> {
     Ok(bytes.into_boxed_slice())
 }
 
+/// The point where registering a snapshot can fail for lack of memory; only tests make it fail.
+pub(crate) fn snapshot_point() -> io::Result<()> {
+    before(Op::Snapshot, Path::new(""))
+}
+
 /// Maps the first `len` bytes of `file` into memory, read-only.
 pub(crate) fn map(file: &File, path: &Path, len: u64) -> io::Result<Mmap> {
     before(Op::Map, path)?;
@@ -584,5 +591,5 @@ pub(crate) fn map(file: &File, path: &Path, len: u64) -> io::Result<Mmap> {
     unsafe { MmapOptions::new().len(len).map(file) }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 pub(crate) mod faults;

@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Exposes fault injection (`muninndb_pager::testing`) to the tests of the other engine crates.
+test-hooks = []
+
 [dependencies]
 memmap2 = "0.9.12"
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }

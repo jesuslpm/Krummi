@@ -2,6 +2,8 @@
 //!
 //! State is per thread, so tests running in parallel do not interfere.
 
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
@@ -23,7 +25,7 @@ pub(crate) enum Recorded {
 
 /// What an injected fault does.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Action {
+pub enum Action {
     /// The operation fails with this error kind and has no effect.
     Fail(io::ErrorKind),
 }
@@ -42,7 +44,7 @@ thread_local! {
 }
 
 /// Makes the `nth` (from 0) future call of `op` on this thread do `action`.
-pub(crate) fn inject(op: Op, nth: usize, action: Action) {
+pub fn inject(op: Op, nth: usize, action: Action) {
     STATE.with(|s| s.borrow_mut().faults.push((op, nth, action)));
 }
 
@@ -57,7 +59,7 @@ pub(crate) fn points() -> usize {
 }
 
 /// Clears faults, counters and recordings of this thread.
-pub(crate) fn reset() {
+pub fn reset() {
     STATE.with(|s| *s.borrow_mut() = State::default());
 }
 
