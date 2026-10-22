@@ -1,0 +1,290 @@
+//! Transactions of MuninnDB (module 2): read transactions that see a snapshot, one write transaction at a time and
+//! the queue of those waiting for it (Transactions PRD, T1–T18).
+//!
+//! The crate is internal to the engine. Its page API (`page`, `page_mut`, `allocate`) is for the engine's own
+//! modules and tests; applications use the `muninndb` crate, which exposes only opening, committing and aborting
+//! transactions (T1).
+
+mod transaction;
+
+use std::collections::VecDeque;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::thread::{self, ThreadId};
+use std::time::{Duration, Instant};
+
+use muninndb_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
+pub use muninndb_pager::{Error, ErrorKind, Info, OpenOptions, Result};
+use muninndb_pager::{Pager, Scratch};
+pub use transaction::{ReadTransaction, WriteTransaction};
+
+/// Page that keeps the transaction layer's own data: the number of the next page to reserve. It is an ordinary
+/// data page, not part of the header (T17); a blank one is a store where nothing was committed yet.
+pub const META_PAGE: u64 = HEADER_PAGES;
+/// First page that write transactions reserve.
+pub const FIRST_PAGE: u64 = META_PAGE + 1;
+/// Bytes of a page that a transaction can use.
+pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
+
+/// A point of a commit or of the hand-off of the write turn where tests can stop or interrupt the engine
+/// (AC-T5, AC-T18, AC-T19). Every commit point comes before the commit is published.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Point {
+    /// The commit is about to write in place the versions no read needs any more.
+    CommitFlush,
+    /// The commit is about to seal its pages.
+    CommitSeal,
+    /// The commit is about to publish its pages.
+    CommitPublish,
+    /// A write transaction ended and others are waiting for the turn.
+    Handoff,
+}
+
+#[cfg(feature = "test-hooks")]
+type Hook = std::sync::Arc<dyn Fn(Point) + Send + Sync>;
+
+/// An open store with its transactions.
+pub struct Engine {
+    scratch: Scratch,
+    folder: Option<PathBuf>,
+    max_size: Option<u64>,
+    queue: Mutex<Queue>,
+    turn: Condvar,
+    /// Next page to reserve, as of the newest commit.
+    next_page: AtomicU64,
+    /// Whether the meta page was ever committed.
+    meta_written: AtomicBool,
+    #[cfg(feature = "test-hooks")]
+    hook: Mutex<Option<Hook>>,
+}
+
+struct Queue {
+    /// Thread that holds the write transaction.
+    owner: Option<ThreadId>,
+    /// Tickets of the requests waiting for the turn, in order of arrival (T3).
+    waiting: VecDeque<u64>,
+    next_ticket: u64,
+    /// The store refuses writes after a failed write (T12).
+    io_failed: bool,
+}
+
+impl Engine {
+    /// Opens the store in `folder` (flow of the Pager PRD) and reads the transaction layer's data.
+    pub fn open(folder: impl AsRef<Path>, options: &OpenOptions) -> Result<Engine> {
+        let folder = folder.as_ref();
+        let pager = Pager::open(folder, options)?;
+        Engine::new(pager, Some(folder.to_path_buf()))
+    }
+
+    /// Opens a store that lives only in memory (G9, T15).
+    pub fn open_temporary(options: &OpenOptions) -> Result<Engine> {
+        Engine::new(Pager::open_temporary(options)?, None)
+    }
+
+    fn new(pager: Pager, folder: Option<PathBuf>) -> Result<Engine> {
+        let fresh = pager.page_count() <= META_PAGE || pager.page_is_blank(META_PAGE);
+        let next_page = if fresh {
+            FIRST_PAGE
+        } else {
+            let meta = pager.page(META_PAGE)?;
+            let next = u64::from_le_bytes(meta[..8].try_into().expect("8 bytes"));
+            if next < FIRST_PAGE {
+                return Err(Error::Damaged {
+                    folder,
+                    page: Some(META_PAGE),
+                });
+            }
+            next
+        };
+        Ok(Engine {
+            max_size: pager.info().max_size,
+            scratch: Scratch::new(pager),
+            folder,
+            queue: Mutex::new(Queue {
+                owner: None,
+                waiting: VecDeque::new(),
+                next_ticket: 0,
+                io_failed: false,
+            }),
+            turn: Condvar::new(),
+            next_page: AtomicU64::new(next_page),
+            meta_written: AtomicBool::new(!fresh),
+            #[cfg(feature = "test-hooks")]
+            hook: Mutex::new(None),
+        })
+    }
+
+    /// Information about the store (P12): `muninn.data` as it is (T14).
+    pub fn info(&self) -> Info {
+        self.scratch.info()
+    }
+
+    /// Opens a read transaction: a snapshot of everything committed so far (T2, T7).
+    pub fn read(&self) -> Result<ReadTransaction<'_>> {
+        Ok(ReadTransaction::new(self.scratch.snapshot()?))
+    }
+
+    /// Opens the write transaction, waiting for the turn in order of arrival (T3), at most `limit` when given
+    /// (T4). Fails without waiting with the misuse class when this thread already has one open (T5) or the limit
+    /// cannot be counted from now, and with the I/O class when the store refuses writes (T12), in that order
+    /// (T13).
+    pub fn write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
+        let me = thread::current().id();
+        let mut queue = self.lock_queue();
+        if queue.owner == Some(me) {
+            return Err(self.misuse("a write transaction is already open on this thread"));
+        }
+        let deadline = match limit {
+            None => None,
+            Some(limit) => match Instant::now().checked_add(limit) {
+                Some(deadline) => Some(deadline),
+                None => return Err(self.misuse("the wait limit is too large")),
+            },
+        };
+        if queue.io_failed {
+            return Err(self.writes_refused());
+        }
+        if queue.owner.is_some() || !queue.waiting.is_empty() {
+            if limit == Some(Duration::ZERO) {
+                return Err(self.timeout(limit));
+            }
+            queue = self.wait_turn(queue, deadline, limit)?;
+        }
+        queue.owner = Some(me);
+        drop(queue);
+        match self.scratch.begin_write() {
+            Ok(writer) => Ok(WriteTransaction::new(self, writer)),
+            Err(error) => {
+                self.release_turn();
+                Err(error)
+            }
+        }
+    }
+
+    /// Closes the store: writes what was committed and releases its lock, even if writing fails (T9, T12, P14).
+    /// Dropping an `Engine` writes it too, without reporting a failure.
+    pub fn close(self) -> Result<()> {
+        self.scratch.close()
+    }
+
+    /// Sets the function called at each [`Point`], or none.
+    #[cfg(feature = "test-hooks")]
+    pub fn set_hook(&self, hook: Option<Hook>) {
+        *self.hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Number of requests waiting for the write turn, so tests can queue them in a known order.
+    #[cfg(feature = "test-hooks")]
+    pub fn queued(&self) -> usize {
+        self.lock_queue().waiting.len()
+    }
+
+    fn hook(&self, point: Point) {
+        #[cfg(feature = "test-hooks")]
+        {
+            let hook = self
+                .hook
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if let Some(hook) = hook {
+                hook(point);
+            }
+        }
+        #[cfg(not(feature = "test-hooks"))]
+        let _ = point;
+    }
+
+    /// Queues a request and waits until it is first in the queue and the write transaction is free.
+    fn wait_turn<'q>(
+        &'q self,
+        mut queue: MutexGuard<'q, Queue>,
+        deadline: Option<Instant>,
+        limit: Option<Duration>,
+    ) -> Result<MutexGuard<'q, Queue>> {
+        let ticket = queue.next_ticket;
+        queue.next_ticket += 1;
+        queue.waiting.push_back(ticket);
+        loop {
+            if queue.io_failed {
+                leave(&mut queue, ticket);
+                self.turn.notify_all();
+                return Err(self.writes_refused());
+            }
+            if queue.owner.is_none() && queue.waiting.front() == Some(&ticket) {
+                queue.waiting.pop_front();
+                return Ok(queue);
+            }
+            queue = match deadline {
+                None => self
+                    .turn
+                    .wait(queue)
+                    .unwrap_or_else(PoisonError::into_inner),
+                Some(deadline) => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        leave(&mut queue, ticket);
+                        self.turn.notify_all();
+                        return Err(self.timeout(limit));
+                    }
+                    self.turn
+                        .wait_timeout(queue, deadline - now)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0
+                }
+            };
+        }
+    }
+
+    /// Ends the turn of the write transaction; the first request in the queue gets it (T3, T10).
+    fn release_turn(&self) {
+        let waiting = {
+            let mut queue = self.lock_queue();
+            queue.owner = None;
+            !queue.waiting.is_empty()
+        };
+        if waiting {
+            self.hook(Point::Handoff);
+        }
+        self.turn.notify_all();
+    }
+
+    /// Records that the store refuses writes, if it does: the waiting requests fail at once (T12).
+    fn note_failure(&self) {
+        if !self.scratch.pager().accepts_writes() {
+            self.lock_queue().io_failed = true;
+            self.turn.notify_all();
+        }
+    }
+
+    fn lock_queue(&self) -> MutexGuard<'_, Queue> {
+        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn misuse(&self, reason: &'static str) -> Error {
+        Error::Misuse {
+            folder: self.folder.clone(),
+            reason,
+        }
+    }
+
+    fn timeout(&self, limit: Option<Duration>) -> Error {
+        Error::Timeout {
+            folder: self.folder.clone(),
+            limit: limit.unwrap_or_default(),
+        }
+    }
+
+    fn writes_refused(&self) -> Error {
+        Error::Io {
+            folder: self.folder.clone().unwrap_or_default(),
+            source: io::Error::other("writes are refused after a failed write; reopen the store"),
+        }
+    }
+}
+
+fn leave(queue: &mut Queue, ticket: u64) {
+    queue.waiting.retain(|&t| t != ticket);
+}

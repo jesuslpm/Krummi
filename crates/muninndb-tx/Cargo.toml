@@ -1,0 +1,22 @@
+[package]
+name = "muninndb-tx"
+version = "0.1.0"
+description = "Transactions of MuninnDB: snapshots, the single writer and its queue"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Commit and hand-off hooks and the Pager's fault injection, for the tests of this crate and the facade.
+test-hooks = ["muninndb-pager/test-hooks"]
+
+[dependencies]
+muninndb-pager = { version = "0.1.0", path = "../muninndb-pager" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+muninndb-tx = { path = ".", features = ["test-hooks"] }
+tempfile = "3.27.0"

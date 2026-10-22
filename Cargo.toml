@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/muninndb-pager", "crates/muninndb"]
+members = ["crates/muninndb-pager", "crates/muninndb-tx", "crates/muninndb"]
 
 [workspace.package]
 edition = "2024"
