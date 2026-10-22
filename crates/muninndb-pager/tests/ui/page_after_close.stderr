@@ -1,0 +1,11 @@
+error[E0505]: cannot move out of `pager` because it is borrowed
+ --> tests/ui/page_after_close.rs:7:5
+  |
+5 |     let pager = Pager::open_temporary(&OpenOptions::default()).unwrap();
+  |         ----- binding `pager` declared here
+6 |     let page = pager.page(2).unwrap();
+  |                ----- borrow of `pager` occurs here
+7 |     pager.close().unwrap();
+  |     ^^^^^ move out of `pager` occurs here
+8 |     println!("{}", page.len());
+  |                    ---- borrow later used here
