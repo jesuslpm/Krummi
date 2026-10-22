@@ -50,7 +50,8 @@ GitHub Actions runs these checks on Linux and Windows on every push and pull req
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), plus the full AC10 sweep.
 
 The suite runs a sample of the every-byte damage sweep (AC10). The full sweep reopens a store 65,536 times and is
-an acceptance step; run it on Linux, where an antivirus does not scan every modified file:
+an acceptance step that CI runs on both systems (about 1.5 minutes each). Locally, an antivirus that scans every
+modified file can make it impractically slow:
 
 ```bash
 cargo test -p muninndb-pager --test pages -- --ignored ac10
