@@ -2,8 +2,6 @@
 //!
 //! State is per thread, so tests running in parallel do not interfere.
 
-#![allow(dead_code)] // Used by the fault tests of T5.
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
@@ -20,7 +18,7 @@ pub(crate) enum Recorded {
     Sync(PathBuf),
     Rename(PathBuf, PathBuf),
     Remove(PathBuf),
-    SyncDir(PathBuf),
+    SyncDir,
 }
 
 /// What an injected fault does.
@@ -28,8 +26,6 @@ pub(crate) enum Recorded {
 pub(crate) enum Action {
     /// The operation fails with this error kind and has no effect.
     Fail(io::ErrorKind),
-    /// The process is killed before the operation runs.
-    Abort,
 }
 
 #[derive(Default)]
@@ -96,7 +92,6 @@ pub(crate) mod hooks {
                 .map(|f| f.2)
             {
                 Some(Action::Fail(kind)) => Err(io::Error::new(kind, "injected fault")),
-                Some(Action::Abort) => std::process::abort(),
                 None => Ok(()),
             }
         })
@@ -149,7 +144,7 @@ pub(crate) fn materialize_power_cut(ops: &[Recorded], cut: usize, source: &Path,
             Recorded::Remove(p) => {
                 live.remove(p);
             }
-            Recorded::SyncDir(_) => {
+            Recorded::SyncDir => {
                 if cfg!(unix) {
                     durable = live.clone();
                 }

@@ -43,14 +43,52 @@ fn before(op: Op, path: &Path) -> io::Result<()> {
 /// Creates `path`, failing if it already exists, opened for reading and writing.
 pub(crate) fn create_new(path: &Path) -> io::Result<File> {
     before(Op::CreateFile, path)?;
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    // While the store is prepared, nobody else may delete the file (see `is_sharing_violation`).
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 0x1 | 0x2); // FILE_SHARE_READ | WRITE
+    let file = options.open(path)?;
     #[cfg(test)]
     hooks::record(faults::Recorded::Create(path.to_path_buf()));
     Ok(file)
+}
+
+/// Whether `error` means another handle keeps the file from being opened or deleted (Windows only).
+pub(crate) fn is_sharing_violation(error: &io::Error) -> bool {
+    cfg!(windows) && error.raw_os_error() == Some(32) // ERROR_SHARING_VIOLATION
+}
+
+/// Identity of an open file, to avoid deleting a file another opener put under the same name.
+pub(crate) struct FileIdentity(#[cfg_attr(not(unix), allow(dead_code))] Option<(u64, u64)>);
+
+impl FileIdentity {
+    pub(crate) fn of(file: &File) -> FileIdentity {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            FileIdentity(file.metadata().ok().map(|m| (m.dev(), m.ino())))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = file;
+            FileIdentity(None)
+        }
+    }
+
+    /// Removes `path` if it is still this file. On Windows another opener's file cannot be deleted while it
+    /// prepares it (it is opened without delete sharing), so the removal is attempted directly.
+    pub(crate) fn remove_if_same(&self, path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let same = fs::metadata(path).ok().map(|m| (m.dev(), m.ino()));
+            if same.is_none() || same != self.0 {
+                return;
+            }
+        }
+        let _ = remove(path);
+    }
 }
 
 /// Opens an existing file for reading and writing.
@@ -234,7 +272,7 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
     #[cfg(test)]
-    hooks::record(faults::Recorded::SyncDir(dir.to_path_buf()));
+    hooks::record(faults::Recorded::SyncDir);
     Ok(())
 }
 

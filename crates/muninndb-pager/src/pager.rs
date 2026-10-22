@@ -92,12 +92,6 @@ struct MemoryState {
     chunks: Vec<(u64, Box<[u8]>)>,
 }
 
-enum Created {
-    Store(Pager),
-    /// Another opener created the store first.
-    DataAppeared,
-}
-
 impl Pager {
     /// Opens the store in `folder`, creating the folder and the store when needed (flow of the Pager PRD).
     pub fn open(folder: impl AsRef<Path>, options: &OpenOptions) -> Result<Pager> {
@@ -120,10 +114,7 @@ impl Pager {
             if only_leftover {
                 discard_leftover(folder)?;
             }
-            match create(folder, max_size)? {
-                Created::Store(pager) => return Ok(pager),
-                Created::DataAppeared => continue,
-            }
+            create(folder)?;
         }
     }
 
@@ -286,7 +277,8 @@ impl Pager {
                 match sys::map(&f.file, &f.path, new_len) {
                     Ok(map) => state.maps.push(map),
                     Err(e) => {
-                        // Keep the size the store had (P11); the space reserved above is given back.
+                        // Keep the size the store had (P11) and give the reserved space back. Windows refuses to
+                        // shrink a mapped file, so there the space stays in the file, unused.
                         let _ = f.file.set_len(state.len);
                         return Err(self.map_failed(e, new_len));
                     }
@@ -524,12 +516,22 @@ fn file_pager(
 /// Removes the `muninn.data.new` left by an interrupted creation, unless another opener holds it (P8).
 fn discard_leftover(folder: &Path) -> Result<()> {
     let path = folder.join(NEW_DATA_FILE);
-    let file = sys::open_rw(&path).map_err(|e| access(folder, e))?;
+    let in_use = || Error::StoreInUse {
+        folder: folder.to_path_buf(),
+    };
+    let file = match sys::open_rw(&path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if sys::is_sharing_violation(&e) => return Err(in_use()),
+        Err(e) => return Err(access(folder, e)),
+    };
     lock(&file, folder)?;
     drop(file);
     match sys::remove(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        // Another opener is preparing its store in it (it is opened without delete sharing on Windows).
+        Err(e) if sys::is_sharing_violation(&e) => Err(in_use()),
         Err(e) => Err(access(folder, e)),
     }
 }
@@ -543,9 +545,14 @@ fn create_error(folder: &Path, source: io::Error) -> Error {
     }
 }
 
-/// Creates a store in an empty folder: prepares it in `muninn.data.new`, flushes it and renames it to
-/// `muninn.data` without replacing an existing one (P8).
-fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
+/// Creates a store in an empty folder: prepares it in `muninn.data.new` under the store lock, flushes it and
+/// renames it to `muninn.data` without replacing an existing one (P8).
+///
+/// Returning `Ok` means the folder changed and the caller must look at it again: the new store is opened (and
+/// locked) through the normal path, so when several openers race exactly one of them gets the store and the
+/// others get [`Error::StoreInUse`]. Another opener may also have discarded this opener's `muninn.data.new` as
+/// a leftover before it was locked; the caller then simply looks at the folder again.
+fn create(folder: &Path) -> Result<()> {
     let new_path = folder.join(NEW_DATA_FILE);
     let data_path = folder.join(DATA_FILE);
     let file = match sys::create_new(&new_path) {
@@ -557,6 +564,7 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
         }
         Err(e) => return Err(create_error(folder, e)),
     };
+    let ours = sys::FileIdentity::of(&file);
     let prepared = (|| {
         lock(&file, folder)?;
         let mut pages = vec![0u8; HEADER_PAGES as usize * PAGE_SIZE];
@@ -566,32 +574,29 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
             .map_err(|e| create_error(folder, e))?;
         sys::sync(&file, &new_path).map_err(|e| create_error(folder, e))
     })();
-    let renamed = prepared.and_then(|()| match sys::rename_no_replace(&new_path, &data_path) {
-        Ok(()) => Ok(true),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
-        Err(e) => Err(create_error(folder, e)),
-    });
-    match renamed {
-        Ok(true) => {}
-        Ok(false) => {
-            drop(file);
-            let _ = sys::remove(&new_path);
-            return Ok(Created::DataAppeared);
+    // The handle is released before the rename: Windows cannot rename a file that is open without delete
+    // sharing, and the store is locked again when the caller opens it.
+    drop(file);
+    if let Err(error) = prepared {
+        ours.remove_if_same(&new_path);
+        return Err(error);
+    }
+    match sys::rename_no_replace(&new_path, &data_path) {
+        Ok(()) => sys::sync_dir(folder).map_err(|e| create_error(folder, e)),
+        // Another opener created the store first: discard what this one prepared.
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            ours.remove_if_same(&new_path);
+            Ok(())
         }
-        Err(error) => {
-            drop(file);
-            let _ = sys::remove(&new_path);
-            return Err(error);
+        // Another opener discarded it as a leftover in the instant before it was locked.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => {
+            ours.remove_if_same(&new_path);
+            Err(create_error(folder, e))
         }
     }
-    sys::sync_dir(folder).map_err(|e| create_error(folder, e))?;
-    let map = map_new(&file, &data_path, INITIAL_SIZE, folder)?;
-    Ok(Created::Store(file_pager(
-        folder,
-        file,
-        data_path,
-        INITIAL_SIZE,
-        map,
-        max_size,
-    )))
 }
+
+#[cfg(test)]
+#[path = "pager_tests.rs"]
+mod tests;
