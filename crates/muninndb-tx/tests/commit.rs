@@ -486,6 +486,8 @@ fn ac14_a_temporary_store_with_transactions_touches_no_file() {
         Op::SyncDir,
         Op::Map,
         Op::Lock,
+        Op::Read,
+        Op::Temp,
     ] {
         testing::inject(op, 0, Action::Fail(io::ErrorKind::Other));
     }

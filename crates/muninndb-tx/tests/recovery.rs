@@ -726,3 +726,138 @@ fn ac_j15_incompressible_commits_are_recovered() {
         assert_eq!(read.page(page).unwrap(), &bytes[..]);
     }
 }
+
+/// AC10 with the journal: altering any byte of a crashed store, its journal included, gives the damage class,
+/// "not a store" (the mark), no difference, or, only inside the last journal record, the loss of that last commit
+/// (J9); never data that was not written.
+fn ac10_journal_sweep(step: usize) {
+    let (source, engine) = Run::start();
+    let pages = reserve(&engine, 2, "c0");
+    let hold = engine.read().unwrap();
+    for i in 1..=3 {
+        commit_all(&engine, &pages, &format!("c{i}"), true);
+    }
+    let run = Run::finish(source, vec![]);
+    drop(hold);
+    let crashed = run.killed();
+    let files: Vec<PathBuf> = fs::read_dir(crashed.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    let journal = journal_files(crashed.path()).pop().unwrap();
+    let last = *record_offsets(&journal).last().unwrap();
+    for file in &files {
+        let pristine = fs::read(file).unwrap();
+        for offset in (0..pristine.len()).step_by(step) {
+            let copy = copy_folder(crashed.path());
+            let target = copy.path().join(file.file_name().unwrap());
+            let mut bytes = pristine.clone();
+            bytes[offset] ^= 0xFF;
+            fs::write(&target, &bytes).unwrap();
+            let in_last = *file == journal && offset >= last;
+            let at = format!("{} byte {offset}", file.display());
+            let engine = match Engine::open(copy.path(), &OpenOptions::default()) {
+                Ok(engine) => engine,
+                Err(error) => {
+                    assert!(
+                        matches!(error.kind(), ErrorKind::Damaged | ErrorKind::NotAStore),
+                        "{at}: {error}"
+                    );
+                    continue;
+                }
+            };
+            let read = engine.read().unwrap();
+            for &page in &pages {
+                match read.page(page) {
+                    Ok(payload) => {
+                        let seen = text(payload);
+                        assert!(
+                            seen == "c3" || (in_last && seen == "c2"),
+                            "{at}: page {page} has {seen}"
+                        );
+                    }
+                    Err(error) => assert_eq!(error.kind(), ErrorKind::Damaged, "{at}: {error}"),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn ac10_sample_of_altered_bytes_with_the_journal() {
+    ac10_journal_sweep(997);
+}
+
+#[test]
+#[ignore = "acceptance: alters every byte of a crashed store and its journal"]
+fn ac10_every_altered_byte_with_the_journal() {
+    ac10_journal_sweep(1);
+}
+
+/// AC12 (G12, J12): a failed flush of the journal fails the commit with the I/O class; later writes fail, reads
+/// work, and reopening recovers every commit before it, with the failed one entire or absent.
+#[test]
+fn ac12_a_failed_journal_flush_refuses_writes_and_reopening_recovers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = open(tmp.path());
+    let pages = reserve(&engine, 2, "kept");
+    testing::reset();
+    testing::inject(Op::Sync, 0, Action::Fail(std::io::ErrorKind::Other));
+    let mut tx = engine.write(None).unwrap();
+    for &page in &pages {
+        put(&mut tx, page, "failed");
+    }
+    assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::Io);
+    testing::reset();
+    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+    assert_eq!(texts(&engine, &pages), vec![Some("kept".into()); 2]);
+    drop(engine);
+    let engine = open(tmp.path());
+    let seen = texts(&engine, &pages);
+    assert!(
+        seen == vec![Some("kept".into()); 2] || seen == vec![Some("failed".into()); 2],
+        "{seen:?}"
+    );
+}
+
+const CHILD_ENV: &str = "MUNINN_TEST_CHILD_CRASH";
+
+/// AC1 and AC3 with a real process: the child commits durably, opens another write with changes, and dies.
+#[test]
+fn ac1_ac3_a_killed_process_keeps_what_it_committed_and_nothing_else() {
+    let tmp = tempfile::tempdir().unwrap();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "child_helper_commit_and_die",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD_ENV, tmp.path())
+        .status()
+        .unwrap();
+    assert!(!status.success(), "the child dies");
+    let engine = open(tmp.path());
+    let read = engine.read().unwrap();
+    assert_eq!(text(read.page(3).unwrap()), "committed");
+    assert_eq!(text(read.page(4).unwrap()), "committed");
+}
+
+/// Body of the child of [`ac1_ac3_a_killed_process_keeps_what_it_committed_and_nothing_else`].
+#[test]
+fn child_helper_commit_and_die() {
+    let Some(folder) = std::env::var_os(CHILD_ENV) else {
+        return;
+    };
+    let engine = open(Path::new(&folder));
+    let mut tx = engine.write(None).unwrap();
+    let pages = [tx.allocate().unwrap(), tx.allocate().unwrap()];
+    assert_eq!(pages, [3, 4]);
+    for page in pages {
+        put(&mut tx, page, "committed");
+    }
+    tx.commit().unwrap();
+    let mut tx = engine.write(None).unwrap();
+    put(&mut tx, 3, "never committed");
+    std::process::abort();
+}

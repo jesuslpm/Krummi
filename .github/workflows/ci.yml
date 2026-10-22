@@ -57,3 +57,4 @@ jobs:
         run: |
           cargo test -p muninndb-pager --test pages -- --ignored ac10
           cargo test -p muninndb-tx --test commit -- --ignored ac10
+          cargo test -p muninndb-tx --test recovery -- --ignored ac10
