@@ -547,6 +547,13 @@ impl Pager {
         Ok(())
     }
 
+    /// Classifies a failed write of something that belongs to the store outside `muninn.data` (the journal, the
+    /// temporary area), with the same consequence as a failed page write: an I/O failure makes the store refuse
+    /// writes until it is reopened (G12).
+    pub(crate) fn fail_write(&self, source: io::Error, requested: u64) -> Error {
+        self.write_failed(source, requested)
+    }
+
     fn write_failed(&self, source: io::Error, requested: u64) -> Error {
         let error = Error::from_write(
             self.folder.as_deref().unwrap_or(Path::new("")),

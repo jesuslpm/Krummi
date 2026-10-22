@@ -23,11 +23,14 @@ use crate::error::{Error, Result};
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
 use crate::pager::{Info, Pager};
 use crate::sys;
+use crate::temp::{Slot, TempArea};
 
 /// The payload of a page being changed by a write transaction.
 pub type PayloadBuf = Box<[u8; PAGE_PAYLOAD_SIZE]>;
 /// A whole page, sealed with its header and checksum, ready to be published.
 pub type SealedPage = Box<[u8; PAGE_SIZE]>;
+/// Pages of a commit copied into the temporary area, ready to be published (J7 of the Journal PRD).
+pub struct Staged(Vec<(u64, Arc<Slot>)>);
 
 /// A zeroed page payload, or the out-of-memory class if the system does not provide it (P13).
 pub fn alloc_payload() -> Result<PayloadBuf> {
@@ -50,6 +53,8 @@ fn alloc<const N: usize>() -> Result<Box<[u8; N]>> {
 pub struct Scratch {
     /// `None` only after [`Scratch::close`] took it.
     pager: Option<Pager>,
+    /// Where the versions live (J7 of the Journal PRD).
+    area: Arc<TempArea>,
     state: Mutex<State>,
     /// Held by the one [`ScratchWriter`] that may exist at a time.
     writer: Mutex<()>,
@@ -67,12 +72,12 @@ struct State {
     next_seq: u64,
     /// Versions that left `versions`, with the newest sequence number issued when they left: they are freed
     /// once no open snapshot has a sequence number up to that one.
-    retired: Vec<(u64, Arc<SealedPage>)>,
+    retired: Vec<(u64, Arc<Slot>)>,
 }
 
 struct Version {
     txid: u64,
-    page: Arc<SealedPage>,
+    page: Arc<Slot>,
 }
 
 #[derive(Clone, Copy)]
@@ -85,6 +90,7 @@ impl Scratch {
     /// Puts a scratch area in front of an open store.
     pub fn new(pager: Pager) -> Scratch {
         Scratch {
+            area: Arc::new(TempArea::new(pager.folder())),
             pager: Some(pager),
             state: Mutex::new(State {
                 last_committed: 0,
@@ -153,12 +159,12 @@ impl Scratch {
                 .page;
             // SAFETY: `&mut self` rules out open snapshots, and with them any reference into the store's pages
             // and any other write.
-            unsafe { pager.write_sealed_shared(page_number, page)? };
+            unsafe { pager.write_sealed_shared(page_number, page.page())? };
             let versions = state.versions.remove(&page_number).unwrap_or_default();
             state.bytes -= versions.len() as u64 * PAGE_SIZE_U64;
         }
         state.retired.clear();
-        Ok(())
+        self.area.remove().map_err(|e| pager.fail_write(e, 0))
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -237,7 +243,7 @@ impl State {
     }
 
     /// Frees the retired versions that no open snapshot can hold a reference to.
-    fn free_retired(&mut self) -> Vec<Arc<SealedPage>> {
+    fn free_retired(&mut self) -> Vec<Arc<Slot>> {
         let oldest = self.live.first().map_or(u64::MAX, |l| l.seq);
         let (free, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retired)
             .into_iter()
@@ -279,9 +285,10 @@ impl<'a> Snapshot<'a> {
             .get(&page_number)
             .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid));
         if let Some(version) = version {
-            let ptr = version.page.as_ptr();
+            let ptr = version.page.page().as_ptr();
             drop(state);
-            // SAFETY: `ptr` points to the PAGE_SIZE bytes of a boxed page owned by an `Arc` in the scratch area.
+            // SAFETY: `ptr` points to the PAGE_SIZE bytes of a slot of the temporary area owned by an `Arc` in the
+            // scratch area; the area keeps a slot's memory while the slot is held.
             // The scratch area keeps that `Arc` while this snapshot is open: a version leaves `versions` only by
             // being retired with a bound at least this snapshot's sequence number, and retired versions are freed
             // only once no open snapshot has a sequence number up to their bound. Published pages are never
@@ -331,7 +338,7 @@ impl<'a> ScratchWriter<'a> {
     pub fn flush(&mut self) -> Result<()> {
         let scratch = self.snapshot.scratch;
         let garbage;
-        let mut pending: Vec<(u64, u64, Arc<SealedPage>)> = {
+        let mut pending: Vec<(u64, u64, Arc<Slot>)> = {
             let mut state = scratch.lock();
             garbage = state.collect_garbage();
             let oldest = state.live.first().map(|l| l.txid);
@@ -351,7 +358,11 @@ impl<'a> ScratchWriter<'a> {
         for (page_number, txid, page) in pending {
             // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
             // where its newest version stays until the write ends, and this writer is the only one.
-            unsafe { scratch.pager().write_sealed_shared(page_number, &page)? };
+            unsafe {
+                scratch
+                    .pager()
+                    .write_sealed_shared(page_number, page.page())?
+            };
             let mut state = scratch.lock();
             if state.versions[&page_number].last().map(|v| v.txid) == Some(txid) {
                 let versions = state.versions.remove(&page_number).unwrap_or_default();
@@ -361,31 +372,46 @@ impl<'a> ScratchWriter<'a> {
         Ok(())
     }
 
-    /// Publishes `pages`, each sealed for its number, as the newest versions, for every snapshot opened from now
-    /// on and none opened before (T2). Returns the number of the new version.
+    /// Copies `pages`, each sealed for its number, into the temporary area, ready to be published (J7). Nothing
+    /// is visible yet; dropping the result gives the slots back.
     ///
     /// # Panics
     ///
     /// If a page is a header page or beyond the end of the store.
-    pub fn publish(&mut self, pages: Vec<(u64, SealedPage)>) -> u64 {
+    pub fn stage(&self, pages: &[(u64, SealedPage)]) -> Result<Staged> {
         let scratch = self.snapshot.scratch;
-        let page_count = scratch.pager().page_count();
-        let mut state = scratch.lock();
-        let txid = state.last_committed + 1;
+        let pager = scratch.pager();
+        let page_count = pager.page_count();
+        let mut staged = Vec::new();
+        staged
+            .try_reserve_exact(pages.len())
+            .map_err(|_| Error::OutOfMemory {
+                requested: (pages.len() * size_of::<(u64, Arc<Slot>)>()) as u64,
+            })?;
         for (page_number, page) in pages {
             assert!(
-                (HEADER_PAGES..page_count).contains(&page_number),
+                (HEADER_PAGES..page_count).contains(page_number),
                 "page {page_number} cannot be published"
             );
+            let slot = scratch.area.store(page, pager)?;
+            staged.push((*page_number, Arc::new(slot)));
+        }
+        Ok(Staged(staged))
+    }
+
+    /// Publishes the staged pages as the newest versions, for every snapshot opened from now on and none opened
+    /// before (T2). Returns the number of the new version.
+    pub fn publish(&mut self, staged: Staged) -> u64 {
+        let scratch = self.snapshot.scratch;
+        let mut state = scratch.lock();
+        let txid = state.last_committed + 1;
+        for (page_number, page) in staged.0 {
             state.bytes += PAGE_SIZE_U64;
             state
                 .versions
                 .entry(page_number)
                 .or_default()
-                .push(Version {
-                    txid,
-                    page: Arc::new(page),
-                });
+                .push(Version { txid, page });
         }
         state.last_committed = txid;
         txid

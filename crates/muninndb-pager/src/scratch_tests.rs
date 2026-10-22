@@ -62,7 +62,8 @@ fn store(folder: Option<&std::path::Path>) -> Scratch {
 fn commit(scratch: &Scratch, text: &str) -> u64 {
     let mut writer = scratch.begin_write().unwrap();
     writer.flush().unwrap();
-    writer.publish(vec![(PAGE, sealed(PAGE, text))])
+    let staged = writer.stage(&[(PAGE, sealed(PAGE, text))]).unwrap();
+    writer.publish(staged)
 }
 
 fn both_modes(test: impl Fn(Scratch)) {

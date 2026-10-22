@@ -110,8 +110,10 @@ impl<'e> WriteTransaction<'e> {
         }
         let sealed = self.seal();
         let pages = self.track(sealed)?;
+        let staged = self.writer.stage(&pages);
+        let staged = self.track(staged)?;
         self.engine.hook(Point::CommitPublish);
-        self.writer.publish(pages);
+        self.writer.publish(staged);
         self.engine
             .next_page
             .store(self.next_page, Ordering::Release);

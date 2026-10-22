@@ -8,14 +8,16 @@ pub mod format;
 mod pager;
 mod scratch;
 mod sys;
+mod temp;
 
 pub use error::{Error, ErrorKind, Result};
 pub use pager::{
     DATA_FILE, INITIAL_SIZE, Info, MAX_GROWTH_STEP, MIN_MAX_SIZE, NEW_DATA_FILE, OpenOptions, Pager,
 };
 pub use scratch::{
-    PayloadBuf, Scratch, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_sealed,
+    PayloadBuf, Scratch, ScratchWriter, SealedPage, Snapshot, Staged, alloc_payload, alloc_sealed,
 };
+pub use temp::TEMP_DIR;
 
 /// Fault injection for the tests of the engine crates (feature `test-hooks`). Faults are per thread.
 #[cfg(feature = "test-hooks")]
