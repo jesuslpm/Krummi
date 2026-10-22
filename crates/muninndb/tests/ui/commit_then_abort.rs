@@ -1,4 +1,4 @@
-// T8 / AC-T11: a committed transaction cannot be committed or aborted again.
+// T8 / AC-T11: a committed transaction cannot be used again, for instance to abort it.
 use muninndb::{Store, StoreOptions};
 
 fn main() {

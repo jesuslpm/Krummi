@@ -36,12 +36,11 @@ fn ac_t10_a_shared_read_shows_every_thread_the_same_snapshot() {
         let read = engine.read().unwrap();
         thread::scope(|s| {
             let read = &read;
-            for i in 0..4 {
+            for _ in 0..4 {
                 s.spawn(move || {
                     for _ in 0..20 {
                         assert_eq!(text(read.page(page).unwrap()), "a");
                     }
-                    i
                 });
             }
             for text in ["b", "c", "d"] {

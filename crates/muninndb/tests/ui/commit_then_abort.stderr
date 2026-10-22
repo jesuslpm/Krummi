@@ -1,5 +1,5 @@
 error[E0382]: use of moved value: `write`
- --> tests/ui/commit_twice.rs:8:5
+ --> tests/ui/commit_then_abort.rs:8:5
   |
 6 |     let write = store.write().unwrap();
   |         ----- move occurs because `write` has type `WriteTransaction<'_>`, which does not implement the `Copy` trait
