@@ -318,3 +318,19 @@ fn ac_p11_the_maximum_size_is_rounded_down_to_the_page_size() {
 fn child_helper_open_and_hold() {
     common::run_child_helper();
 }
+
+/// The data file is named exactly `muninn.data` whatever the length of the folder path (the Windows rename
+/// once read the target name past its end when no padding followed it).
+#[test]
+fn the_data_file_name_does_not_depend_on_the_path_length() {
+    let tmp = tempfile::tempdir().unwrap();
+    for length in 1..=12 {
+        let folder = tmp.path().join("s".repeat(length));
+        open(&folder).close().unwrap();
+        assert_eq!(
+            folder_snapshot(&folder).keys().cloned().collect::<Vec<_>>(),
+            vec![DATA_FILE.to_owned()],
+            "folder name of {length} characters"
+        );
+    }
+}
