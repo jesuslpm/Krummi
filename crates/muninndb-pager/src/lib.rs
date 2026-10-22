@@ -4,5 +4,6 @@
 //! internal to the engine: applications use the `muninndb` crate.
 
 mod error;
+pub mod format;
 
 pub use error::{Error, ErrorKind, Result};
