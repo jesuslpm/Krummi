@@ -50,7 +50,10 @@ jobs:
       - name: Tests
         run: cargo test --workspace --no-fail-fast
 
-      # AC10 in full: flips every byte of a store, one at a time (65,536 reopens).
+      # AC10 in full: flips every byte of a store, one at a time (65,536 reopens), for the Pager's pages and
+      # for a store written through transactions.
       - name: Every-byte damage sweep (AC10)
-        timeout-minutes: 20
-        run: cargo test -p muninndb-pager --test pages -- --ignored ac10
+        timeout-minutes: 30
+        run: |
+          cargo test -p muninndb-pager --test pages -- --ignored ac10
+          cargo test -p muninndb-tx --test commit -- --ignored ac10

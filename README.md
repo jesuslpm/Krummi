@@ -62,12 +62,13 @@ cargo test --workspace
 GitHub Actions runs these checks on Linux and Windows on every push and pull request
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), plus the full AC10 sweep.
 
-The suite runs a sample of the every-byte damage sweep (AC10). The full sweep reopens a store 65,536 times and is
-an acceptance step that CI runs on both systems (about 1.5 minutes each). Locally, an antivirus that scans every
-modified file can make it impractically slow:
+The suite runs a sample of the every-byte damage sweep (AC10), for the Pager's pages and for a store written through
+transactions. The full sweeps reopen a store 65,536 times each and are an acceptance step that CI runs on both
+systems. Locally, an antivirus that scans every modified file can make them impractically slow:
 
 ```bash
 cargo test -p muninndb-pager --test pages -- --ignored ac10
+cargo test -p muninndb-tx --test commit -- --ignored ac10
 ```
 
 ## Tests of the tooling
