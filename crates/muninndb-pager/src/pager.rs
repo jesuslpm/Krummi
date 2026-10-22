@@ -323,6 +323,10 @@ impl Pager {
         match &self.storage {
             Storage::File(f) => {
                 let result = sys::sync(&f.file, &f.path);
+                // Windows releases a handle's locks when it closes, but asks for an explicit unlock first. On
+                // Unix the lock goes with the descriptor, which `LockedFile` closes under its table.
+                #[cfg(windows)]
+                let _ = f.file.unlock();
                 result.map_err(|source| Error::Io {
                     folder: self.folder.clone().unwrap_or_default(),
                     source,

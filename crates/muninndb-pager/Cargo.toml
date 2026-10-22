@@ -19,7 +19,7 @@ unsafe_op_in_unsafe_fn = "deny"
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.5", features = ["fs"] }
 
 [target."cfg(windows)".dependencies]
