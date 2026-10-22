@@ -84,6 +84,8 @@ impl Engine {
     }
 
     fn new(pager: Pager, folder: Option<PathBuf>) -> Result<Engine> {
+        let scratch = Scratch::open(pager)?;
+        let pager = scratch.pager();
         let fresh = pager.page_count() <= META_PAGE || pager.page_is_blank(META_PAGE);
         let next_page = if fresh {
             FIRST_PAGE
@@ -100,7 +102,7 @@ impl Engine {
         };
         Ok(Engine {
             max_size: pager.info().max_size,
-            scratch: Scratch::new(pager),
+            scratch,
             folder,
             queue: Mutex::new(Queue {
                 owner: None,
@@ -198,6 +200,12 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn set_journal_file_limit(&self, bytes: u64) {
         self.scratch.set_journal_file_limit(bytes);
+    }
+
+    /// Sets a function a durable commit calls between writing its journal record and flushing it (tests: AC-J13).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_journal_sync_hook(&self, hook: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
+        self.scratch.set_journal_sync_hook(hook);
     }
 
     /// Sets a function the transfer calls while it holds its lock, or none (tests: AC-J17).

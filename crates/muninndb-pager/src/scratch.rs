@@ -17,6 +17,7 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem::size_of;
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::error::{Error, Result};
@@ -24,6 +25,7 @@ use crate::format::Header;
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
 use crate::journal::Journal;
 use crate::pager::{Info, Pager};
+use crate::recovery;
 use crate::sys;
 use crate::temp::{Slot, TempArea};
 
@@ -95,12 +97,30 @@ struct Live {
 }
 
 impl Scratch {
-    /// Puts a scratch area and an empty journal in front of an open store that needs no recovery.
+    /// Recovers the store if it closed in a crash (J8 of the Journal PRD) and puts a scratch area and an empty
+    /// journal in front of it. Recovery removes the journal and the temporary area a crash left.
+    pub fn open(mut pager: Pager) -> Result<Scratch> {
+        let journal = match pager.folder().map(Path::to_path_buf) {
+            Some(folder) => {
+                let recovered = recovery::recover(&mut pager, &folder)?;
+                Some(Journal::new(
+                    &folder,
+                    recovered.last_txid,
+                    recovered.next_number,
+                ))
+            }
+            None => None,
+        };
+        Ok(Scratch::with_journal(pager, journal))
+    }
+
+    /// Puts a scratch area in front of a store, with no journal (tests of the scratch area).
     pub fn new(pager: Pager) -> Scratch {
+        Scratch::with_journal(pager, None)
+    }
+
+    fn with_journal(pager: Pager, journal: Option<Journal>) -> Scratch {
         let header = pager.header();
-        let journal = pager
-            .folder()
-            .map(|folder| Journal::new(folder, header.applied_txid, header.journal_first));
         Scratch {
             area: Arc::new(TempArea::new(pager.folder())),
             journal,
@@ -185,6 +205,13 @@ impl Scratch {
             .transfer_hook
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Sets the function a durable commit calls between writing its journal record and flushing it (tests).
+    pub fn set_journal_sync_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        if let Some(journal) = &self.journal {
+            journal.set_sync_hook(hook);
+        }
     }
 
     /// Sets the size at which the journal goes on in a new file (tests).

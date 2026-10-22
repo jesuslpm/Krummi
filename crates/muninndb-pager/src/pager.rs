@@ -370,6 +370,17 @@ impl Pager {
         result.map_err(|e| self.write_failed(e, PAGE_SIZE_U64))
     }
 
+    /// Writes `page`, already sealed for `page_number` (recovery, J8 of the Journal PRD). A failure other than a
+    /// lack of space makes the store refuse writes (G12).
+    ///
+    /// # Panics
+    ///
+    /// If `page_number` is a header page or beyond the end of the store.
+    pub(crate) fn write_sealed(&mut self, page_number: u64, page: &[u8; PAGE_SIZE]) -> Result<()> {
+        // SAFETY: `&mut self` rules out any reference into the store's pages and any other write.
+        unsafe { self.write_sealed_shared(page_number, page) }
+    }
+
     /// Writes `page`, already sealed for `page_number`, while other pages of the store may be borrowed. A failure
     /// other than a lack of space makes the store refuse writes until it is reopened (G12).
     ///

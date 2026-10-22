@@ -7,6 +7,7 @@ mod error;
 pub mod format;
 mod journal;
 mod pager;
+mod recovery;
 mod scratch;
 mod sys;
 mod temp;
@@ -26,7 +27,7 @@ pub use temp::TEMP_DIR;
 pub mod testing {
     pub use crate::sys::Op;
     pub use crate::sys::faults::{
-        Action, Model, Recorded, abort_at, count, inject, materialize, points, reset,
+        Action, Model, Recorded, abort_at, count, inject, materialize, points, recorded_len, reset,
         start_recording, take_recording,
     };
 }

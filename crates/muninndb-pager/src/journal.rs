@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -193,6 +193,8 @@ pub(crate) struct Journal {
     folder: PathBuf,
     state: Mutex<State>,
     file_limit: AtomicU64,
+    /// Called by a durable append between writing its record and flushing it (tests: AC-J13).
+    sync_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 struct State {
@@ -230,7 +232,16 @@ impl Journal {
                 files: VecDeque::new(),
             }),
             file_limit: AtomicU64::new(DEFAULT_FILE_LIMIT),
+            sync_hook: Mutex::new(None),
         }
+    }
+
+    /// Sets the function a durable append calls between writing and flushing its record, or none (tests).
+    pub(crate) fn set_sync_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self
+            .sync_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -281,6 +292,14 @@ impl Journal {
             .map_err(|e| pager.fail_write(e, record.len() as u64))
             .inspect_err(|_| guard.armed = false)?;
         if durable {
+            let hook = self
+                .sync_hook
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
             if let Err(e) = sys::sync(&guard.current.file, &guard.current.path) {
                 // Entire or absent after a reopen (J12): the record stays as it is.
                 guard.armed = false;

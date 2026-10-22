@@ -75,6 +75,11 @@ pub fn start_recording() {
     STATE.with(|s| s.borrow_mut().recording = Some(Vec::new()));
 }
 
+/// Number of operations recorded so far, without stopping the recording.
+pub fn recorded_len() -> usize {
+    STATE.with(|s| s.borrow().recording.as_ref().map_or(0, Vec::len))
+}
+
 /// Stops recording and returns what was recorded.
 pub fn take_recording() -> Vec<Recorded> {
     STATE.with(|s| s.borrow_mut().recording.take().unwrap_or_default())
@@ -124,6 +129,8 @@ pub enum Model {
     TornFirst,
     /// Every write after the last flush except the first one, as when the disk reorders them.
     SkipFirst,
+    /// Every write, as when only the process dies and the system keeps what it was given; names are kept too.
+    Written,
 }
 
 #[derive(Clone)]
@@ -175,6 +182,11 @@ impl SimFile {
             }
             Model::SkipFirst => {
                 for op in self.pending.iter().skip(1) {
+                    SimFile::apply(&mut content, op);
+                }
+            }
+            Model::Written => {
+                for op in &self.pending {
                     SimFile::apply(&mut content, op);
                 }
             }
@@ -244,6 +256,9 @@ pub fn materialize(ops: &[Recorded], cut: usize, source: &Path, target: &Path, m
                 }
             }
         }
+    }
+    if model == Model::Written {
+        durable = live;
     }
     for entry in std::fs::read_dir(target).unwrap() {
         let entry = entry.unwrap();
