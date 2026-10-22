@@ -49,7 +49,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
       # AC10 in full: flips every byte of a store, one at a time (65,536 reopens).
       - name: Every-byte damage sweep (AC10)
