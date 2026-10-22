@@ -103,3 +103,24 @@ fn ac_t10_ac_t11_what_must_not_compile() {
     let cases = trybuild::TestCases::new();
     cases.compile_fail("tests/ui/*.rs");
 }
+
+/// J1 and J17 of the Journal PRD: a deferred commit and making what is committed durable, on disk and in a
+/// temporary store; a clean close leaves only `muninn.data`.
+#[test]
+fn j1_deferred_commits_and_making_them_durable() {
+    stores(|store| {
+        store.write().unwrap().commit_deferred().unwrap();
+        store.make_durable().unwrap();
+        store.write().unwrap().commit().unwrap();
+        store.make_durable().unwrap();
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    store.write().unwrap().commit_deferred().unwrap();
+    store.close().unwrap();
+    let names: Vec<String> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["muninn.data"]);
+}

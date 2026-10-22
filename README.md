@@ -4,11 +4,12 @@ An embedded, transactional storage engine in Rust, inspired by [Voron](https://g
 the storage engine of RavenDB. The name follows Voron's: *voron* is Russian for raven, and Muninn is the raven
 of memory in Norse mythology.
 
-Implemented so far: module 1, the **Pager** ([PRD](docs/prd/muninndb/pager.prd.md)), and module 2, the
-**transactions** ([PRD](docs/prd/muninndb/transactions.prd.md)). An application can create, open, inspect and close
-stores, on disk or in memory, and open read transactions from any number of threads and one write transaction at a
-time, which the others wait for in order of arrival. Storing data in them arrives with the data structures of the
-next modules. The product and its split into modules are in the [root PRD](docs/prd/muninndb/muninndb.prd.md).
+Implemented so far: module 1, the **Pager** ([PRD](docs/prd/muninndb/pager.prd.md)), module 2, the
+**transactions** ([PRD](docs/prd/muninndb/transactions.prd.md)), and module 3, the **journal and recovery**
+([PRD](docs/prd/muninndb/journal.prd.md)). An application can create, open, inspect and close stores, on disk or in
+memory, and open read transactions from any number of threads and one write transaction at a time, which the others
+wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
+crash recovers it. Storing data in transactions arrives with the data structures of the next modules. The product and its split into modules are in the [root PRD](docs/prd/muninndb/muninndb.prd.md).
 Every product change starts with a PRD in `docs/prd/muninndb/` (see `CLAUDE.md`).
 
 ```rust
@@ -19,26 +20,30 @@ let store = Store::open("data/orders", &StoreOptions::default())?;
 println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary
 let read = store.read()?; // a snapshot: sees every write committed before it opened, none after
 let write = store.write_with_timeout(Duration::from_secs(5))?; // or store.write() to wait without limit
-write.commit()?; // visible to the reads opened from now on
+write.commit()?; // durable when it returns, and visible to the reads opened from now on
+store.write()?.commit_deferred()?; // returns before reaching the disk; survives a crash of the process
+store.make_durable()?; // now the deferred commits survive a power cut too
 drop(read);
-store.close()?; // writes what was committed; a crash before closing may lose it until module 3
+store.close()?; // moves everything into muninn.data and removes the journal
 ```
 
-A store is a folder with one file, `muninn.data`, made of 8 KiB pages. Only one process can have it open at a
-time. The `muninndb` crate is the public API; `muninndb-pager` and `muninndb-tx` are internal to the engine, and
+A store is a folder with one file, `muninn.data`, made of 8 KiB pages. While it is open, the folder may also hold
+the journal files `muninn.journal.<number>` and the `muninn.temp` subfolder; a clean close removes them. Only one
+process can have it open at a time. The `muninndb` crate is the public API; `muninndb-pager` and `muninndb-tx` are internal to the engine, and
 `muninndb-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
 
-As in Voron, a write transaction changes copies of its pages and every page keeps its number: a committed version
-lives in a scratch area in memory while an open read still needs the version before it, and is then written in its
-place in `muninn.data`. Until the journal of module 3, a commit is not durable: what was committed reaches
-`muninn.data` at the latest when the store closes or is dropped.
+As in Voron, a write transaction changes copies of its pages and every page keeps its number. A commit is written
+to the write-ahead journal (LZ4-compressed records with checksums) and, in durable mode, flushed before it returns.
+The committed version lives in a scratch area, in mapped files of `muninn.temp`, until no open read needs the
+version before it; then it is written in its place in `muninn.data` and the header records how far the journal has
+been applied. Opening a store after a crash replays the journal from that point.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
 | `crates/muninndb/` | Public API of the engine |
-| `crates/muninndb-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots; the only crate with `unsafe` |
+| `crates/muninndb-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
 | `crates/muninndb-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
