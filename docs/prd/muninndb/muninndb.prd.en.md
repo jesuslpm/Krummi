@@ -54,6 +54,10 @@ store's files while it is open, which is out of scope (decision P16 of
 format, also with the number `0`, which no version uses and appears only in tests (decision P5 of
 [pager.prd.en.md](pager.prd.en.md)).*
 
+*Annotation of 2026-10-22 to D11: the reference of a read may also point to the memory where the engine keeps a
+committed version of the page that is not in the data file, never to a copy made for that read (decision T16 of
+[transactions.prd.en.md](transactions.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:
@@ -100,6 +104,12 @@ what is not read through the projection (decision P17 of [pager.prd.en.md](pager
 *Annotation of 2026-10-22: G6 is made precise for the store header. If only one of its two copies is damaged, the
 store opens without error with the other one, because no damaged data is returned (decision P6 of
 [pager.prd.en.md](pager.prd.en.md)).*
+
+*Annotation of 2026-10-22: temporary exception to G1 (only on crashes), G2, G5 and G12 (in what the reopening
+recovers) until module 3. Without a journal, a crash, an input/output failure that the close does not resolve or
+ceasing to use the store without closing it when the write fails may leave the data file without part of what was
+committed since the last opening; after a close without error, what was committed is there, and G6 still holds
+(decision T9 of [transactions.prd.en.md](transactions.prd.en.md)).*
 
 ## Flow
 

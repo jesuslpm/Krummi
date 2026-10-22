@@ -53,6 +53,10 @@ programa modifique los archivos del almacén mientras está abierto, lo que qued
 anterior, también con el número `0`, que ninguna versión usa y solo aparece en las pruebas (decisión P5 de
 [pager.prd.md](pager.prd.md)).*
 
+*Anotación del 2026-10-22 a D11: la referencia de una lectura también puede apuntar a la memoria donde el motor
+conserva una versión confirmada de la página que no está en el archivo de datos, nunca a una copia hecha para esa
+lectura (decisión T16 de [transactions.prd.md](transactions.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
@@ -99,6 +103,12 @@ escrituras y para lo que no se lee por la proyección (decisión P17 de [pager.p
 *Anotación del 2026-10-22: G6 se precisa para el encabezado del almacén. Si solo una de sus dos copias está
 dañada, el almacén abre sin error con la otra, porque no se devuelve ningún dato dañado (decisión P6 de
 [pager.prd.md](pager.prd.md)).*
+
+*Anotación del 2026-10-22: excepción temporal a G1 (solo ante caídas), G2, G5 y G12 (en lo que la reapertura
+recupera) hasta el módulo 3. Sin diario, una caída, un fallo de entrada y salida que el cierre no resuelve o dejar
+de usar el almacén sin cerrarlo cuando falla la escritura pueden dejar el archivo de datos sin parte de lo confirmado desde la última
+apertura; tras un cierre sin error, lo confirmado está, y G6 sigue valiendo (decisión T9 de
+[transactions.prd.md](transactions.prd.md)).*
 
 ## Flujo
 
