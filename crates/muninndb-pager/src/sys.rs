@@ -315,7 +315,7 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
     #[cfg(test)]
-    hooks::record(faults::Recorded::SyncDir);
+    hooks::record(faults::Recorded::SyncDir(dir.to_path_buf()));
     Ok(())
 }
 

@@ -100,10 +100,10 @@ impl Pager {
         prepare_folder(folder)?;
         loop {
             let entries = list_folder(folder)?;
-            if entries.iter().any(|e| e == DATA_FILE) {
+            if entries.iter().any(|e| is_named(e, DATA_FILE)) {
                 return open_existing(folder, max_size);
             }
-            let only_leftover = entries.len() == 1 && entries[0] == NEW_DATA_FILE;
+            let only_leftover = entries.len() == 1 && is_named(&entries[0], NEW_DATA_FILE);
             if only_leftover {
                 match fs::symlink_metadata(folder.join(NEW_DATA_FILE)) {
                     Ok(meta) if meta.is_file() => {}
@@ -335,7 +335,12 @@ impl Pager {
 
     /// The size the store grows to when it needs `needed` bytes and has `len` (P10, P11).
     fn next_size(&self, len: u64, needed: u64) -> Result<u64> {
-        let needed = needed.div_ceil(PAGE_SIZE_U64) * PAGE_SIZE_U64;
+        let Some(needed) = needed.checked_next_multiple_of(PAGE_SIZE_U64) else {
+            return Err(Error::MaxSize {
+                max_size: self.max_size.unwrap_or(u64::MAX - u64::MAX % PAGE_SIZE_U64),
+                needed,
+            });
+        };
         if let Some(max_size) = self.max_size
             && needed > max_size
         {
@@ -421,9 +426,34 @@ fn prepare_folder(folder: &Path) -> Result<()> {
             io::Error::new(io::ErrorKind::NotADirectory, "the path is a file"),
         )),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            fs::create_dir_all(folder).map_err(|e| access(folder, e))
+            let mut missing = Vec::new();
+            let mut level = Some(folder);
+            while let Some(path) = level.filter(|p| !p.as_os_str().is_empty() && !p.exists()) {
+                missing.push(path);
+                level = path.parent();
+            }
+            fs::create_dir_all(folder).map_err(|e| access(folder, e))?;
+            // A store that survives a power cut (P8) needs the folders that hold it to survive too.
+            for created in missing {
+                let parent = created
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new("."));
+                sys::sync_dir(parent).map_err(|e| create_error(folder, e))?;
+            }
+            Ok(())
         }
         Err(e) => Err(access(folder, e)),
+    }
+}
+
+/// Whether a folder entry has the reserved name `name`: case-insensitively on Windows, where the file system
+/// treats both spellings as the same file.
+fn is_named(entry: &OsString, name: &str) -> bool {
+    if cfg!(windows) {
+        entry.to_str().is_some_and(|e| e.eq_ignore_ascii_case(name))
+    } else {
+        entry == name
     }
 }
 

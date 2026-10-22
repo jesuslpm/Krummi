@@ -285,3 +285,102 @@ fn ac_p9_a_power_cut_during_or_after_creation_leaves_a_complete_store_or_none() 
         }
     }
 }
+
+#[test]
+fn ac_p14_out_of_memory_while_opening_a_store_on_disk_releases_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    Pager::open(tmp.path(), &options())
+        .unwrap()
+        .close()
+        .unwrap();
+    fail(Op::Map, 0, io::ErrorKind::OutOfMemory);
+    let error = Pager::open(tmp.path(), &options()).err().unwrap();
+    faults::reset();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    Pager::open(tmp.path(), &options())
+        .unwrap()
+        .close()
+        .unwrap();
+}
+
+#[test]
+fn folders_created_by_open_are_kept_when_the_creation_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("a").join("b").join("store");
+    fail(Op::Reserve, 0, io::ErrorKind::StorageFull);
+    let error = Pager::open(&folder, &options()).err().unwrap();
+    faults::reset();
+    assert_eq!(error.kind(), ErrorKind::DiskFull);
+    assert!(folder.is_dir());
+    assert!(names(&folder).is_empty());
+}
+
+#[test]
+fn folders_created_by_open_are_made_durable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("a").join("b").join("store");
+    faults::reset();
+    faults::start_recording();
+    Pager::open(&folder, &options()).unwrap().close().unwrap();
+    let synced: Vec<_> = faults::take_recording()
+        .into_iter()
+        .filter_map(|op| match op {
+            faults::Recorded::SyncDir(dir) => Some(dir),
+            _ => None,
+        })
+        .collect();
+    faults::reset();
+    // The parent of every folder level that open created, then the store folder after the rename.
+    for parent in [
+        tmp.path().to_path_buf(),
+        tmp.path().join("a"),
+        tmp.path().join("a").join("b"),
+        folder.clone(),
+    ] {
+        assert!(
+            synced.contains(&parent),
+            "{} not synced: {synced:?}",
+            parent.display()
+        );
+    }
+}
+
+#[test]
+fn an_impossible_growth_is_a_maximum_size_error() {
+    let pager = Pager::open_temporary(&options()).unwrap();
+    assert_eq!(
+        pager.ensure_pages(u64::MAX).err().unwrap().kind(),
+        ErrorKind::MaxSize
+    );
+    // A size that fits in a u64 but not in memory is an out-of-memory error in temporary mode.
+    assert_eq!(
+        pager
+            .ensure_pages(u64::MAX / PAGE_SIZE_U64)
+            .err()
+            .unwrap()
+            .kind(),
+        ErrorKind::OutOfMemory
+    );
+    assert_eq!(pager.info().size_bytes, INITIAL_SIZE);
+}
+
+#[cfg(windows)]
+#[test]
+fn store_file_names_are_case_insensitive_on_windows() {
+    let tmp = tempfile::tempdir().unwrap();
+    Pager::open(tmp.path(), &options())
+        .unwrap()
+        .close()
+        .unwrap();
+    fs::rename(tmp.path().join(DATA_FILE), tmp.path().join("MUNINN.DATA")).unwrap();
+    Pager::open(tmp.path(), &options())
+        .unwrap()
+        .close()
+        .unwrap();
+    let leftover = tempfile::tempdir().unwrap();
+    fs::write(leftover.path().join("Muninn.Data.New"), b"half").unwrap();
+    Pager::open(leftover.path(), &options())
+        .unwrap()
+        .close()
+        .unwrap();
+}

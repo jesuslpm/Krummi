@@ -18,7 +18,7 @@ pub(crate) enum Recorded {
     Sync(PathBuf),
     Rename(PathBuf, PathBuf),
     Remove(PathBuf),
-    SyncDir,
+    SyncDir(PathBuf),
 }
 
 /// What an injected fault does.
@@ -144,7 +144,7 @@ pub(crate) fn materialize_power_cut(ops: &[Recorded], cut: usize, source: &Path,
             Recorded::Remove(p) => {
                 live.remove(p);
             }
-            Recorded::SyncDir => {
+            Recorded::SyncDir(_) => {
                 if cfg!(unix) {
                     durable = live.clone();
                 }
