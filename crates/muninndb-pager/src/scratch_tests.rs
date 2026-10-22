@@ -202,3 +202,22 @@ fn a_snapshot_can_run_out_of_memory() {
         assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "a");
     });
 }
+
+#[test]
+fn rewriting_a_page_under_a_long_snapshot_keeps_memory_bounded() {
+    both_modes(|scratch| {
+        let long = scratch.snapshot().unwrap();
+        for i in 0..3000 {
+            commit(&scratch, &i.to_string());
+        }
+        // The long snapshot needs the data file's version; of the rest only the newest one is needed, and the
+        // versions nobody can read are freed at once instead of waiting for the long snapshot to end.
+        assert!(scratch.scratch_bytes() <= 2 * PAGE_SIZE_U64);
+        assert!(scratch.lock().retired.is_empty());
+        assert_eq!(text(long.page(PAGE).unwrap()), "a");
+        assert_eq!(
+            text(scratch.snapshot().unwrap().page(PAGE).unwrap()),
+            "2999"
+        );
+    });
+}

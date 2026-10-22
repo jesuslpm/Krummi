@@ -204,9 +204,11 @@ impl State {
         }
     }
 
-    /// Retires the versions that no open snapshot can read any more. A version that has a newer one is read only
-    /// by the snapshots at least as new as it and older than the newer one; with none open, nobody needs it.
-    fn collect_garbage(&mut self) {
+    /// Takes out the versions that no open snapshot can read any more, for the caller to free. A version that has a
+    /// newer one is read only by the snapshots at least as new as it and older than the newer one; with none
+    /// open, nobody needs it, and nobody can hold a reference to it either: a snapshot that read it would be one
+    /// of those. So it is freed at once, not retired, and a long snapshot does not make them pile up (T14).
+    fn collect_garbage(&mut self) -> Vec<Version> {
         let mut dropped = Vec::new();
         for versions in self.versions.values_mut() {
             if versions.len() < 2 {
@@ -230,7 +232,8 @@ impl State {
             }
             *versions = kept;
         }
-        self.retire(dropped);
+        self.bytes -= dropped.len() as u64 * PAGE_SIZE_U64;
+        dropped
     }
 
     /// Frees the retired versions that no open snapshot can hold a reference to.
@@ -327,9 +330,10 @@ impl<'a> ScratchWriter<'a> {
     /// stay for a later flush.
     pub fn flush(&mut self) -> Result<()> {
         let scratch = self.snapshot.scratch;
+        let garbage;
         let mut pending: Vec<(u64, u64, Arc<SealedPage>)> = {
             let mut state = scratch.lock();
-            state.collect_garbage();
+            garbage = state.collect_garbage();
             let oldest = state.live.first().map(|l| l.txid);
             state
                 .versions
@@ -342,6 +346,7 @@ impl<'a> ScratchWriter<'a> {
                 })
                 .collect()
         };
+        drop(garbage);
         pending.sort_unstable_by_key(|(page_number, _, _)| *page_number);
         for (page_number, txid, page) in pending {
             // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
