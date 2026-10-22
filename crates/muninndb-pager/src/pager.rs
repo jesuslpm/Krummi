@@ -103,9 +103,21 @@ impl Pager {
             if entries.iter().any(|e| e == DATA_FILE) {
                 return open_existing(folder, max_size);
             }
-            let only_leftover = entries.len() == 1
-                && entries[0] == NEW_DATA_FILE
-                && folder.join(NEW_DATA_FILE).is_file();
+            let only_leftover = entries.len() == 1 && entries[0] == NEW_DATA_FILE;
+            if only_leftover {
+                match fs::symlink_metadata(folder.join(NEW_DATA_FILE)) {
+                    Ok(meta) if meta.is_file() => {}
+                    // A folder named muninn.data.new is not a leftover of ours.
+                    Ok(_) => {
+                        return Err(Error::NotAStore {
+                            folder: folder.to_path_buf(),
+                        });
+                    }
+                    // Another opener renamed or discarded it since the folder was listed: look again.
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                    Err(e) => return Err(access(folder, e)),
+                }
+            }
             if !entries.is_empty() && !only_leftover {
                 return Err(Error::NotAStore {
                     folder: folder.to_path_buf(),
