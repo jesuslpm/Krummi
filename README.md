@@ -28,6 +28,7 @@ allowed to use `unsafe` code (decision D12 of the root PRD).
 | `crates/muninndb/` | Public API of the engine |
 | `crates/muninndb-pager/` | The Pager: paged data file, memory mapping, locking, growth; the only crate with `unsafe` |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
+| `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
 | `.claude/skills/` | Project skills: `prd`, `vibe-coding`, `closing-report`, `worktree` |
 | `.claude/hooks/` | Guard that keeps a worktree session inside its own copy |
@@ -44,6 +45,9 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+GitHub Actions runs these checks on Linux and Windows on every push and pull request
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), plus the full AC10 sweep.
 
 The suite runs a sample of the every-byte damage sweep (AC10). The full sweep reopens a store 65,536 times and is
 an acceptance step; run it on Linux, where an antivirus does not scan every modified file:
