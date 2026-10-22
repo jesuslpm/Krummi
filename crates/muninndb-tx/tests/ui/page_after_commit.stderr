@@ -1,0 +1,12 @@
+error[E0505]: cannot move out of `write` because it is borrowed
+  --> tests/ui/page_after_commit.rs:9:5
+   |
+ 6 |     let mut write = engine.write(None).unwrap();
+   |         --------- binding `write` declared here
+ 7 |     let page = write.allocate().unwrap();
+ 8 |     let payload = write.page(page).unwrap();
+   |                   ----- borrow of `write` occurs here
+ 9 |     write.commit().unwrap();
+   |     ^^^^^ move out of `write` occurs here
+10 |     println!("{}", payload[0]);
+   |                    ---------- borrow later used here

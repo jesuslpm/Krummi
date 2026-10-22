@@ -12,6 +12,26 @@ use crate::sys::faults::{self, Action};
 
 const PAGE: u64 = 3;
 
+/// Compiles only when `T` is not `Send`: otherwise the call below is ambiguous between the two impls.
+trait NotSend<A> {
+    fn check() {}
+}
+impl<T: ?Sized> NotSend<()> for T {}
+impl<T: ?Sized + Send> NotSend<u8> for T {}
+
+/// Compiles only when `T` is not `Sync`.
+trait NotSync<A> {
+    fn check() {}
+}
+impl<T: ?Sized> NotSync<()> for T {}
+impl<T: ?Sized + Sync> NotSync<u8> for T {}
+
+#[test]
+fn the_writer_stays_on_its_thread_and_is_never_shared() {
+    <ScratchWriter<'static> as NotSend<_>>::check();
+    <ScratchWriter<'static> as NotSync<_>>::check();
+}
+
 fn sealed(page_number: u64, text: &str) -> SealedPage {
     let mut page = alloc_sealed().unwrap();
     seal_page(page_number, text.as_bytes(), &mut page);

@@ -1,0 +1,11 @@
+error[E0505]: cannot move out of `read` because it is borrowed
+ --> tests/ui/page_after_read_ends.rs:8:10
+  |
+6 |     let read = engine.read().unwrap();
+  |         ---- binding `read` declared here
+7 |     let page = read.page(3).unwrap();
+  |                ---- borrow of `read` occurs here
+8 |     drop(read);
+  |          ^^^^ move out of `read` occurs here
+9 |     println!("{}", page.len());
+  |                    ---- borrow later used here

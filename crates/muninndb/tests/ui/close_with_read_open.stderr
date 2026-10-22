@@ -1,0 +1,11 @@
+error[E0505]: cannot move out of `store` because it is borrowed
+ --> tests/ui/close_with_read_open.rs:7:5
+  |
+5 |     let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+  |         ----- binding `store` declared here
+6 |     let read = store.read().unwrap();
+  |                ----- borrow of `store` occurs here
+7 |     store.close().unwrap();
+  |     ^^^^^ move out of `store` occurs here
+8 |     drop(read);
+  |          ---- borrow later used here

@@ -107,7 +107,9 @@ name = "muninndb"
 version = "0.1.0"
 dependencies = [
  "muninndb-pager",
+ "muninndb-tx",
  "tempfile",
+ "trybuild",
 ]
 
 [[package]]
@@ -130,6 +132,7 @@ dependencies = [
  "muninndb-pager",
  "muninndb-tx",
  "tempfile",
+ "trybuild",
 ]
 
 [[package]]

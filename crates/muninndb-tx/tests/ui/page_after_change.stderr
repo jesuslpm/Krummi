@@ -1,0 +1,9 @@
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/page_after_change.rs:9:5
+   |
+ 8 |     let before = write.page(page).unwrap();
+   |                  ----- immutable borrow occurs here
+ 9 |     write.page_mut(page).unwrap()[0] = 1;
+   |     ^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+10 |     println!("{}", before[0]);
+   |                    --------- immutable borrow later used here

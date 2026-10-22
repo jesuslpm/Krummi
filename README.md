@@ -4,29 +4,42 @@ An embedded, transactional storage engine in Rust, inspired by [Voron](https://g
 the storage engine of RavenDB. The name follows Voron's: *voron* is Russian for raven, and Muninn is the raven
 of memory in Norse mythology.
 
-Implemented so far: module 1, the **Pager** ([PRD](docs/prd/muninndb/pager.prd.md)). An application can create,
-open, inspect and close stores, on disk or in memory; storing data arrives with the transactions of module 2. The
-product and its split into modules are in the [root PRD](docs/prd/muninndb/muninndb.prd.md). Every product change
-starts with a PRD in `docs/prd/muninndb/` (see `CLAUDE.md`).
+Implemented so far: module 1, the **Pager** ([PRD](docs/prd/muninndb/pager.prd.md)), and module 2, the
+**transactions** ([PRD](docs/prd/muninndb/transactions.prd.md)). An application can create, open, inspect and close
+stores, on disk or in memory, and open read transactions from any number of threads and one write transaction at a
+time, which the others wait for in order of arrival. Storing data in them arrives with the data structures of the
+next modules. The product and its split into modules are in the [root PRD](docs/prd/muninndb/muninndb.prd.md).
+Every product change starts with a PRD in `docs/prd/muninndb/` (see `CLAUDE.md`).
 
 ```rust
+use std::time::Duration;
 use muninndb::{Store, StoreOptions};
 
 let store = Store::open("data/orders", &StoreOptions::default())?;
 println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary
-store.close()?;
+let read = store.read()?; // a snapshot: sees every write committed before it opened, none after
+let write = store.write_with_timeout(Duration::from_secs(5))?; // or store.write() to wait without limit
+write.commit()?; // visible to the reads opened from now on
+drop(read);
+store.close()?; // writes what was committed; a crash before closing may lose it until module 3
 ```
 
 A store is a folder with one file, `muninn.data`, made of 8 KiB pages. Only one process can have it open at a
-time. The `muninndb` crate is the public API; `muninndb-pager` is internal to the engine and is the only crate
-allowed to use `unsafe` code (decision D12 of the root PRD).
+time. The `muninndb` crate is the public API; `muninndb-pager` and `muninndb-tx` are internal to the engine, and
+`muninndb-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
+
+As in Voron, a write transaction changes copies of its pages and every page keeps its number: a committed version
+lives in a scratch area in memory while an open read still needs the version before it, and is then written in its
+place in `muninn.data`. Until the journal of module 3, a commit is not durable: what was committed reaches
+`muninn.data` at the latest when the store closes or is dropped.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
 | `crates/muninndb/` | Public API of the engine |
-| `crates/muninndb-pager/` | The Pager: paged data file, memory mapping, locking, growth; the only crate with `unsafe` |
+| `crates/muninndb-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots; the only crate with `unsafe` |
+| `crates/muninndb-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
