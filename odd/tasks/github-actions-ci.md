@@ -24,10 +24,32 @@ Test runner: the workflow itself on GitHub Actions. Estimate: 30–60 min. Real 
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1–S3 | inline | pending | |
-| T2 | S4 | inline | pending | |
+| T1 | S1–S3 | inline | done | `a64152d`, `ea2f292`, `b3a2995` |
+| T2 | S4 | inline | done | runs `39809547401` … `39812202793` |
 
 ## Log
 
 - **L1** (2026-10-22, user, verbatim): "ya tenemos repo en GitHub https://github.com/jesuslpm/MuninnDB", then
   "Sí" to adding the workflow and "Sí, subir la rama (Recommended)".
+- **L2** (2026-10-22): run `39809547401` (`a64152d`): Linux green, AC10 full included; Windows failed
+  `a_store_is_created_inspected_closed_and_reopened` (`NotAStore` instead of `StoreInUse`). `--no-fail-fast`
+  added (`ea2f292`); run `39810106741` showed the cause in `ac_p6_*`: the data file was named
+  `muninn.data` followed by garbage. RED reproduced locally with folder names of 1–12 characters (3 failed).
+  **Pager bug, also in `main`:** the Windows rename by handle passed a name without a NUL terminator, and kernel32
+  reads it as a NUL-terminated string. Fixed in `6a8d000`; run `39810982198` green on both systems; AC10 full on
+  the runners: Linux 90.1 s, Windows 73.9 s (the local antivirus was what made it impractical, L7 of the Pager).
+- **L3** (2026-10-22, RDD review): commits `4d37d64..c673e94`; lenses risk, resilience, reliability;
+  **approved**; lineage `review-ca79ed5edb730044` (the first bound STATUS timed out with
+  `operation_timeout`, `mutation_outcome: not_started`; the preflight was repeated and START replayed).
+  Findings: reliability WARNING `R3-002` (README said "every push" but the workflow filtered branches) and
+  SUGGESTION `R3-001` (the path-length test catches the over-read only by chance); both fixed in `b3a2995`
+  (CI on every push; deterministic Windows unit test of the FILE_RENAME_INFO buffer, which fails without the
+  terminator).
+- **L4** (2026-10-22): run `39812202793` (`b3a2995`) green: Windows 2 min 50 s, Linux 1 min 07 s; AC10 full
+  74.6 s and 42.6 s.
+- **L5** (2026-10-22, RDD review): commit `c673e94..b3a2995`; lenses risk, reliability; **approved**, no
+  findings; lineage `review-5ccd94683f19400d`.
+
+## Closing
+
+Report: [github-actions-ci-report.md](github-actions-ci-report.md).
