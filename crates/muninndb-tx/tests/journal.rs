@@ -66,3 +66,175 @@ fn a_failure_of_the_temporary_area_fails_the_commit_without_applying_it() {
         engine.close().unwrap();
     }
 }
+
+fn journal_files(folder: &Path) -> Vec<String> {
+    names(folder)
+        .into_iter()
+        .filter(|n| n.starts_with(muninndb_pager::JOURNAL_PREFIX))
+        .collect()
+}
+
+fn journal_bytes(folder: &Path) -> u64 {
+    journal_files(folder)
+        .iter()
+        .map(|n| fs::metadata(folder.join(n)).unwrap().len())
+        .sum()
+}
+
+/// AC-J1: opening leaves only `muninn.data`; a commit adds journal files while the transfer is held back; a clean
+/// close leaves only `muninn.data` again, with every change.
+#[test]
+fn ac_j1_the_journal_appears_with_commits_and_goes_with_a_clean_close() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("new").join("store");
+    let engine = disk(&folder);
+    assert_eq!(names(&folder), vec!["muninn.data"]);
+    let page = new_page(&engine, "a");
+    let hold = engine.read().unwrap();
+    set(&engine, page, "b");
+    assert!(!journal_files(&folder).is_empty());
+    drop(hold);
+    engine.close().unwrap();
+    assert_eq!(names(&folder), vec!["muninn.data"]);
+    let engine = disk(&folder);
+    assert_eq!(read_text(&engine, page), "b");
+    engine.close().unwrap();
+}
+
+/// AC-J8 and J17: making what is committed durable.
+#[test]
+fn ac_j8_making_what_is_committed_durable() {
+    use muninndb_pager::testing::{Action, Op, inject, reset};
+    use muninndb_tx::ErrorKind;
+    use std::io;
+    use std::sync::mpsc;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    engine.make_durable().unwrap();
+    let page = new_page(&engine, "a");
+
+    // It does not wait for the open write transaction.
+    std::thread::scope(|s| {
+        let (opened, wait_opened) = mpsc::channel();
+        let (finish, wait_finish) = mpsc::channel::<()>();
+        let engine = &engine;
+        let holder = s.spawn(move || {
+            let tx = engine.write(None).unwrap();
+            opened.send(()).unwrap();
+            wait_finish.recv().unwrap();
+            tx.abort();
+        });
+        wait_opened.recv().unwrap();
+        engine.make_durable().unwrap();
+        finish.send(()).unwrap();
+        holder.join().unwrap();
+    });
+
+    // A failed flush is an I/O failure, and the store refuses writes.
+    let mut tx = engine.write(None).unwrap();
+    common::put(&mut tx, page, "deferred");
+    tx.commit_deferred().unwrap();
+    reset();
+    inject(Op::Sync, 0, Action::Fail(io::ErrorKind::Other));
+    assert_eq!(engine.make_durable().unwrap_err().kind(), ErrorKind::Io);
+    reset();
+    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+    // With nothing pending, a store that refuses writes still fails at once.
+    assert_eq!(engine.make_durable().unwrap_err().kind(), ErrorKind::Io);
+    drop(engine);
+
+    // A temporary store accepts both and does nothing more.
+    let engine = common::temporary();
+    let page = new_page(&engine, "a");
+    let mut tx = engine.write(None).unwrap();
+    common::put(&mut tx, page, "b");
+    tx.commit_deferred().unwrap();
+    engine.make_durable().unwrap();
+    assert_eq!(read_text(&engine, page), "b");
+}
+
+/// AC-J15 (first part): a commit of compressible pages takes less space in the journal than its pages.
+#[test]
+fn ac_j15_compressible_commits_take_less_space_in_the_journal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let hold = engine.read().unwrap();
+    let mut tx = engine.write(None).unwrap();
+    for _ in 0..100 {
+        let page = tx.allocate().unwrap();
+        tx.page_mut(page).unwrap().fill(0x5A);
+    }
+    tx.commit().unwrap();
+    let journal = journal_bytes(tmp.path());
+    assert!(journal > 0 && journal < 100 * 8192, "{journal} bytes");
+    drop(hold);
+    engine.close().unwrap();
+}
+
+/// AC-J17: a transfer held back by the test blocks neither another commit nor a read.
+#[test]
+fn ac_j17_a_running_transfer_blocks_neither_writers_nor_readers() {
+    use std::sync::{Arc, Barrier};
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let page = new_page(&engine, "a");
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let (e, r) = (Arc::clone(&entered), Arc::clone(&release));
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let first = Arc::clone(&armed);
+    engine.set_transfer_hook(Some(Arc::new(move || {
+        if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            e.wait();
+            r.wait();
+        }
+    })));
+    std::thread::scope(|s| {
+        let stuck = s.spawn(|| set(&engine, page, "b"));
+        entered.wait();
+        set(&engine, page, "c");
+        assert_eq!(read_text(&engine, page), "c");
+        release.wait();
+        stuck.join().unwrap();
+    });
+    engine.set_transfer_hook(None);
+    engine.close().unwrap();
+}
+
+/// AC-J18: without reads, a maximum size with room only for one write's pages is enough for any number of
+/// writes, and the journal does not grow.
+#[test]
+fn ac_j18_the_journal_stays_bounded_and_outside_the_maximum_size() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let pages: Vec<u64> = (0..4)
+        .map(|i| new_page(&engine, &format!("p{i}")))
+        .collect();
+    let mut tx = engine.write(None).unwrap();
+    while tx.allocate().unwrap() < 200 {}
+    tx.commit().unwrap();
+    let size = engine.info().size_bytes;
+    assert!(size >= 1 << 20);
+    engine.close().unwrap();
+    let options = muninndb_tx::OpenOptions {
+        max_size: Some(size + 5 * 8192),
+    };
+    let engine = muninndb_tx::Engine::open(tmp.path(), &options).unwrap();
+    engine.set_journal_file_limit(64 * 1024);
+    let mut measures = Vec::new();
+    for round in 0..2 {
+        for i in 0..1000 {
+            let mut tx = engine.write(None).unwrap();
+            for &page in &pages {
+                common::put(&mut tx, page, &format!("{round}-{i}"));
+            }
+            tx.commit().unwrap();
+        }
+        engine.checkpoint().unwrap();
+        measures.push(journal_bytes(tmp.path()));
+    }
+    assert!(measures[1] <= measures[0], "{measures:?}");
+    assert_eq!(read_text(&engine, pages[3]), "1-999");
+    engine.close().unwrap();
+}

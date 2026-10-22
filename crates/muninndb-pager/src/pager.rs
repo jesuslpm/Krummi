@@ -74,13 +74,16 @@ struct HeaderState {
     header: Header,
     /// Index in [`format::HEADER_COPY_OFFSETS`] of the copy the next write replaces: never the current one.
     next_copy: usize,
+    /// What the other copy records as applied: `0` when it is damaged.
+    other_applied: u64,
 }
 
 impl HeaderState {
-    fn new(header: Header, current_copy: usize) -> HeaderState {
+    fn new(header: Header, current_copy: usize, other: Option<Header>) -> HeaderState {
         HeaderState {
             header,
             next_copy: 1 - current_copy,
+            other_applied: other.map_or(0, |h| h.applied_txid.min(header.applied_txid)),
         }
     }
 }
@@ -206,7 +209,11 @@ impl Pager {
             })),
             max_size,
             writes_disabled: AtomicBool::new(false),
-            header: Mutex::new(HeaderState::new(Header::new_store(), 0)),
+            header: Mutex::new(HeaderState::new(
+                Header::new_store(),
+                0,
+                Some(Header::new_store()),
+            )),
         })
     }
 
@@ -236,9 +243,16 @@ impl Pager {
                 .and_then(|()| sys::sync(&f.file, &f.path))
                 .map_err(|e| self.write_failed(e, 0))?;
         }
+        state.other_applied = state.header.applied_txid;
         state.header = header;
         state.next_copy = 1 - state.next_copy;
         Ok(())
+    }
+
+    /// The last commit both header copies record as applied: journal files up to it are needed by neither (J8).
+    pub(crate) fn applied_by_both_copies(&self) -> u64 {
+        let state = self.header.lock().unwrap();
+        state.header.applied_txid.min(state.other_applied)
     }
     pub fn info(&self) -> Info {
         let len = self.len();
@@ -415,6 +429,17 @@ impl Pager {
         self.writes_disabled.store(false, Ordering::Release);
     }
 
+    /// Flushes `muninn.data` to the disk while pages may be borrowed (J6 of the Journal PRD). A failure makes the
+    /// store refuse writes until it is reopened.
+    pub(crate) fn flush_data(&self) -> Result<()> {
+        self.check_writable()?;
+        let result = match &self.storage {
+            Storage::File(f) => sys::sync(&f.file, &f.path),
+            Storage::Memory(_) => Ok(()),
+        };
+        result.map_err(|e| self.write_failed(e, 0))
+    }
+
     /// Flushes the written pages to the disk. A failure makes the store refuse writes until it is reopened.
     pub fn sync(&mut self) -> Result<()> {
         self.check_writable()?;
@@ -535,7 +560,7 @@ impl Pager {
         Ok(cap.map_or(target, |cap| target.min(cap)))
     }
 
-    fn check_writable(&self) -> Result<()> {
+    pub(crate) fn check_writable(&self) -> Result<()> {
         if self.writes_disabled.load(Ordering::Acquire) {
             return Err(Error::Io {
                 folder: self.folder.clone().unwrap_or_default(),
@@ -703,7 +728,7 @@ fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
     // The copy the header was read from is the current one; with two equal copies, either.
     let copies = format::header_copies(&start[..read]);
     let current_copy = usize::from(copies[0] != Some(header));
-    let header = HeaderState::new(header, current_copy);
+    let header = HeaderState::new(header, current_copy, copies[1 - current_copy]);
     let file_len = file
         .metadata()
         .map_err(|source| Error::Io {
@@ -856,7 +881,7 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
         INITIAL_SIZE,
         map,
         max_size,
-        HeaderState::new(Header::new_store(), 0),
+        HeaderState::new(Header::new_store(), 0, Some(Header::new_store())),
     )))
 }
 

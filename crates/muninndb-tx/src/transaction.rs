@@ -89,11 +89,22 @@ impl<'e> WriteTransaction<'e> {
         self.track(result)
     }
 
-    /// Commits the transaction: its changes become visible to every transaction opened after this returns (T2)
-    /// and reach `muninn.data` at the latest when the store closes (T9). If an operation failed, the commit fails
-    /// with the class of the first failure and applies nothing (T11). A transaction without changes commits
-    /// without writing anything (T10). The transaction ends either way.
-    pub fn commit(mut self) -> Result<()> {
+    /// Commits the transaction durably (J4 of the Journal PRD): it returns once the commit survives a crash, and
+    /// its changes become visible to every transaction opened after this returns (T2). If an operation failed, the
+    /// commit fails with the class of the first failure and applies nothing (T11). A transaction without changes
+    /// commits without writing anything (T10). The transaction ends either way.
+    pub fn commit(self) -> Result<()> {
+        self.commit_with(true)
+    }
+
+    /// Commits the transaction in deferred mode (J10): it returns once the commit is written to the journal,
+    /// without waiting for it to be durable. It survives a crash of the process, and becomes durable with the next
+    /// durable commit with changes, [`Engine::make_durable`] or the close.
+    pub fn commit_deferred(self) -> Result<()> {
+        self.commit_with(false)
+    }
+
+    fn commit_with(mut self, durable: bool) -> Result<()> {
         if let Some(error) = self.failure.get_mut().take() {
             return Err(error);
         }
@@ -101,8 +112,6 @@ impl<'e> WriteTransaction<'e> {
             return Ok(());
         }
         self.engine.hook(Point::CommitFlush);
-        let flushed = self.writer.flush();
-        self.track(flushed)?;
         self.engine.hook(Point::CommitSeal);
         let reserved = self.dirty.contains_key(&META_PAGE);
         if let Some(meta) = self.dirty.get_mut(&META_PAGE) {
@@ -110,16 +119,19 @@ impl<'e> WriteTransaction<'e> {
         }
         let sealed = self.seal();
         let pages = self.track(sealed)?;
-        let staged = self.writer.stage(&pages);
-        let staged = self.track(staged)?;
         self.engine.hook(Point::CommitPublish);
-        self.writer.publish(staged);
+        let committed = self.writer.commit(&pages, durable);
+        self.track(committed)?;
         self.engine
             .next_page
             .store(self.next_page, Ordering::Release);
         if reserved {
             self.engine.meta_written.store(true, Ordering::Release);
         }
+        // The turn goes to the next writer before the transfer, which never blocks it (J5).
+        let engine = self.engine;
+        drop(self);
+        engine.transfer();
         Ok(())
     }
 

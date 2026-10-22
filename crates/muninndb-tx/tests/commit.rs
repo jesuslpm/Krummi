@@ -455,19 +455,22 @@ fn ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it() {
     }
 }
 
+/// J6 replaces AC-T21: the close records in both header copies the last commit, which `muninn.data` holds.
 #[test]
-fn ac_t21_transactions_never_rewrite_the_header() {
+fn j6_the_close_records_the_last_commit_in_both_header_copies() {
     let tmp = tempfile::tempdir().unwrap();
-    disk(tmp.path()).close().unwrap();
-    let header = || fs::read(tmp.path().join(DATA_FILE)).unwrap()[..2 * PAGE_SIZE].to_vec();
-    let before = header();
     let engine = disk(tmp.path());
     let page = new_page(&engine, "a");
     for text in ["b", "c", "d"] {
         set(&engine, page, text);
     }
     engine.close().unwrap();
-    assert_eq!(header(), before);
+    let bytes = fs::read(tmp.path().join(DATA_FILE)).unwrap();
+    let copies = muninndb_pager::format::header_copies(&bytes[..2 * PAGE_SIZE]);
+    assert_eq!(copies.map(|c| c.unwrap().applied_txid), [4, 4]);
+    let engine = disk(tmp.path());
+    assert_eq!(read_text(&engine, page), "d");
+    engine.close().unwrap();
 }
 
 #[test]

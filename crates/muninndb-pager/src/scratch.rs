@@ -20,7 +20,9 @@ use std::mem::size_of;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::error::{Error, Result};
+use crate::format::Header;
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
+use crate::journal::Journal;
 use crate::pager::{Info, Pager};
 use crate::sys;
 use crate::temp::{Slot, TempArea};
@@ -55,13 +57,19 @@ pub struct Scratch {
     pager: Option<Pager>,
     /// Where the versions live (J7 of the Journal PRD).
     area: Arc<TempArea>,
+    /// The journal of a store on disk; `None` for a temporary store (J17).
+    journal: Option<Journal>,
     state: Mutex<State>,
     /// Held by the one [`ScratchWriter`] that may exist at a time.
     writer: Mutex<()>,
+    /// Held while versions are written in place, so no two writes of a page overlap (J5).
+    flushing: Mutex<()>,
+    /// Called by a transfer while it holds `flushing` (tests).
+    transfer_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 struct State {
-    /// Number of the newest committed version; `0` is what the data file had when the store opened.
+    /// Number of the newest committed version: commits are numbered on from what the header records (J6).
     last_committed: u64,
     /// Versions of each page that are only here, oldest first.
     versions: HashMap<u64, Vec<Version>>,
@@ -87,13 +95,20 @@ struct Live {
 }
 
 impl Scratch {
-    /// Puts a scratch area in front of an open store.
+    /// Puts a scratch area and an empty journal in front of an open store that needs no recovery.
     pub fn new(pager: Pager) -> Scratch {
+        let header = pager.header();
+        let journal = pager
+            .folder()
+            .map(|folder| Journal::new(folder, header.applied_txid, header.journal_first));
         Scratch {
             area: Arc::new(TempArea::new(pager.folder())),
+            journal,
             pager: Some(pager),
+            flushing: Mutex::new(()),
+            transfer_hook: Mutex::new(None),
             state: Mutex::new(State {
-                last_committed: 0,
+                last_committed: header.applied_txid,
                 versions: HashMap::new(),
                 bytes: 0,
                 live: Vec::new(),
@@ -136,8 +151,128 @@ impl Scratch {
         })
     }
 
+    /// Makes every commit returned so far durable (J11). Fails at once with the I/O class when the store refuses
+    /// writes (T12). A temporary store has nothing to do (J17).
+    pub fn make_durable(&self) -> Result<()> {
+        let pager = self.pager();
+        pager.check_writable()?;
+        match &self.journal {
+            Some(journal) => journal.make_durable(pager),
+            None => Ok(()),
+        }
+    }
+
+    /// Transfers to `muninn.data` the durable versions that no read needs any more, unless a transfer is already
+    /// running (J5). It never waits for another transfer, so it never blocks a writer or a reader.
+    pub fn transfer(&self) -> Result<()> {
+        let Ok(guard) = self.flushing.try_lock() else {
+            return Ok(());
+        };
+        let hook = self
+            .transfer_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        self.flush_locked(&guard, false)
+    }
+
+    /// Sets a function a transfer calls while it holds its lock, or none (tests: AC-J17).
+    pub fn set_transfer_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self
+            .transfer_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Sets the size at which the journal goes on in a new file (tests).
+    pub fn set_journal_file_limit(&self, bytes: u64) {
+        if let Some(journal) = &self.journal {
+            journal.set_file_limit(bytes);
+        }
+    }
+
+    /// Transfers everything no read needs, waiting for a running transfer, and records it in both header copies,
+    /// so that the journal keeps only what later commits need (tests: AC-J18).
+    pub fn checkpoint(&self) -> Result<()> {
+        let guard = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
+        self.flush_locked(&guard, true)?;
+        if let Some(journal) = &self.journal {
+            journal.start_new_file(self.pager())?;
+        }
+        self.record_applied(&guard)?;
+        self.record_applied(&guard)
+    }
+
+    /// Writes in place every newest version that no open snapshot is older than and that is durable, after
+    /// retiring the versions that no snapshot can read any more; with `force`, the journal is made durable first,
+    /// so every such version goes (J5). When the journal has gone on in a new file, the header records the
+    /// transfer and the files no header copy needs are removed.
+    fn flush_locked(&self, flushing: &MutexGuard<'_, ()>, force: bool) -> Result<()> {
+        let pager = self.pager();
+        let durable = match &self.journal {
+            Some(journal) if force => {
+                journal.make_durable(pager)?;
+                u64::MAX
+            }
+            Some(journal) => journal.synced_upto(),
+            None => u64::MAX,
+        };
+        let garbage;
+        let mut pending: Vec<(u64, u64, Arc<Slot>)> = {
+            let mut state = self.lock();
+            garbage = state.collect_garbage();
+            let oldest = state.live.first().map(|l| l.txid);
+            state
+                .versions
+                .iter()
+                .filter_map(|(&page_number, versions)| {
+                    let newest = versions.last()?;
+                    (newest.txid <= durable && oldest.is_none_or(|oldest| oldest >= newest.txid))
+                        .then(|| (page_number, newest.txid, Arc::clone(&newest.page)))
+                })
+                .collect()
+        };
+        drop(garbage);
+        pending.sort_unstable_by_key(|(page_number, _, _)| *page_number);
+        for (page_number, txid, page) in pending {
+            // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
+            // where its newest version stays until the write ends, and `flushing` makes this the only write.
+            unsafe { pager.write_sealed_shared(page_number, page.page())? };
+            let mut state = self.lock();
+            if state.versions[&page_number].last().map(|v| v.txid) == Some(txid) {
+                let versions = state.versions.remove(&page_number).unwrap_or_default();
+                state.retire(versions);
+            }
+        }
+        if self.journal.as_ref().is_some_and(Journal::has_old_files) {
+            self.record_applied(flushing)?;
+        }
+        Ok(())
+    }
+
+    /// Flushes `muninn.data`, records in the next header copy the last commit it holds entirely, and removes the
+    /// journal files that neither header copy needs (J6).
+    fn record_applied(&self, _flushing: &MutexGuard<'_, ()>) -> Result<()> {
+        let Some(journal) = &self.journal else {
+            return Ok(());
+        };
+        let pager = self.pager();
+        pager.flush_data()?;
+        let applied = self.lock().applied();
+        pager.write_header(Header {
+            applied_txid: applied,
+            journal_first: journal.first_needed(applied),
+            ..pager.header()
+        })?;
+        journal.remove_files(pager, pager.applied_by_both_copies(), false)
+    }
+
     /// Writes every committed version to the data file and closes the store, which releases its lock even if a
-    /// write fails (P14). A store that refused writes after a failure tries them again here (T12).
+    /// write fails (P14). A store that refused writes after a failure tries them again here (T12); if the close
+    /// fails, the journal stays for the next opening to recover (J14).
     pub fn close(mut self) -> Result<()> {
         let flushed = self.flush_all();
         let pager = self.pager.take().expect("the store is open");
@@ -145,10 +280,14 @@ impl Scratch {
         flushed.and(closed)
     }
 
-    /// Writes the newest version of every page to the data file and empties the scratch area.
+    /// Makes the journal durable, writes the newest version of every page to the data file, records it in both
+    /// header copies and removes the journal and the temporary area (J14).
     fn flush_all(&mut self) -> Result<()> {
         let pager = self.pager.as_mut().expect("the store is open");
         pager.allow_writes_again();
+        if let Some(journal) = &self.journal {
+            journal.make_durable(pager)?;
+        }
         let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
         let mut pages: Vec<_> = state.versions.keys().copied().collect();
         pages.sort_unstable();
@@ -164,6 +303,18 @@ impl Scratch {
             state.bytes -= versions.len() as u64 * PAGE_SIZE_U64;
         }
         state.retired.clear();
+        if let Some(journal) = &self.journal {
+            pager.flush_data()?;
+            let applied = state.last_committed;
+            for _ in 0..2 {
+                pager.write_header(Header {
+                    applied_txid: applied,
+                    journal_first: journal.first_needed(applied),
+                    ..pager.header()
+                })?;
+            }
+            journal.remove_files(pager, applied, true)?;
+        }
         self.area.remove().map_err(|e| pager.fail_write(e, 0))
     }
 
@@ -201,6 +352,16 @@ impl Drop for Scratch {
 }
 
 impl State {
+    /// The last commit whose changes are all in the data file: every version left here is newer.
+    fn applied(&self) -> u64 {
+        self.versions
+            .values()
+            .filter_map(|versions| versions.first())
+            .map(|v| v.txid - 1)
+            .min()
+            .unwrap_or(self.last_committed)
+    }
+
     /// Moves page versions out of `versions`; they are freed once the snapshots that may use them end.
     fn retire(&mut self, versions: impl IntoIterator<Item = Version>) {
         let bound = self.next_seq.saturating_sub(1);
@@ -332,44 +493,31 @@ impl<'a> ScratchWriter<'a> {
         &self.snapshot
     }
 
-    /// Writes in place every newest version that no open snapshot is older than, after retiring the versions
-    /// that no snapshot can read any more. Versions written before a failure leave the scratch area; the rest
-    /// stay for a later flush.
+    /// Writes in place every newest version that no open snapshot is older than, making the journal durable
+    /// first (J5), and waiting for a transfer that is running. Versions written before a failure leave the
+    /// scratch area; the rest stay for a later flush.
     pub fn flush(&mut self) -> Result<()> {
         let scratch = self.snapshot.scratch;
-        let garbage;
-        let mut pending: Vec<(u64, u64, Arc<Slot>)> = {
-            let mut state = scratch.lock();
-            garbage = state.collect_garbage();
-            let oldest = state.live.first().map(|l| l.txid);
-            state
-                .versions
-                .iter()
-                .filter_map(|(&page_number, versions)| {
-                    let newest = versions.last()?;
-                    oldest
-                        .is_none_or(|oldest| oldest >= newest.txid)
-                        .then(|| (page_number, newest.txid, Arc::clone(&newest.page)))
-                })
-                .collect()
-        };
-        drop(garbage);
-        pending.sort_unstable_by_key(|(page_number, _, _)| *page_number);
-        for (page_number, txid, page) in pending {
-            // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
-            // where its newest version stays until the write ends, and this writer is the only one.
-            unsafe {
-                scratch
-                    .pager()
-                    .write_sealed_shared(page_number, page.page())?
-            };
-            let mut state = scratch.lock();
-            if state.versions[&page_number].last().map(|v| v.txid) == Some(txid) {
-                let versions = state.versions.remove(&page_number).unwrap_or_default();
-                state.retire(versions);
-            }
+        let guard = scratch
+            .flushing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        scratch.flush_locked(&guard, true)
+    }
+
+    /// Commits `pages`, each sealed for its number: copies them into the temporary area, appends them to the
+    /// journal, flushed when `durable` (J4, J10), and publishes them. Returns the number of the commit. On failure
+    /// nothing is published (J12).
+    pub fn commit(&mut self, pages: &[(u64, SealedPage)], durable: bool) -> Result<u64> {
+        let staged = self.stage(pages)?;
+        let scratch = self.snapshot.scratch;
+        if let Some(journal) = &scratch.journal {
+            let txid = scratch.lock().last_committed + 1;
+            let refs: Vec<(u64, &[u8; PAGE_SIZE])> =
+                pages.iter().map(|(n, p)| (*n, &**p)).collect();
+            journal.append(scratch.pager(), txid, &refs, durable)?;
         }
-        Ok(())
+        Ok(self.publish(staged))
     }
 
     /// Copies `pages`, each sealed for its number, into the temporary area, ready to be published (J7). Nothing

@@ -29,14 +29,14 @@ pub const FIRST_PAGE: u64 = META_PAGE + 1;
 pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
 
 /// A point of a commit or of the hand-off of the write turn where tests can stop or interrupt the engine
-/// (AC-T5, AC-T18, AC-T19). Every commit point comes before the commit is published.
+/// (AC-T5, AC-T18, AC-T19). Every commit point comes before the commit is written to the journal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Point {
-    /// The commit is about to write in place the versions no read needs any more.
+    /// The commit starts.
     CommitFlush,
     /// The commit is about to seal its pages.
     CommitSeal,
-    /// The commit is about to publish its pages.
+    /// The commit is about to write its pages to the temporary area and the journal and publish them.
     CommitPublish,
     /// A write transaction ended and others are waiting for the turn.
     Handoff,
@@ -163,10 +163,47 @@ impl Engine {
         }
     }
 
-    /// Closes the store: writes what was committed and releases its lock, even if writing fails (T9, T12, P14).
-    /// Dropping an `Engine` writes it too, without reporting a failure.
+    /// Makes every commit returned so far durable, deferred ones included (J11 of the Journal PRD). It does not
+    /// wait for the open write transaction. Fails at once with the I/O class when the store refuses writes (T12).
+    pub fn make_durable(&self) -> Result<()> {
+        let result = self.scratch.make_durable();
+        if result.is_err() {
+            self.note_failure();
+        }
+        result
+    }
+
+    /// Closes the store: transfers what was committed to `muninn.data`, removes the journal and releases its
+    /// lock, which is released even if writing fails; then the journal stays for the next opening (J14, P14).
+    /// Dropping an `Engine` does the same, without reporting a failure.
     pub fn close(self) -> Result<()> {
         self.scratch.close()
+    }
+
+    /// Transfers to `muninn.data` what no read needs; a failure makes the store refuse writes, which the next
+    /// operations report (J5, J13).
+    fn transfer(&self) {
+        if self.scratch.transfer().is_err() {
+            self.note_failure();
+        }
+    }
+
+    /// Transfers everything no read needs and records it in both header copies (tests: AC-J18).
+    #[cfg(feature = "test-hooks")]
+    pub fn checkpoint(&self) -> Result<()> {
+        self.scratch.checkpoint()
+    }
+
+    /// Sets the size at which the journal goes on in a new file (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_journal_file_limit(&self, bytes: u64) {
+        self.scratch.set_journal_file_limit(bytes);
+    }
+
+    /// Sets a function the transfer calls while it holds its lock, or none (tests: AC-J17).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_transfer_hook(&self, hook: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
+        self.scratch.set_transfer_hook(hook);
     }
 
     /// Sets the function called at each [`Point`], or none.
