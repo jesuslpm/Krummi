@@ -51,6 +51,17 @@ larga no se recuperaba en esa apertura. Se corrigen para seguir el diseño de Vo
 número y la versión nueva se escribe en su sitio cuando ninguna lectura necesita la anterior, de modo que ese
 espacio se recupera al terminar las lecturas.*
 
+*Anotaciones del 2026-10-22 desde el módulo 3 ([journal.prd.md](journal.prd.md)):*
+
+- *T9 y T12: termina la excepción temporal; lo confirmado ya no puede faltar al reabrir, y un fallo del traslado a
+  `muninn.data`, que ocurre fuera de las operaciones de la aplicación, lo informan las peticiones de escritura, la
+  confirmación con cambios de la escritura abierta, la operación de hacer durable lo confirmado y el cierre
+  (decisión J13).*
+- *T14, T16 y el punto de Fuera de alcance sobre el área temporal: las versiones confirmadas que no están en
+  `muninn.data` viven en archivos de la subcarpeta `muninn.temp`, no en la memoria del proceso (decisión J7).*
+- *T17 y AC-T21: el encabezado se reescribe cuando avanza el traslado a `muninn.data`; AC-T21 deja de valer
+  (decisión J6).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

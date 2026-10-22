@@ -110,6 +110,14 @@ de usar el almacén sin cerrarlo cuando falla la escritura pueden dejar el archi
 apertura; tras un cierre sin error, lo confirmado está, y G6 sigue valiendo (decisión T9 de
 [transactions.prd.md](transactions.prd.md)).*
 
+*Anotación del 2026-10-22: la excepción temporal anterior termina con el módulo 3; lo confirmado de forma durable
+ya no puede faltar al reabrir (decisiones J4 y J13 de [journal.prd.md](journal.prd.md)).*
+
+*Anotación del 2026-10-22: G5, G6 y D10 se precisan para el diario. Una confirmación del diario dañada, incompleta
+o que falta, que no consta como durable en el propio diario, se descarta sin error como una confirmación que no
+terminó; y si se daña la última confirmación durable sin ninguna posterior, no se distingue de ella y también se
+descarta (decisión J9 de [journal.prd.md](journal.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,
@@ -288,6 +296,9 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
     observable en los datos leídos, salvo las de la marca de identificación, que producen el error de que no es un
     almacén; nunca datos distintos de los escritos (G6, D10). Cada PRD hijo lo repite con las
     estructuras que añade.
+
+    *Anotación del 2026-10-22 a AC10: una alteración en la última confirmación del diario también puede producir su
+    descarte sin error (decisión J9 de [journal.prd.md](journal.prd.md)).*
 11. **AC11** — Dado un disco sin espacio, cuando una transacción de escritura no cabe, entonces falla con la clase
     de error de disco lleno, no aplica ningún cambio, el almacén sigue permitiendo transacciones de lectura y,
     al liberar espacio, una escritura siguiente se confirma sin reabrir (G7).

@@ -46,6 +46,16 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 | P16 | **Unsafe code** (D12 of the parent): the Rust unsafe code that the Pager needs (mapping the file into memory and reading over that mapping) stays inside the Pager, behind a safe interface, and each use carries written the condition that makes it correct. No public operation of the engine can cause undefined behavior, unless another program modifies `muninn.data` while the store is open (see Out of scope). |
 | P17 | **Physical read failure**: as in Voron, a disk failure when reading a page through the mapping (an unreadable sector, a disk that disconnects) ends the process instead of returning an error: the system reports it with a signal or a processor exception that cannot safely be turned into an error. On reopening, if the failure persists, it appears on opening or on reading that page. It is an exception to G12 of the parent, annotated in it; G12 still holds for writes and for everything that is not read through the mapping. |
 
+*Annotations of 2026-10-22 from module 3 ([journal.prd.en.md](journal.prd.en.md)):*
+
+- *P3 and P7: the journal files (`muninn.journal.` followed by 19 digits) and the `muninn.temp` subfolder are names
+  reserved by the store, which creates and deletes them; other names are still foreign (decision J2).*
+- *P5: the current format version becomes `2`; a store of format `1` is of an older format (decision J3).*
+- *P10 and P11: recovery grows `muninn.data` as much as the recovered commits need even if it exceeds the maximum
+  size requested on opening, and the growth made by a write that was never committed may not survive a crash
+  (decision J8).*
+- *P17: it also holds for the files of `muninn.temp`, which reads use without copying (decision J7).*
+
 ### Starting state
 
 Verified on 2026-10-22:

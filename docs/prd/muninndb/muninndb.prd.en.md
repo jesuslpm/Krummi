@@ -111,6 +111,14 @@ ceasing to use the store without closing it when the write fails may leave the d
 committed since the last opening; after a close without error, what was committed is there, and G6 still holds
 (decision T9 of [transactions.prd.en.md](transactions.prd.en.md)).*
 
+*Annotation of 2026-10-22: the previous temporary exception ends with module 3; what was committed durably can no
+longer be missing after reopening (decisions J4 and J13 of [journal.prd.en.md](journal.prd.en.md)).*
+
+*Annotation of 2026-10-22: G5, G6 and D10 are made precise for the journal. A damaged, incomplete or missing journal
+commit that the journal itself does not record as durable is discarded without error as a commit that did not
+finish; and if the last durable commit is damaged with no later commit, it cannot be told apart from one and is
+also discarded (decision J9 of [journal.prd.en.md](journal.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,
@@ -286,6 +294,9 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
     opened and read, then each alteration produces an error of the damage class or no observable difference in
     the data read, except those of the identification mark, which produce the not-a-store error; never data
     different from what was written (G6, D10). Each child PRD repeats it with the structures it adds.
+
+    *Annotation of 2026-10-22 to AC10: an alteration in the last commit of the journal may also cause it to be
+    discarded without error (decision J9 of [journal.prd.en.md](journal.prd.en.md)).*
 11. **AC11** — Given a disk with no space, when a write transaction does not fit, then it fails with the
     disk-full error class, applies no change, the store still allows read transactions and, when space is freed,
     a following write commits without reopening (G7).

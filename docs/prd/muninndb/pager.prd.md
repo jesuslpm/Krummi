@@ -44,6 +44,17 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 | P16 | **Código no seguro** (D12 del padre): el código no seguro de Rust que necesita el Pager (proyectar el archivo en memoria y leer sobre esa proyección) queda dentro del Pager, detrás de una interfaz segura, y cada uso lleva escrita la condición que lo hace correcto. Ninguna operación pública del motor puede provocar un comportamiento indefinido, salvo que otro programa modifique `muninn.data` con el almacén abierto (ver Fuera de alcance). |
 | P17 | **Fallo físico de lectura**: como en Voron, un fallo del disco al leer una página a través de la proyección (un sector ilegible, un disco que se desconecta) termina el proceso en lugar de devolver un error: el sistema lo comunica con una señal o una excepción del procesador que no se puede convertir en error con seguridad. Al reabrir, si el fallo persiste, aparece al abrir o al leer esa página. Es una excepción a G12 del padre, anotada en él; G12 sigue valiendo para las escrituras y para todo lo que no se lee a través de la proyección. |
 
+*Anotaciones del 2026-10-22 desde el módulo 3 ([journal.prd.md](journal.prd.md)):*
+
+- *P3 y P7: los archivos del diario (`muninn.journal.` seguido de 19 cifras) y la subcarpeta `muninn.temp` son
+  nombres reservados del almacén, que los crea y los borra; los demás nombres siguen siendo ajenos (decisión J2).*
+- *P5: la versión de formato vigente pasa a ser `2`; un almacén de formato `1` es de formato anterior (decisión
+  J3).*
+- *P10 y P11: la recuperación hace crecer `muninn.data` lo que necesitan las confirmaciones recuperadas aunque
+  supere el tamaño máximo pedido al abrir, y el crecimiento de una escritura que no llegó a confirmarse puede no
+  sobrevivir a una caída (decisión J8).*
+- *P17: vale también para los archivos de `muninn.temp`, que las lecturas usan sin copiar (decisión J7).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

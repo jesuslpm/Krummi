@@ -53,6 +53,17 @@ was not recovered in that opening. They are corrected to follow Voron's design, 
 and the new version is written in its place when no read needs the earlier one, so that space is recovered when the
 reads end.*
 
+*Annotations of 2026-10-22 from module 3 ([journal.prd.en.md](journal.prd.en.md)):*
+
+- *T9 and T12: the temporary exception ends; what was committed can no longer be missing after reopening, and a
+  failure of the transfer to `muninn.data`, which happens outside the application's operations, is reported by the
+  write requests, the commit with changes of the open write, the operation that makes what was committed durable,
+  and the close (decision J13).*
+- *T14, T16 and the Out of scope item about the scratch area: the committed versions that are not in `muninn.data`
+  live in files of the `muninn.temp` subfolder, not in the process memory (decision J7).*
+- *T17 and AC-T21: the header is rewritten when the transfer to `muninn.data` advances; AC-T21 no longer holds
+  (decision J6).*
+
 ### Starting state
 
 Verified on 2026-10-22:
