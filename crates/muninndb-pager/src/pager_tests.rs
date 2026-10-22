@@ -384,3 +384,69 @@ fn store_file_names_are_case_insensitive_on_windows() {
         .close()
         .unwrap();
 }
+
+/// S1 of the fork-safe lock: a child process spawned while the store is open does not keep it locked. The
+/// child stays between fork and exec for two seconds, holding copies of the parent's descriptors.
+#[cfg(unix)]
+#[test]
+fn a_child_process_spawned_while_the_store_is_open_does_not_keep_it_locked() {
+    use std::os::unix::process::CommandExt;
+    use std::time::Duration;
+    let tmp = tempfile::tempdir().unwrap();
+    let pager = Pager::open(tmp.path(), &options()).unwrap();
+    let spawner = std::thread::spawn(|| {
+        let mut command = Command::new("true");
+        // SAFETY: the closure only sleeps, which is async-signal-safe, between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                std::thread::sleep(Duration::from_secs(2));
+                Ok(())
+            });
+        }
+        command.status().unwrap()
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    drop(pager);
+    let reopened = Pager::open(tmp.path(), &options());
+    assert!(spawner.join().unwrap().success());
+    reopened.unwrap().close().unwrap();
+}
+
+const TRY_OPEN_ENV: &str = "MUNINN_TEST_TRY_OPEN";
+
+/// S2 of the fork-safe lock: a failed second open in the same process does not release the lock, so another
+/// process still finds the store in use.
+#[test]
+fn a_failed_second_open_in_the_same_process_keeps_the_store_locked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pager = Pager::open(tmp.path(), &options()).unwrap();
+    for _ in 0..3 {
+        let error = Pager::open(tmp.path(), &options()).err().unwrap();
+        assert_eq!(error.kind(), ErrorKind::StoreInUse);
+    }
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "pager::tests::child_helper_try_open",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(TRY_OPEN_ENV, tmp.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("TRY_OPEN=StoreInUse"), "{stdout}");
+    pager.close().unwrap();
+}
+
+/// Helper run in a child process by the test above: tries to open the store and prints the outcome.
+#[test]
+fn child_helper_try_open() {
+    let Some(folder) = std::env::var_os(TRY_OPEN_ENV) else {
+        return;
+    };
+    match Pager::open(Path::new(&folder), &options()) {
+        Ok(_) => println!("TRY_OPEN=Ok"),
+        Err(e) => println!("TRY_OPEN={:?}", e.kind()),
+    }
+}

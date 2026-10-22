@@ -1,7 +1,7 @@
 //! The Pager: opening, creating and closing a store, and reading, writing and growing its pages.
 
 use std::ffi::OsString;
-use std::fs::{self, File, TryLockError};
+use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -71,7 +71,7 @@ enum Storage {
 }
 
 struct FileStorage {
-    file: File,
+    file: sys::LockedFile,
     path: PathBuf,
     state: Mutex<FileState>,
 }
@@ -323,7 +323,6 @@ impl Pager {
         match &self.storage {
             Storage::File(f) => {
                 let result = sys::sync(&f.file, &f.path);
-                let _ = f.file.unlock();
                 result.map_err(|source| Error::Io {
                     folder: self.folder.clone().unwrap_or_default(),
                     source,
@@ -465,17 +464,6 @@ fn list_folder(folder: &Path) -> Result<Vec<OsString>> {
     Ok(names)
 }
 
-/// Step 2 of the order of checks: the store's exclusive lock (D6, P9).
-fn lock(file: &File, folder: &Path) -> Result<()> {
-    match file.try_lock() {
-        Ok(()) => Ok(()),
-        Err(TryLockError::WouldBlock) => Err(Error::StoreInUse {
-            folder: folder.to_path_buf(),
-        }),
-        Err(TryLockError::Error(e)) => Err(access(folder, e)),
-    }
-}
-
 fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
     let path = folder.join(DATA_FILE);
     let meta = fs::metadata(&path).map_err(|e| access(folder, e))?;
@@ -484,8 +472,16 @@ fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
             folder: folder.to_path_buf(),
         });
     }
-    let file = sys::open_rw(&path).map_err(|e| access(folder, e))?;
-    lock(&file, folder)?;
+    // Step 2 of the order of checks: the store's exclusive lock (D6, P9).
+    let file = match sys::open_locked(&path) {
+        Ok(file) => file,
+        Err(sys::LockError::InUse) => {
+            return Err(Error::StoreInUse {
+                folder: folder.to_path_buf(),
+            });
+        }
+        Err(sys::LockError::Io(e)) => return Err(access(folder, e)),
+    };
     let mut start = vec![0u8; HEADER_PAGES as usize * PAGE_SIZE];
     let read = sys::read_start(&file, &mut start).map_err(|source| Error::Io {
         folder: folder.to_path_buf(),
@@ -537,7 +533,7 @@ fn map_new(file: &File, path: &Path, len: u64, folder: &Path) -> Result<Mmap> {
 
 fn file_pager(
     folder: &Path,
-    file: File,
+    file: sys::LockedFile,
     path: PathBuf,
     len: u64,
     map: Mmap,
@@ -564,13 +560,13 @@ fn discard_leftover(folder: &Path) -> Result<()> {
     let in_use = || Error::StoreInUse {
         folder: folder.to_path_buf(),
     };
-    let file = match sys::open_rw(&path) {
+    let file = match sys::open_locked(&path) {
         Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) if sys::is_sharing_violation(&e) => return Err(in_use()),
-        Err(e) => return Err(access(folder, e)),
+        Err(sys::LockError::InUse) => return Err(in_use()),
+        Err(sys::LockError::Io(e)) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(sys::LockError::Io(e)) if sys::is_sharing_violation(&e) => return Err(in_use()),
+        Err(sys::LockError::Io(e)) => return Err(access(folder, e)),
     };
-    lock(&file, folder)?;
     drop(file);
     match sys::remove(&path) {
         Ok(()) => Ok(()),
@@ -608,22 +604,26 @@ enum Created {
 fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
     let new_path = folder.join(NEW_DATA_FILE);
     let data_path = folder.join(DATA_FILE);
-    let file = match sys::create_new(&new_path) {
+    let file = match sys::create_locked(&new_path) {
         Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+        Err(sys::LockError::InUse) => {
             return Err(Error::StoreInUse {
                 folder: folder.to_path_buf(),
             });
         }
-        Err(e) => return Err(create_error(folder, e)),
+        Err(sys::LockError::Io(e)) if e.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(Error::StoreInUse {
+                folder: folder.to_path_buf(),
+            });
+        }
+        Err(sys::LockError::Io(e)) => return Err(create_error(folder, e)),
     };
     let ours = sys::FileIdentity::of(&file);
-    let discard = |file: File| {
+    let discard = |file: sys::LockedFile| {
         drop(file);
         ours.remove_if_same(&new_path);
     };
     let prepared = (|| {
-        lock(&file, folder)?;
         let mut pages = vec![0u8; HEADER_PAGES as usize * PAGE_SIZE];
         format::write_header_pages(&mut pages, &Header::new_store());
         sys::write_at(&file, &new_path, 0, &pages).map_err(|e| create_error(folder, e))?;

@@ -109,6 +109,156 @@ impl FileIdentity {
     }
 }
 
+/// Why a file could not be opened and locked.
+#[derive(Debug)]
+pub(crate) enum LockError {
+    /// Another opener, in this process or another one, holds the lock.
+    InUse,
+    /// The file could not be opened, created or locked.
+    Io(io::Error),
+}
+
+/// A file opened and exclusively locked for a store (D6, P9). The lock lasts until the value is dropped.
+///
+/// On Unix the lock is a POSIX record lock (`fcntl F_SETLK`). Unlike `flock`, it belongs to the process and is
+/// not inherited by child processes, so a child created while the store is open never keeps it locked. POSIX
+/// locks do not conflict inside one process, and closing *any* descriptor of the file drops the process's lock,
+/// so a table of the files this process has locked (by device and inode) detects a second open in the same
+/// process before a second descriptor exists, and every descriptor of a locked file is closed only under the
+/// table's mutex, by the holder. On Windows the lock is `LockFileEx` on the handle, which handles are never
+/// inherited by child processes and which already conflicts inside one process.
+pub(crate) struct LockedFile {
+    file: Option<File>,
+    #[cfg(unix)]
+    id: (u64, u64),
+}
+
+impl std::ops::Deref for LockedFile {
+    type Target = File;
+    fn deref(&self) -> &File {
+        self.file.as_ref().expect("the file is only taken on drop")
+    }
+}
+
+#[cfg(unix)]
+mod lock_table {
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// Files this process has locked, by device and inode, with descriptors of them opened by mistake (a path
+    /// that changed between the check and the open), which are closed only when the holder closes its own.
+    pub(super) type Table = Option<HashMap<(u64, u64), Vec<File>>>;
+
+    static LOCKED: Mutex<Table> = Mutex::new(None);
+
+    pub(super) fn table() -> MutexGuard<'static, Table> {
+        LOCKED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+#[cfg(unix)]
+fn identity(meta: &fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
+}
+
+/// Opens the existing file at `path` for reading and writing and locks it.
+pub(crate) fn open_locked(path: &Path) -> Result<LockedFile, LockError> {
+    #[cfg(unix)]
+    {
+        let mut guard = lock_table::table();
+        let table = guard.get_or_insert_with(Default::default);
+        if let Ok(meta) = fs::metadata(path)
+            && table.contains_key(&identity(&meta))
+        {
+            return Err(LockError::InUse);
+        }
+        let file = open_rw(path).map_err(LockError::Io)?;
+        let id = identity(&file.metadata().map_err(LockError::Io)?);
+        if let Some(extra) = table.get_mut(&id) {
+            // The path now leads to a file this process holds: closing this descriptor would drop that lock.
+            extra.push(file);
+            return Err(LockError::InUse);
+        }
+        posix_lock(&file)?;
+        table.insert(id, Vec::new());
+        Ok(LockedFile {
+            file: Some(file),
+            id,
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let file = open_rw(path).map_err(LockError::Io)?;
+        handle_lock(&file)?;
+        Ok(LockedFile { file: Some(file) })
+    }
+}
+
+/// Creates the file at `path` (see [`create_new`]) and locks it.
+pub(crate) fn create_locked(path: &Path) -> Result<LockedFile, LockError> {
+    #[cfg(unix)]
+    {
+        let mut guard = lock_table::table();
+        let table = guard.get_or_insert_with(Default::default);
+        let file = create_new(path).map_err(LockError::Io)?;
+        let id = identity(&file.metadata().map_err(LockError::Io)?);
+        posix_lock(&file)?;
+        table.insert(id, Vec::new());
+        Ok(LockedFile {
+            file: Some(file),
+            id,
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let file = create_new(path).map_err(LockError::Io)?;
+        handle_lock(&file)?;
+        Ok(LockedFile { file: Some(file) })
+    }
+}
+
+#[cfg(unix)]
+fn posix_lock(file: &File) -> Result<(), LockError> {
+    use rustix::fs::{FlockOperation, fcntl_lock};
+    match fcntl_lock(file, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => Ok(()),
+        Err(e) if e == rustix::io::Errno::AGAIN || e == rustix::io::Errno::ACCESS => {
+            Err(LockError::InUse)
+        }
+        Err(e) => Err(LockError::Io(e.into())),
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_lock(file: &File) -> Result<(), LockError> {
+    match file.try_lock() {
+        Ok(()) => Ok(()),
+        Err(fs::TryLockError::WouldBlock) => Err(LockError::InUse),
+        Err(fs::TryLockError::Error(e)) => Err(LockError::Io(e)),
+    }
+}
+
+impl Drop for LockedFile {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let mut guard = lock_table::table();
+            // Closing the descriptor releases the POSIX lock; it happens under the table's mutex so no other
+            // opener of this process can lock the file in between and then lose that lock to this close.
+            drop(self.file.take());
+            if let Some(table) = guard.as_mut() {
+                table.remove(&self.id);
+            }
+        }
+        #[cfg(not(unix))]
+        drop(self.file.take());
+    }
+}
+
 /// Opens an existing file for reading and writing.
 pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
     fs::OpenOptions::new().read(true).write(true).open(path)
