@@ -1,6 +1,6 @@
 # MuninnDB, motor de almacenamiento embebido inspirado en Voron — PRD
 
-**Versión**: 1.0
+**Versión**: 1.1
 **Fecha**: 2026-10-22
 **Documento padre**: ninguno (PRD raíz)
 
@@ -42,6 +42,16 @@ lleva ese diseño a Rust como producto propio, sin atarse a su formato en disco.
 | D8 | **Errores de la biblioteca**: los errores se agrupan en clases que la aplicación distingue sin leer texto; cada clase cubre las situaciones que le asigna la [tabla de validaciones](#validaciones-y-mensajes) o el PRD hijo dueño. Cada error lleva como datos aparte lo que su mensaje necesita (carpeta, versiones, número de página, causa). El texto de esos errores está en inglés; la herramienta de línea de comandos muestra en español el mensaje de cada situación. |
 | D9 | **Almacenes por recuperar en la herramienta**: si un almacén se cerró por una caída, las órdenes de la herramienta lo recuperan al abrirlo (G5), como haría la biblioteca, y después hacen su trabajo. Las únicas que no lo modifican son la verificación y el rescate de datos (copiar lo que se pueda leer de un almacén dañado), que trabajan sobre el almacén tal como está. |
 | D10 | **Reconocimiento de un almacén**: una carpeta contiene un almacén de MuninnDB cuando tiene su marca de identificación intacta. Todo lo demás que queda legible sin clave (G8), incluida la versión de formato, lleva su propia comprobación de integridad: si se altera, el almacén está dañado, no es de otro formato ni deja de ser un almacén. El PRD hijo 1 fija la marca y dónde está. |
+| D11 | **Lecturas sin copia** (v1.1): las lecturas devuelven a la aplicación referencias a memoria del motor, sin copiar los datos a un buffer de quien llama. Las referencias valen mientras la transacción de lectura que las obtuvo esté abierta, y el compilador impide usarlas después. Si una página se guarda cifrada (módulo 9) o comprimida (módulo 5), se descifra o descomprime una sola vez en memoria de la transacción y la referencia apunta ahí. Las escrituras trabajan sobre una copia de la página, que el aislamiento por instantánea (G3) exige. |
+| D12 | **Código no seguro** (v1.1): el Pager (módulo 1), con la variante cifrada que le añade el módulo 9, es la única parte del motor que puede usar código no seguro de Rust (`unsafe`). Lo encapsula detrás de una interfaz segura; el resto del motor lo tiene prohibido y una comprobación automática lo impide. |
+
+*Anotación del 2026-10-22 a D12: ninguna operación pública provoca comportamiento indefinido, salvo que otro
+programa modifique los archivos del almacén mientras está abierto, lo que queda fuera de alcance (decisión P16 de
+[pager.prd.md](pager.prd.md)).*
+
+*Anotación del 2026-10-22 a D7: un almacén íntegro cuyo número de formato es menor que el vigente es de formato
+anterior, también con el número `0`, que ninguna versión usa y solo aparece en las pruebas (decisión P5 de
+[pager.prd.md](pager.prd.md)).*
 
 ### Estado de partida
 
@@ -82,11 +92,22 @@ y anota este documento.
 | G11 | **Modos no durables**: el PRD hijo del diario (3) puede ofrecer modos de confirmación sin durabilidad inmediata. En ellos siguen valiendo G1, G3, G4 y G6; solo se relajan G2 y el punto exacto al que vuelve G5, y el PRD hijo fija hasta dónde. |
 | G12 | **Fallos del sistema al leer o escribir**: si el sistema falla al escribir o al llevar los datos al disco por una causa que no es falta de espacio, la operación falla con la clase de error de entrada y salida, y el almacén deja de aceptar escrituras hasta que se cierra y se vuelve a abrir, que lo recupera (G5); las lecturas siguen funcionando. Si el sistema falla al leer, la operación falla con la misma clase y el almacén sigue utilizable. Un fallo del sistema nunca se informa como daño, ni un daño como fallo del sistema. |
 
+*Anotación del 2026-10-22: excepción a G12. Como en Voron, un fallo físico del disco al leer a través de la
+proyección del archivo en memoria termina el proceso en lugar de devolver un error; G12 sigue valiendo para las
+escrituras y para lo que no se lee por la proyección (decisión P17 de [pager.prd.md](pager.prd.md)).*
+
+*Anotación del 2026-10-22: G6 se precisa para el encabezado del almacén. Si solo una de sus dos copias está
+dañada, el almacén abre sin error con la otra, porque no se devuelve ningún dato dañado (decisión P6 de
+[pager.prd.md](pager.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,
    la biblioteca la crea, con las carpetas intermedias, y crea el almacén vacío. La creación es atómica: o queda
    un almacén completo, o la carpeta queda vacía, sin restos del almacén.
+
+   *Anotación del 2026-10-22: tras una creación interrumpida puede quedar un archivo temporal hasta la apertura
+   siguiente, que lo borra y crea el almacén (decisión P8 de [pager.prd.md](pager.prd.md)).*
 2. La apertura hace las comprobaciones en el [orden fijado](#orden-de-las-comprobaciones-al-abrir) y, si el
    almacén se cerró por una caída, lo recupera (G5).
 3. La aplicación abre transacciones de lectura desde cualquier hilo y una de escritura cada vez (G3, G4); lee y
@@ -149,10 +170,17 @@ La herramienta escribe cada mensaje en una línea propia en la salida de errores
 
 Cuando se cumplen varias situaciones, gana la primera de esta lista:
 
+*Anotación del 2026-10-22: antes del paso 1 se comprueban las opciones de apertura; unas opciones no válidas ganan a
+todo lo demás y la apertura falla sin tocar nada (flujo de [pager.prd.md](pager.prd.md)).*
+
 1. La carpeta se puede usar.
 2. El almacén no está abierto ya.
 3. La carpeta contiene un almacén de MuninnDB, es decir, su marca de identificación está intacta (D10), o está
    vacía, y entonces la biblioteca crea uno.
+
+   *Anotación del 2026-10-22: para este paso y para la fila de carpeta que no es un almacén, el archivo temporal
+   que deja una creación interrumpida no cuenta como entrada cuando es el único contenido de la carpeta (decisión
+   P8 de [pager.prd.md](pager.prd.md)).*
 4. Lo que queda legible sin clave (G8), incluida la versión de formato, supera su comprobación de integridad
    (D10).
 5. Su formato es el de esta versión. Un almacén de otro formato que además necesita recuperación se rechaza sin
@@ -277,6 +305,12 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 19. **AC19** — El banco comparativo se ejecuta con la orden que fija su PRD hijo y produce en Windows y en Linux
     un informe con la misma estructura, los mismos motores, las mismas cargas y los mismos campos, en el que
     MuninnDB cumple los umbrales vigentes (D5).
+20. **AC20** — Dada una lectura de cualquier estructura de datos, cuando devuelve un valor, entonces la referencia
+    apunta a memoria del motor (la proyección del archivo, o la memoria de la transacción si la página está
+    cifrada o comprimida) y no a una copia hecha para esa lectura; y usar la referencia después de cerrar la
+    transacción no compila (D11). Cada PRD hijo con lecturas lo comprueba.
+21. **AC21** — Dado el código del motor, cuando se compila, entonces una comprobación automática falla si hay
+    código no seguro fuera del Pager y de su variante cifrada (D12).
 
 ## Referencias
 
@@ -289,6 +323,6 @@ Medido con el historial de la sesión de Claude Code. Si la persona tarda más d
 
 | Sesión | Inicio | Reloj | Descartado | Activo | Agente | Persona | Intervenciones |
 |---|---|---|---|---|---|---|---|
-| c37552ac | 2026-10-22 10:08 UTC+01:00 | 36 min | 0 min | 36 min | 17 min | 18 min | 10 |
+| c37552ac | 2026-10-22 10:08 UTC+01:00 | 1 h 9 min | 0 min | 1 h 9 min | 35 min | 34 min | 22 |
 
-<!-- prd-time: [{"session": "c37552ac-2871-4449-abde-3b084495ba67", "start": "2026-10-22T09:08:44.181000+00:00", "wall": 2140, "discarded": 0, "agent": 1047, "human": 1092, "interventions": 10, "idle_minutes": 10}] -->
+<!-- prd-time: [{"session": "c37552ac-2871-4449-abde-3b084495ba67", "start": "2026-10-22T09:08:44.181000+00:00", "wall": 4160, "discarded": 0, "agent": 2113, "human": 2047, "interventions": 22, "idle_minutes": 10}] -->

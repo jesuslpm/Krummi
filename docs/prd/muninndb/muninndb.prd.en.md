@@ -1,6 +1,6 @@
 # MuninnDB, an embedded storage engine inspired by Voron — PRD
 
-**Version**: 1.0
+**Version**: 1.1
 **Date**: 2026-10-22
 **Parent document**: none (root PRD)
 
@@ -43,6 +43,16 @@ product of its own, without being tied to its on-disk format.
 | D8 | **Library errors**: errors are grouped into classes that the application tells apart without reading text; each class covers the situations assigned to it by the [validations table](#validations-and-messages) or by the owning child PRD. Each error carries as separate data what its message needs (folder, versions, page number, cause). The text of those errors is in English; the command-line tool shows the message of each situation in Spanish. |
 | D9 | **Stores that need recovery in the tool**: if a store was closed by a crash, the tool's commands recover it on opening (G5), as the library would, and then do their work. The only ones that do not modify it are verification and data rescue (copying whatever can be read from a damaged store), which work on the store as it is. |
 | D10 | **Recognizing a store**: a folder contains a MuninnDB store when its identification mark is intact. Everything else that remains readable without a key (G8), including the format version, carries its own integrity check: if it is altered, the store is damaged; it is neither of another format nor ceases to be a store. Child PRD 1 sets the mark and where it is. |
+| D11 | **Zero-copy reads** (v1.1): reads return to the application references to engine memory, without copying the data into a caller's buffer. The references are valid as long as the read transaction that obtained them is open, and the compiler prevents using them afterwards. If a page is stored encrypted (module 9) or compressed (module 5), it is decrypted or decompressed once into the transaction's memory and the reference points there. Writes work on a copy of the page, which snapshot isolation (G3) requires. |
+| D12 | **Unsafe code** (v1.1): the Pager (module 1), with the encrypted variant that module 9 adds to it, is the only part of the engine that may use unsafe Rust code (`unsafe`). It encapsulates it behind a safe interface; the rest of the engine is forbidden from using it and an automatic check enforces this. |
+
+*Annotation of 2026-10-22 to D12: no public operation causes undefined behavior, unless another program modifies the
+store's files while it is open, which is out of scope (decision P16 of
+[pager.prd.en.md](pager.prd.en.md)).*
+
+*Annotation of 2026-10-22 to D7: an intact store whose format number is lower than the current one is of an older
+format, also with the number `0`, which no version uses and appears only in tests (decision P5 of
+[pager.prd.en.md](pager.prd.en.md)).*
 
 ### Starting state
 
@@ -83,11 +93,22 @@ and annotates this document.
 | G11 | **Non-durable modes**: the journal child PRD (3) may offer commit modes without immediate durability. In them G1, G3, G4 and G6 still hold; only G2 and the exact point to which G5 returns are relaxed, and the child PRD sets how far. |
 | G12 | **System failures on read or write**: if the system fails when writing or when taking data to disk for a cause other than lack of space, the operation fails with the input/output error class, and the store stops accepting writes until it is closed and reopened, which recovers it (G5); reads keep working. If the system fails on a read, the operation fails with the same class and the store remains usable. A system failure is never reported as damage, nor damage as a system failure. |
 
+*Annotation of 2026-10-22: exception to G12. As in Voron, a physical disk failure when reading through the
+memory-mapped file projection ends the process instead of returning an error; G12 still holds for writes and for
+what is not read through the projection (decision P17 of [pager.prd.en.md](pager.prd.en.md)).*
+
+*Annotation of 2026-10-22: G6 is made precise for the store header. If only one of its two copies is damaged, the
+store opens without error with the other one, because no damaged data is returned (decision P6 of
+[pager.prd.en.md](pager.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,
    the library creates it, with the intermediate folders, and creates the empty store. Creation is atomic: either
    a complete store is left, or the folder is left empty, with no remains of the store.
+
+   *Annotation of 2026-10-22: after an interrupted creation a temporary file may remain until the next opening,
+   which deletes it and creates the store (decision P8 of [pager.prd.en.md](pager.prd.en.md)).*
 2. The opening does the checks in the [fixed order](#order-of-the-checks-on-open) and, if the store was closed by
    a crash, recovers it (G5).
 3. The application opens read transactions from any thread and one write transaction at a time (G3, G4); it
@@ -150,10 +171,17 @@ The tool writes each message on its own line on the error output.
 
 When several situations hold, the first one in this list wins:
 
+*Annotation of 2026-10-22: before step 1 the opening options are checked; invalid options win over everything else
+and the opening fails without touching anything (flow of [pager.prd.en.md](pager.prd.en.md)).*
+
 1. The folder can be used.
 2. The store is not already open.
 3. The folder contains a MuninnDB store, that is, its identification mark is intact (D10), or it is empty, and
    then the library creates one.
+
+   *Annotation of 2026-10-22: for this step and for the not-a-store folder row, the temporary file left by an
+   interrupted creation does not count as an entry when it is the only content of the folder (decision P8 of
+   [pager.prd.en.md](pager.prd.en.md)).*
 4. What remains readable without a key (G8), including the format version, passes its integrity check (D10).
 5. Its format is that of this version. A store of another format that also needs recovery is rejected without
    recovering (D7 prevails over G5).
@@ -275,6 +303,12 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 19. **AC19** — The comparative benchmark is run with the command set by its child PRD and produces on Windows
     and on Linux a report with the same structure, the same engines, the same workloads and the same fields, in
     which MuninnDB meets the thresholds in force (D5).
+20. **AC20** — Given a read of any data structure, when it returns a value, then the reference points to engine
+    memory (the file projection, or the transaction's memory if the page is encrypted or compressed) and not to a
+    copy made for that read; and using the reference after closing the transaction does not compile (D11). Each
+    child PRD with reads checks it.
+21. **AC21** — Given the engine's code, when it is compiled, then an automatic check fails if there is unsafe code
+    outside the Pager and its encrypted variant (D12).
 
 ## References
 
@@ -287,6 +321,6 @@ Measured from the Claude Code session history. When the person takes more than 1
 
 | Session | Start | Wall clock | Discarded | Active | Agent | Person | Interventions |
 |---|---|---|---|---|---|---|---|
-| c37552ac | 2026-10-22 10:08 UTC+01:00 | 36 min | 0 min | 36 min | 17 min | 18 min | 10 |
+| c37552ac | 2026-10-22 10:08 UTC+01:00 | 1 h 9 min | 0 min | 1 h 9 min | 35 min | 34 min | 22 |
 
-<!-- prd-time: [{"session": "c37552ac-2871-4449-abde-3b084495ba67", "start": "2026-10-22T09:08:44.181000+00:00", "wall": 2140, "discarded": 0, "agent": 1047, "human": 1092, "interventions": 10, "idle_minutes": 10}] -->
+<!-- prd-time: [{"session": "c37552ac-2871-4449-abde-3b084495ba67", "start": "2026-10-22T09:08:44.181000+00:00", "wall": 4160, "discarded": 0, "agent": 2113, "human": 2047, "interventions": 22, "idle_minutes": 10}] -->
