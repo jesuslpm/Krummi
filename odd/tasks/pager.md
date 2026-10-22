@@ -58,12 +58,12 @@ The PRD is authoritative; every S# quotes or names its PRD items, and workers re
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S6 (unsafe check), S7 | inline | pending | |
-| T2 | S2 | inline | pending | |
-| T3 | S1, S3, S4, S7 | inline | pending | |
-| T4 | S5, S6, S7 | inline | pending | |
-| T5 | S3, S7, S8 (crash, power cut, fault injection) | inline | pending | |
-| T6 | docs | inline | pending | |
+| T1 | S6 (unsafe check), S7 | inline | done | `8878db4` |
+| T2 | S2 | inline | done | `251f74d` |
+| T3 | S1, S3, S4, S7 | inline | done | `1105fef` (race fixed in `8f4968b`) |
+| T4 | S5, S6, S7 | inline | done | code in `1105fef`, tests in `12f808f` |
+| T5 | S3, S7, S8 (crash, power cut, fault injection) | inline | done | `8f4968b` |
+| T6 | docs | inline | done | README |
 
 Route evidence: the units depend on each other (T2 → T3 → T4 → T5), so no Writer trigger holds; work inline.
 
@@ -74,3 +74,52 @@ Route evidence: the units depend on each other (T2 → T3 → T4 → T5), so no 
   unsafe permitido en el pager." and "ChatGPT recomendaba memmap2 + zerocopy"
 - **L3** (2026-10-22): estimate 3–5 h confirmed after a question about compression (deferred to modules 5 and
   7, no effect on the Pager). Start 11:30:12 +0100.
+- **L4** (2026-10-22): T1–T3 committed. RED was not observed for T2 and T3: their tests were written right after
+  the code. Mutation check instead: disabling the lock made 4 tests of `tests/open.rs` fail (restored after).
+- **L5** (2026-10-22, RDD review): commits `8878db4..1105fef` (base `2a4fe73`); lenses risk, resilience,
+  reliability; result **approved**; lineage `review-b0abba04fa9b5c7a`. Findings: risk none; resilience none;
+  reliability two WARNING (informational): `R3-leftover-race` (a racing opener could discard another opener's
+  `muninn.data.new` before it was locked, giving a spurious I/O or access error instead of "Store in use") —
+  fixed in `8f4968b`; `R3-untested-page-io` (page I/O, growth and faults untested at that point) — resolved by
+  T4 and T5 (`12f808f`, `8f4968b`).
+- **L6** (2026-10-22): RED observed in T5: `ac_p14_out_of_memory_while_growing_a_store_on_disk_keeps_it_usable`
+  failed on Windows (file 131072 bytes instead of 65536). **Deviation from P11, for the user's decision:** when
+  mapping fails after the space was reserved (address space exhausted), Windows refuses to shrink a file that has
+  open mappings, and earlier mappings must stay alive (P15). The store keeps its size and stays usable, but the
+  reserved space stays in `muninn.data` on Windows; Linux restores the size. Test relaxed on Windows only.
+- **L7** (2026-10-22): AC10 every-byte sweep on Windows did not finish: after each one-byte write the antivirus
+  scans the file on open (17 s of CPU in more than 15 min of wall clock). The full sweep became an ignored
+  acceptance test run on Linux; the suite runs a sample (mark, both header copies, one byte in 1021): 20 s on
+  Windows.
+- **L8** (2026-10-22, RDD review): commits `1105fef..d9bf85e` (`8f4968b`, `12f808f`, `d9bf85e`); lenses risk,
+  resilience, reliability; **approved**; lineage `review-a9f4a54633a71055`. Findings: risk none; resilience
+  none; reliability WARNING `R3-001`: the first race fix released the handle before the path-based rename, so a
+  racing opener could replace `muninn.data.new` in that gap and its unprepared file could become `muninn.data`
+  — fixed in `0c1b901` (the file stays open and locked through the rename: by handle on Windows, identity-checked
+  on Unix).
+- **L9** (2026-10-22): Linux (Ubuntu 24.04, WSL 2, ext4 clone): fmt and clippy clean; AC-P6 failed 1 of 3 runs
+  with `[Err(NotAStore), Err(StoreInUse), Ok(()), Err(StoreInUse)]`: the leftover was renamed between listing
+  the folder and checking it. Fixed in `339d21c` (look at the folder again); then 15 of 15 runs on Linux and 8
+  of 8 on Windows passed.
+- **L10** (2026-10-22, RDD review): commits `d9bf85e..339d21c`; lenses risk, resilience, reliability;
+  **approved**; lineage `review-c5566d3fb9596c39`. Findings: risk WARNING `R1-001` (a symlink named
+  `muninn.data.new` is now "Not a store" instead of being followed; safer, kept); others none.
+- **L11** (2026-10-22, independent verifier, sonnet): no blockers; every S# and AC PASS except three items not
+  covered by a test (folders kept after a failed creation, real space reservation, physical read fault). Probes:
+  6 processes racing 55 rounds, open-order precedence, hard-link alias, max-size edge cases. Advisories fixed in
+  `b936f24` (RED observed for three): folders created by open are flushed to their parents; reserved names are
+  case-insensitive on Windows; an impossible growth is Maximum size, not an overflow panic; tests added for out of
+  memory while opening on disk and for folders kept after a failed creation. Left open: raw strings in the
+  unsafe-policy scanner (defence in depth), address space held by old mappings until close (design).
+- **L12** (2026-10-22, RDD review): commit `339d21c..b936f24`; lenses risk, resilience, reliability;
+  **approved**; lineage `review-b905410fb5d0b74c`. Findings: resilience WARNING `R4-1` (if flushing a created
+  folder fails, a retry finds the folder and does not flush its parents again); left as a follow-up.
+- **L13** (2026-10-22): final evidence. Windows: `cargo test --workspace` green (26 lib, 18 open, 15 pages + 1
+  ignored, 3 policy, 2 facade); clippy and fmt clean. Linux on `b936f24`: fmt, clippy and the suite green. AC10
+  full sweep on Linux: passed on `d9bf85e` (113 s) and on `339d21c` (518 s, sharing WSL with other runs); the page
+  code did not change afterwards. Scratch removed: the verifier's temp folder (190 MB) and two WSL clones (433 MB
+  and 517 MB).
+
+## Closing
+
+Report: [pager-report.md](pager-report.md).
