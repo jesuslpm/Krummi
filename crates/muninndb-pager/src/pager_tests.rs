@@ -447,22 +447,17 @@ fn a_symlink_to_the_store_folder_is_the_same_store() {
     pager.close().unwrap();
 }
 
-/// A creation whose lock fails for an I/O reason leaves no `muninn.data.new` behind (R3-001 of the review).
+/// A creation whose lock fails for an I/O reason leaves no `muninn.data.new` behind (R3-001 and
+/// R3-cleanup-wiring-untested of the reviews).
 #[test]
 fn a_creation_that_cannot_lock_leaves_nothing_behind() {
     let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join(NEW_DATA_FILE);
-    let error = sys::LockError::Io(io::Error::other("lock failed"));
-    fs::write(&path, b"just created").unwrap();
-    sys::discard_created_for_test(&path, &error);
-    assert!(names(tmp.path()).is_empty());
-    fs::write(&path, b"another opener holds it").unwrap();
-    sys::discard_created_for_test(&path, &sys::LockError::InUse);
-    assert_eq!(
-        names(tmp.path()),
-        vec![NEW_DATA_FILE.to_owned()],
-        "the holder removes it"
-    );
+    fail(Op::Lock, 0, io::ErrorKind::Other);
+    let error = Pager::open(tmp.path(), &options()).err().unwrap();
+    faults::reset();
+    assert_eq!(error.kind(), ErrorKind::Io, "{error}");
+    assert!(names(tmp.path()).is_empty(), "{:?}", names(tmp.path()));
+    assert_only_a_complete_store(tmp.path());
 }
 
 const TRY_OPEN_ENV: &str = "MUNINN_TEST_TRY_OPEN";
