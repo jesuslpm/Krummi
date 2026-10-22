@@ -5,8 +5,8 @@ Producto: [PRD de transacciones](../../docs/prd/muninndb/transactions.prd.md) v1
 ([Pager](../../docs/prd/muninndb/pager.prd.md) y [raíz](../../docs/prd/muninndb/muninndb.prd.md)).
 Documento de ejecución: [transactions.md](transactions.md).
 
-Rama `feat/transactions`, mergeada en `main` en local con fast-forward. **No se subió nada**: la CI de GitHub no ha
-corrido sobre estos commits.
+Rama `feat/transactions`, mergeada en `main` en local con fast-forward. Después del cierre, a petición del usuario,
+la rama se subió a GitHub y su CI pasó; **`main` no se subió.**
 
 ## Resultado
 
@@ -23,7 +23,8 @@ corrido sobre estos commits.
   - barrido AC10 completo del Pager: 69,56 s;
   - barrido AC10 completo de un almacén escrito con transacciones: 24,31 s.
 
-  El barrido nuevo se añadió a la CI, que lo correrá en los dos sistemas al subir la rama.
+  CI `39839281524` sobre `bcb9fd7`, en verde en los dos sistemas (3 min 46 s cada trabajo). Barridos AC10
+  completos: Pager 65,42 s en Linux y 84,35 s en Windows; transacciones 117,91 s en Linux y 63,28 s en Windows.
 - **Revisiones y verificación:**
   - **RDD:** cuatro revisiones, todas aprobadas (detalle abajo).
   - **Verificador independiente** (Sonnet, esfuerzo alto):
@@ -174,7 +175,6 @@ Decisiones técnicas:
 
 - **AC-T16 anotado** en el PRD y su traducción (después del cierre, a petición del usuario): el fallo llega cuando
   el máximo no deja sitio para las versiones que retiene una lectura larga, no con cualquier máximo.
-- **CI de GitHub.** No ha corrido: no se subió nada. El barrido AC10 nuevo está en el workflow.
 - **Avisos aceptados:**
   - **Copia sellada sin contar.** La copia sellada que hace la confirmación no cuenta en el máximo; es
     transitoria y como mucho del tamaño de lo que se escribe.
