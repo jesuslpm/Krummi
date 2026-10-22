@@ -247,6 +247,11 @@ And in addition:
     the same pages, then there comes a moment when a write fails with the maximum-size class, on disk and in
     temporary mode, applying nothing; and after the read ends, a write that changes those same pages commits without
     error, without reopening (T14).
+
+    *Annotation of 2026-10-22 to AC-T16: with the design of T14 (v1.1), a long read retains at most one more
+    version of each page changed since it started; the intermediate ones, which no read needs, are freed at once.
+    Rewriting the same pages does not make memory grow without limit, so the failure comes when the maximum size
+    leaves no room for those retained versions, not with any maximum.*
 17. **AC-T17** — Given a write with no changes, when it is committed, then it ends without error and the store's
     information does not change; and with a simulated failure in every write to `muninn.data`, the commit of a
     write with no changes still ends without error (T10).

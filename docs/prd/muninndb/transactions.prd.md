@@ -250,6 +250,11 @@ Y además:
     cambian siempre las mismas páginas, entonces llega un momento en que una escritura falla con la clase de
     tamaño máximo, en disco y en modo temporal, sin aplicar nada; y después de terminar la lectura, una escritura
     que cambia esas mismas páginas se confirma sin error, sin reabrir (T14).
+
+    *Anotación del 2026-10-22 a AC-T16: con el diseño de T14 (v1.1), una lectura larga retiene como mucho una
+    versión más de cada página cambiada desde que empezó; las intermedias, que no necesita ninguna lectura, se
+    liberan en el acto. Reescribir las mismas páginas no hace crecer la memoria sin límite, así que el fallo
+    llega cuando el tamaño máximo no deja sitio para esas versiones retenidas, no con cualquier máximo.*
 17. **AC-T17** — Dada una escritura sin cambios, cuando se confirma, entonces termina sin error y la información
     del almacén no cambia; y con un fallo simulado en toda escritura en `muninn.data`, la confirmación de una
     escritura sin cambios termina igualmente sin error (T10).

@@ -172,10 +172,8 @@ Decisiones técnicas:
 
 ## Pendiente (no bloqueante)
 
-- **Anotar AC-T16 (necesita tu decisión).** Su texto («llega un momento en que una escritura falla») se puede leer
-  como que el fallo llega siempre. Con el diseño elegido solo llega si el máximo no deja sitio para una copia extra
-  de esas páginas. Propuesta: anotar el criterio con esa precisión. No bloquea, porque la prueba cubre el caso que
-  el criterio describe.
+- **AC-T16 anotado** en el PRD y su traducción (después del cierre, a petición del usuario): el fallo llega cuando
+  el máximo no deja sitio para las versiones que retiene una lectura larga, no con cualquier máximo.
 - **CI de GitHub.** No ha corrido: no se subió nada. El barrido AC10 nuevo está en el workflow.
 - **Avisos aceptados:**
   - **Copia sellada sin contar.** La copia sellada que hace la confirmación no cuenta en el máximo; es
