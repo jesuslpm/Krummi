@@ -599,7 +599,7 @@ fn ac_j13_a_durable_commit_is_invisible_until_it_is_durable() {
 #[test]
 fn ac_j14_a_failed_or_interrupted_commit_never_appears_and_blocks_nothing() {
     for failure in ["disk full", "panic"] {
-        for model in [Model::Written, Model::Flushed] {
+        for model in POWER_CUTS.into_iter().chain([Model::Written]) {
             let (source, engine) = Run::start();
             let pages = reserve(&engine, 1, "first");
             let mut tx = engine.write(None).unwrap();
@@ -860,4 +860,60 @@ fn child_helper_commit_and_die() {
     let mut tx = engine.write(None).unwrap();
     put(&mut tx, 3, "never committed");
     std::process::abort();
+}
+
+/// B1 of the verification: with a read held, a header rewrite and a deferred commit that supersedes durable ones,
+/// a power cut must not lose the durable commits that returned (J4, J10).
+#[test]
+fn b1_a_deferred_commit_never_makes_returned_durable_ones_disappear() {
+    for model in POWER_CUTS {
+        let (source, engine) = Run::start();
+        engine.set_journal_file_limit(4096);
+        let pages = reserve(&engine, 1, "c0");
+        let hold = engine.read().unwrap();
+        commit_all(&engine, &pages, "c1", true);
+        commit_all(&engine, &pages, "c2", true);
+        commit_all(&engine, &pages, "c3", false);
+        let run = Run::finish(source, vec![]);
+        drop(hold);
+        let folder = run.crash(run.ops.len(), model);
+        let engine = open(folder.path());
+        let seen = texts(&engine, &pages)[0].clone();
+        assert!(
+            matches!(seen.as_deref(), Some("c2" | "c3")),
+            "{model:?}: {seen:?}"
+        );
+    }
+}
+
+/// B2 of the verification: a deferred commit that a journal rollover made durable is recorded as durable by the
+/// next record, so damage in it is reported, not taken for an unfinished commit (J9).
+#[test]
+fn b2_damage_in_a_commit_made_durable_by_a_rollover_is_reported() {
+    let (source, engine) = Run::start();
+    engine.set_journal_file_limit(4096);
+    let pages = reserve(&engine, 4, "-");
+    let hold = engine.read().unwrap();
+    commit_all(&engine, &pages[..1], "d0", false);
+    commit_all(&engine, &pages[1..2], "last", true);
+    let run = Run::finish(source, vec![]);
+    drop(hold);
+    let folder = run.killed();
+    let files = journal_files(folder.path());
+    let deferred_file = files
+        .iter()
+        .find(|f| {
+            let bytes = fs::read(f).unwrap();
+            record_offsets(f)
+                .iter()
+                .any(|&o| u64::from_le_bytes(bytes[o + 8..o + 16].try_into().unwrap()) == 2)
+        })
+        .unwrap();
+    let bytes = fs::read(deferred_file).unwrap();
+    let offset = record_offsets(deferred_file)
+        .into_iter()
+        .find(|&o| u64::from_le_bytes(bytes[o + 8..o + 16].try_into().unwrap()) == 2)
+        .unwrap();
+    flip(deferred_file, offset + 64 + 10);
+    assert_eq!(open_err(folder.path()).kind(), ErrorKind::Damaged);
 }

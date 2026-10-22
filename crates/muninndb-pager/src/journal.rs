@@ -271,12 +271,17 @@ impl Journal {
     ) -> Result<()> {
         pager.check_writable()?;
         let mut state = self.lock();
-        let record = encode_record(txid, state.synced_upto, pages)?;
+        let mut record = encode_record(txid, state.synced_upto, pages)?;
         let rolls = state.current.as_ref().is_none_or(|c| {
             c.len > 0 && c.len + record.len() as u64 > self.file_limit.load(Ordering::Relaxed)
         });
         if rolls {
+            let synced = state.synced_upto;
             self.roll(&mut state, pager)?;
+            if state.synced_upto != synced {
+                // The rollover made earlier commits durable: the record must say so (J9).
+                record = encode_record(txid, state.synced_upto, pages)?;
+            }
         }
         let current = state
             .current
@@ -288,9 +293,9 @@ impl Journal {
             offset,
             armed: true,
         };
+        // A failed write may have left the record whole (it can fail in the padding): it is wiped too.
         sys::write_at(&guard.current.file, &guard.current.path, offset, &record)
-            .map_err(|e| pager.fail_write(e, record.len() as u64))
-            .inspect_err(|_| guard.armed = false)?;
+            .map_err(|e| pager.fail_write(e, record.len() as u64))?;
         if durable {
             let hook = self
                 .sync_hook
@@ -411,7 +416,8 @@ impl Journal {
     }
 }
 
-/// Wipes the header of a record whose append did not complete, so it is never read as a commit (J12).
+/// Wipes the header of a record whose append did not complete and flushes the wipe, so that the record is never
+/// read as a commit, not even after a power cut that keeps the record's write (J12).
 struct WipeOnFailure<'a> {
     current: &'a mut Current,
     offset: u64,
@@ -422,7 +428,9 @@ impl Drop for WipeOnFailure<'_> {
     fn drop(&mut self) {
         if self.armed {
             let zeros = [0u8; RECORD_HEADER];
-            let _ = sys::write_at(&self.current.file, &self.current.path, self.offset, &zeros);
+            if sys::write_at(&self.current.file, &self.current.path, self.offset, &zeros).is_ok() {
+                let _ = sys::sync(&self.current.file, &self.current.path);
+            }
         }
     }
 }

@@ -287,6 +287,9 @@ impl Scratch {
             return Ok(());
         };
         let pager = self.pager();
+        // A version dropped because a newer one supersedes it counts as applied only if the newer one cannot be
+        // lost: every commit must be durable before the header says how far `muninn.data` goes (J4, J10).
+        journal.make_durable(pager)?;
         pager.flush_data()?;
         let applied = self.lock().applied();
         pager.write_header(Header {
