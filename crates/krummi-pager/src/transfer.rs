@@ -281,8 +281,8 @@ impl Drop for Alive {
     }
 }
 
-/// Serves demands and runs passes until the store closes. After a failure the store refuses writes (J13) and the
-/// thread only serves demands, which fail as well: the close writes what is left.
+/// Serves demands and runs passes until the store closes. After a failure that makes the store refuse writes (J13)
+/// the thread only serves demands, which fail as well: the close writes what is left.
 fn run(signal: &Signal, shared: &Shared) {
     let mut last_pass = None;
     let mut retry_at = None;
@@ -307,7 +307,9 @@ fn run(signal: &Signal, shared: &Shared) {
         };
         match outcome {
             Ok(next) => retry_at = next,
-            Err(_) if !failed => {
+            // Only a failure that made the store refuse writes ends the passes (J13); after another one (a full
+            // disk, T12), the next signal tries again, as the next commit did before.
+            Err(_) if !failed && shared.refuses_writes() => {
                 failed = true;
                 shared.report_failure();
             }

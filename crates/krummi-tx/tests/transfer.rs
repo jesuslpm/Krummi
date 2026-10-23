@@ -257,3 +257,33 @@ fn only_the_transfer_thread_transfers() {
     assert_eq!(read_text(&engine, pages[3]), "199");
     engine.close().unwrap();
 }
+
+/// S4 (J13, T12): a transfer that fails with a class that does not stop the store accepting writes (a full disk)
+/// refuses nothing, and a later pass transfers what it left.
+#[test]
+fn a_transfer_failing_without_refusing_writes_is_retried() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let page = new_page(&engine, "a");
+    wait_until(|| engine.scratch_bytes() == 0);
+    let armed = AtomicBool::new(true);
+    engine.set_transfer_hook(Some(Arc::new(move || {
+        if armed.swap(false, Ordering::SeqCst) {
+            testing::inject(
+                Op::Write,
+                testing::count(Op::Write),
+                Action::Fail(std::io::ErrorKind::StorageFull),
+            );
+        }
+    })));
+    let before = engine.transfer_passes();
+    set(&engine, page, "b");
+    wait_until(|| engine.transfer_passes() > before);
+    assert!(engine.scratch_bytes() > 0, "the full disk kept the version");
+    set(&engine, page, "c");
+    wait_until(|| engine.scratch_bytes() == 0);
+    engine.set_transfer_hook(None);
+    assert_eq!(read_text(&engine, page), "c");
+    engine.close().unwrap();
+    assert_eq!(read_text(&disk(tmp.path()), page), "c");
+}

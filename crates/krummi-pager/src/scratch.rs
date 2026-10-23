@@ -504,9 +504,18 @@ impl Shared {
         Ok(None)
     }
 
-    /// Lets the transaction layer know that a transfer failed outside any operation: the store already refuses
-    /// writes (J13), and the commits waiting for room in the journal's queue fail at once (T12).
+    /// Whether the store refuses writes after a failed write (T12).
+    pub(crate) fn refuses_writes(&self) -> bool {
+        !self.pager().accepts_writes()
+    }
+
+    /// Lets the transaction layer know that a transfer failed outside any operation and made the store refuse
+    /// writes (J13): the waiting requests and the commits waiting for room in the journal's queue fail at once
+    /// (T12). A failure that leaves the store accepting writes reports nothing.
     pub(crate) fn report_failure(&self) {
+        if !self.refuses_writes() {
+            return;
+        }
         let hook = self
             .failure_hook
             .lock()

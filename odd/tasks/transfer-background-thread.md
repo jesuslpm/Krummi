@@ -70,3 +70,13 @@ Writer trigger reason. Risk: item 4 (a new thread, condvar ordering, shutdown): 
   - AC-J12 waits until the old journal files are released (both header copies written) before the read.
   - AC-J4 drops its first store before the next recordings: its transfer thread shares the test's recording.
   - S3 of journal-followups lowers the threshold to 256 KiB (see L5).
+- **L8** (independent verifier, commit `6709631`): S1, S2, S3, S5 met; S4 met for I/O failures. Blocker B1: a
+  transfer failing with a class that leaves the store accepting writes (a full disk, out of memory, access) made the
+  thread stop and the store refuse writes for good; the baseline retried on the next commit. Fixed: only a failure
+  that makes the store refuse writes ends the passes and is reported (J13); test
+  `a_transfer_failing_without_refusing_writes_is_retried` (RED: the next commit failed with the I/O class; GREEN
+  after the fix). Suite 195 passed; fmt and clippy clean. Advisories kept: A1 `Pager::data_syncs` is public without
+  `test-hooks`, like the other "(tests)" methods of the crate; A2 after a panic of the thread, demands run on the
+  caller and passes stop until the close (out of domain); A3 with over 32 MiB held by a long read every commit
+  starts a pass, no more than the baseline's one transfer per commit; A4 a stale `retry_at` after a demand costs
+  one extra pass. Verifier probes (6 writers, 3 readers, close/drop/reopen) passed.
