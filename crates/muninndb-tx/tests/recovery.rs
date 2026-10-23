@@ -750,17 +750,36 @@ fn ac10_journal_sweep(step: usize) {
         .collect();
     let journal = journal_files(crashed.path()).pop().unwrap();
     let last = *record_offsets(&journal).last().unwrap();
-    for file in &files {
-        let pristine = fs::read(file).unwrap();
+    // One folder for every attempt, refilled from memory: creating and deleting a folder per altered byte was most
+    // of the sweep's time.
+    let originals: Vec<(std::ffi::OsString, Vec<u8>)> = files
+        .iter()
+        .map(|f| (f.file_name().unwrap().to_owned(), fs::read(f).unwrap()))
+        .collect();
+    let work = tempfile::tempdir().unwrap();
+    for (altered, file) in files.iter().enumerate() {
+        let pristine = &originals[altered].1;
         for offset in (0..pristine.len()).step_by(step) {
-            let copy = copy_folder(crashed.path());
-            let target = copy.path().join(file.file_name().unwrap());
-            let mut bytes = pristine.clone();
-            bytes[offset] ^= 0xFF;
-            fs::write(&target, &bytes).unwrap();
+            for entry in fs::read_dir(work.path()).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    fs::remove_dir_all(&path).unwrap();
+                } else {
+                    fs::remove_file(&path).unwrap();
+                }
+            }
+            for (i, (name, bytes)) in originals.iter().enumerate() {
+                if i == altered {
+                    let mut bytes = bytes.clone();
+                    bytes[offset] ^= 0xFF;
+                    fs::write(work.path().join(name), &bytes).unwrap();
+                } else {
+                    fs::write(work.path().join(name), bytes).unwrap();
+                }
+            }
             let in_last = *file == journal && offset >= last;
             let at = format!("{} byte {offset}", file.display());
-            let engine = match Engine::open(copy.path(), &OpenOptions::default()) {
+            let engine = match Engine::open(work.path(), &OpenOptions::default()) {
                 Ok(engine) => engine,
                 Err(error) => {
                     assert!(
