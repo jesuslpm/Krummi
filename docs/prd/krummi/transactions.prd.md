@@ -1,12 +1,12 @@
-# Transacciones de MuninnDB — PRD
+# Transacciones de Krummi — PRD
 
 **Versión**: 1.1
 **Fecha**: 2026-10-22
-**Documento padre**: [MuninnDB, motor de almacenamiento embebido inspirado en Voron — PRD](muninndb.prd.md) (v1.1)
+**Documento padre**: [Krummi, motor de almacenamiento embebido inspirado en Voron — PRD](krummi.prd.md) (v1.1)
 
 ## Objetivo y contexto
 
-Construir las **transacciones**, el módulo 2 del [reparto del padre](muninndb.prd.md#reparto-en-prd-hijos):
+Construir las **transacciones**, el módulo 2 del [reparto del padre](krummi.prd.md#reparto-en-prd-hijos):
 transacciones de lectura y de escritura sobre un almacén abierto, con aislamiento por instantánea (G3), un solo
 escritor (G4) y lectores concurrentes que no se bloquean con él.
 
@@ -35,14 +35,14 @@ en él (ver [Anotaciones al padre](#anotaciones-al-padre)).
 | T6 | **Hilos**: una transacción de lectura puede pasarse a otro hilo y compartirse entre varios a la vez, que ven la misma instantánea, siempre dentro de la vida del almacén (T8), es decir, con hilos que terminan antes de cerrarlo. Una transacción de escritura se queda en el hilo que la abrió: el compilador impide pasarla o compartirla. El almacén se puede usar a la vez desde varios hilos. |
 | T7 | **Sin límite de lectores**: no hay un número máximo de transacciones de lectura abiertas a la vez; el único límite es la memoria (P13). |
 | T8 | **Vida de las transacciones**: una transacción depende del almacén abierto del que salió. Cerrar el almacén mientras queda alguna abierta, o usar una después de cerrarlo, no compila. Confirmar y abortar terminan la transacción: confirmarla o abortarla otra vez, o usarla después, no compila. Las referencias que devuelve una lectura valen mientras su transacción esté abierta, y usarlas después no compila (D11 del padre); dentro de una escritura, las referencias a sus páginas valen hasta el siguiente cambio de esa misma transacción, y usarlas después tampoco compila. |
-| T9 | **Confirmar sin diario** (excepción temporal hasta el módulo 3): confirmar hace visibles los cambios (T2) y los lleva a `muninn.data` a más tardar al cerrar el almacén o al dejar de usarlo sin cerrarlo; tras cerrar sin error y reabrir, todos los cambios confirmados están. Mientras no exista el diario, tras una caída del proceso, del sistema o un corte de corriente con el almacén abierto, tras un fallo de entrada y salida que el cierre no consigue resolver (T12), o tras dejar de usar el almacén sin cerrarlo cuando la escritura en `muninn.data` falla, puede faltar en `muninn.data` cualquier confirmación posterior a la última apertura, o una parte de ella. G6 sigue valiendo: al reabrir, una página a medias se informa como daño, nunca como dato válido. Dentro del proceso, G1 vale completa. Es una excepción a G1 (solo ante caídas), G2 y G5 del padre, y a G12 en lo que la reapertura recupera, anotada en él, que termina con el módulo 3. |
-| T10 | **Abortar**: una transacción de escritura abortada, o que se deja de usar sin confirmarla (incluido el pánico del hilo que la tiene, también en mitad de la confirmación), no aplica ninguno de sus cambios, y la siguiente petición de la cola obtiene su turno. El almacén sigue utilizable sin ninguna acción de la aplicación. Si la transacción hizo crecer `muninn.data`, el archivo conserva el tamaño nuevo (P11). Confirmar una escritura sin cambios ni operaciones fallidas termina sin error y no cambia nada: no escribe en `muninn.data`, así que nunca es la operación que encuentra un fallo de entrada y salida (T12). |
+| T9 | **Confirmar sin diario** (excepción temporal hasta el módulo 3): confirmar hace visibles los cambios (T2) y los lleva a `krummi.data` a más tardar al cerrar el almacén o al dejar de usarlo sin cerrarlo; tras cerrar sin error y reabrir, todos los cambios confirmados están. Mientras no exista el diario, tras una caída del proceso, del sistema o un corte de corriente con el almacén abierto, tras un fallo de entrada y salida que el cierre no consigue resolver (T12), o tras dejar de usar el almacén sin cerrarlo cuando la escritura en `krummi.data` falla, puede faltar en `krummi.data` cualquier confirmación posterior a la última apertura, o una parte de ella. G6 sigue valiendo: al reabrir, una página a medias se informa como daño, nunca como dato válido. Dentro del proceso, G1 vale completa. Es una excepción a G1 (solo ante caídas), G2 y G5 del padre, y a G12 en lo que la reapertura recupera, anotada en él, que termina con el módulo 3. |
+| T10 | **Abortar**: una transacción de escritura abortada, o que se deja de usar sin confirmarla (incluido el pánico del hilo que la tiene, también en mitad de la confirmación), no aplica ninguno de sus cambios, y la siguiente petición de la cola obtiene su turno. El almacén sigue utilizable sin ninguna acción de la aplicación. Si la transacción hizo crecer `krummi.data`, el archivo conserva el tamaño nuevo (P11). Confirmar una escritura sin cambios ni operaciones fallidas termina sin error y no cambia nada: no escribe en `krummi.data`, así que nunca es la operación que encuentra un fallo de entrada y salida (T12). |
 | T11 | **Fallo dentro de una escritura**: si una operación de la transacción de escritura falla (disco lleno G7, tamaño máximo P10, memoria agotada P13, daño G6 o entrada y salida G12), al leer o al escribir, la transacción ya no puede confirmarse. Sus operaciones siguientes se pueden intentar, pero confirmarla falla con la clase del primer fallo, no aplica nada, termina la transacción y la siguiente petición de la cola obtiene su turno. Salvo con un fallo de entrada y salida al escribir (T12), el almacén sigue aceptando escrituras. Una confirmación que falla por sí misma sigue la misma regla: no aplica nada y termina la transacción. |
-| T12 | **Almacén que no acepta escrituras** (G12): el primer fallo de entrada y salida al escribir lo informa la operación que lo encuentra (una operación de la escritura, su confirmación, la confirmación de una escritura posterior o el cierre). Desde ese momento, todas las peticiones de escritura que esperan fallan al instante con la clase de entrada y salida, y también las nuevas, aunque la escritura en curso siga abierta. Las transacciones de lectura siguen funcionando, y una lectura nueva ve lo confirmado hasta el fallo. Al cerrar, el almacén vuelve a intentar llevar lo confirmado a `muninn.data`: si lo consigue, el cierre termina sin error y, al reabrir, todo lo confirmado está; si no, el cierre devuelve la clase de entrada y salida y libera el bloqueo (P14). |
+| T12 | **Almacén que no acepta escrituras** (G12): el primer fallo de entrada y salida al escribir lo informa la operación que lo encuentra (una operación de la escritura, su confirmación, la confirmación de una escritura posterior o el cierre). Desde ese momento, todas las peticiones de escritura que esperan fallan al instante con la clase de entrada y salida, y también las nuevas, aunque la escritura en curso siga abierta. Las transacciones de lectura siguen funcionando, y una lectura nueva ve lo confirmado hasta el fallo. Al cerrar, el almacén vuelve a intentar llevar lo confirmado a `krummi.data`: si lo consigue, el cierre termina sin error y, al reabrir, todo lo confirmado está; si no, el cierre devuelve la clase de entrada y salida y libera el bloqueo (P14). |
 | T13 | **Precedencia de los fallos al pedir una escritura**: cuando se cumplen a la vez varias condiciones de fallo sin espera, gana la primera: uso incorrecto (T4, T5), entrada y salida (T12), tiempo de espera agotado con límite cero (T4). |
-| T14 | **Versiones retenidas y crecimiento** (v1.1): hasta el módulo 4, las páginas que una escritura deja de usar no se reutilizan. Cada página conserva su número: la versión que confirma una escritura vive en memoria (T16) mientras alguna lectura abierta necesite la anterior, y después se escribe en su sitio en `muninn.data`. `muninn.data` solo crece cuando una escritura reserva páginas nuevas. Todo el espacio del almacén cuenta para el tamaño máximo (P10): en disco, el de `muninn.data` más el de las versiones que están solo en memoria, incluidas las de la escritura abierta; en modo temporal, toda la memoria del almacén. Una lectura larga sobre un almacén que se sigue modificando puede llevarlo al máximo, y entonces una escritura que necesita más espacio falla con la clase de tamaño máximo (T11). Ese espacio se recupera cuando terminan las lecturas que lo retienen, sin reabrir: las escrituras siguientes vuelven a caber. La información del almacén (P12) describe `muninn.data` tal como está, incluido lo que haya crecido por transacciones abiertas o abortadas. |
+| T14 | **Versiones retenidas y crecimiento** (v1.1): hasta el módulo 4, las páginas que una escritura deja de usar no se reutilizan. Cada página conserva su número: la versión que confirma una escritura vive en memoria (T16) mientras alguna lectura abierta necesite la anterior, y después se escribe en su sitio en `krummi.data`. `krummi.data` solo crece cuando una escritura reserva páginas nuevas. Todo el espacio del almacén cuenta para el tamaño máximo (P10): en disco, el de `krummi.data` más el de las versiones que están solo en memoria, incluidas las de la escritura abierta; en modo temporal, toda la memoria del almacén. Una lectura larga sobre un almacén que se sigue modificando puede llevarlo al máximo, y entonces una escritura que necesita más espacio falla con la clase de tamaño máximo (T11). Ese espacio se recupera cuando terminan las lecturas que lo retienen, sin reabrir: las escrituras siguientes vuelven a caber. La información del almacén (P12) describe `krummi.data` tal como está, incluido lo que haya crecido por transacciones abiertas o abortadas. |
 | T15 | **Modo temporal**: las transacciones funcionan igual que en disco (G9); lo confirmado vive en memoria hasta cerrar el almacén. |
-| T16 | **Lecturas sin copia en transacciones** (D11 del padre): una lectura devuelve una referencia a la proyección de `muninn.data`, a la memoria del almacén temporal o, para una versión confirmada que todavía no está en `muninn.data` o que ya no está en él, a la memoria del motor donde se conserva; nunca a una copia hecha para esa lectura. Es una precisión de D11 del padre, anotada en él. |
+| T16 | **Lecturas sin copia en transacciones** (D11 del padre): una lectura devuelve una referencia a la proyección de `krummi.data`, a la memoria del almacén temporal o, para una versión confirmada que todavía no está en `krummi.data` o que ya no está en él, a la memoria del motor donde se conserva; nunca a una copia hecha para esa lectura. Es una precisión de D11 del padre, anotada en él. |
 | T17 | **Encabezado**: en este módulo las transacciones no reescriben el encabezado; el diario (módulo 3) fija cuándo se reescribe (P3 del Pager). |
 | T18 | **Datos de los errores nuevos** (D8 del padre): los dos llevan la carpeta del almacén, o que es temporal; el de tiempo de espera agotado lleva además el límite pedido. |
 
@@ -62,6 +62,12 @@ espacio se recupera al terminar las lecturas.*
 - *T17 y AC-T21: el encabezado se reescribe cuando avanza el traslado a `muninn.data`; AC-T21 deja de valer
   (decisión J6).*
 
+*Anotación del 2026-10-23 desde el cambio de nombre ([rename-to-krummi.prd.md](rename-to-krummi.prd.md)):*
+
+- *Todo el documento: el producto se llama Krummi, sus paquetes y los archivos de un almacén toman los nombres
+  de R2 y R3, y este documento se actualizó con los nombres nuevos (decisiones R1–R13). Los nombres de archivo y
+  los números de formato de las anotaciones anteriores se leen según R3 y R5, y el formato vigente es `3`.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:
@@ -70,7 +76,7 @@ Verificado el 2026-10-22:
 |---|---|
 | MuninnDB | El Pager (módulo 1) está implementado. La API pública solo abre, consulta y cierra almacenes; no hay transacciones. Internamente, las páginas se leen sin copia mientras el almacén está abierto y se escriben directamente en `muninn.data` con acceso exclusivo al almacén, sin instantáneas ni aislamiento. El encabezado solo se escribe al crear el almacén. Las clases de error existentes son las del padre más tamaño máximo y memoria agotada; no hay ninguna de tiempo de espera ni de uso incorrecto. |
 | Pager | El informe de cierre del Pager deja pendiente liberar la memoria que el almacén retiene al crecer cuando ninguna transacción la use. |
-| PRD padre | [muninndb.prd.md](muninndb.prd.md) v1.1 asigna a este módulo lo que G4 no decide, el paso de transacciones entre hilos, el límite de lectores y el cierre con transacciones abiertas o el uso de un almacén cerrado. P3 del Pager deja a los módulos 2 y 3 cuándo se reescribe el encabezado. |
+| PRD padre | [muninndb.prd.md](krummi.prd.md) v1.1 asigna a este módulo lo que G4 no decide, el paso de transacciones entre hilos, el límite de lectores y el cierre con transacciones abiertas o el uso de un almacén cerrado. P3 del Pager deja a los módulos 2 y 3 cuándo se reescribe el encabezado. |
 | Voron (referencia) | Un escritor con un bloqueo de escritura que admite un límite de espera y falla al vencer; error si el mismo hilo abre una segunda escritura; lectores sin límite fijo; las páginas que cambia la escritura se copian a un área temporal, y lo confirmado pasa por el diario antes de llegar al archivo de datos cuando ningún lector necesita la versión anterior. |
 
 ## Actores
@@ -89,7 +95,7 @@ El operador y la herramienta de línea de comandos no intervienen en este módul
 4. Dentro de la escritura, la biblioteca lee y cambia páginas (interno, T1).
 5. La aplicación confirma la escritura (T9) o la aborta (T10). La siguiente petición de la cola obtiene su turno.
 6. Cuando ya no queda ninguna transacción abierta, la aplicación cierra el almacén (T8, P14); lo confirmado queda
-   en `muninn.data` (T9).
+   en `krummi.data` (T9).
 
 ## Validaciones y mensajes
 
@@ -106,8 +112,8 @@ abre transacciones):
 | Falta memoria al abrir una transacción o durante ella | La operación falla; el almacén sigue utilizable (T7, P13). | Memoria agotada |
 | Falla una operación de una escritura | La transacción ya no se puede confirmar (T11). | La del fallo |
 | Se confirma una escritura en la que falló una operación | La confirmación falla con la clase del primer fallo, no aplica nada y termina la transacción (T11). | La del primer fallo |
-| Falla una escritura del sistema al confirmar o al llevar lo confirmado a `muninn.data` | La operación que lo encuentra falla; el almacén deja de aceptar escrituras (T12). | Entrada y salida |
-| Se cierra un almacén que dejó de aceptar escrituras | El cierre reintenta llevar lo confirmado a `muninn.data`: sin error si lo consigue; si no, falla, libera el bloqueo y lo confirmado puede faltar al reabrir (T12, T9). | Entrada y salida, si falla |
+| Falla una escritura del sistema al confirmar o al llevar lo confirmado a `krummi.data` | La operación que lo encuentra falla; el almacén deja de aceptar escrituras (T12). | Entrada y salida |
+| Se cierra un almacén que dejó de aceptar escrituras | El cierre reintenta llevar lo confirmado a `krummi.data`: sin error si lo consigue; si no, falla, libera el bloqueo y lo confirmado puede faltar al reabrir (T12, T9). | Entrada y salida, si falla |
 | Confirmar o abortar dos veces una transacción, o usarla después de terminarla | No compila (T8). | — |
 | Cerrar el almacén con transacciones abiertas, usar una transacción después de cerrarlo, o usar una referencia después de que termine su transacción o tras un cambio de la misma escritura | No compila (T8). | — |
 | Pasar a otro hilo o compartir una transacción de escritura | No compila (T6). | — |
@@ -120,7 +126,7 @@ El módulo no escribe nada en pantalla ni añade datos a la información del alm
 Su salida pública son los resultados de abrir, confirmar y abortar transacciones y las dos clases nuevas de error,
 con los datos de T18.
 
-En disco, la carpeta del almacén sigue conteniendo solo `muninn.data`, además de los archivos ajenos (P7).
+En disco, la carpeta del almacén sigue conteniendo solo `krummi.data`, además de los archivos ajenos (P7).
 
 ## Reutilización
 
@@ -157,7 +163,7 @@ En disco, la carpeta del almacén sigue conteniendo solo `muninn.data`, además 
 
 ## Dejado a la implementación
 
-- Cuándo, entre la confirmación y el cierre, se escriben en `muninn.data` los cambios confirmados y cuándo se
+- Cuándo, entre la confirmación y el cierre, se escriben en `krummi.data` los cambios confirmados y cuándo se
   llevan al disco (T9).
 - Cuánto crece el almacén por cada confirmación (T14).
 - Cuánta memoria usa una transacción y cuándo se libera la que retienen las lecturas que terminan.
@@ -190,7 +196,7 @@ Este módulo comprueba a nivel de biblioteca estos criterios del padre, adaptado
 - **AC11**: con una escritura que necesita crecer; la confirmación falla con la clase de disco lleno (T11), no
   aplica nada, las lecturas siguen funcionando y, al liberar espacio, una escritura siguiente se confirma sin
   reabrir.
-- **AC12**: con un fallo simulado en la primera escritura en `muninn.data` de lo confirmado por una transacción;
+- **AC12**: con un fallo simulado en la primera escritura en `krummi.data` de lo confirmado por una transacción;
   la operación que lo encuentra (la confirmación, la confirmación de una escritura posterior o el cierre) falla con la
   clase de entrada y salida, las peticiones de escritura siguientes fallan con esa clase (T12), las lecturas
   funcionan y ven todo lo confirmado, y al reabrir el almacén abre (la recuperación llega con el módulo 3).
@@ -199,7 +205,7 @@ Este módulo comprueba a nivel de biblioteca estos criterios del padre, adaptado
 - **AC20**: una lectura dentro de una transacción de lectura devuelve una referencia según T16, nunca a una copia
   hecha para esa lectura: dos lecturas de la misma página, en la misma transacción y en otra abierta después sin
   confirmaciones intermedias, devuelven la misma dirección, también para una versión confirmada que todavía no
-  está en `muninn.data`; usarla después de terminar la transacción no compila.
+  está en `krummi.data`; usarla después de terminar la transacción no compila.
 
 Y además:
 
@@ -267,7 +273,7 @@ Y además:
     liberan en el acto. Reescribir las mismas páginas no hace crecer la memoria sin límite, así que el fallo
     llega cuando el tamaño máximo no deja sitio para esas versiones retenidas, no con cualquier máximo.*
 17. **AC-T17** — Dada una escritura sin cambios, cuando se confirma, entonces termina sin error y la información
-    del almacén no cambia; y con un fallo simulado en toda escritura en `muninn.data`, la confirmación de una
+    del almacén no cambia; y con un fallo simulado en toda escritura en `krummi.data`, la confirmación de una
     escritura sin cambios termina igualmente sin error (T10).
 18. **AC-T18** — Dada una escritura que termina mientras hay una petición en cola, cuando la prueba detiene el
     traspaso del turno y otro hilo pide una escritura en ese instante, sin límite y con límite cero, entonces la
@@ -277,7 +283,7 @@ Y además:
     cuando una lectura nueva lee el almacén, entonces no ve ninguno de sus cambios, y la siguiente petición de
     escritura la obtiene y confirma sin error (T10).
 20. **AC-T20** — Dado un almacén que dejó de aceptar escrituras por un fallo simulado al llevar lo confirmado a
-    `muninn.data`, cuando el fallo deja de producirse y se cierra, entonces el cierre termina sin error y, al
+    `krummi.data`, cuando el fallo deja de producirse y se cierra, entonces el cierre termina sin error y, al
     reabrir, todo lo confirmado está; y cuando el fallo persiste, el cierre falla con la clase de entrada y
     salida y el almacén se puede volver a abrir (T12).
 21. **AC-T21** — Dado un almacén con confirmaciones, cuando se cierra, entonces las dos copias del encabezado son
@@ -298,7 +304,7 @@ Este PRD declara una excepción temporal y una precisión en el padre, que lleva
 
 ## Referencias
 
-- Padre y raíz: [muninndb.prd.md](muninndb.prd.md) v1.1
+- Padre y raíz: [krummi.prd.md](krummi.prd.md) v1.1
 - Módulo anterior: [pager.prd.md](pager.prd.md)
 - Voron, en el repositorio de RavenDB: <https://github.com/ravendb/ravendb/tree/v6.2/src/Voron>
 

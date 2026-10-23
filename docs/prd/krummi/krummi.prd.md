@@ -1,4 +1,4 @@
-# MuninnDB, motor de almacenamiento embebido inspirado en Voron — PRD
+# Krummi, motor de almacenamiento embebido inspirado en Voron — PRD
 
 **Versión**: 1.1
 **Fecha**: 2026-10-22
@@ -6,7 +6,7 @@
 
 ## Objetivo y contexto
 
-Construir **MuninnDB**, un motor de almacenamiento embebido y transaccional, escrito en Rust, **para uso en
+Construir **Krummi**, un motor de almacenamiento embebido y transaccional, escrito en Rust, **para uso en
 producción**, que reproduce las capacidades de **Voron**, el motor de almacenamiento de RavenDB. Se entrega como
 una biblioteca que otras aplicaciones Rust incorporan en su propio proceso, más una herramienta de línea de
 comandos para operarlo.
@@ -25,14 +25,14 @@ módulos, y reparte el producto en PRD hijos, cada uno con su propia ejecución 
    banco comparativo (decisión D5).
 
 **Por qué**: Voron es un diseño probado durante años en producción (un escritor con lectores concurrentes que no
-se bloquean, diario de escritura anticipada, recuperación automática), pero solo existe para .NET. MuninnDB
+se bloquean, diario de escritura anticipada, recuperación automática), pero solo existe para .NET. Krummi
 lleva ese diseño a Rust como producto propio, sin atarse a su formato en disco.
 
 ### Decisiones de producto
 
 | ID | Decisión |
 |---|---|
-| D1 | **Producto para producción, con formato propio.** MuninnDB no lee ni escribe archivos de Voron ni de RavenDB. Reproduce sus capacidades, no su formato. |
+| D1 | **Producto para producción, con formato propio.** Krummi no lee ni escribe archivos de Voron ni de RavenDB. Reproduce sus capacidades, no su formato. |
 | D2 | **Superficie pública**: una biblioteca Rust embebible (el producto principal) y una herramienta de línea de comandos de operación, con mensajes en español. |
 | D3 | **Plataformas**: Windows x64 y Linux x86-64 con glibc, sobre discos locales. Las dos se prueban en cada PRD hijo. |
 | D4 | **Alcance**: todas las capacidades de Voron, incluidas las estructuras añadidas para Corax (containers, posting lists, compact trees y lookups), que se construyen después del núcleo. |
@@ -41,7 +41,7 @@ lleva ese diseño a Rust como producto propio, sin atarse a su formato en disco.
 | D7 | **Evolución del formato**: cada almacén guarda la versión de su formato en disco, un número entero positivo que cambia con cada cambio incompatible del formato, también antes de la 1.0. Una versión del motor abre solo el formato que conoce; ante otro, anterior o posterior, se niega sin modificar nada. Desde la versión 1.0 del producto, la herramienta de línea de comandos migra un formato anterior al actual sin tocar el original; antes de la 1.0 no hay migración y los datos se recrean. |
 | D8 | **Errores de la biblioteca**: los errores se agrupan en clases que la aplicación distingue sin leer texto; cada clase cubre las situaciones que le asigna la [tabla de validaciones](#validaciones-y-mensajes) o el PRD hijo dueño. Cada error lleva como datos aparte lo que su mensaje necesita (carpeta, versiones, número de página, causa). El texto de esos errores está en inglés; la herramienta de línea de comandos muestra en español el mensaje de cada situación. |
 | D9 | **Almacenes por recuperar en la herramienta**: si un almacén se cerró por una caída, las órdenes de la herramienta lo recuperan al abrirlo (G5), como haría la biblioteca, y después hacen su trabajo. Las únicas que no lo modifican son la verificación y el rescate de datos (copiar lo que se pueda leer de un almacén dañado), que trabajan sobre el almacén tal como está. |
-| D10 | **Reconocimiento de un almacén**: una carpeta contiene un almacén de MuninnDB cuando tiene su marca de identificación intacta. Todo lo demás que queda legible sin clave (G8), incluida la versión de formato, lleva su propia comprobación de integridad: si se altera, el almacén está dañado, no es de otro formato ni deja de ser un almacén. El PRD hijo 1 fija la marca y dónde está. |
+| D10 | **Reconocimiento de un almacén**: una carpeta contiene un almacén de Krummi cuando tiene su marca de identificación intacta. Todo lo demás que queda legible sin clave (G8), incluida la versión de formato, lleva su propia comprobación de integridad: si se altera, el almacén está dañado, no es de otro formato ni deja de ser un almacén. El PRD hijo 1 fija la marca y dónde está. |
 | D11 | **Lecturas sin copia** (v1.1): las lecturas devuelven a la aplicación referencias a memoria del motor, sin copiar los datos a un buffer de quien llama. Las referencias valen mientras la transacción de lectura que las obtuvo esté abierta, y el compilador impide usarlas después. Si una página se guarda cifrada (módulo 9) o comprimida (módulo 5), se descifra o descomprime una sola vez en memoria de la transacción y la referencia apunta ahí. Las escrituras trabajan sobre una copia de la página, que el aislamiento por instantánea (G3) exige. |
 | D12 | **Código no seguro** (v1.1): el Pager (módulo 1), con la variante cifrada que le añade el módulo 9, es la única parte del motor que puede usar código no seguro de Rust (`unsafe`). Lo encapsula detrás de una interfaz segura; el resto del motor lo tiene prohibido y una comprobación automática lo impide. |
 
@@ -56,6 +56,12 @@ anterior, también con el número `0`, que ninguna versión usa y solo aparece e
 *Anotación del 2026-10-22 a D11: la referencia de una lectura también puede apuntar a la memoria donde el motor
 conserva una versión confirmada de la página que no está en el archivo de datos, nunca a una copia hecha para esa
 lectura (decisión T16 de [transactions.prd.md](transactions.prd.md)).*
+
+*Anotación del 2026-10-23: el producto se llama Krummi; sus paquetes y los archivos de un almacén toman los nombres
+de R2 y R3, y este documento se actualizó con los nombres nuevos (decisiones R1–R13 de
+[rename-to-krummi.prd.md](rename-to-krummi.prd.md)). Los nombres de archivo y los números de formato de las
+anotaciones anteriores se leen según R3 y R5, y el formato vigente es `3`. Una carpeta con un almacén de MuninnDB
+no contiene un almacén de Krummi (D10, decisión R6).*
 
 ### Estado de partida
 
@@ -170,10 +176,10 @@ y contando desde 0. El PRD hijo 12 fija cómo se muestran `<carpeta>` y `<destin
 | La carpeta no se puede usar: es un archivo, falta permiso, el sistema de archivos es de solo lectura o la ruta no es válida | La apertura falla sin tocar nada. | Acceso | `No se puede usar la carpeta <carpeta>: <causa>.` |
 | La carpeta de origen no existe (solo en la herramienta) | La orden falla: la herramienta nunca crea un almacén en una carpeta de origen. | Acceso | `La carpeta <carpeta> no existe.` |
 | El almacén ya está abierto, por otro proceso o por el mismo | La apertura falla sin tocar el almacén (D6). | Almacén en uso | `El almacén <carpeta> ya está abierto.` |
-| La carpeta no es un almacén de MuninnDB: tiene alguna entrada, incluidas las ocultas, que no lo forma, o está vacía y la abre la herramienta | La apertura falla sin tocar nada. | No es un almacén | `La carpeta <carpeta> no contiene un almacén de MuninnDB.` |
-| El almacén se reconoce como de MuninnDB, pero lo necesario para abrirlo está dañado | La apertura falla sin tocar el almacén (G6). Gana a la fila de página dañada cuando el daño se encuentra al abrir. | Daño | `El almacén <carpeta> está dañado y no se puede abrir.` |
-| El almacén tiene un formato anterior | La apertura falla sin tocar el almacén (D7). | Formato distinto | `El almacén <carpeta> tiene el formato <versión>, anterior al formato <versión> de esta versión de MuninnDB.` |
-| El almacén tiene un formato posterior | La apertura falla sin tocar el almacén (D7). | Formato distinto | `El almacén <carpeta> tiene el formato <versión>, posterior al formato <versión> de esta versión de MuninnDB.` |
+| La carpeta no es un almacén de Krummi: tiene alguna entrada, incluidas las ocultas, que no lo forma, o está vacía y la abre la herramienta | La apertura falla sin tocar nada. | No es un almacén | `La carpeta <carpeta> no contiene un almacén de Krummi.` |
+| El almacén se reconoce como de Krummi, pero lo necesario para abrirlo está dañado | La apertura falla sin tocar el almacén (G6). Gana a la fila de página dañada cuando el daño se encuentra al abrir. | Daño | `El almacén <carpeta> está dañado y no se puede abrir.` |
+| El almacén tiene un formato anterior | La apertura falla sin tocar el almacén (D7). | Formato distinto | `El almacén <carpeta> tiene el formato <versión>, anterior al formato <versión> de esta versión de Krummi.` |
+| El almacén tiene un formato posterior | La apertura falla sin tocar el almacén (D7). | Formato distinto | `El almacén <carpeta> tiene el formato <versión>, posterior al formato <versión> de esta versión de Krummi.` |
 | Una página está dañada, después de abrir | La operación falla y no devuelve datos de esa página (G6). | Daño | `Página <número> dañada en el almacén <carpeta>.` |
 | El disco está lleno | La operación falla y la transacción no aplica nada (G7). | Disco lleno | `No hay espacio en disco para completar la operación en <carpeta>.` |
 | Otro fallo del sistema al escribir o al llevar datos al disco | La operación falla y el almacén deja de aceptar escrituras hasta reabrirlo (G12). | Entrada y salida | `Error de escritura en el almacén <carpeta>: <causa>.` |
@@ -193,7 +199,7 @@ todo lo demás y la apertura falla sin tocar nada (flujo de [pager.prd.md](pager
 
 1. La carpeta se puede usar.
 2. El almacén no está abierto ya.
-3. La carpeta contiene un almacén de MuninnDB, es decir, su marca de identificación está intacta (D10), o está
+3. La carpeta contiene un almacén de Krummi, es decir, su marca de identificación está intacta (D10), o está
    vacía, y entonces la biblioteca crea uno.
 
    *Anotación del 2026-10-22: para este paso y para la fila de carpeta que no es un almacén, el archivo temporal
@@ -325,7 +331,7 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 18. **AC18** — Las pruebas de cada PRD hijo pasan en Windows x64 y en Linux x86-64 con glibc (D3).
 19. **AC19** — El banco comparativo se ejecuta con la orden que fija su PRD hijo y produce en Windows y en Linux
     un informe con la misma estructura, los mismos motores, las mismas cargas y los mismos campos, en el que
-    MuninnDB cumple los umbrales vigentes (D5).
+    Krummi cumple los umbrales vigentes (D5).
 20. **AC20** — Dada una lectura de cualquier estructura de datos, cuando devuelve un valor, entonces la referencia
     apunta a memoria del motor (la proyección del archivo, o la memoria de la transacción si la página está
     cifrada o comprimida) y no a una copia hecha para esa lectura; y usar la referencia después de cerrar la

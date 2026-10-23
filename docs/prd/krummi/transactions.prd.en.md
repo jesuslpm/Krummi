@@ -1,14 +1,14 @@
-# MuninnDB Transactions — PRD
+# Krummi Transactions — PRD
 
 **Version**: 1.1
 **Date**: 2026-10-22
-**Parent document**: [MuninnDB, an embedded storage engine inspired by Voron — PRD](muninndb.prd.en.md) (v1.1)
+**Parent document**: [Krummi, an embedded storage engine inspired by Voron — PRD](krummi.prd.en.md) (v1.1)
 
 > English translation of [transactions.prd.md](transactions.prd.md). The Spanish original is authoritative if they differ.
 
 ## Objective and context
 
-Build the **transactions**, module 2 of the [parent's split](muninndb.prd.en.md#split-into-child-prds):
+Build the **transactions**, module 2 of the [parent's split](krummi.prd.en.md#split-into-child-prds):
 read and write transactions over an open store, with snapshot isolation (G3), a single writer (G4) and concurrent
 readers that do not block with it.
 
@@ -37,14 +37,14 @@ D11 are declared in T9 and T16 and annotated in it (see [Annotations to the pare
 | T6 | **Threads**: a read transaction can be passed to another thread and shared among several at the same time, which see the same snapshot, always within the life of the store (T8), that is, with threads that end before it is closed. A write transaction stays in the thread that opened it: the compiler prevents passing or sharing it. The store can be used from several threads at the same time. |
 | T7 | **No limit of readers**: there is no maximum number of read transactions open at the same time; the only limit is memory (P13). |
 | T8 | **Life of the transactions**: a transaction depends on the open store it came from. Closing the store while any is open, or using one after closing it, does not compile. Committing and aborting end the transaction: committing or aborting it again, or using it afterwards, does not compile. The references that a read returns are valid while its transaction is open, and using them afterwards does not compile (D11 of the parent); inside a write, the references to its pages are valid until the next change of that same transaction, and using them afterwards does not compile either. |
-| T9 | **Commit without a journal** (temporary exception until module 3): committing makes the changes visible (T2) and takes them to `muninn.data` at the latest when the store is closed or when it is no longer used without closing it; after closing without error and reopening, all the committed changes are there. While the journal does not exist, after a crash of the process, of the system or a power cut with the store open, after an input/output failure that the close does not manage to resolve (T12), or after ceasing to use the store without closing it when the write to `muninn.data` fails, any commit after the last opening, or a part of it, may be missing from `muninn.data`. G6 still holds: on reopening, a half-written page is reported as damage, never as valid data. Inside the process, G1 holds in full. It is an exception to G1 (only on crashes), G2 and G5 of the parent, and to G12 in what the reopening recovers, annotated in it, which ends with module 3. |
-| T10 | **Abort**: a write transaction that is aborted, or that is no longer used without committing it (including the panic of the thread that holds it, also in the middle of the commit), applies none of its changes, and the next request in the queue obtains its turn. The store remains usable without any action from the application. If the transaction made `muninn.data` grow, the file keeps the new size (P11). Committing a write with no changes and no failed operations ends without error and changes nothing: it does not write to `muninn.data`, so it is never the operation that encounters an input/output failure (T12). |
+| T9 | **Commit without a journal** (temporary exception until module 3): committing makes the changes visible (T2) and takes them to `krummi.data` at the latest when the store is closed or when it is no longer used without closing it; after closing without error and reopening, all the committed changes are there. While the journal does not exist, after a crash of the process, of the system or a power cut with the store open, after an input/output failure that the close does not manage to resolve (T12), or after ceasing to use the store without closing it when the write to `krummi.data` fails, any commit after the last opening, or a part of it, may be missing from `krummi.data`. G6 still holds: on reopening, a half-written page is reported as damage, never as valid data. Inside the process, G1 holds in full. It is an exception to G1 (only on crashes), G2 and G5 of the parent, and to G12 in what the reopening recovers, annotated in it, which ends with module 3. |
+| T10 | **Abort**: a write transaction that is aborted, or that is no longer used without committing it (including the panic of the thread that holds it, also in the middle of the commit), applies none of its changes, and the next request in the queue obtains its turn. The store remains usable without any action from the application. If the transaction made `krummi.data` grow, the file keeps the new size (P11). Committing a write with no changes and no failed operations ends without error and changes nothing: it does not write to `krummi.data`, so it is never the operation that encounters an input/output failure (T12). |
 | T11 | **Failure inside a write**: if an operation of the write transaction fails (disk full G7, maximum size P10, out of memory P13, damage G6 or input/output G12), when reading or when writing, the transaction can no longer be committed. Its following operations can be attempted, but committing it fails with the class of the first failure, applies nothing, ends the transaction and the next request in the queue obtains its turn. Except with an input/output failure when writing (T12), the store keeps accepting writes. A commit that fails by itself follows the same rule: it applies nothing and ends the transaction. |
-| T12 | **Store that does not accept writes** (G12): the first input/output failure when writing is reported by the operation that encounters it (an operation of the write, its commit, the commit of a later write or the close). From that moment, all the write requests that are waiting fail at once with the input/output class, and so do the new ones, even if the write in progress is still open. Read transactions keep working, and a new read sees what was committed up to the failure. On closing, the store tries again to take what was committed to `muninn.data`: if it succeeds, the close ends without error and, on reopening, everything committed is there; if not, the close returns the input/output class and releases the lock (P14). |
+| T12 | **Store that does not accept writes** (G12): the first input/output failure when writing is reported by the operation that encounters it (an operation of the write, its commit, the commit of a later write or the close). From that moment, all the write requests that are waiting fail at once with the input/output class, and so do the new ones, even if the write in progress is still open. Read transactions keep working, and a new read sees what was committed up to the failure. On closing, the store tries again to take what was committed to `krummi.data`: if it succeeds, the close ends without error and, on reopening, everything committed is there; if not, the close returns the input/output class and releases the lock (P14). |
 | T13 | **Precedence of failures when asking for a write**: when several no-wait failure conditions are met at once, the first one wins: misuse (T4, T5), input/output (T12), timeout with a limit of zero (T4). |
-| T14 | **Retained versions and growth** (v1.1): until module 4, the pages that a write stops using are not reused. Each page keeps its number: the version that a write commits lives in memory (T16) while some open read needs the earlier one, and is then written in its place in `muninn.data`. `muninn.data` only grows when a write reserves new pages. All the space of the store counts toward the maximum size (P10): on disk, that of `muninn.data` plus that of the versions that are only in memory, including those of the open write; in temporary mode, all the memory of the store. A long read on a store that keeps being modified can take it to the maximum, and then a write that needs more space fails with the maximum-size class (T11). That space is recovered when the reads that retain it end, without reopening: the following writes fit again. The store's information (P12) describes `muninn.data` as it is, including what has grown through open or aborted transactions. |
+| T14 | **Retained versions and growth** (v1.1): until module 4, the pages that a write stops using are not reused. Each page keeps its number: the version that a write commits lives in memory (T16) while some open read needs the earlier one, and is then written in its place in `krummi.data`. `krummi.data` only grows when a write reserves new pages. All the space of the store counts toward the maximum size (P10): on disk, that of `krummi.data` plus that of the versions that are only in memory, including those of the open write; in temporary mode, all the memory of the store. A long read on a store that keeps being modified can take it to the maximum, and then a write that needs more space fails with the maximum-size class (T11). That space is recovered when the reads that retain it end, without reopening: the following writes fit again. The store's information (P12) describes `krummi.data` as it is, including what has grown through open or aborted transactions. |
 | T15 | **Temporary mode**: transactions work the same as on disk (G9); what is committed lives in memory until the store is closed. |
-| T16 | **Zero-copy reads in transactions** (D11 of the parent): a read returns a reference to the projection of `muninn.data`, to the memory of the temporary store or, for a committed version that is not yet in `muninn.data` or that is no longer in it, to the engine's memory where it is kept; never to a copy made for that read. It is a clarification of D11 of the parent, annotated in it. |
+| T16 | **Zero-copy reads in transactions** (D11 of the parent): a read returns a reference to the projection of `krummi.data`, to the memory of the temporary store or, for a committed version that is not yet in `krummi.data` or that is no longer in it, to the engine's memory where it is kept; never to a copy made for that read. It is a clarification of D11 of the parent, annotated in it. |
 | T17 | **Header**: in this module the transactions do not rewrite the header; the journal (module 3) fixes when it is rewritten (P3 of the Pager). |
 | T18 | **Data of the new errors** (D8 of the parent): both carry the store's folder, or that it is temporary; the timeout one also carries the requested limit. |
 
@@ -64,6 +64,12 @@ reads end.*
 - *T17 and AC-T21: the header is rewritten when the transfer to `muninn.data` advances; AC-T21 no longer holds
   (decision J6).*
 
+*Annotation of 2026-10-23 from the rename ([rename-to-krummi.prd.en.md](rename-to-krummi.prd.en.md)):*
+
+- *Whole document: the product is called Krummi, its packages and the files of a store take the names of R2 and
+  R3, and this document was updated with the new names (decisions R1–R13). The file names and format numbers of
+  the earlier annotations are read according to R3 and R5, and the current format is `3`.*
+
 ### Starting state
 
 Verified on 2026-10-22:
@@ -72,7 +78,7 @@ Verified on 2026-10-22:
 |---|---|
 | MuninnDB | The Pager (module 1) is implemented. The public API only opens, queries and closes stores; there are no transactions. Internally, pages are read without copy while the store is open and are written directly to `muninn.data` with exclusive access to the store, without snapshots or isolation. The header is only written when the store is created. The existing error classes are those of the parent plus maximum size and out of memory; there is none of timeout or misuse. |
 | Pager | The Pager's closing report leaves pending releasing the memory that the store retains when growing once no transaction uses it. |
-| Parent PRD | [muninndb.prd.en.md](muninndb.prd.en.md) v1.1 assigns to this module what G4 does not decide, the passing of transactions between threads, the limit of readers and the close with open transactions or the use of a closed store. P3 of the Pager leaves to modules 2 and 3 when the header is rewritten. |
+| Parent PRD | [muninndb.prd.en.md](krummi.prd.en.md) v1.1 assigns to this module what G4 does not decide, the passing of transactions between threads, the limit of readers and the close with open transactions or the use of a closed store. P3 of the Pager leaves to modules 2 and 3 when the header is rewritten. |
 | Voron (reference) | A single writer with a write lock that admits a waiting limit and fails when it expires; error if the same thread opens a second write; readers with no fixed limit; the pages that the write changes are copied to a scratch area, and what is committed goes through the journal before reaching the data file when no reader needs the earlier version. |
 
 ## Actors
@@ -91,7 +97,7 @@ The operator and the command-line tool do not take part in this module.
 4. Inside the write, the library reads and changes pages (internal, T1).
 5. The application commits the write (T9) or aborts it (T10). The next request in the queue obtains its turn.
 6. When no transaction remains open, the application closes the store (T8, P14); what was committed stays in
-   `muninn.data` (T9).
+   `krummi.data` (T9).
 
 ## Validations and messages
 
@@ -108,8 +114,8 @@ open transactions):
 | Memory runs out when opening a transaction or during it | The operation fails; the store remains usable (T7, P13). | Out of memory |
 | An operation of a write fails | The transaction can no longer be committed (T11). | That of the failure |
 | A write in which an operation failed is committed | The commit fails with the class of the first failure, applies nothing and ends the transaction (T11). | That of the first failure |
-| A system write fails when committing or when taking what was committed to `muninn.data` | The operation that encounters it fails; the store stops accepting writes (T12). | Input/output |
-| A store that stopped accepting writes is closed | The close tries again to take what was committed to `muninn.data`: without error if it succeeds; if not, it fails, releases the lock and what was committed may be missing on reopening (T12, T9). | Input/output, if it fails |
+| A system write fails when committing or when taking what was committed to `krummi.data` | The operation that encounters it fails; the store stops accepting writes (T12). | Input/output |
+| A store that stopped accepting writes is closed | The close tries again to take what was committed to `krummi.data`: without error if it succeeds; if not, it fails, releases the lock and what was committed may be missing on reopening (T12, T9). | Input/output, if it fails |
 | Committing or aborting a transaction twice, or using it after it has ended | It does not compile (T8). | — |
 | Closing the store with open transactions, using a transaction after closing it, or using a reference after its transaction ends or after a change of the same write | It does not compile (T8). | — |
 | Passing to another thread or sharing a write transaction | It does not compile (T6). | — |
@@ -122,7 +128,7 @@ The module writes nothing to the screen nor adds data to the store's information
 Its public output is the results of opening, committing and aborting transactions and the two new error classes,
 with the data of T18.
 
-On disk, the store's folder still contains only `muninn.data`, besides the foreign files (P7).
+On disk, the store's folder still contains only `krummi.data`, besides the foreign files (P7).
 
 ## Reuse
 
@@ -159,7 +165,7 @@ On disk, the store's folder still contains only `muninn.data`, besides the forei
 
 ## Left to the implementation
 
-- When, between the commit and the close, the committed changes are written to `muninn.data` and when they are
+- When, between the commit and the close, the committed changes are written to `krummi.data` and when they are
   taken to disk (T9).
 - How much the store grows with each commit (T14).
 - How much memory a transaction uses and when the memory retained by the reads that end is released.
@@ -191,7 +197,7 @@ This module checks at library level these criteria of the parent, adapted to wha
   has been closed, and then reading all the pages in a read transaction.
 - **AC11**: with a write that needs to grow; the commit fails with the disk-full class (T11), applies nothing,
   reads keep working and, when space is freed, a following write commits without reopening.
-- **AC12**: with a simulated failure in the first write to `muninn.data` of what a transaction committed; the
+- **AC12**: with a simulated failure in the first write to `krummi.data` of what a transaction committed; the
   operation that encounters it (the commit, the commit of a later write or the close) fails with the input/output
   class, the following write requests fail with that class (T12), reads work and see everything committed, and on
   reopening the store opens (recovery arrives with module 3).
@@ -199,7 +205,7 @@ This module checks at library level these criteria of the parent, adapted to wha
 - **AC18** and **AC21**: as is.
 - **AC20**: a read inside a read transaction returns a reference according to T16, never to a copy made for that
   read: two reads of the same page, in the same transaction and in another opened later without intermediate
-  commits, return the same address, also for a committed version that is not yet in `muninn.data`; using it after
+  commits, return the same address, also for a committed version that is not yet in `krummi.data`; using it after
   the transaction ends does not compile.
 
 And in addition:
@@ -264,7 +270,7 @@ And in addition:
     Rewriting the same pages does not make memory grow without limit, so the failure comes when the maximum size
     leaves no room for those retained versions, not with any maximum.*
 17. **AC-T17** — Given a write with no changes, when it is committed, then it ends without error and the store's
-    information does not change; and with a simulated failure in every write to `muninn.data`, the commit of a
+    information does not change; and with a simulated failure in every write to `krummi.data`, the commit of a
     write with no changes still ends without error (T10).
 18. **AC-T18** — Given a write that ends while there is a request in the queue, when the test stops the handover
     of the turn and another thread asks for a write at that instant, without a limit and with a limit of zero,
@@ -274,7 +280,7 @@ And in addition:
     read reads the store, then it sees none of its changes, and the next write request obtains it and commits
     without error (T10).
 20. **AC-T20** — Given a store that stopped accepting writes because of a simulated failure when taking what was
-    committed to `muninn.data`, when the failure stops occurring and it is closed, then the close ends without
+    committed to `krummi.data`, when the failure stops occurring and it is closed, then the close ends without
     error and, on reopening, everything committed is there; and when the failure persists, the close fails with
     the input/output class and the store can be opened again (T12).
 21. **AC-T21** — Given a store with commits, when it is closed, then the two copies of the header are identical
@@ -296,7 +302,7 @@ annotations:
 
 ## References
 
-- Parent and root: [muninndb.prd.en.md](muninndb.prd.en.md) v1.1
+- Parent and root: [krummi.prd.en.md](krummi.prd.en.md) v1.1
 - Previous module: [pager.prd.en.md](pager.prd.en.md)
 - Voron, in the RavenDB repository: <https://github.com/ravendb/ravendb/tree/v6.2/src/Voron>
 

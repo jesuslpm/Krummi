@@ -1,13 +1,13 @@
-# Pager de MuninnDB — PRD
+# Pager de Krummi — PRD
 
 **Versión**: 1.0
 **Fecha**: 2026-10-22
-**Documento padre**: [MuninnDB, motor de almacenamiento embebido inspirado en Voron — PRD](muninndb.prd.md) (v1.1)
+**Documento padre**: [Krummi, motor de almacenamiento embebido inspirado en Voron — PRD](krummi.prd.md) (v1.1)
 
 ## Objetivo y contexto
 
-Construir el **Pager**, el módulo 1 del [reparto del padre](muninndb.prd.md#reparto-en-prd-hijos): la base sobre
-la que se apoyan todos los demás. Da a MuninnDB su archivo de datos dividido en páginas, el reconocimiento y la
+Construir el **Pager**, el módulo 1 del [reparto del padre](krummi.prd.md#reparto-en-prd-hijos): la base sobre
+la que se apoyan todos los demás. Da a Krummi su archivo de datos dividido en páginas, el reconocimiento y la
 versión de formato de un almacén, su creación atómica, el bloqueo exclusivo, el crecimiento del archivo, la
 detección de páginas dañadas y el modo temporal en memoria.
 
@@ -28,20 +28,20 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 |---|---|
 | P1 | **Superficie pública del módulo**: abrir o crear un almacén (en una carpeta o en modo temporal), consultar su información y cerrarlo. Reservar, leer y escribir páginas es interno de la biblioteca: no forma parte del contrato público. |
 | P2 | **Tamaño de página: 8 KiB** (8.192 bytes), fijo para todos los almacenes y no configurable. |
-| P3 | **Archivos de un almacén**: un único archivo, `muninn.data`, en la carpeta del almacén, que contiene también sus dos copias del encabezado (versión de formato y lo necesario para abrirlo). En este módulo el encabezado solo se escribe al crear el almacén, así que sus dos copias son iguales; los módulos 2 y 3 fijan cuándo se reescribe, manteniendo P6. Los módulos posteriores, como el diario (3), añaden sus propios archivos. `muninn.data` y `muninn.data.new` (P8) son nombres reservados. |
-| P4 | **Marca de identificación** (D10 del padre): una secuencia fija de bytes al principio de `muninn.data`, en un único lugar y fuera de las copias del encabezado. Una carpeta contiene un almacén de MuninnDB cuando tiene un archivo `muninn.data` que empieza por la marca intacta. |
+| P3 | **Archivos de un almacén**: un único archivo, `krummi.data`, en la carpeta del almacén, que contiene también sus dos copias del encabezado (versión de formato y lo necesario para abrirlo). En este módulo el encabezado solo se escribe al crear el almacén, así que sus dos copias son iguales; los módulos 2 y 3 fijan cuándo se reescribe, manteniendo P6. Los módulos posteriores, como el diario (3), añaden sus propios archivos. `krummi.data` y `krummi.data.new` (P8) son nombres reservados. |
+| P4 | **Marca de identificación** (D10 del padre): una secuencia fija de bytes al principio de `krummi.data`, en un único lugar y fuera de las copias del encabezado. Una carpeta contiene un almacén de Krummi cuando tiene un archivo `krummi.data` que empieza por la marca intacta. |
 | P5 | **Versión de formato**: la vigente al escribir este PRD es `1`. Un almacén íntegro con un número menor que el vigente es de formato anterior, también con `0`, que ninguna versión usa y solo aparece en las pruebas; con uno mayor, de formato posterior. Es una precisión de D7 del padre, anotada en él. |
 | P6 | **Encabezado doble**: cada copia del encabezado lleva su comprobación de integridad. Al abrir se usa la copia íntegra más reciente. Si solo una copia está dañada, el almacén abre sin error con la otra, porque no se devuelve ningún dato dañado; la copia dañada no se repara al abrir y se sobrescribe la próxima vez que se escribe el encabezado. Si las dos están dañadas, el almacén está dañado y no se puede abrir. Es una precisión de G6 del padre, anotada en él. |
-| P7 | **Archivos ajenos**: en la carpeta de un almacén (con `muninn.data` reconocido), los archivos y carpetas con otros nombres se ignoran y nunca se modifican ni se borran. Una carpeta sin `muninn.data` sigue la regla del padre: si tiene alguna entrada, incluidas las ocultas, no es un almacén. |
-| P8 | **Creación atómica**: la biblioteca prepara el almacén en `muninn.data.new`, lo lleva al disco y solo entonces lo renombra a `muninn.data`; cuando la apertura termina sin error, el almacén nuevo sobrevive a un corte de corriente. Si la creación falla, la biblioteca borra `muninn.data.new`; si se interrumpe, puede quedar. Una carpeta cuyo único contenido es el archivo `muninn.data.new` se trata como vacía: la apertura siguiente lo borra y crea el almacén. En cualquier otro caso `muninn.data.new` no se toca. Las carpetas que la apertura crea porque no existían (paso 1 del orden de apertura) se conservan aunque la creación falle. Es una precisión del flujo y de la validación de carpetas del padre, anotada en él. |
+| P7 | **Archivos ajenos**: en la carpeta de un almacén (con `krummi.data` reconocido), los archivos y carpetas con otros nombres se ignoran y nunca se modifican ni se borran. Una carpeta sin `krummi.data` sigue la regla del padre: si tiene alguna entrada, incluidas las ocultas, no es un almacén. |
+| P8 | **Creación atómica**: la biblioteca prepara el almacén en `krummi.data.new`, lo lleva al disco y solo entonces lo renombra a `krummi.data`; cuando la apertura termina sin error, el almacén nuevo sobrevive a un corte de corriente. Si la creación falla, la biblioteca borra `krummi.data.new`; si se interrumpe, puede quedar. Una carpeta cuyo único contenido es el archivo `krummi.data.new` se trata como vacía: la apertura siguiente lo borra y crea el almacén. En cualquier otro caso `krummi.data.new` no se toca. Las carpetas que la apertura crea porque no existían (paso 1 del orden de apertura) se conservan aunque la creación falle. Es una precisión del flujo y de la validación de carpetas del padre, anotada en él. |
 | P9 | **Bloqueo**: el bloqueo exclusivo (D6) es del almacén y dura desde el paso 2 del orden de apertura hasta el cierre, también mientras se crea: de varios que abren a la vez la misma carpeta vacía o inexistente, uno crea el almacén y los demás fallan con la clase de almacén en uso. Lo libera el sistema operativo cuando el proceso termina, también si se cae; una caída nunca deja un almacén bloqueado. Bloquear no deja en la carpeta más archivos que los de P3 y P8. Abrir el mismo almacén por otra ruta (relativa, con otra capitalización en Windows, por un enlace) también falla con la clase de almacén en uso. Cerrar el almacén, o dejar de usarlo sin cerrarlo explícitamente, libera el bloqueo. |
-| P10 | **Tamaño máximo opcional**: al abrir, la aplicación puede fijar un tamaño máximo del almacén en bytes, que vale mientras esté abierto y no se guarda en él. Debe ser de al menos 1 MiB (1.048.576 bytes), en los dos modos; si no es múltiplo de 8.192, se redondea hacia abajo. Sin él, el límite es el disco y el sistema de archivos. Con él, ningún crecimiento lleva `muninn.data` más allá del máximo: un salto de crecimiento se recorta al máximo, y solo falla, con la clase de error de tamaño máximo, cuando las páginas pedidas no caben. El almacén sigue utilizable. Un almacén existente que ya es mayor que el máximo abre tal cual y se lee con normalidad, pero no puede crecer. En modo temporal limita la memoria que usa el almacén. |
-| P11 | **Crecimiento**: un almacén nuevo ocupa como mucho 1 MiB. El tamaño de `muninn.data` es siempre múltiplo de 8.192 y crece en saltos que nunca son menores que el anterior y que aumentan a medida que crece; nunca encoge por sí solo (recuperar espacio es la compactación, módulo 11). Al crecer, el espacio se reserva de verdad en disco, de modo que la falta de espacio se detecta al crecer (G7) y no después. Un crecimiento que falla deja el archivo con el tamaño que tenía. Si un crecimiento interrumpido deja el archivo con una página final incompleta, la apertura la ignora. |
-| P12 | **Información de un almacén**: mientras está abierto, la consulta siempre funciona, también si el almacén ya no acepta escrituras (G12), y devuelve: la versión de formato; el tamaño de página; el tamaño del almacén en bytes (el de `muninn.data` sin la página final incompleta, o en modo temporal el que ocupan sus páginas); el número de páginas, incluidas las del encabezado; el tamaño máximo efectivo tras redondear, o que no hay ninguno; y si el almacén es temporal. |
+| P10 | **Tamaño máximo opcional**: al abrir, la aplicación puede fijar un tamaño máximo del almacén en bytes, que vale mientras esté abierto y no se guarda en él. Debe ser de al menos 1 MiB (1.048.576 bytes), en los dos modos; si no es múltiplo de 8.192, se redondea hacia abajo. Sin él, el límite es el disco y el sistema de archivos. Con él, ningún crecimiento lleva `krummi.data` más allá del máximo: un salto de crecimiento se recorta al máximo, y solo falla, con la clase de error de tamaño máximo, cuando las páginas pedidas no caben. El almacén sigue utilizable. Un almacén existente que ya es mayor que el máximo abre tal cual y se lee con normalidad, pero no puede crecer. En modo temporal limita la memoria que usa el almacén. |
+| P11 | **Crecimiento**: un almacén nuevo ocupa como mucho 1 MiB. El tamaño de `krummi.data` es siempre múltiplo de 8.192 y crece en saltos que nunca son menores que el anterior y que aumentan a medida que crece; nunca encoge por sí solo (recuperar espacio es la compactación, módulo 11). Al crecer, el espacio se reserva de verdad en disco, de modo que la falta de espacio se detecta al crecer (G7) y no después. Un crecimiento que falla deja el archivo con el tamaño que tenía. Si un crecimiento interrumpido deja el archivo con una página final incompleta, la apertura la ignora. |
+| P12 | **Información de un almacén**: mientras está abierto, la consulta siempre funciona, también si el almacén ya no acepta escrituras (G12), y devuelve: la versión de formato; el tamaño de página; el tamaño del almacén en bytes (el de `krummi.data` sin la página final incompleta, o en modo temporal el que ocupan sus páginas); el número de páginas, incluidas las del encabezado; el tamaño máximo efectivo tras redondear, o que no hay ninguno; y si el almacén es temporal. |
 | P13 | **Memoria agotada**: si el sistema no da la memoria que el almacén necesita para abrirse o crecer, en cualquiera de los dos modos, la operación falla con la clase de error de memoria agotada; si el almacén ya estaba abierto, sigue utilizable. |
 | P14 | **Cerrar**: cerrar libera el bloqueo siempre. Si al cerrar falla llevar datos al disco, el cierre devuelve la clase de error de entrada y salida, y el bloqueo queda liberado igualmente. |
-| P15 | **Lecturas sin copia en el Pager** (D11 del padre): leer una página devuelve una referencia a la proyección de `muninn.data` en memoria (o a la memoria del almacén temporal), sin copiarla. En este módulo la referencia vale mientras el almacén siga abierto, y el compilador impide usarla después de cerrarlo; el módulo 2 la ata a la transacción de lectura (D11). Que `muninn.data` crezca mientras tanto no invalida las referencias ya entregadas. Comprobar la integridad de la página (G6) no exige copiarla. |
-| P16 | **Código no seguro** (D12 del padre): el código no seguro de Rust que necesita el Pager (proyectar el archivo en memoria y leer sobre esa proyección) queda dentro del Pager, detrás de una interfaz segura, y cada uso lleva escrita la condición que lo hace correcto. Ninguna operación pública del motor puede provocar un comportamiento indefinido, salvo que otro programa modifique `muninn.data` con el almacén abierto (ver Fuera de alcance). |
+| P15 | **Lecturas sin copia en el Pager** (D11 del padre): leer una página devuelve una referencia a la proyección de `krummi.data` en memoria (o a la memoria del almacén temporal), sin copiarla. En este módulo la referencia vale mientras el almacén siga abierto, y el compilador impide usarla después de cerrarlo; el módulo 2 la ata a la transacción de lectura (D11). Que `krummi.data` crezca mientras tanto no invalida las referencias ya entregadas. Comprobar la integridad de la página (G6) no exige copiarla. |
+| P16 | **Código no seguro** (D12 del padre): el código no seguro de Rust que necesita el Pager (proyectar el archivo en memoria y leer sobre esa proyección) queda dentro del Pager, detrás de una interfaz segura, y cada uso lleva escrita la condición que lo hace correcto. Ninguna operación pública del motor puede provocar un comportamiento indefinido, salvo que otro programa modifique `krummi.data` con el almacén abierto (ver Fuera de alcance). |
 | P17 | **Fallo físico de lectura**: como en Voron, un fallo del disco al leer una página a través de la proyección (un sector ilegible, un disco que se desconecta) termina el proceso en lugar de devolver un error: el sistema lo comunica con una señal o una excepción del procesador que no se puede convertir en error con seguridad. Al reabrir, si el fallo persiste, aparece al abrir o al leer esa página. Es una excepción a G12 del padre, anotada en él; G12 sigue valiendo para las escrituras y para todo lo que no se lee a través de la proyección. |
 
 *Anotaciones del 2026-10-22 desde el módulo 3 ([journal.prd.md](journal.prd.md)):*
@@ -55,6 +55,18 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
   sobrevivir a una caída (decisión J8).*
 - *P17: vale también para los archivos de `muninn.temp`, que las lecturas usan sin copiar (decisión J7).*
 
+*Anotaciones del 2026-10-23 desde el cambio de nombre ([rename-to-krummi.prd.md](rename-to-krummi.prd.md)):*
+
+- *Todo el documento: el producto se llama Krummi, sus paquetes y los archivos de un almacén toman los nombres
+  de R2 y R3, y este documento se actualizó con los nombres nuevos (decisiones R1–R13). Los nombres de archivo y
+  los números de formato de las anotaciones anteriores se leen según R3 y R5, y el formato vigente es `3`.*
+- *P4: la marca de identificación se sustituye por una nueva; un `krummi.data` que empieza por la marca de
+  MuninnDB no empieza por la marca (decisión R4).*
+- *P5: la versión de formato vigente pasa a ser `3`; un almacén de formato `2` es de formato anterior (decisión
+  R5).*
+- *P8: un `muninn.data.new` solo, que antes era una creación interrumpida y se borraba, ya no se borra: es una
+  entrada ajena y la carpeta no es un almacén (decisión R6).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:
@@ -62,7 +74,7 @@ Verificado el 2026-10-22:
 | Aspecto | Situación |
 |---|---|
 | MuninnDB | No hay código: ni archivos Rust ni espacio de trabajo de Cargo. El repositorio solo tiene la metodología, el tooling y los PRD. |
-| PRD padre | [muninndb.prd.md](muninndb.prd.md) v1.1, con las anotaciones de este PRD: asigna a este módulo el tamaño de página, los archivos del almacén y los ajenos, el bloqueo sin restos, la marca de identificación, el tamaño máximo y el error de memoria agotada en modo temporal. |
+| PRD padre | [muninndb.prd.md](krummi.prd.md) v1.1, con las anotaciones de este PRD: asigna a este módulo el tamaño de página, los archivos del almacén y los ajenos, el bloqueo sin restos, la marca de identificación, el tamaño máximo y el error de memoria agotada en modo temporal. |
 | Voron (referencia) | Páginas de 8 KiB; encabezado con marca, versión, revisión y hash, en dos copias que se alternan (en Voron son dos archivos aparte); archivo de datos y diario en una subcarpeta; tamaño máximo opcional; tamaño inicial configurable. |
 
 ## Actores
@@ -77,11 +89,11 @@ El operador y la herramienta de línea de comandos no intervienen en este módul
 1. La aplicación abre un almacén indicando una carpeta, con un tamaño máximo opcional, o en modo temporal.
 2. La biblioteca comprueba primero las opciones: un tamaño máximo menor que 1 MiB falla con la clase de opciones no
    válidas sin tocar nada, antes de cualquier otra comprobación.
-3. Después sigue el [orden del padre](muninndb.prd.md#orden-de-las-comprobaciones-al-abrir), con estas precisiones:
+3. Después sigue el [orden del padre](krummi.prd.md#orden-de-las-comprobaciones-al-abrir), con estas precisiones:
    - paso 1: si la carpeta no existe, la crea con sus carpetas intermedias;
    - paso 2: el bloqueo no crea archivos (P9);
    - paso 3: la carpeta contiene un almacén según P4; está vacía si no tiene ninguna entrada o solo el archivo
-     `muninn.data.new` (P8), y entonces se crea el almacén;
+     `krummi.data.new` (P8), y entonces se crea el almacén;
    - paso 4: al menos una copia del encabezado está íntegra (P6);
    - paso 5: la versión de formato es la vigente (P5);
    - paso 7: el archivo contiene completas las páginas del encabezado.
@@ -102,11 +114,11 @@ hasta el módulo 12, que fijará sus mensajes si las muestra):
 | Tamaño máximo menor que 1 MiB, en cualquier modo | La apertura falla sin tocar nada (flujo, paso 2). | Opciones no válidas |
 | Un crecimiento necesita más páginas de las que caben en el tamaño máximo | La operación falla y el almacén sigue utilizable (P10). Se comprueba antes de escribir, así que gana a disco lleno. | Tamaño máximo |
 | El sistema no da memoria para abrir o crecer | La operación falla; un almacén abierto sigue utilizable (P13). | Memoria agotada |
-| `muninn.data` es una carpeta, o no empieza por la marca (incluido un archivo vacío o más corto que la marca) | Es una carpeta que no contiene un almacén (fila del padre). | No es un almacén |
-| `muninn.data` no se puede leer por permisos | La apertura falla sin tocar nada. | Acceso |
-| `muninn.data` tiene la marca, pero no contiene completas las páginas del encabezado | La apertura falla sin tocar nada (flujo, paso 3, precisión del paso 7). | Daño |
-| Se lee una página escrita que ya no está en `muninn.data` porque el archivo se recortó con el almacén cerrado | La lectura falla (G6). | Daño |
-| No se puede borrar un `muninn.data.new` que hay que borrar (P8) | La apertura falla sin tocar nada más. | Acceso |
+| `krummi.data` es una carpeta, o no empieza por la marca (incluido un archivo vacío o más corto que la marca) | Es una carpeta que no contiene un almacén (fila del padre). | No es un almacén |
+| `krummi.data` no se puede leer por permisos | La apertura falla sin tocar nada. | Acceso |
+| `krummi.data` tiene la marca, pero no contiene completas las páginas del encabezado | La apertura falla sin tocar nada (flujo, paso 3, precisión del paso 7). | Daño |
+| Se lee una página escrita que ya no está en `krummi.data` porque el archivo se recortó con el almacén cerrado | La lectura falla (G6). | Daño |
+| No se puede borrar un `krummi.data.new` que hay que borrar (P8) | La apertura falla sin tocar nada más. | Acceso |
 | Falla una escritura del sistema al crear el almacén | La apertura falla; se aplica la limpieza de P8. | Entrada y salida |
 | Falla llevar datos al disco al cerrar | El cierre informa el error y libera el bloqueo (P14). | Entrada y salida |
 
@@ -124,7 +136,7 @@ almacén recién creado en disco sin tamaño máximo:
 | Tamaño máximo | ninguno |
 | Temporal | no |
 
-En disco, la carpeta del almacén contiene solo `muninn.data`, además de los archivos ajenos que ya tuviera.
+En disco, la carpeta del almacén contiene solo `krummi.data`, además de los archivos ajenos que ya tuviera.
 
 ## Reutilización
 
@@ -140,12 +152,12 @@ Ninguna: es el primer módulo con código. Usa las clases de error comunes y el 
   encabezado dañada (módulo 12).
 - Una API pública para reservar, leer o escribir páginas (P1).
 - Tamaño de página configurable (P2).
-- Reducir el tamaño de `muninn.data` (módulo 11).
+- Reducir el tamaño de `krummi.data` (módulo 11).
 - Tamaño inicial o saltos de crecimiento configurables (P11), y cambiar el tamaño máximo con el almacén abierto
   (P10).
 - Reparar al abrir una copia dañada del encabezado (P6).
 - Comprobar la integridad de páginas que no se leen, en segundo plano o al abrir.
-- Borrar, renombrar, mover, recortar o modificar la carpeta o `muninn.data` desde otro programa con el almacén
+- Borrar, renombrar, mover, recortar o modificar la carpeta o `krummi.data` desde otro programa con el almacén
   abierto: el resultado no está definido. En Linux el bloqueo exclusivo no impide que otro programa lo haga.
 - Umbrales de rendimiento: los fija el banco comparativo (módulo 6, D5 del padre).
 
@@ -181,7 +193,7 @@ Este módulo comprueba a nivel de biblioteca estos criterios del padre, adaptado
   escritas antes del fallo se leen (la recuperación llega con el módulo 3).
 - **AC14**: el modo temporal no crea archivos ni carpetas y no conserva nada al cerrarse.
 - **AC16** y **AC18**: tal cual.
-- **AC20**: leer una página devuelve una referencia dentro de la proyección de `muninn.data` (o de la memoria del
+- **AC20**: leer una página devuelve una referencia dentro de la proyección de `krummi.data` (o de la memoria del
   almacén temporal), y usarla después de cerrar el almacén no compila (P15), con una prueba de no compilación
   sobre la API interna.
 - **AC21**: dado código no seguro de prueba fuera del Pager, la comprobación automática falla; sobre el código del
@@ -190,13 +202,13 @@ Este módulo comprueba a nivel de biblioteca estos criterios del padre, adaptado
 Y además:
 
 1. **AC-P1** — Dada una carpeta que no existe, con carpetas intermedias que tampoco, cuando se abre, entonces se
-   crean, la carpeta contiene solo `muninn.data`, y la información dice el formato vigente, página `8192`, un
+   crean, la carpeta contiene solo `krummi.data`, y la información dice el formato vigente, página `8192`, un
    tamaño múltiplo de `8192` de como mucho `1048576` bytes, número de páginas igual al tamaño entre `8192`, sin
    tamaño máximo y no temporal.
-2. **AC-P2** — Dada una carpeta vacía, y otra cuyo único contenido es el archivo `muninn.data.new`, cuando se
-   abren, entonces en las dos queda solo `muninn.data` con un almacén nuevo.
-3. **AC-P3** — Dada una carpeta sin `muninn.data` con solo un archivo ajeno (por ejemplo `.gitkeep`), y otra con
-   `muninn.data.new` y un archivo ajeno, cuando se abren, entonces fallan con la clase de error de que no es un
+2. **AC-P2** — Dada una carpeta vacía, y otra cuyo único contenido es el archivo `krummi.data.new`, cuando se
+   abren, entonces en las dos queda solo `krummi.data` con un almacén nuevo.
+3. **AC-P3** — Dada una carpeta sin `krummi.data` con solo un archivo ajeno (por ejemplo `.gitkeep`), y otra con
+   `krummi.data.new` y un archivo ajeno, cuando se abren, entonces fallan con la clase de error de que no es un
    almacén y las carpetas quedan idénticas byte a byte.
 4. **AC-P4** — Dado un almacén creado y cerrado, cuando se vuelve a abrir, entonces abre sin error y su
    información es la misma.
@@ -205,7 +217,7 @@ Y además:
    abrir, también.
 6. **AC-P6** — Dados dos procesos, y dos hilos de un mismo proceso, que abren a la vez una misma carpeta que no
    existe, cuando terminan, entonces uno abre el almacén, el otro falla con la clase de almacén en uso, y la
-   carpeta contiene solo `muninn.data`; y dado un almacén abierto, cuando se abre por otra ruta que llega al
+   carpeta contiene solo `krummi.data`; y dado un almacén abierto, cuando se abre por otra ruta que llega al
    mismo archivo, entonces falla con la clase de almacén en uso.
 7. **AC-P7** — Dado un almacén con archivos y carpetas ajenos en su carpeta, cuando se abre, se usa y se cierra,
    entonces abre sin error y los ajenos quedan idénticos byte a byte.
@@ -213,11 +225,11 @@ Y además:
    abre sin error y su información es la misma; y cuando se dañan las dos, la apertura falla con la clase de
    error de daño y el almacén queda idéntico byte a byte.
 9. **AC-P9** — Dada una creación interrumpida en cada uno de sus puntos de escritura, del proceso y simulada de
-   corriente, cuando se vuelve a abrir la carpeta, entonces queda solo `muninn.data` con un almacén completo; y
+   corriente, cuando se vuelve a abrir la carpeta, entonces queda solo `krummi.data` con un almacén completo; y
    dada una creación que termina sin error seguida de un corte de corriente simulado, cuando se reabre, entonces
    el almacén está completo.
 10. **AC-P10** — Dado un almacén con tamaño máximo de 1,5 MiB, cuando se escriben páginas hasta llenarlo, entonces
-    `muninn.data` llega exactamente a 1,5 MiB y la página siguiente falla con la clase de tamaño máximo, el
+    `krummi.data` llega exactamente a 1,5 MiB y la página siguiente falla con la clase de tamaño máximo, el
     archivo conserva su tamaño y las páginas ya escritas se leen; y después de cerrar y reabrir sin tamaño máximo,
     el crecimiento funciona.
 11. **AC-P11** — Dado un tamaño máximo menor que 1 MiB, en disco y en modo temporal, cuando se abre, entonces
@@ -228,8 +240,8 @@ Y además:
 12. **AC-P12** — Dado un almacén en el que se escriben páginas hasta que crece al menos tres veces, cuando se
     observa su tamaño, entonces siempre es múltiplo de `8192`, el tercer salto es mayor que el primero, y después
     de cerrar y reabrir el tamaño no ha bajado.
-13. **AC-P13** — Dado un `muninn.data` al que se le añade una página final incompleta, cuando se abre, entonces abre
-    sin error y su información ignora esa página; dado un `muninn.data` recortado dentro de las páginas del
+13. **AC-P13** — Dado un `krummi.data` al que se le añade una página final incompleta, cuando se abre, entonces abre
+    sin error y su información ignora esa página; dado un `krummi.data` recortado dentro de las páginas del
     encabezado, la apertura falla con la clase de daño; y dado uno recortado justo después del encabezado, abre
     y leer una página escrita que se perdió falla con la clase de daño.
 14. **AC-P14** — Dado un almacén temporal, cuando se abre, entonces su información dice temporal, formato vigente y
@@ -238,7 +250,7 @@ Y además:
     simulado de memoria al crecer un almacén en disco también falla con la clase de memoria agotada y lo deja
     utilizable.
 15. **AC-P15** — Dado un disco sin espacio, cuando se crea un almacén, entonces falla con la clase de disco lleno y
-    no queda ni `muninn.data` ni `muninn.data.new`; y dado un almacén abierto y un disco sin espacio, cuando
+    no queda ni `krummi.data` ni `krummi.data.new`; y dado un almacén abierto y un disco sin espacio, cuando
     necesita crecer, entonces falla con la clase de disco lleno y el archivo conserva su tamaño.
 16. **AC-P16** — Dado un fallo simulado al llevar datos al disco durante el cierre, cuando se cierra, entonces
     devuelve la clase de entrada y salida y el almacén se puede volver a abrir.
@@ -262,7 +274,7 @@ Este PRD precisa seis puntos del padre, que lleva las anotaciones correspondient
 
 ## Referencias
 
-- Padre y raíz: [muninndb.prd.md](muninndb.prd.md) v1.1
+- Padre y raíz: [krummi.prd.md](krummi.prd.md) v1.1
 - Voron, en el repositorio de RavenDB: <https://github.com/ravendb/ravendb/tree/v6.2/src/Voron>
 
 ## Tiempo de elaboración

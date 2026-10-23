@@ -1,14 +1,14 @@
-# MuninnDB, an embedded storage engine inspired by Voron — PRD
+# Krummi, an embedded storage engine inspired by Voron — PRD
 
 **Version**: 1.1
 **Date**: 2026-10-22
 **Parent document**: none (root PRD)
 
-> English translation of [muninndb.prd.md](muninndb.prd.md). The Spanish original is authoritative if they differ.
+> English translation of [krummi.prd.md](krummi.prd.md). The Spanish original is authoritative if they differ.
 
 ## Objective and context
 
-Build **MuninnDB**, an embedded, transactional storage engine written in Rust, **for production use**, that
+Build **Krummi**, an embedded, transactional storage engine written in Rust, **for production use**, that
 reproduces the capabilities of **Voron**, the storage engine of RavenDB. It is delivered as a library that other
 Rust applications embed in their own process, plus a command-line tool to operate it.
 
@@ -26,14 +26,14 @@ modules, and splits the product into child PRDs, each with its own execution and
    PRD (decision D5).
 
 **Why**: Voron is a design proven for years in production (one writer with concurrent readers that do not block,
-a write-ahead journal, automatic recovery), but it only exists for .NET. MuninnDB brings that design to Rust as a
+a write-ahead journal, automatic recovery), but it only exists for .NET. Krummi brings that design to Rust as a
 product of its own, without being tied to its on-disk format.
 
 ### Product decisions
 
 | ID | Decision |
 |---|---|
-| D1 | **Production product, with its own format.** MuninnDB neither reads nor writes Voron or RavenDB files. It reproduces their capabilities, not their format. |
+| D1 | **Production product, with its own format.** Krummi neither reads nor writes Voron or RavenDB files. It reproduces their capabilities, not their format. |
 | D2 | **Public surface**: an embeddable Rust library (the main product) and a command-line operations tool, with messages in Spanish. |
 | D3 | **Platforms**: Windows x64 and Linux x86-64 with glibc, on local disks. Both are tested in every child PRD. |
 | D4 | **Scope**: all the capabilities of Voron, including the structures added for Corax (containers, posting lists, compact trees and lookups), which are built after the core. |
@@ -42,7 +42,7 @@ product of its own, without being tied to its on-disk format.
 | D7 | **Format evolution**: each store records its on-disk format version, a positive integer that changes with every incompatible format change, also before 1.0. An engine version opens only the format it knows; faced with another one, older or newer, it refuses without modifying anything. From product version 1.0, the command-line tool migrates an older format to the current one without touching the original; before 1.0 there is no migration and the data is recreated. |
 | D8 | **Library errors**: errors are grouped into classes that the application tells apart without reading text; each class covers the situations assigned to it by the [validations table](#validations-and-messages) or by the owning child PRD. Each error carries as separate data what its message needs (folder, versions, page number, cause). The text of those errors is in English; the command-line tool shows the message of each situation in Spanish. |
 | D9 | **Stores that need recovery in the tool**: if a store was closed by a crash, the tool's commands recover it on opening (G5), as the library would, and then do their work. The only ones that do not modify it are verification and data rescue (copying whatever can be read from a damaged store), which work on the store as it is. |
-| D10 | **Recognizing a store**: a folder contains a MuninnDB store when its identification mark is intact. Everything else that remains readable without a key (G8), including the format version, carries its own integrity check: if it is altered, the store is damaged; it is neither of another format nor ceases to be a store. Child PRD 1 sets the mark and where it is. |
+| D10 | **Recognizing a store**: a folder contains a Krummi store when its identification mark is intact. Everything else that remains readable without a key (G8), including the format version, carries its own integrity check: if it is altered, the store is damaged; it is neither of another format nor ceases to be a store. Child PRD 1 sets the mark and where it is. |
 | D11 | **Zero-copy reads** (v1.1): reads return to the application references to engine memory, without copying the data into a caller's buffer. The references are valid as long as the read transaction that obtained them is open, and the compiler prevents using them afterwards. If a page is stored encrypted (module 9) or compressed (module 5), it is decrypted or decompressed once into the transaction's memory and the reference points there. Writes work on a copy of the page, which snapshot isolation (G3) requires. |
 | D12 | **Unsafe code** (v1.1): the Pager (module 1), with the encrypted variant that module 9 adds to it, is the only part of the engine that may use unsafe Rust code (`unsafe`). It encapsulates it behind a safe interface; the rest of the engine is forbidden from using it and an automatic check enforces this. |
 
@@ -57,6 +57,12 @@ format, also with the number `0`, which no version uses and appears only in test
 *Annotation of 2026-10-22 to D11: the reference of a read may also point to the memory where the engine keeps a
 committed version of the page that is not in the data file, never to a copy made for that read (decision T16 of
 [transactions.prd.en.md](transactions.prd.en.md)).*
+
+*Annotation of 2026-10-23: the product is called Krummi; its packages and the files of a store take the names of R2
+and R3, and this document was updated with the new names (decisions R1–R13 of
+[rename-to-krummi.prd.en.md](rename-to-krummi.prd.en.md)). The file names and format numbers of the earlier
+annotations are read according to R3 and R5, and the current format is `3`. A folder with a MuninnDB store does not
+contain a Krummi store (D10, decision R6).*
 
 ### Starting state
 
@@ -171,10 +177,10 @@ of a copy, `<versión>` a format number and `<número>` the page number, in deci
 | The folder cannot be used: it is a file, permission is missing, the file system is read-only or the path is not valid | The opening fails without touching anything. | Access | `No se puede usar la carpeta <carpeta>: <causa>.` |
 | The source folder does not exist (tool only) | The command fails: the tool never creates a store in a source folder. | Access | `La carpeta <carpeta> no existe.` |
 | The store is already open, by another process or by the same one | The opening fails without touching the store (D6). | Store in use | `El almacén <carpeta> ya está abierto.` |
-| The folder is not a MuninnDB store: it has some entry, including hidden ones, that is not part of one, or it is empty and the tool opens it | The opening fails without touching anything. | Not a store | `La carpeta <carpeta> no contiene un almacén de MuninnDB.` |
-| The store is recognized as a MuninnDB one, but what is needed to open it is damaged | The opening fails without touching the store (G6). It wins over the damaged-page row when the damage is found on opening. | Damage | `El almacén <carpeta> está dañado y no se puede abrir.` |
-| The store has an older format | The opening fails without touching the store (D7). | Different format | `El almacén <carpeta> tiene el formato <versión>, anterior al formato <versión> de esta versión de MuninnDB.` |
-| The store has a newer format | The opening fails without touching the store (D7). | Different format | `El almacén <carpeta> tiene el formato <versión>, posterior al formato <versión> de esta versión de MuninnDB.` |
+| The folder is not a Krummi store: it has some entry, including hidden ones, that is not part of one, or it is empty and the tool opens it | The opening fails without touching anything. | Not a store | `La carpeta <carpeta> no contiene un almacén de Krummi.` |
+| The store is recognized as a Krummi one, but what is needed to open it is damaged | The opening fails without touching the store (G6). It wins over the damaged-page row when the damage is found on opening. | Damage | `El almacén <carpeta> está dañado y no se puede abrir.` |
+| The store has an older format | The opening fails without touching the store (D7). | Different format | `El almacén <carpeta> tiene el formato <versión>, anterior al formato <versión> de esta versión de Krummi.` |
+| The store has a newer format | The opening fails without touching the store (D7). | Different format | `El almacén <carpeta> tiene el formato <versión>, posterior al formato <versión> de esta versión de Krummi.` |
 | A page is damaged, after opening | The operation fails and returns no data from that page (G6). | Damage | `Página <número> dañada en el almacén <carpeta>.` |
 | The disk is full | The operation fails and the transaction applies nothing (G7). | Disk full | `No hay espacio en disco para completar la operación en <carpeta>.` |
 | Other system failure when writing or taking data to disk | The operation fails and the store stops accepting writes until it is reopened (G12). | Input/output | `Error de escritura en el almacén <carpeta>: <causa>.` |
@@ -194,7 +200,7 @@ and the opening fails without touching anything (flow of [pager.prd.en.md](pager
 
 1. The folder can be used.
 2. The store is not already open.
-3. The folder contains a MuninnDB store, that is, its identification mark is intact (D10), or it is empty, and
+3. The folder contains a Krummi store, that is, its identification mark is intact (D10), or it is empty, and
    then the library creates one.
 
    *Annotation of 2026-10-22: for this step and for the not-a-store folder row, the temporary file left by an
@@ -323,7 +329,7 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 18. **AC18** — The tests of each child PRD pass on Windows x64 and on Linux x86-64 with glibc (D3).
 19. **AC19** — The comparative benchmark is run with the command set by its child PRD and produces on Windows
     and on Linux a report with the same structure, the same engines, the same workloads and the same fields, in
-    which MuninnDB meets the thresholds in force (D5).
+    which Krummi meets the thresholds in force (D5).
 20. **AC20** — Given a read of any data structure, when it returns a value, then the reference points to engine
     memory (the file projection, or the transaction's memory if the page is encrypted or compressed) and not to a
     copy made for that read; and using the reference after closing the transaction does not compile (D11). Each

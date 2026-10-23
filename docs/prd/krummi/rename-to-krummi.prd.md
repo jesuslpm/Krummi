@@ -2,7 +2,7 @@
 
 **Versión**: 1.0
 **Fecha**: 2026-10-23
-**Documento padre**: [MuninnDB, motor de almacenamiento embebido inspirado en Voron — PRD](muninndb.prd.md) (v1.1)
+**Documento padre**: [Krummi, motor de almacenamiento embebido inspirado en Voron — PRD](krummi.prd.md) (v1.1)
 
 ## Objetivo y contexto
 
@@ -214,7 +214,7 @@ anotaciones anteriores se leen según R3 y R5. En particular:
 
 ## Referencias
 
-- Padre y raíz: [muninndb.prd.md](muninndb.prd.md) v1.1
+- Padre y raíz: [krummi.prd.md](krummi.prd.md) v1.1
 - Módulos: [pager.prd.md](pager.prd.md), [transactions.prd.md](transactions.prd.md), [journal.prd.md](journal.prd.md)
 - Producto con el nombre anterior: <https://muninndb.com/>
 

@@ -2,7 +2,7 @@
 
 **Version**: 1.0
 **Date**: 2026-10-23
-**Parent document**: [MuninnDB, an embedded storage engine inspired by Voron — PRD](muninndb.prd.en.md) (v1.1)
+**Parent document**: [Krummi, an embedded storage engine inspired by Voron — PRD](krummi.prd.en.md) (v1.1)
 
 ## Objective and context
 
@@ -212,7 +212,7 @@ annotations are read according to R3 and R5. In particular:
 
 ## References
 
-- Parent and root: [muninndb.prd.en.md](muninndb.prd.en.md) v1.1
+- Parent and root: [krummi.prd.en.md](krummi.prd.en.md) v1.1
 - Modules: [pager.prd.en.md](pager.prd.en.md), [transactions.prd.en.md](transactions.prd.en.md), [journal.prd.en.md](journal.prd.en.md)
 - Product with the old name: <https://muninndb.com/>
 
