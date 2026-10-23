@@ -3,3 +3,7 @@
 2026-10-23T11:05:52+01:00	start	plan	
 2026-10-23T11:08:04+01:00	mark	implement	T1
 2026-10-23T11:12:43+01:00	mark	implement	T2
+2026-10-23T11:24:54+01:00	mark	review	T1-T2
+2026-10-23T11:25:59+01:00	bg-start	review	RDD T1-T2
+2026-10-23T11:27:18+01:00	mark	implement	T3
+2026-10-23T11:27:31+01:00	bg-end	review	RDD T1-T2

@@ -83,8 +83,9 @@ impl Store {
         self.open_write(Some(limit))
     }
 
-    /// Makes every commit returned so far durable, deferred ones included: when this returns, they survive a
-    /// crash of the system or a power cut. It does not wait for the open write transaction. Fails with
+    /// Makes every commit made so far durable, deferred ones included, and also the ones still waiting to be
+    /// durable: when this returns, they survive a crash of the system or a power cut. It does not wait for the
+    /// open write transaction. Fails with
     /// [`ErrorKind::Io`] if the store refuses writes after a failed write, even with nothing pending; a failure
     /// to flush makes the store refuse writes until it is reopened. A temporary store has nothing to do.
     pub fn make_durable(&self) -> Result<()> {
@@ -125,12 +126,12 @@ impl WriteTransaction<'_> {
         self.inner.commit()
     }
 
-    /// Commits the transaction in deferred mode: it returns once its changes are written to the journal, without
-    /// waiting for the disk, and they are visible from then on. They survive a crash of the process, but a crash
-    /// of the system or a power cut may lose them, always together with every later commit and never in part.
-    /// They become durable with the next durable commit that changes something, [`Store::make_durable`] or the
-    /// close; and when 256 deferred commits or 1 MiB of them are pending, the deferred commit that reaches that
-    /// limit makes them all durable before it returns, so that they do not pile up.
+    /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
+    /// durable as soon as it would a durable commit made at the same point, usually within one write of the disk.
+    /// The next write transaction sees its changes at once; read transactions see them once they are durable,
+    /// also on this thread. Until then a crash of the process or of the system, or a power cut, may lose them,
+    /// always together with every later commit and never in part. It may wait, keeping the write turn, while the
+    /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
         self.inner.commit_deferred()
     }

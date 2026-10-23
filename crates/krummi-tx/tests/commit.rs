@@ -449,8 +449,10 @@ fn ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it() {
             testing::reset();
             disk(tmp.path());
         } else {
+            // The close writes the queued commit that failed (E12 of the grouped journal PRD): entire, never a
+            // part of it (J12).
             engine.close().unwrap();
-            assert_eq!(read_text(&disk(tmp.path()), page), "b");
+            assert_eq!(read_text(&disk(tmp.path()), page), "c");
         }
     }
 }

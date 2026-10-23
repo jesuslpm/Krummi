@@ -95,8 +95,8 @@ implementación*.
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S14 | inline | pending | |
-| T2 | S9, S19 (direct I/O, fallback, reservation; test hooks shared with the journal thread) | inline | pending | |
+| T1 | S14 | inline | done | `6f419c7` |
+| T2 | S9, S19 (direct I/O, fallback, reservation; test hooks shared with the journal thread) | inline | done | `92b6345` |
 | T3 | S2, S3, S8, S10, S12, S13, S16, S17 (journal thread and groups; readers see durable commits) | inline | pending | |
 | T4 | S1, S4, S5, S6, S7, S11, S18 (turn released at the point of no return, E11, failure listener) | inline | pending | |
 | T5 | S15 (measurement on Windows and Linux) | inline | pending | |
@@ -116,3 +116,15 @@ independent verifier at the end and RDD review per high-risk commit.
   returns; the header's applied commit never passes the durable one, so a transfer no longer waits for the journal;
   journal files are reserved with `set_len`/`fallocate` (no zero fill) and the direct-write probe runs when a file is
   created; the fallback is forced in tests with an environment variable read only by test-hook builds.
+- **L4** T1: RED `ac_e14_format_3_is_a_previous_format_and_new_stores_have_format_4` (format was 3); GREEN with
+  `FORMAT_VERSION = 4`. RDD assess: medium, `under_budget` (kept in the slice).
+- **L5** T2: RED `ac_e9_journal_files_keep_their_reserved_size` against the old journal (file one record long);
+  GREEN. Suite 170 passed on Windows with direct writes and with `KRUMMI_JOURNAL_BUFFERED=1`. Default taken: builds
+  with test hooks use 256 KiB journal files (`RELEASE_FILE_LIMIT` stays 16 MiB), because the AC10 sweeps and the
+  power-cut simulation copy and alter whole files. In this intermediate commit a direct write of a deferred commit
+  still counts as pending until J11 (no thread yet), so AC-J8 keeps its meaning.
+- **L6** RDD review of T1–T2, recorded when it ended:
+
+  | Commits | Lenses | Result | Findings and resolution | Lineage |
+  |---|---|---|---|---|
+  | `d88a74a..92b6345` | risk, resilience, reliability | approved | WARNING R1-001, R4-direct-fallback-open-only and R3-001 (same issue): the fallback triggers only when the direct open fails, not when a file system accepts the open and rejects the write, and no test forces it; fixed in T3 with a probe write when the file is created and a test that forces it. SUGGESTION R3-002: nothing checks that `ALIGN` is a multiple of `DIRECT_ALIGN`; fixed in T3 with a compile-time assertion. | `review-a5c8fce6cba72e73` |

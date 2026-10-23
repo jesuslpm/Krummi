@@ -32,6 +32,10 @@ pub enum Op {
     Read,
     /// Creating, growing or removing the files and the folder of the temporary area (module 3).
     Temp,
+    /// Starting the thread that writes the journal (E13 of the grouped journal PRD).
+    Thread,
+    /// The direct write that checks a new journal file takes them (E6).
+    Probe,
 }
 
 #[inline]
@@ -485,15 +489,56 @@ pub(crate) fn create_journal_file(path: &Path, len: u64, direct: bool) -> io::Re
     };
     #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Create(path.to_path_buf()));
-    let reserved = before(Op::Reserve, path).and_then(|()| reserve_space(&file, 0, len));
-    if let Err(e) = reserved {
-        drop(file);
-        let _ = fs::remove_file(path);
-        return Err(e);
-    }
+    // Until the file is ready, a failure or a panic removes it, so the next attempt can create it again.
+    let mut created = RemoveOnDrop(Some(path));
+    before(Op::Reserve, path).and_then(|()| reserve_space(&file, 0, len))?;
     #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::SetLen(path.to_path_buf(), len));
-    Ok((file, direct))
+    if !direct {
+        created.0 = None;
+        return Ok((file, false));
+    }
+    // Some file systems open a file for direct writes and then refuse the writes: one aligned write of zeros, which
+    // changes nothing in the reserved file, tells.
+    match probe_direct(&file, path) {
+        Ok(()) => {
+            created.0 = None;
+            Ok((file, true))
+        }
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
+            drop(file);
+            drop(created);
+            create_journal_file(path, len, false)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Removes a file being created when dropped, unless its path was taken out.
+struct RemoveOnDrop<'a>(Option<&'a Path>);
+
+impl Drop for RemoveOnDrop<'_> {
+    fn drop(&mut self) {
+        if let Some(path) = self.0 {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+/// Writes one aligned block of zeros at the start of a new journal file opened for direct writes.
+fn probe_direct(file: &File, path: &Path) -> io::Result<()> {
+    before(Op::Probe, path)?;
+    let zeros = AlignedBuf::zeroed(DIRECT_ALIGN)?;
+    #[cfg(unix)]
+    std::os::unix::fs::FileExt::write_all_at(file, &zeros, 0)?;
+    #[cfg(windows)]
+    {
+        let n = std::os::windows::fs::FileExt::seek_write(file, &zeros, 0)?;
+        if n != zeros.len() {
+            return Err(io::Error::from(io::ErrorKind::WriteZero));
+        }
+    }
+    Ok(())
 }
 
 /// Opens a new journal file for reading and writing, for direct writes when `direct`. Others can delete it while it
@@ -583,6 +628,11 @@ impl Drop for AlignedBuf {
         // SAFETY: `ptr` was allocated by `alloc_zeroed` with this same layout and is freed only here.
         unsafe { std::alloc::dealloc(self.ptr.as_ptr(), layout) };
     }
+}
+
+/// The point where starting the journal's thread can fail; only tests make it fail.
+pub(crate) fn thread_point() -> io::Result<()> {
+    before(Op::Thread, Path::new(""))
 }
 
 /// Flushes the file's data and size to the disk.
@@ -748,6 +798,25 @@ mod journal_file_tests {
                     .all(|b| *b == 7)
             );
         }
+    }
+
+    /// R1-001 of the T1–T2 review: a file system that opens a file for direct writes but refuses them gets a file
+    /// written through the system's cache.
+    #[test]
+    fn a_journal_file_falls_back_when_direct_writes_are_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("j");
+        faults::reset();
+        faults::inject(
+            Op::Probe,
+            0,
+            faults::Action::Fail(io::ErrorKind::InvalidInput),
+        );
+        let (file, direct) = create_journal_file(&path, DIRECT_ALIGN as u64, true).unwrap();
+        faults::reset();
+        assert!(!direct);
+        assert_eq!(file.metadata().unwrap().len(), DIRECT_ALIGN as u64);
+        write_at(&file, &path, 0, &[1u8; 10]).unwrap();
     }
 
     #[test]

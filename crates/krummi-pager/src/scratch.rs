@@ -7,6 +7,12 @@
 //! leaves the scratch area. A version that leaves stays allocated until every snapshot that may hold a reference
 //! to it has ended, so references returned by [`Snapshot::page`] stay valid for the whole snapshot (D11).
 //!
+//! With the journal's queue (E2, E3 of the grouped journal PRD), a commit is published for the next writer when it
+//! passes its point of no return, and read snapshots see it only once it is durable: a read snapshot sees up to the
+//! last durable commit, the writer's snapshot up to the last published one. The writer's snapshot sees the newest
+//! version of every page, so it never keeps an older one alive; read snapshots opened later may need the newest
+//! durable version of a page while a newer one is not durable yet, so that one is kept too.
+//!
 //! Why the shared page writes are sound: a flush writes page `n` only when every open snapshot sees the newest
 //! version of `n` (none is older than it), and that version stays in the scratch area until the write ends, so
 //! every snapshot reads `n` from here and nobody holds a reference into the data file's copy of `n`. Snapshots
@@ -77,8 +83,10 @@ struct State {
     versions: HashMap<u64, Vec<Version>>,
     /// Bytes taken by `versions`.
     bytes: u64,
-    /// Open snapshots by ascending sequence number; their versions never decrease along the list.
+    /// Open read snapshots by ascending sequence number; their versions never decrease along the list.
     live: Vec<Live>,
+    /// The writer's snapshot, which sees commits that are not durable yet (E3).
+    writer: Option<Live>,
     next_seq: u64,
     /// Versions that left `versions`, with the newest sequence number issued when they left: they are freed
     /// once no open snapshot has a sequence number up to that one.
@@ -102,12 +110,11 @@ impl Scratch {
     pub fn open(mut pager: Pager) -> Result<Scratch> {
         let journal = match pager.folder().map(Path::to_path_buf) {
             Some(folder) => {
+                // The journal's writer starts first: failing to start it leaves the store untouched (E13).
+                let journal = Journal::start(&folder, &pager)?;
                 let recovered = recovery::recover(&mut pager, &folder)?;
-                Some(Journal::new(
-                    &folder,
-                    recovered.last_txid,
-                    recovered.next_number,
-                ))
+                journal.begin(recovered.last_txid, recovered.next_number);
+                Some(journal)
             }
             None => None,
         };
@@ -132,6 +139,7 @@ impl Scratch {
                 versions: HashMap::new(),
                 bytes: 0,
                 live: Vec::new(),
+                writer: None,
                 next_seq: 0,
                 retired: Vec::new(),
             }),
@@ -154,16 +162,20 @@ impl Scratch {
         self.lock().bytes
     }
 
-    /// Opens a snapshot of everything committed so far (T2, G3).
+    /// Opens a snapshot of everything committed and durable so far (T2, G3, E3).
     pub fn snapshot(&self) -> Result<Snapshot<'_>> {
         let mut state = self.lock();
-        self.register(&mut state)
+        self.register(&mut state, false)
     }
 
-    /// Waits until no other writer exists and returns the writer, with a snapshot of everything committed so far.
+    /// Waits until no other writer exists and returns the writer, with a snapshot of everything committed so far,
+    /// durable or not (E3).
     pub fn begin_write(&self) -> Result<ScratchWriter<'_>> {
         let guard = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        let snapshot = self.snapshot()?;
+        let snapshot = {
+            let mut state = self.lock();
+            self.register(&mut state, true)?
+        };
         Ok(ScratchWriter {
             snapshot,
             _guard: guard,
@@ -171,14 +183,68 @@ impl Scratch {
         })
     }
 
-    /// Makes every commit returned so far durable (J11). Fails at once with the I/O class when the store refuses
-    /// writes (T12). A temporary store has nothing to do (J17).
+    /// Waits until every commit that passed its point of no return is durable (J11, E10). Fails at once with the I/O
+    /// class when the store refuses writes (T12). A temporary store has nothing to do (J17).
     pub fn make_durable(&self) -> Result<()> {
         let pager = self.pager();
         pager.check_writable()?;
         match &self.journal {
             Some(journal) => journal.make_durable(pager),
             None => Ok(()),
+        }
+    }
+
+    /// Waits until commit `txid` is durable, or fails with the I/O class if its group failed (J4, E8). A temporary
+    /// store has nothing to wait for.
+    pub fn wait_durable(&self, txid: u64) -> Result<()> {
+        match &self.journal {
+            Some(journal) => journal.wait_durable(txid),
+            None => Ok(()),
+        }
+    }
+
+    /// Wakes the commits waiting for room in the journal's queue, after the store stopped accepting writes (T12).
+    pub fn wake(&self) {
+        if let Some(journal) = &self.journal {
+            journal.wake();
+        }
+    }
+
+    /// Sets the function the journal's writer calls when a group fails, or none (T12).
+    pub fn set_failure_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        if let Some(journal) = &self.journal {
+            journal.set_failure_hook(hook);
+        }
+    }
+
+    /// Stops the journal's writer from taking queued commits, or lets it go on (tests).
+    pub fn set_journal_paused(&self, paused: bool) {
+        if let Some(journal) = &self.journal {
+            journal.set_paused(paused);
+        }
+    }
+
+    /// Number of commits waiting in the journal's queue (tests).
+    pub fn journal_queued(&self) -> usize {
+        self.journal.as_ref().map_or(0, Journal::queued)
+    }
+
+    /// Writes of groups so far, one per journal file a group touches (tests).
+    pub fn journal_writes(&self) -> u64 {
+        self.journal.as_ref().map_or(0, Journal::writes)
+    }
+
+    /// Last durable commit (tests).
+    pub fn journal_durable(&self) -> u64 {
+        self.journal
+            .as_ref()
+            .map_or(self.lock().last_committed, Journal::durable)
+    }
+
+    /// Sets the bytes the journal's queue holds before a commit waits for room (tests).
+    pub fn set_journal_queue_limit(&self, bytes: u64) {
+        if let Some(journal) = &self.journal {
+            journal.set_queue_limit(bytes);
         }
     }
 
@@ -199,8 +265,7 @@ impl Scratch {
         if let Some(hook) = hook {
             hook();
         }
-        let force = self.journal.as_ref().is_some_and(Journal::too_much_pending);
-        self.flush_locked(&guard, force)
+        self.flush_locked(&guard, false)
     }
 
     /// Sets a function a transfer calls while it holds its lock, or none (tests: AC-J17).
@@ -211,7 +276,7 @@ impl Scratch {
             .unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
-    /// Sets the function a durable commit calls between writing its journal record and flushing it (tests).
+    /// Sets the function the journal's writer calls between writing a group and making it durable (tests).
     pub fn set_journal_sync_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         if let Some(journal) = &self.journal {
             journal.set_sync_hook(hook);
@@ -238,23 +303,20 @@ impl Scratch {
     }
 
     /// Writes in place every newest version that no open snapshot is older than and that is durable, after
-    /// retiring the versions that no snapshot can read any more; with `force`, the journal is made durable first,
-    /// so every such version goes (J5). When the journal has gone on in a new file, the header records the
-    /// transfer and the files no header copy needs are removed.
+    /// retiring the versions that no snapshot can read any more; with `force`, it first waits until every queued
+    /// commit is durable, so every such version goes (J5). When the journal has gone on in a new file, the header
+    /// records the transfer and the files no header copy needs are removed.
     fn flush_locked(&self, flushing: &MutexGuard<'_, ()>, force: bool) -> Result<()> {
         let pager = self.pager();
-        let durable = match &self.journal {
-            Some(journal) if force => {
-                journal.make_durable(pager)?;
-                u64::MAX
-            }
-            Some(journal) => journal.synced_upto(),
-            None => u64::MAX,
-        };
+        if force && let Some(journal) = &self.journal {
+            journal.make_durable(pager)?;
+        }
+        let durable = self.journal.as_ref().map_or(u64::MAX, Journal::durable);
         let garbage;
         let mut pending: Vec<(u64, u64, Arc<Slot>)> = {
             let mut state = self.lock();
-            garbage = state.collect_garbage();
+            let visible = state.last_committed.min(durable);
+            garbage = state.collect_garbage(visible);
             let oldest = state.live.first().map(|l| l.txid);
             state
                 .versions
@@ -291,11 +353,10 @@ impl Scratch {
             return Ok(());
         };
         let pager = self.pager();
-        // A version dropped because a newer one supersedes it counts as applied only if the newer one cannot be
-        // lost: every commit must be durable before the header says how far `krummi.data` goes (J4, J10).
-        journal.make_durable(pager)?;
         pager.flush_data()?;
-        let applied = self.lock().applied();
+        // Versions newer than the last durable commit are never written in place, and the ones they supersede are
+        // kept, so what `krummi.data` holds entirely never goes past it (J4, E3).
+        let applied = self.lock().applied().min(journal.durable());
         pager.write_header(Header {
             applied_txid: applied,
             journal_first: journal.first_needed(applied),
@@ -320,7 +381,8 @@ impl Scratch {
         let pager = self.pager.as_mut().expect("the store is open");
         pager.allow_writes_again();
         if let Some(journal) = &self.journal {
-            journal.make_durable(pager)?;
+            // Writes what is queued, retrying a group that failed, and stops the journal's writer (E12).
+            journal.close(pager)?;
         }
         let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
         let mut pages: Vec<_> = state.versions.keys().copied().collect();
@@ -362,22 +424,32 @@ impl Scratch {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn register(&self, state: &mut State) -> Result<Snapshot<'_>> {
+    /// Registers a read snapshot of what is durable, or the writer's snapshot of everything published (E3).
+    fn register(&self, state: &mut State, writer: bool) -> Result<Snapshot<'_>> {
         let out_of_memory = || Error::OutOfMemory {
             requested: size_of::<Live>() as u64,
         };
         sys::snapshot_point().map_err(|_| out_of_memory())?;
-        state.live.try_reserve(1).map_err(|_| out_of_memory())?;
+        let txid = match (&self.journal, writer) {
+            (Some(journal), false) => state.last_committed.min(journal.durable()),
+            _ => state.last_committed,
+        };
         let live = Live {
             seq: state.next_seq,
-            txid: state.last_committed,
+            txid,
         };
+        if writer {
+            state.writer = Some(live);
+        } else {
+            state.live.try_reserve(1).map_err(|_| out_of_memory())?;
+            state.live.push(live);
+        }
         state.next_seq += 1;
-        state.live.push(live);
         Ok(Snapshot {
             scratch: self,
             seq: live.seq,
             txid: live.txid,
+            writer,
         })
     }
 }
@@ -411,11 +483,13 @@ impl State {
         }
     }
 
-    /// Takes out the versions that no open snapshot can read any more, for the caller to free. A version that has a
+    /// Takes out the versions that no snapshot can read any more, for the caller to free. A version that has a
     /// newer one is read only by the snapshots at least as new as it and older than the newer one; with none
     /// open, nobody needs it, and nobody can hold a reference to it either: a snapshot that read it would be one
-    /// of those. So it is freed at once, not retired, and a long snapshot does not make them pile up (T14).
-    fn collect_garbage(&mut self) -> Vec<Version> {
+    /// of those. So it is freed at once, not retired, and a long snapshot does not make them pile up (T14). A
+    /// version whose newer one is beyond `visible`, the newest commit read snapshots see, is kept for the read
+    /// snapshots still to open (E3).
+    fn collect_garbage(&mut self, visible: u64) -> Vec<Version> {
         let mut dropped = Vec::new();
         for versions in self.versions.values_mut() {
             if versions.len() < 2 {
@@ -426,6 +500,7 @@ impl State {
             while let Some(version) = iter.next() {
                 let needed = match iter.peek() {
                     None => true,
+                    Some(next) if next.txid > visible => true,
                     Some(next) => {
                         let first = self.live.partition_point(|l| l.txid < version.txid);
                         self.live.get(first).is_some_and(|l| l.txid < next.txid)
@@ -443,9 +518,16 @@ impl State {
         dropped
     }
 
-    /// Frees the retired versions that no open snapshot can hold a reference to.
+    /// Frees the retired versions that no open snapshot, the writer's included, can hold a reference to.
     fn free_retired(&mut self) -> Vec<Arc<Slot>> {
-        let oldest = self.live.first().map_or(u64::MAX, |l| l.seq);
+        let oldest = self
+            .live
+            .first()
+            .map(|l| l.seq)
+            .into_iter()
+            .chain(self.writer.map(|w| w.seq))
+            .min()
+            .unwrap_or(u64::MAX);
         let (free, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retired)
             .into_iter()
             .partition(|(bound, _)| *bound < oldest);
@@ -460,6 +542,8 @@ pub struct Snapshot<'a> {
     scratch: &'a Scratch,
     seq: u64,
     txid: u64,
+    /// Whether it is the writer's snapshot (E3).
+    writer: bool,
 }
 
 impl<'a> Snapshot<'a> {
@@ -508,7 +592,9 @@ impl Drop for Snapshot<'_> {
     fn drop(&mut self) {
         let free = {
             let mut state = self.scratch.lock();
-            if let Ok(index) = state.live.binary_search_by_key(&self.seq, |l| l.seq) {
+            if self.writer {
+                state.writer = None;
+            } else if let Ok(index) = state.live.binary_search_by_key(&self.seq, |l| l.seq) {
                 state.live.remove(index);
             }
             state.free_retired()
@@ -545,17 +631,17 @@ impl<'a> ScratchWriter<'a> {
         scratch.flush_locked(&guard, true)
     }
 
-    /// Commits `pages`, each sealed for its number: copies them into the temporary area, appends them to the
-    /// journal, flushed when `durable` (J4, J10), and publishes them. Returns the number of the commit. On failure
-    /// nothing is published (J12).
-    pub fn commit(&mut self, pages: &[(u64, SealedPage)], durable: bool) -> Result<u64> {
+    /// Commits `pages`, each sealed for its number: copies them into the temporary area, puts them in the
+    /// journal's queue and publishes them for the next writer (E2). Returns the number of the commit, which read
+    /// snapshots see once it is durable (E3; [`Scratch::wait_durable`]). On failure nothing is published (J12).
+    pub fn commit(&mut self, pages: &[(u64, SealedPage)]) -> Result<u64> {
         let staged = self.stage(pages)?;
         let scratch = self.snapshot.scratch;
         if let Some(journal) = &scratch.journal {
             let txid = scratch.lock().last_committed + 1;
             let refs: Vec<(u64, &[u8; PAGE_SIZE])> =
                 pages.iter().map(|(n, p)| (*n, &**p)).collect();
-            journal.append(scratch.pager(), txid, &refs, durable)?;
+            journal.enqueue(scratch.pager(), txid, &refs)?;
         }
         Ok(self.publish(staged))
     }
@@ -587,8 +673,8 @@ impl<'a> ScratchWriter<'a> {
         Ok(Staged(staged))
     }
 
-    /// Publishes the staged pages as the newest versions, for every snapshot opened from now on and none opened
-    /// before (T2). Returns the number of the new version.
+    /// Publishes the staged pages as the newest versions, for every writer from now on and for the read snapshots
+    /// opened once the commit is durable (T2, E3). Returns the number of the new version.
     pub fn publish(&mut self, staged: Staged) -> u64 {
         let scratch = self.snapshot.scratch;
         let mut state = scratch.lock();

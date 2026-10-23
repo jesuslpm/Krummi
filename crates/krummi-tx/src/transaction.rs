@@ -95,10 +95,10 @@ impl<'e> WriteTransaction<'e> {
         self.commit_with(true)
     }
 
-    /// Commits the transaction in deferred mode (J10): it returns once the commit is written to the journal,
-    /// without waiting for it to be durable. It survives a crash of the process, and becomes durable with the next
-    /// durable commit with changes, [`Engine::make_durable`] or the close. When 256 deferred commits or 1 MiB of
-    /// them are pending, the one that reaches that limit makes them durable before it returns (J5).
+    /// Commits the transaction in deferred mode (J10, E5 of the grouped journal PRD): it returns once the commit is
+    /// in the journal's queue, without waiting for it to be durable; it becomes durable with its group, like a
+    /// durable commit in its place, and read transactions see it from then on (E3). Until then any crash may lose
+    /// it, with every later commit. It waits, keeping the turn, while the journal's queue is full (E2).
     pub fn commit_deferred(self) -> Result<()> {
         self.commit_with(false)
     }
@@ -119,8 +119,12 @@ impl<'e> WriteTransaction<'e> {
         let sealed = self.seal();
         let pages = self.track(sealed)?;
         self.engine.hook(Point::CommitPublish);
-        let committed = self.writer.commit(&pages, durable);
-        self.track(committed)?;
+        let committed = self.writer.commit(&pages);
+        let txid = self.track(committed)?;
+        if durable {
+            let durable = self.engine.scratch.wait_durable(txid);
+            self.track(durable)?;
+        }
         self.engine
             .next_page
             .store(self.next_page, Ordering::Release);

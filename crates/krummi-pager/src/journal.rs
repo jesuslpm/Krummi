@@ -13,16 +13,19 @@
 //! ([`DEFAULT_FILE_LIMIT`], or more for a record that does not fit in it) reserved on disk, and its name and size
 //! are made durable before any record is written into it, so writing never changes its size (E7 of the grouped
 //! journal PRD). Files are written directly to the disk when the system allows it, and through the system's cache
-//! otherwise (E6). A write that fails leaves the write position where it was, so the next record overwrites what it
-//! left (J12).
+//! otherwise (E6). A commit reserves its place and enters a queue under the write turn; the journal's own thread
+//! writes everything queued together and makes it durable (E2, E4). After a group fails, nothing more is written
+//! until the close retries it (E8, E12).
 
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::thread::JoinHandle;
 
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -37,10 +40,6 @@ pub const JOURNAL_PREFIX: &str = "krummi.journal.";
 pub(crate) const ALIGN: u64 = 4096;
 /// Size of a record header.
 pub(crate) const RECORD_HEADER: usize = 64;
-/// Bytes, or commits, written since the last flush beyond which a transfer makes the journal durable first, so
-/// that deferred commits do not wait in the temporary area for a durable one (J5).
-pub(crate) const PENDING_BYTES_LIMIT: u64 = 1 << 20;
-pub(crate) const PENDING_COMMITS_LIMIT: u64 = 256;
 /// Size of a journal file (E7). Builds with test hooks use a smaller one, because tests copy and alter whole files.
 #[cfg(not(any(test, feature = "test-hooks")))]
 pub(crate) const DEFAULT_FILE_LIMIT: u64 = RELEASE_FILE_LIMIT;
@@ -196,45 +195,86 @@ fn encode_record(
     Ok(record)
 }
 
+/// Bytes of records the journal queue holds before a commit waits for room (E2 of the grouped journal PRD).
+pub(crate) const DEFAULT_QUEUE_LIMIT: u64 = 8 << 20;
+
+const _: () = assert!(
+    ALIGN.is_multiple_of(sys::DIRECT_ALIGN as u64),
+    "records must start where direct writes can"
+);
+
+/// A function the journal calls; tests use them to stop it at a known point.
+pub(crate) type Hook = Arc<dyn Fn() + Send + Sync>;
+
 /// The journal of a store on disk.
+///
+/// A commit reserves its place in a file and enters the queue under the write turn (its point of no return, E2);
+/// the journal's own thread takes everything in the queue, writes it in one write per file, makes it durable, and
+/// only then counts the group as durable (E4). After a group fails, nothing more is written until the close
+/// retries it (E8, E12).
 pub(crate) struct Journal {
+    shared: Arc<Shared>,
+    writer: Mutex<Option<JoinHandle<()>>>,
+}
+
+struct Shared {
     folder: PathBuf,
     state: Mutex<State>,
+    /// Wakes the writer: records queued, writing resumed, or the close.
+    work: Condvar,
+    /// Wakes whoever waits for the writer: a group durable, room in the queue, or a failure.
+    progress: Condvar,
+    /// Last durable commit, which snapshots read without the lock (E3).
+    durable: AtomicU64,
     file_limit: AtomicU64,
+    queue_limit: AtomicU64,
     /// Whether new files are opened for direct writes (E6).
     direct: bool,
-    /// Called by a durable append between writing its record and flushing it (tests: AC-J13).
-    sync_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// The store's flag that makes it refuse writes (G12, E8).
+    writes_disabled: Arc<AtomicBool>,
+    /// Called by the writer between writing a group and making it durable (tests: AC-J13).
+    sync_hook: Mutex<Option<Hook>>,
+    /// Called by the writer when a group fails, so the transaction layer can wake its waiting requests (T12).
+    failure_hook: Mutex<Option<Hook>>,
+    /// Writes of groups so far, one per file a group touches (tests: AC-E2, AC-E8).
+    writes: AtomicU64,
 }
 
 struct State {
-    /// The file records are appended to.
-    current: Option<Current>,
+    /// The file the next record goes into.
+    current: Option<Arc<OpenFile>>,
+    /// Where the next record goes in `current`.
+    current_len: u64,
+    /// The size of `current`, reserved when it was created (E7).
+    current_capacity: u64,
     /// Number of the next file to create.
     next_number: u64,
-    /// Last commit written to the journal.
-    written_upto: u64,
+    /// Last commit that passed its point of no return.
+    queued_upto: u64,
     /// Last commit known to be durable (J4, J10).
     synced_upto: u64,
-    /// Bytes written since the last flush.
-    pending_bytes: u64,
     /// Files that exist, oldest first, with the last commit each holds (the current one included).
     files: VecDeque<(u64, u64)>,
+    /// Records waiting to be written, in commit order.
+    queue: VecDeque<Queued>,
+    queued_bytes: u64,
+    /// Why the last group failed; until the close retries it nothing more is written (E8, E12).
+    failed: Option<(io::ErrorKind, String)>,
+    /// The writer takes nothing while set (tests).
+    paused: bool,
+    /// The writer ends once nothing is left that it may write.
+    stop: bool,
 }
 
-struct Current {
-    number: u64,
+/// A journal file, shared by the records reserved in it.
+struct OpenFile {
     file: File,
     path: PathBuf,
-    /// Where the next record goes.
-    len: u64,
-    /// The file's size, reserved when it was created (E7).
-    capacity: u64,
-    /// Whether the file takes direct writes, which are durable once written (E6).
+    /// Whether it takes direct writes, which are durable once written (E6).
     direct: bool,
 }
 
-impl Current {
+impl OpenFile {
     /// Makes what was written to the file durable: a direct write already is, so it only counts as the flush (E6).
     fn flush(&self) -> io::Result<()> {
         if self.direct {
@@ -245,228 +285,309 @@ impl Current {
     }
 }
 
+/// A record that passed its point of no return and waits to be written.
+struct Queued {
+    txid: u64,
+    file: Arc<OpenFile>,
+    offset: u64,
+    record: AlignedBuf,
+}
+
 impl Journal {
-    /// The journal of the store in `folder`, empty, after recovery: commits from `last_txid + 1` on, in files
-    /// numbered from `next_number`.
-    pub(crate) fn new(folder: &Path, last_txid: u64, next_number: u64) -> Journal {
-        Journal {
+    /// Starts the journal of the store in `folder` and its writer thread, before recovery (E13): failing to start
+    /// the thread is the out-of-memory class. It takes nothing until [`Journal::begin`].
+    pub(crate) fn start(folder: &Path, pager: &Pager) -> Result<Journal> {
+        let shared = Arc::new(Shared {
             folder: folder.to_path_buf(),
             state: Mutex::new(State {
                 current: None,
-                next_number,
-                written_upto: last_txid,
-                synced_upto: last_txid,
-                pending_bytes: 0,
+                current_len: 0,
+                current_capacity: 0,
+                next_number: 0,
+                queued_upto: 0,
+                synced_upto: 0,
                 files: VecDeque::new(),
+                queue: VecDeque::new(),
+                queued_bytes: 0,
+                failed: None,
+                paused: false,
+                stop: false,
             }),
+            work: Condvar::new(),
+            progress: Condvar::new(),
+            durable: AtomicU64::new(0),
             file_limit: AtomicU64::new(DEFAULT_FILE_LIMIT),
+            queue_limit: AtomicU64::new(DEFAULT_QUEUE_LIMIT),
             direct: direct_writes(),
+            writes_disabled: pager.failure_flag(),
             sync_hook: Mutex::new(None),
-        }
+            failure_hook: Mutex::new(None),
+            writes: AtomicU64::new(0),
+        });
+        let out_of_memory = || Error::OutOfMemory { requested: 0 };
+        sys::thread_point().map_err(|_| out_of_memory())?;
+        #[cfg(any(test, feature = "test-hooks"))]
+        let context = sys::faults::context();
+        let writer = Arc::clone(&shared);
+        let handle = std::thread::Builder::new()
+            .name("krummi-journal".into())
+            .spawn(move || {
+                #[cfg(any(test, feature = "test-hooks"))]
+                sys::faults::adopt(&context);
+                writer.run();
+            })
+            .map_err(|_| out_of_memory())?;
+        Ok(Journal {
+            shared,
+            writer: Mutex::new(Some(handle)),
+        })
     }
 
-    /// Sets the function a durable append calls between writing and flushing its record, or none (tests).
-    pub(crate) fn set_sync_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+    /// Sets where the journal goes on after recovery: commits from `last_txid + 1` on, in files numbered from
+    /// `next_number`.
+    pub(crate) fn begin(&self, last_txid: u64, next_number: u64) {
+        let mut state = self.shared.lock();
+        state.next_number = next_number;
+        state.queued_upto = last_txid;
+        state.synced_upto = last_txid;
+        self.shared.durable.store(last_txid, Ordering::Release);
+    }
+
+    /// Sets the function the writer calls between writing a group and making it durable, or none (tests).
+    pub(crate) fn set_sync_hook(&self, hook: Option<Hook>) {
         *self
+            .shared
             .sync_hook
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Sets the function the writer calls when a group fails, or none.
+    pub(crate) fn set_failure_hook(&self, hook: Option<Hook>) {
+        *self
+            .shared
+            .failure_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
-    /// Sets the size at which the journal goes on in a new file (tests).
+    /// Sets the size of the files created from now on (tests).
     pub(crate) fn set_file_limit(&self, bytes: u64) {
-        self.file_limit.store(bytes, Ordering::Relaxed);
+        self.shared.file_limit.store(bytes, Ordering::Relaxed);
     }
 
-    /// Last commit known to be durable.
-    pub(crate) fn synced_upto(&self) -> u64 {
-        self.lock().synced_upto
+    /// Sets the bytes the queue holds before a commit waits for room (tests: AC-E17).
+    pub(crate) fn set_queue_limit(&self, bytes: u64) {
+        self.shared.queue_limit.store(bytes, Ordering::Relaxed);
     }
 
-    /// Whether so much was written since the last flush that the next transfer should make it durable.
-    pub(crate) fn too_much_pending(&self) -> bool {
-        let state = self.lock();
-        state.pending_bytes >= PENDING_BYTES_LIMIT
-            || state.written_upto - state.synced_upto >= PENDING_COMMITS_LIMIT
+    /// Stops the writer from taking records, or lets it go on (tests).
+    pub(crate) fn set_paused(&self, paused: bool) {
+        self.shared.lock().paused = paused;
+        self.shared.work.notify_all();
     }
 
-    /// Appends the record of commit `txid` and, when `durable`, flushes it to the disk (J4); a deferred commit is
-    /// only written (J10). On failure nothing of it counts: the next record goes where this one would have gone,
-    /// and a record that was completely written is wiped when possible, so that it never appears after a reopen
-    /// (J12) — except after a failed flush, which leaves it entire or absent.
-    pub(crate) fn append(
+    /// Number of records waiting in the queue (tests).
+    pub(crate) fn queued(&self) -> usize {
+        self.shared.lock().queue.len()
+    }
+
+    /// Writes of groups so far, one per file a group touches (tests).
+    pub(crate) fn writes(&self) -> u64 {
+        self.shared.writes.load(Ordering::Acquire)
+    }
+
+    /// Wakes the commits waiting for room in the queue, after the store stopped accepting writes (T12).
+    pub(crate) fn wake(&self) {
+        drop(self.shared.lock());
+        self.shared.progress.notify_all();
+    }
+
+    /// Last commit known to be durable (E3).
+    pub(crate) fn durable(&self) -> u64 {
+        self.shared.durable.load(Ordering::Acquire)
+    }
+
+    /// Reserves the place of commit `txid` in a journal file and puts its record in the queue: everything that can
+    /// fail without the store refusing writes happens before, so after this the commit cannot be undone (E2, E7).
+    /// Waits, first, while the queue is full; fails with the I/O class if the store stops accepting writes.
+    pub(crate) fn enqueue(
         &self,
         pager: &Pager,
         txid: u64,
         pages: &[(u64, &[u8; PAGE_SIZE])],
-        durable: bool,
     ) -> Result<()> {
         pager.check_writable()?;
-        let mut state = self.lock();
-        let mut record = encode_record(txid, state.synced_upto, pages)?;
-        let rolls = state
+        let record = encode_record(txid, 0, pages)?;
+        let len = record.len() as u64;
+        let shared = &*self.shared;
+        let mut state = shared.lock();
+        while !state.queue.is_empty()
+            && state.queued_bytes + len > shared.queue_limit.load(Ordering::Relaxed)
+            && state.failed.is_none()
+            && pager.accepts_writes()
+        {
+            state = shared
+                .progress
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        if let Some(failure) = &state.failed {
+            return Err(shared.failure_error(failure));
+        }
+        pager.check_writable()?;
+        let fits = state
             .current
             .as_ref()
-            .is_none_or(|c| c.len + record.len() as u64 > c.capacity);
-        if rolls {
-            let synced = state.synced_upto;
-            self.roll(&mut state, pager, record.len() as u64)?;
-            if state.synced_upto != synced {
-                // The rollover made earlier commits durable: the record must say so (J9).
-                record = encode_record(txid, state.synced_upto, pages)?;
-            }
+            .is_some_and(|_| state.current_len + len <= state.current_capacity);
+        if !fits {
+            self.roll(&mut state, pager, len)?;
         }
-        let current = state
-            .current
-            .as_mut()
-            .expect("the journal has a current file");
-        let offset = current.len;
-        let mut guard = WipeOnFailure {
-            current,
-            pager,
-            offset,
-            armed: true,
-        };
-        // A failed write may have left the record whole (it can fail in the padding): it is wiped too.
-        sys::write_at(&guard.current.file, &guard.current.path, offset, &record)
-            .map_err(|e| pager.fail_write(e, record.len() as u64))?;
-        if durable {
-            let hook = self
-                .sync_hook
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            if let Some(hook) = hook {
-                hook();
-            }
-            if let Err(e) = guard.current.flush() {
-                // Entire or absent after a reopen (J12): the record stays as it is.
-                guard.armed = false;
-                guard.current.len = offset + record.len() as u64;
-                return Err(pager.fail_flush(e));
-            }
-        }
-        guard.armed = false;
-        guard.current.len = offset + record.len() as u64;
-        drop(guard);
-        state.written_upto = txid;
-        state.pending_bytes += record.len() as u64;
-        if durable {
-            state.synced_upto = txid;
-            state.pending_bytes = 0;
-        }
+        let file = Arc::clone(state.current.as_ref().expect("a file was just created"));
+        let offset = state.current_len;
+        state.current_len += len;
         if let Some(last) = state.files.back_mut() {
             last.1 = txid;
         }
+        state.queue.push_back(Queued {
+            txid,
+            file,
+            offset,
+            record,
+        });
+        state.queued_bytes += len;
+        state.queued_upto = txid;
+        drop(state);
+        shared.work.notify_all();
         Ok(())
     }
 
-    /// Makes the current file durable and goes on in a new one for a record of `record_len` bytes, created with its
-    /// final size, both made durable first (E7).
+    /// Goes on in a new file for a record of `record_len` bytes, created with its final size, which is made durable
+    /// with its name before anything is written into it (E7). The writer makes durable what it writes into the old
+    /// one.
     fn roll(&self, state: &mut State, pager: &Pager, record_len: u64) -> Result<()> {
-        self.close_current(state, pager)?;
+        let shared = &*self.shared;
         let number = state.next_number;
-        let path = self.folder.join(file_name(number));
-        let capacity = self.file_limit.load(Ordering::Relaxed).max(record_len);
-        let (file, direct) = sys::create_journal_file(&path, capacity, self.direct)
+        let path = shared.folder.join(file_name(number));
+        let capacity = shared.file_limit.load(Ordering::Relaxed).max(record_len);
+        let (file, direct) = sys::create_journal_file(&path, capacity, shared.direct)
             .map_err(|e| journal_error(pager, e))?;
-        let made_durable = sys::sync(&file, &path).and_then(|()| sys::sync_dir(&self.folder));
+        let made_durable = sys::sync(&file, &path).and_then(|()| sys::sync_dir(&shared.folder));
         if let Err(e) = made_durable {
             drop(file);
             let _ = sys::remove(&path);
             return Err(pager.fail_flush(e));
         }
         state.next_number += 1;
-        state.files.push_back((number, state.written_upto));
-        state.current = Some(Current {
-            number,
-            file,
-            path,
-            len: 0,
-            capacity,
-            direct,
-        });
+        state.files.push_back((number, state.queued_upto));
+        state.current = Some(Arc::new(OpenFile { file, path, direct }));
+        state.current_len = 0;
+        state.current_capacity = capacity;
         Ok(())
     }
 
-    /// Makes the records of the current file durable and stops writing into it: the next record goes into a new
-    /// file.
-    fn close_current(&self, state: &mut State, pager: &Pager) -> Result<()> {
-        if let Some(current) = &state.current {
-            current.flush().map_err(|e| pager.fail_flush(e))?;
-            state.synced_upto = state.written_upto;
-            state.pending_bytes = 0;
+    /// Waits until commit `txid` is durable, or fails with the I/O class if its group failed (J4, E8).
+    pub(crate) fn wait_durable(&self, txid: u64) -> Result<()> {
+        let shared = &*self.shared;
+        let mut state = shared.lock();
+        loop {
+            if state.synced_upto >= txid {
+                return Ok(());
+            }
+            if let Some(failure) = &state.failed {
+                return Err(shared.failure_error(failure));
+            }
+            state = shared
+                .progress
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
         }
-        state.current = None;
-        Ok(())
+    }
+
+    /// Waits until every commit that passed its point of no return is durable (J11, E10).
+    pub(crate) fn make_durable(&self, pager: &Pager) -> Result<()> {
+        pager.check_writable()?;
+        let target = self.shared.lock().queued_upto;
+        self.wait_durable(target)
     }
 
     /// Makes the next record go into a new file when the current one holds records, so that the old ones can all
     /// be removed once both header copies record them as applied (tests: AC-J18).
     pub(crate) fn start_new_file(&self, pager: &Pager) -> Result<()> {
         pager.check_writable()?;
-        let mut state = self.lock();
-        if state.current.as_ref().is_some_and(|c| c.len > 0) {
-            self.close_current(&mut state, pager)?;
+        let mut state = self.shared.lock();
+        if state.current.is_some() && state.current_len > 0 {
+            state.current = None;
         }
         Ok(())
     }
 
-    /// Makes every commit written so far durable (J11, J5).
-    pub(crate) fn make_durable(&self, pager: &Pager) -> Result<()> {
-        pager.check_writable()?;
-        let mut state = self.lock();
-        if state.synced_upto == state.written_upto {
+    /// Writes and makes durable everything in the queue, retrying a group that failed, and stops the writer (E12).
+    /// The writer is stopped even when this fails.
+    pub(crate) fn close(&self, pager: &Pager) -> Result<()> {
+        let shared = &*self.shared;
+        shared.lock().stop = true;
+        shared.work.notify_all();
+        let handle = self
+            .writer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(handle) = handle {
+            // A writer that panicked left its group in the queue, which is written below.
+            let _ = handle.join();
+        }
+        let mut state = shared.lock();
+        state.failed = None;
+        state.paused = false;
+        let group: Vec<Queued> = state.queue.drain(..).collect();
+        if group.is_empty() {
             return Ok(());
         }
-        let current = state
-            .current
-            .as_ref()
-            .expect("unsynced commits are in the current file");
-        current.flush().map_err(|e| pager.fail_flush(e))?;
-        state.synced_upto = state.written_upto;
-        state.pending_bytes = 0;
-        Ok(())
+        let durable_upto = state.synced_upto;
+        drop(state);
+        let written = shared.write_group(&group, durable_upto);
+        shared.finish_group(group, written.map_err(|e| (e.kind(), e.to_string())));
+        match &shared.lock().failed {
+            Some(failure) => Err(pager.fail_flush(io::Error::new(failure.0, failure.1.clone()))),
+            None => Ok(()),
+        }
     }
 
     /// Number of the first file that may hold commits after `applied`: what a header with `applied` records.
     pub(crate) fn first_needed(&self, applied: u64) -> u64 {
-        let state = self.lock();
-        let current = state.current.as_ref().map(|c| c.number);
+        let state = self.shared.lock();
         state
             .files
             .iter()
-            .find(|(number, last)| *last > applied || Some(*number) == current)
+            .find(|(_, last)| *last > applied)
             .map_or(state.next_number, |(number, _)| *number)
+            .min(state.current_number().unwrap_or(u64::MAX))
     }
 
     /// Whether no journal file exists: nothing was committed since the store opened or the files were removed.
     pub(crate) fn has_no_files(&self) -> bool {
-        self.lock().files.is_empty()
+        self.shared.lock().files.is_empty()
     }
 
     /// Whether the journal has gone on in more than one file since its files were last removed.
     pub(crate) fn has_old_files(&self) -> bool {
-        self.lock().files.len() > 1
+        self.shared.lock().files.len() > 1
     }
 
     /// Removes the files whose commits are all at most `applied` (the smaller of what the two header copies
     /// record), except the current one; or every file, the current one included, when `all`.
     pub(crate) fn remove_files(&self, pager: &Pager, applied: u64, all: bool) -> Result<()> {
-        let mut state = self.lock();
+        let mut state = self.shared.lock();
         while let Some(&(number, last)) = state.files.front() {
-            let is_current = state.current.as_ref().is_some_and(|c| c.number == number);
+            let is_current = state.current_number() == Some(number);
             if last > applied || (is_current && !all) {
                 break;
             }
             if is_current {
                 state.current = None;
             }
-            match sys::remove(&self.folder.join(file_name(number))) {
+            match sys::remove(&self.shared.folder.join(file_name(number))) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(journal_error(pager, e)),
@@ -477,29 +598,189 @@ impl Journal {
     }
 }
 
-/// Wipes the header of a record whose append did not complete and flushes the wipe, so that the record is never
-/// read as a commit, not even after a power cut that keeps the record's write (J12).
-struct WipeOnFailure<'a> {
-    current: &'a mut Current,
-    pager: &'a Pager,
-    offset: u64,
-    armed: bool,
+impl Drop for Journal {
+    /// A journal dropped without its close (an opening that failed) stops its writer.
+    fn drop(&mut self) {
+        self.shared.lock().stop = true;
+        self.shared.work.notify_all();
+        let handle = self
+            .writer
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(handle) = handle {
+            let _ = handle.join();
+        }
+    }
 }
 
-impl Drop for WipeOnFailure<'_> {
-    fn drop(&mut self) {
-        if self.armed {
-            let current = &*self.current;
-            let wiped = AlignedBuf::zeroed(ALIGN as usize).and_then(|zeros| {
-                sys::write_at(&current.file, &current.path, self.offset, &zeros)?;
-                current.flush()
-            });
-            if let Err(e) = wiped {
-                // The record may still be whole: nothing may follow it, so the store refuses writes (G12).
-                let _ = self.pager.fail_flush(e);
+impl State {
+    fn current_number(&self) -> Option<u64> {
+        self.current
+            .as_ref()
+            .and(self.files.back().map(|(n, _)| *n))
+    }
+}
+
+impl Shared {
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn failure_error(&self, failure: &(io::ErrorKind, String)) -> Error {
+        Error::Io {
+            folder: self.folder.clone(),
+            source: io::Error::new(failure.0, failure.1.clone()),
+        }
+    }
+
+    /// The writer thread: takes everything in the queue, writes it as one group and makes it durable, until the
+    /// close. A panic counts as a failed group (E13).
+    fn run(&self) {
+        loop {
+            let (group, durable_upto) = {
+                let mut state = self.lock();
+                loop {
+                    let can_write =
+                        !state.queue.is_empty() && !state.paused && state.failed.is_none();
+                    if can_write {
+                        break;
+                    }
+                    if state.stop {
+                        return;
+                    }
+                    state = self
+                        .work
+                        .wait(state)
+                        .unwrap_or_else(PoisonError::into_inner);
+                }
+                let group: Vec<Queued> = state.queue.drain(..).collect();
+                (group, state.synced_upto)
+            };
+            let written =
+                panic::catch_unwind(AssertUnwindSafe(|| self.write_group(&group, durable_upto)));
+            let stopped = written.is_err();
+            let outcome = match written {
+                Ok(result) => result.map_err(|e| (e.kind(), e.to_string())),
+                Err(_) => Err((
+                    io::ErrorKind::Other,
+                    "the journal's writer stopped".to_owned(),
+                )),
+            };
+            self.finish_group(group, outcome);
+            if stopped {
+                return;
             }
         }
     }
+
+    /// Writes a group: each record says which commits were durable when it was written (J9), the records of each
+    /// file go in one write, and then each file is made durable.
+    fn write_group(&self, group: &[Queued], durable_upto: u64) -> io::Result<()> {
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for (i, queued) in group.iter().enumerate() {
+            match runs.last_mut() {
+                Some((start, end))
+                    if Arc::ptr_eq(&group[*start].file, &queued.file)
+                        && group[*end - 1].offset + group[*end - 1].record.len() as u64
+                            == queued.offset =>
+                {
+                    *end = i + 1;
+                }
+                _ => runs.push((i, i + 1)),
+            }
+        }
+        for &(start, end) in &runs {
+            let records = &group[start..end];
+            let file = &records[0].file;
+            let total: usize = records.iter().map(|q| q.record.len()).sum();
+            match AlignedBuf::zeroed(total) {
+                Ok(mut buf) => {
+                    let mut at = 0;
+                    for queued in records {
+                        let len = queued.record.len();
+                        buf[at..at + len].copy_from_slice(&queued.record);
+                        set_durable_upto(&mut buf[at..at + RECORD_HEADER], durable_upto);
+                        at += len;
+                    }
+                    sys::write_at(&file.file, &file.path, records[0].offset, &buf[..total])?;
+                }
+                // No memory for one buffer: one write per record, still one flush.
+                Err(_) => {
+                    for queued in records {
+                        let mut header = [0u8; RECORD_HEADER];
+                        header.copy_from_slice(&queued.record[..RECORD_HEADER]);
+                        set_durable_upto(&mut header, durable_upto);
+                        let mut record = AlignedBuf::zeroed(queued.record.len())?;
+                        record.copy_from_slice(&queued.record);
+                        record[..RECORD_HEADER].copy_from_slice(&header);
+                        sys::write_at(&file.file, &file.path, queued.offset, &record)?;
+                    }
+                }
+            }
+            self.writes.fetch_add(1, Ordering::AcqRel);
+        }
+        let hook = self
+            .sync_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        let mut flushed: Vec<&Arc<OpenFile>> = Vec::new();
+        for &(start, _) in &runs {
+            let file = &group[start].file;
+            if !flushed.iter().any(|f| Arc::ptr_eq(f, file)) {
+                file.flush()?;
+                flushed.push(file);
+            }
+        }
+        Ok(())
+    }
+
+    /// Records the outcome of a group: durable, or failed, and then put back at the front of the queue for the
+    /// close to retry, with the store refusing writes (E8).
+    fn finish_group(
+        &self,
+        group: Vec<Queued>,
+        outcome: std::result::Result<(), (io::ErrorKind, String)>,
+    ) {
+        let mut state = self.lock();
+        match outcome {
+            Ok(()) => {
+                let last = group.last().map_or(state.synced_upto, |q| q.txid);
+                state.synced_upto = state.synced_upto.max(last);
+                state.queued_bytes -= group.iter().map(|q| q.record.len() as u64).sum::<u64>();
+                self.durable.store(state.synced_upto, Ordering::Release);
+                drop(state);
+            }
+            Err(failure) => {
+                for queued in group.into_iter().rev() {
+                    state.queue.push_front(queued);
+                }
+                state.failed = Some(failure);
+                self.writes_disabled.store(true, Ordering::Release);
+                drop(state);
+                let hook = self
+                    .failure_hook
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                if let Some(hook) = hook {
+                    hook();
+                }
+            }
+        }
+        self.progress.notify_all();
+    }
+}
+
+/// Rewrites, in an encoded record header, which commits were durable when it was written (J9).
+fn set_durable_upto(header: &mut [u8], durable_upto: u64) {
+    let mut decoded = RecordHeader::decode(header).expect("an encoded record header");
+    decoded.durable_upto = durable_upto;
+    header[..RECORD_HEADER].copy_from_slice(&decoded.encode());
 }
 
 /// Whether new journal files are opened for direct writes (E6). Builds with test hooks write through the system's

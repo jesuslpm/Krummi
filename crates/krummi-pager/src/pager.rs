@@ -5,8 +5,8 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
 
@@ -64,7 +64,8 @@ pub struct Pager {
     folder: Option<PathBuf>,
     storage: Storage,
     max_size: Option<u64>,
-    writes_disabled: AtomicBool,
+    /// Set after a failed write, also by the journal's writer thread (G12, E8 of the grouped journal PRD).
+    writes_disabled: Arc<AtomicBool>,
     /// The current header and the copy the next header write goes to (J6 of the Journal PRD).
     header: Mutex<HeaderState>,
 }
@@ -211,7 +212,7 @@ impl Pager {
                 chunks: vec![Chunk::new(0, chunk)],
             })),
             max_size,
-            writes_disabled: AtomicBool::new(false),
+            writes_disabled: Arc::new(AtomicBool::new(false)),
             header: Mutex::new(HeaderState::new(
                 Header::new_store(),
                 0,
@@ -442,6 +443,11 @@ impl Pager {
     /// Whether the store accepts writes: `false` after a failed write until it is reopened (G12).
     pub fn accepts_writes(&self) -> bool {
         !self.writes_disabled.load(Ordering::Acquire)
+    }
+
+    /// The flag that makes the store refuse writes, for the journal's writer thread to set (E8).
+    pub(crate) fn failure_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.writes_disabled)
     }
 
     /// Lets a store that refused writes try them again; only before closing, to retry the last flush (T12).
@@ -804,7 +810,7 @@ fn file_pager(
             }),
         }),
         max_size,
-        writes_disabled: AtomicBool::new(false),
+        writes_disabled: Arc::new(AtomicBool::new(false)),
     }
 }
 

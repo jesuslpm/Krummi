@@ -320,14 +320,19 @@ fn ac_j7_deferred_commits_survive_as_a_prefix() {
             );
         }
     }
+    // Killing the process after the last deferred commit returns leaves a prefix with every durable one (E5 of the
+    // grouped journal PRD: a deferred commit can be lost until its group is durable).
     let folder = run.killed();
     let engine = open(folder.path());
-    assert!(
-        texts(&engine, &pages)
-            .iter()
-            .enumerate()
-            .all(|(i, t)| t.as_deref() == Some(format!("c{i}").as_str()))
-    );
+    let present: Vec<bool> = texts(&engine, &pages)
+        .iter()
+        .enumerate()
+        .map(|(i, t)| t.as_deref() == Some(format!("c{i}").as_str()))
+        .collect();
+    let prefix = present.iter().take_while(|&&p| p).count();
+    assert!(present[prefix..].iter().all(|&p| !p), "{present:?}");
+    let last_durable = durable.iter().rposition(|&d| d).map_or(0, |i| i + 1);
+    assert!(prefix >= last_durable, "{present:?}");
 
     // J11 or a clean close before the cut keeps every deferred commit.
     for close in [false, true] {
@@ -596,25 +601,28 @@ fn ac_j13_a_durable_commit_is_invisible_until_it_is_durable() {
     assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("after"));
 }
 
-/// AC-J14 and AC11 (J12, G7): a commit that fails for lack of space, or is interrupted by a panic while it writes
-/// the journal, never appears after a crash and does not keep the next commits from being recovered.
+/// AC-J14 and AC11 (J12, G7): a commit that fails for lack of space, or is interrupted by a panic before its point
+/// of no return (E2 of the grouped journal PRD: both while it reserves its journal file), never appears after a
+/// crash and does not keep the next commits from being recovered.
 #[test]
 fn ac_j14_a_failed_or_interrupted_commit_never_appears_and_blocks_nothing() {
     for failure in ["disk full", "panic"] {
         for model in POWER_CUTS.into_iter().chain([Model::Written]) {
             let (source, engine) = Run::start();
+            // One record per journal file: every commit reserves a new one.
+            engine.set_journal_file_limit(4096);
             let pages = reserve(&engine, 1, "first");
             let mut tx = engine.write(None).unwrap();
             put(&mut tx, pages[0], "failed");
             if failure == "disk full" {
                 testing::inject(
-                    Op::Write,
-                    testing::count(Op::Write),
+                    Op::Reserve,
+                    testing::count(Op::Reserve),
                     Action::Fail(std::io::ErrorKind::StorageFull),
                 );
                 assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::DiskFull);
             } else {
-                testing::inject(Op::Sync, testing::count(Op::Sync), Action::Panic);
+                testing::inject(Op::Reserve, testing::count(Op::Reserve), Action::Panic);
                 assert!(catch_unwind(AssertUnwindSafe(|| tx.commit())).is_err());
             }
             assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("first"));
@@ -775,6 +783,54 @@ fn ac_e9_journal_files_keep_their_reserved_size() {
     let read = engine.read().unwrap();
     for (page, bytes) in expected {
         assert_eq!(read.page(page).unwrap(), &bytes[..]);
+    }
+}
+
+/// AC-E8 (E4, E5 of the grouped journal PRD): a deferred commit and a durable one queued together are written in
+/// one write and become durable together; a deferred commit alone becomes durable with its group, without any
+/// other operation.
+#[test]
+fn ac_e8_deferred_commits_become_durable_like_durable_ones() {
+    let (source, engine) = Run::start();
+    let pages = reserve(&engine, 2, "-");
+    engine.set_journal_paused(true);
+    let writes = engine.journal_writes();
+    commit_all(&engine, &pages[..1], "deferred", false);
+    let context = testing::context();
+    let returned = std::thread::scope(|s| {
+        let engine = &engine;
+        let pages = &pages;
+        let durable = s.spawn(move || {
+            testing::adopt(&context);
+            commit_all(engine, &pages[1..], "durable", true)
+        });
+        common::wait_until(|| engine.journal_queued() == 2);
+        engine.set_journal_paused(false);
+        durable.join().unwrap()
+    });
+    assert_eq!(engine.journal_writes(), writes + 1, "one write for both");
+    engine.set_journal_paused(true);
+    commit_all(&engine, &pages[..1], "alone", false);
+    let txid = engine.journal_durable() + 1;
+    engine.set_journal_paused(false);
+    common::wait_until(|| engine.journal_durable() >= txid);
+    let durable_alone = testing::recorded_len();
+    let run = Run::finish(source, vec![]);
+    for model in POWER_CUTS {
+        let folder = run.crash(returned, model);
+        let engine = open(folder.path());
+        assert_eq!(
+            texts(&engine, &pages),
+            vec![Some("deferred".to_owned()), Some("durable".to_owned())],
+            "{model:?}"
+        );
+        let folder = run.crash(durable_alone, model);
+        let engine = open(folder.path());
+        assert_eq!(
+            texts(&engine, &pages)[0].as_deref(),
+            Some("alone"),
+            "{model:?}"
+        );
     }
 }
 
@@ -1015,32 +1071,6 @@ fn r1_a_journal_flush_that_fails_for_lack_of_space_refuses_writes() {
         matches!(seen.as_deref(), Some("kept" | "failed")),
         "{seen:?}"
     );
-}
-
-/// Review advisory: when the wipe of a failed append also fails, the record may be whole, so the store refuses
-/// writes and no later commit can reuse its number.
-#[test]
-fn a_failed_wipe_after_a_failed_append_refuses_writes() {
-    let tmp = tempfile::tempdir().unwrap();
-    let engine = open(tmp.path());
-    let pages = reserve(&engine, 1, "kept");
-    testing::reset();
-    let writes = testing::count(Op::Write);
-    testing::inject(
-        Op::Write,
-        writes,
-        Action::Fail(std::io::ErrorKind::StorageFull),
-    );
-    testing::inject(
-        Op::Write,
-        writes + 1,
-        Action::Fail(std::io::ErrorKind::Other),
-    );
-    let mut tx = engine.write(None).unwrap();
-    put(&mut tx, pages[0], "failed");
-    assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::DiskFull);
-    testing::reset();
-    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
 }
 
 // Leftovers of the old product name (rename-to-krummi PRD: R1, R3–R6; AC-R1–AC-R4, AC-R6). These are the only tests

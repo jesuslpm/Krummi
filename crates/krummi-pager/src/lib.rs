@@ -22,12 +22,13 @@ pub use scratch::{
 };
 pub use temp::TEMP_DIR;
 
-/// Fault injection for the tests of the engine crates (feature `test-hooks`). Faults are per thread.
+/// Fault injection for the tests of the engine crates (feature `test-hooks`). Faults are per thread; a thread can
+/// share another's with [`testing::adopt`], as the journal's writer does with the thread that opened the store.
 #[cfg(feature = "test-hooks")]
 pub mod testing {
     pub use crate::sys::Op;
     pub use crate::sys::faults::{
-        Action, Model, Recorded, abort_at, count, inject, materialize, points, recorded_len, reset,
-        skip_syncs, start_recording, take_recording,
+        Action, Context, Model, Recorded, abort_at, adopt, context, count, inject, materialize,
+        points, recorded_len, reset, skip_syncs, start_recording, take_recording,
     };
 }

@@ -145,7 +145,7 @@ impl Engine {
                 None => return Err(self.misuse("the wait limit is too large")),
             },
         };
-        if queue.io_failed {
+        if queue.io_failed || !self.scratch.pager().accepts_writes() {
             return Err(self.writes_refused());
         }
         if queue.owner.is_some() || !queue.waiting.is_empty() {
@@ -165,8 +165,9 @@ impl Engine {
         }
     }
 
-    /// Makes every commit returned so far durable, deferred ones included (J11 of the Journal PRD). It does not
-    /// wait for the open write transaction. Fails at once with the I/O class when the store refuses writes (T12).
+    /// Makes durable every commit that passed its point of no return, deferred ones and ones that have not returned
+    /// included (J11 of the Journal PRD, E10 of the grouped journal PRD). It does not wait for the open write
+    /// transaction. Fails at once with the I/O class when the store refuses writes (T12).
     pub fn make_durable(&self) -> Result<()> {
         let result = self.scratch.make_durable();
         if result.is_err() {
@@ -188,6 +189,13 @@ impl Engine {
         if self.scratch.transfer().is_err() {
             self.note_failure();
         }
+    }
+
+    /// Runs a transfer now, as after a commit, and returns whether the store still accepts writes (tests: AC-E17).
+    #[cfg(feature = "test-hooks")]
+    pub fn transfer_now(&self) -> bool {
+        self.transfer();
+        self.scratch.pager().accepts_writes()
     }
 
     /// Transfers everything no read needs and records it in both header copies (tests: AC-J18).
@@ -212,6 +220,36 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn set_journal_sync_hook(&self, hook: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
         self.scratch.set_journal_sync_hook(hook);
+    }
+
+    /// Stops the journal's writer from taking queued commits, or lets it go on (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_journal_paused(&self, paused: bool) {
+        self.scratch.set_journal_paused(paused);
+    }
+
+    /// Number of commits waiting in the journal's queue (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn journal_queued(&self) -> usize {
+        self.scratch.journal_queued()
+    }
+
+    /// Writes of groups so far, one per journal file a group touches (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn journal_writes(&self) -> u64 {
+        self.scratch.journal_writes()
+    }
+
+    /// Last durable commit (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn journal_durable(&self) -> u64 {
+        self.scratch.journal_durable()
+    }
+
+    /// Sets the bytes the journal's queue holds before a commit waits for room (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_journal_queue_limit(&self, bytes: u64) {
+        self.scratch.set_journal_queue_limit(bytes);
     }
 
     /// Sets a function the transfer calls while it holds its lock, or none (tests: AC-J17).
@@ -307,6 +345,7 @@ impl Engine {
         if !self.scratch.pager().accepts_writes() {
             self.lock_queue().io_failed = true;
             self.turn.notify_all();
+            self.scratch.wake();
         }
     }
 
