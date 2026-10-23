@@ -55,3 +55,10 @@ Writer trigger reason. Risk: item 4 (concurrency: the transfer thread's wake-up 
   deferred writers with readers, close or drop, then reopen: every value equal. Suites 197 passed in both modes,
   transfer tests 10 runs. Advisories: `set_pacing` (tests only) no longer shortens a deadline already pending;
   fault probes that count writes globally can hit a journal write (same on the baseline).
+- **L6** (RDD review, 2026-10-23): commits `0c6af85`, `e6a9fb5`, `fdcf161` against `54a9141`; lenses resilience,
+  reliability; approved, acknowledged (lineage `review-466d1175ad27d417`). Findings, all SUGGESTION:
+  R4-stale-kept-during-pass (a commit during a slow first pass over a long read may start one extra pass; bounded,
+  kept); R3-growth-test-one-sided (the S1 test had no positive half: fixed in a follow-up commit, the test now
+  checks that growing by the threshold again starts a pass within 2 s while the interval is 5 s, and fails without
+  the growth rule: the pass came after 4.97 s); R3-set-pacing-deadline (a shortened interval does not pull in a
+  pending deadline; test hook only, kept). Suite 197 passed; fmt and clippy clean.

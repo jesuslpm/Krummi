@@ -347,6 +347,20 @@ fn a_pass_starts_at_once_only_when_the_scratch_area_grew_by_the_threshold() {
         passes <= 2,
         "{passes} passes for 50 commits that added 400 KiB"
     );
+    // Growing by the threshold again starts a pass at once, long before the 5 s interval.
+    let before = engine.transfer_passes();
+    let start = std::time::Instant::now();
+    let mut tx = engine.write(None).unwrap();
+    for _ in 0..150 {
+        tx.allocate().unwrap();
+    }
+    tx.commit().unwrap();
+    wait_until(|| engine.transfer_passes() > before);
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "the pass started after {:?}",
+        start.elapsed()
+    );
     drop(read);
     engine.close().unwrap();
 }

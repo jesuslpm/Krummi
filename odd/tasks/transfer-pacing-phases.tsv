@@ -6,3 +6,8 @@
 2026-10-23T20:03:07+01:00	mark	acceptance	T2
 2026-10-23T20:09:53+01:00	mark	checks	T2
 2026-10-23T20:13:47+01:00	mark	verify	T1-T2
+2026-10-23T20:27:05+01:00	mark	review	T1-T2
+2026-10-23T20:27:28+01:00	bg-start	review	RDD two lenses
+2026-10-23T20:28:14+01:00	bg-end	review	RDD two lenses
+2026-10-23T20:28:29+01:00	mark	fix	R3-growth
+2026-10-23T20:29:02+01:00	mark	checks	R3-growth
