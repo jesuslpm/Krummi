@@ -279,3 +279,24 @@ fn ac_t22_the_new_errors_carry_the_store_and_the_limit() {
         drop(tx);
     }
 }
+
+/// Turn handoff S1: releasing the turn wakes only the request that gets it, not every request in the queue.
+#[test]
+fn releasing_the_turn_wakes_only_the_request_that_gets_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let held = engine.write(None).unwrap();
+    let waiting = 8;
+    let before = thread::scope(|s| {
+        for _ in 0..waiting {
+            s.spawn(|| drop(engine.write(None).unwrap()));
+        }
+        wait_until(|| engine.queued() == waiting);
+        let before = engine.turn_wakeups();
+        drop(held);
+        before
+    });
+    let wakeups = engine.turn_wakeups() - before;
+    // One per handoff, plus room for spurious wakeups; waking every request gives 8 + 7 + ... + 1 = 36.
+    assert!(wakeups <= 12, "{wakeups} wakeups for {waiting} handoffs");
+}

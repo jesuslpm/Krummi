@@ -10,7 +10,7 @@ mod transaction;
 use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
@@ -67,28 +67,45 @@ pub struct Engine {
 
 struct Turns {
     queue: Mutex<Queue>,
-    turn: Condvar,
+    /// Times a request waiting for the turn woke up (tests).
+    wakeups: AtomicU64,
 }
 
 impl Turns {
     /// The store refuses writes (T12): the requests waiting for the turn fail at once, and so do new ones.
     fn refuse_writes(&self) {
-        self.queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .io_failed = true;
-        self.turn.notify_all();
+        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        queue.io_failed = true;
+        for waiter in &queue.waiting {
+            waiter.wake.notify_one();
+        }
     }
 }
 
 struct Queue {
     /// Thread that holds the write transaction.
     owner: Option<ThreadId>,
-    /// Tickets of the requests waiting for the turn, in order of arrival (T3).
-    waiting: VecDeque<u64>,
+    /// The requests waiting for the turn, in order of arrival (T3).
+    waiting: VecDeque<Waiter>,
     next_ticket: u64,
     /// The store refuses writes after a failed write (T12).
     io_failed: bool,
+}
+
+/// A request waiting for the turn, with the condition variable only it waits on, so that handing the turn over
+/// wakes the request that gets it and nobody else.
+struct Waiter {
+    ticket: u64,
+    wake: Arc<Condvar>,
+}
+
+impl Queue {
+    /// Wakes the first request in the queue, which gets the turn if it is free (T3).
+    fn wake_next(&self) {
+        if let Some(waiter) = self.waiting.front() {
+            waiter.wake.notify_one();
+        }
+    }
 }
 
 impl Engine {
@@ -128,7 +145,7 @@ impl Engine {
                 next_ticket: 0,
                 io_failed: false,
             }),
-            turn: Condvar::new(),
+            wakeups: AtomicU64::new(0),
         });
         // The journal's writer calls it when a group fails: the store already refuses writes, and the writer has
         // woken its own waiters (E8).
@@ -329,6 +346,12 @@ impl Engine {
         *self.hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
+    /// Times a request waiting for the write turn woke up (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn turn_wakeups(&self) -> u64 {
+        self.turns.wakeups.load(Ordering::Relaxed)
+    }
+
     /// Number of requests waiting for the write turn, so tests can queue them in a known order.
     #[cfg(feature = "test-hooks")]
     pub fn queued(&self) -> usize {
@@ -360,41 +383,44 @@ impl Engine {
     ) -> Result<MutexGuard<'q, Queue>> {
         let ticket = queue.next_ticket;
         queue.next_ticket += 1;
-        queue.waiting.push_back(ticket);
+        let wake = Arc::new(Condvar::new());
+        queue.waiting.push_back(Waiter {
+            ticket,
+            wake: Arc::clone(&wake),
+        });
         loop {
+            // Every waiting request was woken when the store started refusing writes.
             if queue.io_failed {
                 leave(&mut queue, ticket);
-                self.turns.turn.notify_all();
                 return Err(self.writes_refused());
             }
-            if queue.owner.is_none() && queue.waiting.front() == Some(&ticket) {
+            if queue.owner.is_none() && queue.waiting.front().map(|w| w.ticket) == Some(ticket) {
                 queue.waiting.pop_front();
                 return Ok(queue);
             }
             queue = match deadline {
-                None => self
-                    .turns
-                    .turn
-                    .wait(queue)
-                    .unwrap_or_else(PoisonError::into_inner),
+                None => wake.wait(queue).unwrap_or_else(PoisonError::into_inner),
                 Some(deadline) => {
                     let now = Instant::now();
                     if now >= deadline {
                         leave(&mut queue, ticket);
-                        self.turns.turn.notify_all();
+                        // Leaving the front of the queue while the turn is free passes it on.
+                        if queue.owner.is_none() {
+                            queue.wake_next();
+                        }
                         return Err(self.timeout(limit));
                     }
-                    self.turns
-                        .turn
-                        .wait_timeout(queue, deadline - now)
+                    wake.wait_timeout(queue, deadline - now)
                         .unwrap_or_else(PoisonError::into_inner)
                         .0
                 }
             };
+            self.turns.wakeups.fetch_add(1, Ordering::Relaxed);
         }
     }
 
-    /// Ends the turn of the write transaction; the first request in the queue gets it (T3, T10).
+    /// Ends the turn of the write transaction; the first request in the queue gets it (T3, T10), and only that
+    /// request is woken.
     fn release_turn(&self) {
         let waiting = {
             let mut queue = self.lock_queue();
@@ -403,8 +429,8 @@ impl Engine {
         };
         if waiting {
             self.hook(Point::Handoff);
+            self.lock_queue().wake_next();
         }
-        self.turns.turn.notify_all();
     }
 
     /// Records that the store refuses writes, if it does: the waiting requests fail at once (T12).
@@ -445,5 +471,5 @@ impl Engine {
 }
 
 fn leave(queue: &mut Queue, ticket: u64) {
-    queue.waiting.retain(|&t| t != ticket);
+    queue.waiting.retain(|w| w.ticket != ticket);
 }
