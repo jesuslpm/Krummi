@@ -97,8 +97,8 @@ implementación*.
 |---|---|---|---|---|
 | T1 | S14 | inline | done | `6f419c7` |
 | T2 | S9, S19 (direct I/O, fallback, reservation; test hooks shared with the journal thread) | inline | done | `92b6345` |
-| T3 | S2, S3, S8, S10, S12, S13, S16, S17 (journal thread and groups; readers see durable commits) | inline | pending | |
-| T4 | S1, S4, S5, S6, S7, S11, S18 (turn released at the point of no return, E11, failure listener) | inline | pending | |
+| T3 | S8, S10, S12, S13, S17 (journal thread and groups; readers see durable commits) | inline | done | `6507bb2` |
+| T4 | S1, S2, S3, S4, S5, S6, S7, S11, S16, S18 (turn released at the point of no return, E11, failure listener) | inline | done | `07c655d` |
 | T5 | S15 (measurement on Windows and Linux) | inline | pending | |
 | T6 | S19 (docs, both platforms, independent verification) | inline + verifier | pending | |
 
@@ -128,3 +128,20 @@ independent verifier at the end and RDD review per high-risk commit.
   | Commits | Lenses | Result | Findings and resolution | Lineage |
   |---|---|---|---|---|
   | `d88a74a..92b6345` | risk, resilience, reliability | approved | WARNING R1-001, R4-direct-fallback-open-only and R3-001 (same issue): the fallback triggers only when the direct open fails, not when a file system accepts the open and rejects the write, and no test forces it; fixed in T3 with a probe write when the file is created and a test that forces it. SUGGESTION R3-002: nothing checks that `ALIGN` is a multiple of `DIRECT_ALIGN`; fixed in T3 with a compile-time assertion. | `review-a5c8fce6cba72e73` |
+- **L7** T3: the journal's writer thread, the queue and groups; read snapshots see durable commits only. Adapted
+  tests (PRD changes): AC12/AC-T20 now expects the failed commit after the close's retry (E12); AC-J7's kill part
+  expects a prefix (E5); AC-J14 injects the disk-full and the panic in the reservation, before the point of no
+  return. Removed the test of the wipe after a failed append: the wipe no longer exists, since writing happens after
+  the point of no return (E8). Found and fixed: a panic while reserving a journal file left the file and blocked the
+  next commit (removed on drop now). S2, S3 and S16 moved to T4: they need the turn released before durability.
+  New requests check that the store accepts writes (T13 order kept). Suite 175 passed in both modes. RDD assess:
+  medium, `under_budget`; raised to high (item 4, concurrency).
+- **L8** RDD review of T3, recorded when it ended:
+
+  | Commits | Lenses | Result | Findings and resolution | Lineage |
+  |---|---|---|---|---|
+  | `92b6345..6507bb2` | risk, resilience, reliability | approved | WARNING R1-001 and R4-failed-durable-commit-applied-on-close: a commit that failed with I/O may be written by the close; E12 allows it, and T4 documents in `commit` that its outcome is unknown, never partial. WARNING R4-group-failure-loses-diskfull-class and R3-001: a group failure is always the I/O class; E8 fixes it so and the reservation (E7) makes lack of space at write unlikely; accepted. WARNING R3-002: the failure hook was not installed; installed in T4 (AC-E5 checks a waiting request). SUGGESTION R3-003: the page counter was stored after the wait; T4 stores it at the point of no return. | `review-7e3575952b966f27` |
+- **L9** T4: turn released at the point of no return (new points `CommitQueued`, `CommitWait`), E11, failure hook
+  waking the requests waiting for the turn. AC-T5's test stopped at every point, so it hung on the new ones; it now
+  checks all-or-nothing after the point of no return too. RED for the new criteria not observed on behavior: the
+  test file uses the new points, so it does not compile against T3. Suite 186 passed in both modes.
