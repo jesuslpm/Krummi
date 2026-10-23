@@ -1,0 +1,19 @@
+[package]
+name = "krummi"
+version = "0.1.0"
+description = "Krummi: an embedded transactional storage engine inspired by Voron"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+krummi-pager = { version = "0.1.0", path = "../krummi-pager" }
+krummi-tx = { version = "0.1.0", path = "../krummi-tx" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
+trybuild = "1.0.122"

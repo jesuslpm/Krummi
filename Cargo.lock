@@ -76,6 +76,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "krummi"
+version = "0.1.0"
+dependencies = [
+ "krummi-pager",
+ "krummi-tx",
+ "tempfile",
+ "trybuild",
+]
+
+[[package]]
+name = "krummi-pager"
+version = "0.1.0"
+dependencies = [
+ "lz4_flex",
+ "memmap2",
+ "rustix",
+ "tempfile",
+ "trybuild",
+ "windows-sys",
+ "xxhash-rust",
+ "zerocopy",
+]
+
+[[package]]
+name = "krummi-tx"
+version = "0.1.0"
+dependencies = [
+ "krummi-pager",
+ "krummi-tx",
+ "tempfile",
+ "trybuild",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -106,40 +140,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "muninndb"
-version = "0.1.0"
-dependencies = [
- "muninndb-pager",
- "muninndb-tx",
- "tempfile",
- "trybuild",
-]
-
-[[package]]
-name = "muninndb-pager"
-version = "0.1.0"
-dependencies = [
- "lz4_flex",
- "memmap2",
- "rustix",
- "tempfile",
- "trybuild",
- "windows-sys",
- "xxhash-rust",
- "zerocopy",
-]
-
-[[package]]
-name = "muninndb-tx"
-version = "0.1.0"
-dependencies = [
- "muninndb-pager",
- "muninndb-tx",
- "tempfile",
- "trybuild",
 ]
 
 [[package]]

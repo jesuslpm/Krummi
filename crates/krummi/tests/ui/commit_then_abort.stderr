@@ -1,0 +1,15 @@
+error[E0382]: use of moved value: `write`
+ --> tests/ui/commit_then_abort.rs:8:5
+  |
+6 |     let write = store.write().unwrap();
+  |         ----- move occurs because `write` has type `WriteTransaction<'_>`, which does not implement the `Copy` trait
+7 |     write.commit().unwrap();
+  |           -------- `write` moved due to this method call
+8 |     write.abort();
+  |     ^^^^^ value used here after move
+  |
+note: `krummi::WriteTransaction::<'_>::commit` takes ownership of the receiver `self`, which moves `write`
+ --> src/lib.rs
+  |
+  |     pub fn commit(self) -> Result<()> {
+  |                   ^^^^

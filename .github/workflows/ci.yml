@@ -55,6 +55,6 @@ jobs:
       - name: Every-byte damage sweep (AC10)
         timeout-minutes: 30
         run: |
-          cargo test -p muninndb-pager --test pages -- --ignored ac10
-          cargo test -p muninndb-tx --test commit -- --ignored ac10
-          cargo test -p muninndb-tx --test recovery -- --ignored ac10
+          cargo test -p krummi-pager --test pages -- --ignored ac10
+          cargo test -p krummi-tx --test commit -- --ignored ac10
+          cargo test -p krummi-tx --test recovery -- --ignored ac10

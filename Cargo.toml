@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/muninndb-pager", "crates/muninndb-tx", "crates/muninndb"]
+members = ["crates/krummi-pager", "crates/krummi-tx", "crates/krummi"]
 
 [workspace.package]
 edition = "2024"
@@ -8,6 +8,6 @@ rust-version = "1.89"
 license = "UNLICENSED"
 publish = false
 
-# D12: unsafe code is forbidden everywhere; only muninndb-pager opts out (see its manifest).
+# D12: unsafe code is forbidden everywhere; only krummi-pager opts out (see its manifest).
 [workspace.lints.rust]
 unsafe_code = "forbid"
