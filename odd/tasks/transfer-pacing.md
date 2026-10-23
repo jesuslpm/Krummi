@@ -48,3 +48,10 @@ Writer trigger reason. Risk: item 4 (concurrency: the transfer thread's wake-up 
   overlap (spread about ±10 %). Data flushes in 3 s: 2 with the interval (one release and the close), 9 to 20
   without. Decision per L2: no worsening beyond noise, so the interval is removed (`Flushing`, the put-off release
   and the third pacing value go). Suite 197 passed in both journal write modes; fmt and clippy clean.
+- **L5** (independent verifier, `0c6af85`..`e6a9fb5` over `54a9141`): no blockers; S1–S4 met, S5 not re-measured
+  (consistent with L3/L4). Probes: a read holding about 49 MiB with 200 single-page commits made 1 pass on the
+  branch against 200 on the baseline (3 against 196 with buffered journal writes); a failure on the 3rd of 8 page
+  writes left 6 pages in the scratch area on both, and reopening gave the right values; concurrent durable and
+  deferred writers with readers, close or drop, then reopen: every value equal. Suites 197 passed in both modes,
+  transfer tests 10 runs. Advisories: `set_pacing` (tests only) no longer shortens a deadline already pending;
+  fault probes that count writes globally can hit a journal write (same on the baseline).

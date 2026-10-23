@@ -1,0 +1,8 @@
+2026-10-23T19:55:31+01:00	start	plan	
+2026-10-23T19:56:16+01:00	mark	acceptance	baseline
+2026-10-23T19:57:10+01:00	mark	implement	T1
+2026-10-23T19:58:50+01:00	mark	checks	T1
+2026-10-23T20:02:07+01:00	mark	acceptance	T1
+2026-10-23T20:03:07+01:00	mark	acceptance	T2
+2026-10-23T20:09:53+01:00	mark	checks	T2
+2026-10-23T20:13:47+01:00	mark	verify	T1-T2
