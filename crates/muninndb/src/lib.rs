@@ -129,7 +129,8 @@ impl WriteTransaction<'_> {
     /// waiting for the disk, and they are visible from then on. They survive a crash of the process, but a crash
     /// of the system or a power cut may lose them, always together with every later commit and never in part.
     /// They become durable with the next durable commit that changes something, [`Store::make_durable`] or the
-    /// close.
+    /// close; and when 256 deferred commits or 1 MiB of them are pending, the deferred commit that reaches that
+    /// limit makes them all durable before it returns, so that they do not pile up.
     pub fn commit_deferred(self) -> Result<()> {
         self.inner.commit_deferred()
     }

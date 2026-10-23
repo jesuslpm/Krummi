@@ -302,3 +302,28 @@ fn the_temporary_area_grows_in_files_of_at_most_8_mib() {
     drop(hold);
     engine.close().unwrap();
 }
+
+/// Verifier advisory on S1 (P6): a close without changes still rewrites the header when one of its copies was
+/// damaged at the opening, so the other copy can be damaged later without losing the store.
+#[test]
+fn a_close_without_changes_still_repairs_a_damaged_header_copy() {
+    use muninndb_pager::format::HEADER_COPY_OFFSETS;
+    for damaged in 0..2 {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = disk(tmp.path());
+        let page = new_page(&engine, "kept");
+        engine.close().unwrap();
+        let data = tmp.path().join(muninndb_pager::DATA_FILE);
+        let flip = |copy: usize| {
+            let mut bytes = fs::read(&data).unwrap();
+            bytes[HEADER_COPY_OFFSETS[copy] as usize + 20] ^= 0x01;
+            fs::write(&data, bytes).unwrap();
+        };
+        flip(damaged);
+        disk(tmp.path()).close().unwrap();
+        flip(1 - damaged);
+        let engine = disk(tmp.path());
+        assert_eq!(read_text(&engine, page), "kept", "copy {damaged}");
+        engine.close().unwrap();
+    }
+}

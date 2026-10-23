@@ -339,9 +339,10 @@ impl Scratch {
         }
         state.retired.clear();
         // Nothing was committed since the store opened: `muninn.data` and its header are already what a close
-        // would leave, so a close writes nothing.
-        let unchanged =
-            pages_written == 0 && self.journal.as_ref().is_none_or(Journal::has_no_files);
+        // would leave, so a close writes nothing, unless a header copy is damaged and the close can repair it (P6).
+        let unchanged = pages_written == 0
+            && self.journal.as_ref().is_none_or(Journal::has_no_files)
+            && !pager.has_damaged_header_copy();
         if let Some(journal) = self.journal.as_ref().filter(|_| !unchanged) {
             pager.flush_data()?;
             let applied = state.last_committed;

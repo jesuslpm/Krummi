@@ -99,7 +99,8 @@ impl<'e> WriteTransaction<'e> {
 
     /// Commits the transaction in deferred mode (J10): it returns once the commit is written to the journal,
     /// without waiting for it to be durable. It survives a crash of the process, and becomes durable with the next
-    /// durable commit with changes, [`Engine::make_durable`] or the close.
+    /// durable commit with changes, [`Engine::make_durable`] or the close. When 256 deferred commits or 1 MiB of
+    /// them are pending, the one that reaches that limit makes them durable before it returns (J5).
     pub fn commit_deferred(self) -> Result<()> {
         self.commit_with(false)
     }

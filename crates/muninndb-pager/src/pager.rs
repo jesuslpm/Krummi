@@ -76,6 +76,8 @@ struct HeaderState {
     next_copy: usize,
     /// What the other copy records as applied: `0` when it is damaged.
     other_applied: u64,
+    /// Whether the other copy was damaged when the store opened and has not been written since (P6).
+    other_damaged: bool,
 }
 
 impl HeaderState {
@@ -84,6 +86,7 @@ impl HeaderState {
             header,
             next_copy: 1 - current_copy,
             other_applied: other.map_or(0, |h| h.applied_txid.min(header.applied_txid)),
+            other_damaged: other.is_none(),
         }
     }
 }
@@ -244,9 +247,15 @@ impl Pager {
                 .map_err(|e| self.write_failed(e, 0))?;
         }
         state.other_applied = state.header.applied_txid;
+        state.other_damaged = false;
         state.header = header;
         state.next_copy = 1 - state.next_copy;
         Ok(())
+    }
+
+    /// Whether a header copy was damaged when the store opened and no header write has replaced it yet (P6).
+    pub(crate) fn has_damaged_header_copy(&self) -> bool {
+        self.header.lock().unwrap().other_damaged
     }
 
     /// The last commit both header copies record as applied: journal files up to it are needed by neither (J8).
