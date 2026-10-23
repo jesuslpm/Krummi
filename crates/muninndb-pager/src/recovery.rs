@@ -1,7 +1,7 @@
 //! Recovery when a store opens (J8 and J9 of the Journal PRD, step 8 of the parent's order of checks).
 //!
-//! Pass 1 reads every journal file the header needs and finds the intact records, also after a damaged one: they
-//! start at multiples of [`ALIGN`]. It decides, before anything changes, which commits apply:
+//! Pass 1 reads every journal file the header needs, one record at a time, and finds the intact records, also
+//! after a damaged one: they start at multiples of [`ALIGN`]. Recovery never holds more than one record in memory. It decides, before anything changes, which commits apply:
 //!
 //! - commits up to the one the header records as applied are already in `muninn.data` and are skipped;
 //! - the next ones apply in order while they follow one another;
@@ -35,7 +35,7 @@ pub(crate) struct Recovered {
 /// An intact record found in pass 1: its file and offset, and its header.
 struct Found {
     file: usize,
-    offset: usize,
+    offset: u64,
     header: RecordHeader,
 }
 
@@ -52,26 +52,26 @@ pub(crate) fn recover(pager: &mut Pager, folder: &Path) -> Result<Recovered> {
     });
 
     // Pass 1: read and decide; nothing changes yet.
-    let mut contents = Vec::with_capacity(needed.len());
+    let mut files = Vec::with_capacity(needed.len());
     for (_, path) in &needed {
-        contents.push(read_file(path, folder)?);
+        files.push(JournalFile::open(path, folder)?);
     }
     let mut found = Vec::new();
-    for (file, bytes) in contents.iter().enumerate() {
-        scan(bytes, file, &mut found);
+    for (index, file) in files.iter().enumerate() {
+        scan(file, index, folder, &mut found)?;
     }
     let apply = decide(&found, header.applied_txid, folder)?;
 
     // Pass 2: apply, record, clean up.
     let mut last_txid = header.applied_txid;
     for record in &apply {
-        let bytes = &contents[record.file];
-        let start = record.offset + RECORD_HEADER;
-        let stored = &bytes[start..start + record.header.stored_len as usize];
-        let raw = decode_payload(&record.header, stored).ok_or_else(|| damaged(folder))?;
+        let raw = files[record.file]
+            .payload(record.offset, &record.header, folder)?
+            .ok_or_else(|| damaged(folder))?;
         apply_pages(pager, &raw, folder)?;
         last_txid = record.header.txid;
     }
+    drop(files);
     if !journal_files.is_empty() || !apply.is_empty() {
         pager.flush_data()?;
         for _ in 0..2 {
@@ -131,45 +131,90 @@ fn is_temp_dir(name: &std::ffi::OsStr) -> bool {
     }
 }
 
-/// Reads a whole journal file. A missing permission is the access class; another failure, the I/O class.
-fn read_file(path: &Path, folder: &Path) -> Result<Vec<u8>> {
-    let file: File = sys::open_read(path).map_err(|e| read_error(folder, e))?;
-    let len = file.metadata().map_err(|e| read_error(folder, e))?.len() as usize;
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(len)
-        .map_err(|_| Error::OutOfMemory {
-            requested: len as u64,
-        })?;
-    bytes.resize(len, 0);
-    let read = sys::read_at(&file, path, 0, &mut bytes).map_err(|e| read_error(folder, e))?;
-    bytes.truncate(read);
-    Ok(bytes)
+/// A journal file opened for reading.
+struct JournalFile {
+    path: PathBuf,
+    file: File,
+    len: u64,
+}
+
+impl JournalFile {
+    /// Opens a journal file. A missing permission is the access class; another failure, the I/O class.
+    fn open(path: &Path, folder: &Path) -> Result<JournalFile> {
+        let file = sys::open_read(path).map_err(|e| read_error(folder, e))?;
+        let len = file.metadata().map_err(|e| read_error(folder, e))?.len();
+        Ok(JournalFile {
+            path: path.to_path_buf(),
+            file,
+            len,
+        })
+    }
+
+    /// The `len` bytes at `offset`, fewer at the end of the file.
+    fn read(&self, offset: u64, len: usize, folder: &Path) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(len)
+            .map_err(|_| Error::OutOfMemory {
+                requested: len as u64,
+            })?;
+        bytes.resize(len, 0);
+        let read = sys::read_at(&self.file, &self.path, offset, &mut bytes)
+            .map_err(|e| read_error(folder, e))?;
+        bytes.truncate(read);
+        Ok(bytes)
+    }
+
+    /// The header of the record at `offset`, if one is intact there.
+    fn header(&self, offset: u64, folder: &Path) -> Result<Option<RecordHeader>> {
+        Ok(RecordHeader::decode(&self.read(
+            offset,
+            RECORD_HEADER,
+            folder,
+        )?))
+    }
+
+    /// The raw payload of the record with `header` at `offset`, if it is intact and whole.
+    fn payload(
+        &self,
+        offset: u64,
+        header: &RecordHeader,
+        folder: &Path,
+    ) -> Result<Option<Vec<u8>>> {
+        let start = offset + RECORD_HEADER as u64;
+        if start + header.stored_len > self.len {
+            return Ok(None);
+        }
+        let stored = self.read(start, header.stored_len as usize, folder)?;
+        if stored.len() as u64 != header.stored_len {
+            return Ok(None);
+        }
+        Ok(decode_payload(header, &stored))
+    }
 }
 
 /// Adds to `found` every intact record of a file, in order: after a damaged region the next intact record is
 /// searched at every multiple of [`ALIGN`].
-fn scan(bytes: &[u8], file: usize, found: &mut Vec<Found>) {
-    let align = ALIGN as usize;
+fn scan(file: &JournalFile, index: usize, folder: &Path, found: &mut Vec<Found>) -> Result<()> {
     let mut offset = 0;
-    while offset + RECORD_HEADER <= bytes.len() {
-        let intact = RecordHeader::decode(&bytes[offset..]).filter(|header| {
-            let start = offset + RECORD_HEADER;
-            let end = start + header.stored_len as usize;
-            end <= bytes.len() && decode_payload(header, &bytes[start..end]).is_some()
-        });
+    while offset + RECORD_HEADER as u64 <= file.len {
+        let intact = match file.header(offset, folder)? {
+            Some(header) => file.payload(offset, &header, folder)?.map(|_| header),
+            None => None,
+        };
         match intact {
             Some(header) => {
                 found.push(Found {
-                    file,
+                    file: index,
                     offset,
                     header,
                 });
-                offset += header.record_len() as usize;
+                offset += header.record_len();
             }
-            None => offset += align,
+            None => offset += ALIGN,
         }
     }
+    Ok(())
 }
 
 /// The records to apply, in order, or the damage class (J9).
