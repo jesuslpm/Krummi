@@ -140,15 +140,14 @@ impl<'e> WriteTransaction<'e> {
             self.engine.meta_written.store(true, Ordering::Release);
         }
         self.engine.hook(Point::CommitQueued);
-        // The turn goes to the next writer before waiting for the disk and before the transfer, which never
-        // blocks it (E2, J5).
+        // The turn goes to the next writer before waiting for the disk. The transfer thread moves the commit to
+        // `krummi.data` once it is durable, without blocking anyone (E2, J5).
         let engine = self.engine;
         drop(self);
         if durable {
             engine.hook(Point::CommitWait);
             engine.wait_durable(txid)?;
         }
-        engine.transfer();
         Ok(())
     }
 

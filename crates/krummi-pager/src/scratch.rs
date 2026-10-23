@@ -16,15 +16,20 @@
 //! Why the shared page writes are sound: a flush writes page `n` only when every open snapshot sees the newest
 //! version of `n` (none is older than it), and that version stays in the scratch area until the write ends, so
 //! every snapshot reads `n` from here and nobody holds a reference into the data file's copy of `n`. Snapshots
-//! that start afterwards read the newest version too. Only one [`ScratchWriter`] exists at a time, so no two
-//! writes of a page overlap.
+//! that start afterwards read the newest version too. While the store is open only the transfer thread writes
+//! versions in place, holding `flushing` (see the `transfer` module), so no two writes of a page overlap; the
+//! close writes the rest once that thread has ended. A scratch area without the thread ([`Scratch::new`], for its
+//! own tests) writes them on the caller's thread, under the same lock.
 
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::format::Header;
@@ -34,6 +39,7 @@ use crate::pager::{Info, Pager};
 use crate::recovery;
 use crate::sys;
 use crate::temp::{Slot, TempArea};
+use crate::transfer::{self, Demand, Pacing, Signal};
 
 /// The payload of a page being changed by a write transaction.
 pub type PayloadBuf = Box<[u8; PAGE_PAYLOAD_SIZE]>;
@@ -61,6 +67,16 @@ fn alloc<const N: usize>() -> Result<Box<[u8; N]>> {
 
 /// A store with its scratch area.
 pub struct Scratch {
+    /// What the transfer thread shares with the store.
+    shared: Arc<Shared>,
+    /// Held by the one [`ScratchWriter`] that may exist at a time.
+    writer: Mutex<()>,
+    /// The transfer thread, which every store opened with [`Scratch::open`] has (J5).
+    transfers: Option<JoinHandle<()>>,
+}
+
+/// The part of a store the transfer thread uses too.
+pub(crate) struct Shared {
     /// `None` only after [`Scratch::close`] took it.
     pager: Option<Pager>,
     /// Where the versions live (J7 of the Journal PRD).
@@ -68,13 +84,26 @@ pub struct Scratch {
     /// The journal of a store on disk; `None` for a temporary store (J17).
     journal: Option<Journal>,
     state: Mutex<State>,
-    /// Held by the one [`ScratchWriter`] that may exist at a time.
-    writer: Mutex<()>,
     /// Held while versions are written in place, so no two writes of a page overlap (J5).
-    flushing: Mutex<()>,
-    /// Called by a transfer while it holds `flushing` (tests).
-    transfer_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    flushing: Mutex<Flushing>,
+    /// Wakes the transfer thread.
+    signal: Arc<Signal>,
+    /// Called by a transfer while it holds `flushing`, once it knows what it writes (tests).
+    transfer_hook: Mutex<Option<Hook>>,
+    /// Called when a transfer fails outside any operation, so the transaction layer wakes its waiting requests
+    /// (J13).
+    failure_hook: Mutex<Option<Hook>>,
+    /// Transfer passes so far (tests).
+    passes: AtomicU64,
 }
+
+/// What `flushing` guards besides the writes themselves.
+struct Flushing {
+    /// When a transfer last flushed `krummi.data` to release journal files.
+    last_data_sync: Option<Instant>,
+}
+
+type Hook = Arc<dyn Fn() + Send + Sync>;
 
 struct State {
     /// Number of the newest committed version: commits are numbered on from what the header records (J6).
@@ -106,34 +135,53 @@ struct Live {
 
 impl Scratch {
     /// Recovers the store if it closed in a crash (J8 of the Journal PRD) and puts a scratch area and an empty
-    /// journal in front of it. Recovery removes the journal and the temporary area a crash left.
+    /// journal in front of it, with the transfer thread (J5). Recovery removes the journal and the temporary area
+    /// a crash left.
     pub fn open(mut pager: Pager) -> Result<Scratch> {
-        let journal = match pager.folder().map(Path::to_path_buf) {
+        let signal = Arc::new(Signal::new());
+        let (journal, (transfers, sender)) = match pager.folder().map(Path::to_path_buf) {
             Some(folder) => {
-                // The journal's writer starts first: failing to start it leaves the store untouched (E13).
+                // Both threads start first: failing to start one leaves the store untouched (E13).
                 let journal = Journal::start(&folder, &pager)?;
+                let thread = transfer::start(&signal)?;
                 let recovered = recovery::recover(&mut pager, &folder)?;
                 journal.begin(recovered.last_txid, recovered.next_number);
-                Some(journal)
+                let durable = Arc::clone(&signal);
+                journal.set_durable_hook(Some(Arc::new(move || durable.raise(0))));
+                (Some(journal), thread)
             }
-            None => None,
+            None => (None, transfer::start(&signal)?),
         };
-        Ok(Scratch::with_journal(pager, journal))
+        let scratch = Scratch::with_journal(pager, journal, signal, Some(transfers));
+        // The thread ends at once if this fails, and the store is closed without it.
+        let _ = sender.send(Arc::clone(&scratch.shared));
+        Ok(scratch)
     }
 
-    /// Puts a scratch area in front of a store, with no journal (tests of the scratch area).
+    /// Puts a scratch area in front of a store, with no journal and no transfer thread (tests of the scratch
+    /// area).
     pub fn new(pager: Pager) -> Scratch {
-        Scratch::with_journal(pager, None)
+        Scratch::with_journal(pager, None, Arc::new(Signal::new()), None)
     }
 
-    fn with_journal(pager: Pager, journal: Option<Journal>) -> Scratch {
+    fn with_journal(
+        pager: Pager,
+        journal: Option<Journal>,
+        signal: Arc<Signal>,
+        transfers: Option<JoinHandle<()>>,
+    ) -> Scratch {
         let header = pager.header();
-        Scratch {
+        let shared = Shared {
             area: Arc::new(TempArea::new(pager.folder())),
             journal,
             pager: Some(pager),
-            flushing: Mutex::new(()),
+            flushing: Mutex::new(Flushing {
+                last_data_sync: None,
+            }),
+            signal,
             transfer_hook: Mutex::new(None),
+            failure_hook: Mutex::new(None),
+            passes: AtomicU64::new(0),
             state: Mutex::new(State {
                 last_committed: header.applied_txid,
                 versions: HashMap::new(),
@@ -143,13 +191,17 @@ impl Scratch {
                 next_seq: 0,
                 retired: Vec::new(),
             }),
+        };
+        Scratch {
+            shared: Arc::new(shared),
             writer: Mutex::new(()),
+            transfers,
         }
     }
 
     /// The store under the scratch area.
     pub fn pager(&self) -> &Pager {
-        self.pager.as_ref().expect("the store is open")
+        self.shared.pager()
     }
 
     /// Information about the store (P12).
@@ -188,7 +240,7 @@ impl Scratch {
     pub fn make_durable(&self) -> Result<()> {
         let pager = self.pager();
         pager.check_writable()?;
-        match &self.journal {
+        match &self.shared.journal {
             Some(journal) => journal.make_durable(pager),
             None => Ok(()),
         }
@@ -197,7 +249,7 @@ impl Scratch {
     /// Waits until commit `txid` is durable, or fails with the I/O class if its group failed (J4, E8). A temporary
     /// store has nothing to wait for.
     pub fn wait_durable(&self, txid: u64) -> Result<()> {
-        match &self.journal {
+        match &self.shared.journal {
             Some(journal) => journal.wait_durable(txid),
             None => Ok(()),
         }
@@ -205,72 +257,104 @@ impl Scratch {
 
     /// Wakes the commits waiting for room in the journal's queue, after the store stopped accepting writes (T12).
     pub fn wake(&self) {
-        if let Some(journal) = &self.journal {
-            journal.wake();
-        }
+        self.shared.wake();
     }
 
-    /// Sets the function the journal's writer calls when a group fails, or none (T12).
+    /// Sets the function called when the journal's writer fails a group or the transfer thread fails a transfer,
+    /// or none (T12, J13).
     pub fn set_failure_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
-        if let Some(journal) = &self.journal {
-            journal.set_failure_hook(hook);
+        if let Some(journal) = &self.shared.journal {
+            journal.set_failure_hook(hook.clone());
         }
+        *self
+            .shared
+            .failure_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
     /// Stops the journal's writer from taking queued commits, or lets it go on (tests).
     pub fn set_journal_paused(&self, paused: bool) {
-        if let Some(journal) = &self.journal {
+        if let Some(journal) = &self.shared.journal {
             journal.set_paused(paused);
         }
     }
 
     /// Number of commits waiting in the journal's queue (tests).
     pub fn journal_queued(&self) -> usize {
-        self.journal.as_ref().map_or(0, Journal::queued)
+        self.shared.journal.as_ref().map_or(0, Journal::queued)
     }
 
     /// Writes of groups so far, one per journal file a group touches (tests).
     pub fn journal_writes(&self) -> u64 {
-        self.journal.as_ref().map_or(0, Journal::writes)
+        self.shared.journal.as_ref().map_or(0, Journal::writes)
     }
 
     /// Last durable commit (tests).
     pub fn journal_durable(&self) -> u64 {
-        self.journal
+        self.shared
+            .journal
             .as_ref()
             .map_or(self.lock().last_committed, Journal::durable)
     }
 
     /// Sets the bytes the journal's queue holds before a commit waits for room (tests).
     pub fn set_journal_queue_limit(&self, bytes: u64) {
-        if let Some(journal) = &self.journal {
+        if let Some(journal) = &self.shared.journal {
             journal.set_queue_limit(bytes);
         }
     }
 
-    /// Transfers to `krummi.data` the durable versions that no read needs any more, unless a transfer is already
-    /// running (J5). It never waits for another transfer, so it never blocks a writer or a reader.
+    /// Has the transfer thread run a pass now and waits for it; the pass releases the journal files it can however
+    /// recently `krummi.data` was flushed (tests: AC-E17).
     pub fn transfer(&self) -> Result<()> {
-        let guard = match self.flushing.try_lock() {
-            Ok(guard) => guard,
-            // A transfer that panicked left nothing half done that the next one cannot redo.
-            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-            Err(TryLockError::WouldBlock) => return Ok(()),
-        };
-        let hook = self
-            .transfer_hook
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        if let Some(hook) = hook {
-            hook();
-        }
-        self.flush_locked(&guard, false)
+        self.demand(Demand::Pass)
     }
 
-    /// Sets a function a transfer calls while it holds its lock, or none (tests: AC-J17).
+    /// Transfer passes so far, by the transfer thread or [`Scratch::transfer`] (tests).
+    pub fn transfer_passes(&self) -> u64 {
+        self.shared.passes.load(Ordering::Relaxed)
+    }
+
+    /// Sets the minimum time between passes, the scratch bytes from which a pass starts without waiting for it,
+    /// and the minimum time between flushes of `krummi.data` that release journal files (tests).
+    pub fn set_transfer_pacing(
+        &self,
+        interval: Duration,
+        bytes: u64,
+        data_sync_interval: Duration,
+    ) {
+        self.shared.signal.set_pacing(Pacing {
+            interval,
+            bytes,
+            data_sync_interval,
+        });
+    }
+
+    /// Stops the transfer thread from starting passes, waiting for the one it may be running, or lets it go on
+    /// (tests that need every transfer to run on their own thread).
+    pub fn set_transfer_paused(&self, paused: bool) {
+        self.shared.signal.set_paused(paused);
+        if paused {
+            drop(
+                self.shared
+                    .flushing
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner),
+            );
+        }
+    }
+
+    /// A flag that stays set while the transfer thread runs (tests).
+    pub fn transfer_thread_alive(&self) -> Arc<AtomicBool> {
+        self.shared.signal.alive()
+    }
+
+    /// Sets a function a transfer calls while it holds its lock, after it chose the versions it writes and before
+    /// it writes them, or none (tests: AC-J17).
     pub fn set_transfer_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self
+            .shared
             .transfer_hook
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = hook;
@@ -278,35 +362,166 @@ impl Scratch {
 
     /// Sets the function the journal's writer calls between writing a group and making it durable (tests).
     pub fn set_journal_sync_hook(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
-        if let Some(journal) = &self.journal {
+        if let Some(journal) = &self.shared.journal {
             journal.set_sync_hook(hook);
         }
     }
 
     /// Sets the size at which the journal goes on in a new file (tests).
     pub fn set_journal_file_limit(&self, bytes: u64) {
-        if let Some(journal) = &self.journal {
+        if let Some(journal) = &self.shared.journal {
             journal.set_file_limit(bytes);
         }
     }
 
-    /// Transfers everything no read needs, waiting for a running transfer, and records it in both header copies,
-    /// so that the journal keeps only what later commits need (tests: AC-J18).
+    /// Has the transfer thread transfer everything no read needs and record it in both header copies, so that the
+    /// journal keeps only what later commits need, and waits for it (tests: AC-J18).
     pub fn checkpoint(&self) -> Result<()> {
-        let guard = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
-        self.flush_locked(&guard, true)?;
+        self.demand(Demand::Checkpoint)
+    }
+
+    /// Has the transfer thread do `demand` and waits for it, so that no other thread transfers (J5); a store
+    /// without the thread does it here.
+    fn demand(&self, demand: Demand) -> Result<()> {
+        match self.shared.signal.demand(demand) {
+            Some(outcome) => outcome,
+            None => self.shared.serve(demand, Duration::ZERO).map(|_| ()),
+        }
+    }
+
+    /// Writes every committed version to the data file and closes the store, which releases its lock even if a
+    /// write fails (P14). A store that refused writes after a failure tries them again here (T12); if the close
+    /// fails, the journal stays for the next opening to recover (J14).
+    pub fn close(mut self) -> Result<()> {
+        self.stop_transfers();
+        let shared = Arc::get_mut(&mut self.shared).expect("the transfer thread ended");
+        let flushed = shared.flush_all();
+        let pager = shared.pager.take().expect("the store is open");
+        let closed = pager.close();
+        flushed.and(closed)
+    }
+
+    /// Ends the transfer thread, after the pass it may be running.
+    fn stop_transfers(&mut self) {
+        self.shared.signal.stop();
+        if let Some(handle) = self.transfers.take() {
+            // A thread that panicked left nothing half done that the close cannot redo.
+            let _ = handle.join();
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.shared.lock()
+    }
+
+    /// Registers a read snapshot of what is durable, or the writer's snapshot of everything published (E3).
+    fn register(&self, state: &mut State, writer: bool) -> Result<Snapshot<'_>> {
+        let out_of_memory = || Error::OutOfMemory {
+            requested: size_of::<Live>() as u64,
+        };
+        sys::snapshot_point().map_err(|_| out_of_memory())?;
+        let txid = match (&self.shared.journal, writer) {
+            (Some(journal), false) => state.last_committed.min(journal.durable()),
+            _ => state.last_committed,
+        };
+        let live = Live {
+            seq: state.next_seq,
+            txid,
+        };
+        if writer {
+            state.writer = Some(live);
+        } else {
+            state.live.try_reserve(1).map_err(|_| out_of_memory())?;
+            state.live.push(live);
+        }
+        state.next_seq += 1;
+        Ok(Snapshot {
+            scratch: self,
+            seq: live.seq,
+            txid: live.txid,
+            writer,
+        })
+    }
+}
+
+impl Drop for Scratch {
+    /// A store dropped without closing still writes what was committed, without reporting a failure (T9).
+    fn drop(&mut self) {
+        self.stop_transfers();
+        if let Some(shared) = Arc::get_mut(&mut self.shared)
+            && shared.pager.is_some()
+        {
+            let _ = shared.flush_all();
+        }
+    }
+}
+
+impl Shared {
+    fn pager(&self) -> &Pager {
+        self.pager.as_ref().expect("the store is open")
+    }
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn wake(&self) {
+        if let Some(journal) = &self.journal {
+            journal.wake();
+        }
+    }
+
+    /// One transfer pass (J5): writes in place the durable versions no read needs any more, then releases the
+    /// journal files `krummi.data` no longer needs, unless it was flushed less than `data_sync_interval` ago, and
+    /// then returns when to try that release again.
+    pub(crate) fn pass(&self, data_sync_interval: Duration) -> Result<Option<Instant>> {
+        let mut flushing = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
+        self.passes.fetch_add(1, Ordering::Relaxed);
+        self.flush_locked(&flushing, false)?;
+        self.release_files(&mut flushing, data_sync_interval)
+    }
+
+    /// Does what a caller asked the transfer thread for, releasing journal files no sooner than
+    /// `data_sync_interval` after the last flush of `krummi.data` unless the demand says otherwise, and returns
+    /// when to try a release put off again.
+    pub(crate) fn serve(
+        &self,
+        demand: Demand,
+        data_sync_interval: Duration,
+    ) -> Result<Option<Instant>> {
+        if let Demand::Pass = demand {
+            return self.pass(Duration::ZERO);
+        }
+        let mut flushing = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
+        self.flush_locked(&flushing, true)?;
+        if let Demand::Flush = demand {
+            return self.release_files(&mut flushing, data_sync_interval);
+        }
         if let Some(journal) = &self.journal {
             journal.start_new_file(self.pager())?;
         }
-        self.record_applied(&guard)?;
-        self.record_applied(&guard)
+        self.record_applied(&mut flushing)?;
+        Ok(None)
+    }
+
+    /// Lets the transaction layer know that a transfer failed outside any operation: the store already refuses
+    /// writes (J13), and the commits waiting for room in the journal's queue fail at once (T12).
+    pub(crate) fn report_failure(&self) {
+        let hook = self
+            .failure_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        self.wake();
     }
 
     /// Writes in place every newest version that no open snapshot is older than and that is durable, after
     /// retiring the versions that no snapshot can read any more; with `force`, it first waits until every queued
-    /// commit is durable, so every such version goes (J5). When the journal has gone on in a new file, the header
-    /// records the transfer and the files no header copy needs are removed.
-    fn flush_locked(&self, flushing: &MutexGuard<'_, ()>, force: bool) -> Result<()> {
+    /// commit is durable, so every such version goes (J5). It calls the test hook once it knows what it writes.
+    fn flush_locked(&self, _flushing: &MutexGuard<'_, Flushing>, force: bool) -> Result<()> {
         let pager = self.pager();
         if force && let Some(journal) = &self.journal {
             journal.make_durable(pager)?;
@@ -330,6 +545,14 @@ impl Scratch {
         };
         drop(garbage);
         pending.sort_unstable_by_key(|(page_number, _, _)| *page_number);
+        let hook = self
+            .transfer_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
         for (page_number, txid, page) in pending {
             // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
             // where its newest version stays until the write ends, and `flushing` makes this the only write.
@@ -340,39 +563,59 @@ impl Scratch {
                 state.retire(versions);
             }
         }
-        if self.journal.as_ref().is_some_and(Journal::has_old_files) {
-            self.record_applied(flushing)?;
-        }
         Ok(())
     }
 
-    /// Flushes `krummi.data`, records in the next header copy the last commit it holds entirely, and removes the
-    /// journal files that neither header copy needs (J6).
-    fn record_applied(&self, _flushing: &MutexGuard<'_, ()>) -> Result<()> {
+    /// Releases the journal files that `krummi.data` no longer needs (J6): only when the oldest one can go, since
+    /// otherwise flushing `krummi.data` frees nothing, and no sooner than `data_sync_interval` after the last
+    /// flush; otherwise returns when to try again.
+    fn release_files(
+        &self,
+        flushing: &mut MutexGuard<'_, Flushing>,
+        data_sync_interval: Duration,
+    ) -> Result<Option<Instant>> {
+        let Some(journal) = &self.journal else {
+            return Ok(None);
+        };
+        if !journal.can_remove_files(self.applied(journal)) {
+            return Ok(None);
+        }
+        if let Some(last) = flushing.last_data_sync {
+            let due = last + data_sync_interval;
+            if Instant::now() < due {
+                return Ok(Some(due));
+            }
+        }
+        self.record_applied(flushing)?;
+        Ok(None)
+    }
+
+    /// Flushes `krummi.data`, records in both header copies the last commit it holds entirely, and removes the
+    /// journal files neither copy needs any more (J6).
+    fn record_applied(&self, flushing: &mut MutexGuard<'_, Flushing>) -> Result<()> {
         let Some(journal) = &self.journal else {
             return Ok(());
         };
         let pager = self.pager();
         pager.flush_data()?;
-        // Versions newer than the last durable commit are never written in place, and the ones they supersede are
-        // kept, so what `krummi.data` holds entirely never goes past it (J4, E3).
-        let applied = self.lock().applied().min(journal.durable());
-        pager.write_header(Header {
-            applied_txid: applied,
-            journal_first: journal.first_needed(applied),
-            ..pager.header()
-        })?;
+        flushing.last_data_sync = Some(Instant::now());
+        let applied = self.applied(journal);
+        // A file goes only once both copies record it, so both are written now (J8).
+        for _ in 0..2 {
+            pager.write_header(Header {
+                applied_txid: applied,
+                journal_first: journal.first_needed(applied),
+                ..pager.header()
+            })?;
+        }
         journal.remove_files(pager, pager.applied_by_both_copies(), false)
     }
 
-    /// Writes every committed version to the data file and closes the store, which releases its lock even if a
-    /// write fails (P14). A store that refused writes after a failure tries them again here (T12); if the close
-    /// fails, the journal stays for the next opening to recover (J14).
-    pub fn close(mut self) -> Result<()> {
-        let flushed = self.flush_all();
-        let pager = self.pager.take().expect("the store is open");
-        let closed = pager.close();
-        flushed.and(closed)
+    /// The last commit `krummi.data` holds entirely once the versions written in place are flushed. Versions newer
+    /// than the last durable commit are never written in place, and the ones they supersede are kept, so it never
+    /// goes past it (J4, E3).
+    fn applied(&self, journal: &Journal) -> u64 {
+        self.lock().applied().min(journal.durable())
     }
 
     /// Makes the journal durable, writes the newest version of every page to the data file, records it in both
@@ -418,48 +661,6 @@ impl Scratch {
             journal.remove_files(pager, applied, true)?;
         }
         self.area.remove().map_err(|e| pager.fail_write(e, 0))
-    }
-
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Registers a read snapshot of what is durable, or the writer's snapshot of everything published (E3).
-    fn register(&self, state: &mut State, writer: bool) -> Result<Snapshot<'_>> {
-        let out_of_memory = || Error::OutOfMemory {
-            requested: size_of::<Live>() as u64,
-        };
-        sys::snapshot_point().map_err(|_| out_of_memory())?;
-        let txid = match (&self.journal, writer) {
-            (Some(journal), false) => state.last_committed.min(journal.durable()),
-            _ => state.last_committed,
-        };
-        let live = Live {
-            seq: state.next_seq,
-            txid,
-        };
-        if writer {
-            state.writer = Some(live);
-        } else {
-            state.live.try_reserve(1).map_err(|_| out_of_memory())?;
-            state.live.push(live);
-        }
-        state.next_seq += 1;
-        Ok(Snapshot {
-            scratch: self,
-            seq: live.seq,
-            txid: live.txid,
-            writer,
-        })
-    }
-}
-
-impl Drop for Scratch {
-    /// A store dropped without closing still writes what was committed, without reporting a failure (T9).
-    fn drop(&mut self) {
-        if self.pager.is_some() {
-            let _ = self.flush_all();
-        }
     }
 }
 
@@ -590,16 +791,21 @@ impl<'a> Snapshot<'a> {
 
 impl Drop for Snapshot<'_> {
     fn drop(&mut self) {
-        let free = {
+        let (free, waiting) = {
             let mut state = self.scratch.lock();
             if self.writer {
                 state.writer = None;
             } else if let Ok(index) = state.live.binary_search_by_key(&self.seq, |l| l.seq) {
                 state.live.remove(index);
             }
-            state.free_retired()
+            (state.free_retired(), state.bytes)
         };
         drop(free);
+        // The end of a read may let versions go to `krummi.data` (J5); the writer's snapshot ends with its commit,
+        // which already asked for a transfer.
+        if !self.writer && waiting > 0 {
+            self.scratch.shared.signal.raise(waiting);
+        }
     }
 }
 
@@ -619,16 +825,11 @@ impl<'a> ScratchWriter<'a> {
         &self.snapshot
     }
 
-    /// Writes in place every newest version that no open snapshot is older than, making the journal durable
-    /// first (J5), and waiting for a transfer that is running. Versions written before a failure leave the
-    /// scratch area; the rest stay for a later flush.
+    /// Has the transfer thread write in place every newest version that no open snapshot is older than, making
+    /// the journal durable first (J5), and waits for it. Versions written before a failure leave the scratch area;
+    /// the rest stay for a later flush.
     pub fn flush(&mut self) -> Result<()> {
-        let scratch = self.snapshot.scratch;
-        let guard = scratch
-            .flushing
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        scratch.flush_locked(&guard, true)
+        self.snapshot.scratch.demand(Demand::Flush)
     }
 
     /// Commits `pages`, each sealed for its number: copies them into the temporary area, puts them in the
@@ -637,7 +838,7 @@ impl<'a> ScratchWriter<'a> {
     pub fn commit(&mut self, pages: &[(u64, SealedPage)]) -> Result<u64> {
         let staged = self.stage(pages)?;
         let scratch = self.snapshot.scratch;
-        if let Some(journal) = &scratch.journal {
+        if let Some(journal) = &scratch.shared.journal {
             let txid = scratch.lock().last_committed + 1;
             let refs: Vec<(u64, &[u8; PAGE_SIZE])> =
                 pages.iter().map(|(n, p)| (*n, &**p)).collect();
@@ -667,14 +868,15 @@ impl<'a> ScratchWriter<'a> {
                 (HEADER_PAGES..page_count).contains(page_number),
                 "page {page_number} cannot be published"
             );
-            let slot = scratch.area.store(page, pager)?;
+            let slot = scratch.shared.area.store(page, pager)?;
             staged.push((*page_number, Arc::new(slot)));
         }
         Ok(Staged(staged))
     }
 
     /// Publishes the staged pages as the newest versions, for every writer from now on and for the read snapshots
-    /// opened once the commit is durable (T2, E3). Returns the number of the new version.
+    /// opened once the commit is durable (T2, E3), and asks the transfer thread to move them to `krummi.data`
+    /// (J5). Returns the number of the new version.
     pub fn publish(&mut self, staged: Staged) -> u64 {
         let scratch = self.snapshot.scratch;
         let mut state = scratch.lock();
@@ -688,6 +890,9 @@ impl<'a> ScratchWriter<'a> {
                 .push(Version { txid, page });
         }
         state.last_committed = txid;
+        let bytes = state.bytes;
+        drop(state);
+        scratch.shared.signal.raise(bytes);
         txid
     }
 }

@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
@@ -68,6 +68,8 @@ pub struct Pager {
     writes_disabled: Arc<AtomicBool>,
     /// The current header and the copy the next header write goes to (J6 of the Journal PRD).
     header: Mutex<HeaderState>,
+    /// Flushes of `krummi.data` to the disk so far (tests).
+    data_syncs: AtomicU64,
 }
 
 #[derive(Clone, Copy)]
@@ -213,6 +215,7 @@ impl Pager {
             })),
             max_size,
             writes_disabled: Arc::new(AtomicBool::new(false)),
+            data_syncs: AtomicU64::new(0),
             header: Mutex::new(HeaderState::new(
                 Header::new_store(),
                 0,
@@ -455,12 +458,20 @@ impl Pager {
         self.writes_disabled.store(false, Ordering::Release);
     }
 
+    /// Flushes of `krummi.data` to the disk so far, tried or done (tests).
+    pub fn data_syncs(&self) -> u64 {
+        self.data_syncs.load(Ordering::Relaxed)
+    }
+
     /// Flushes `krummi.data` to the disk while pages may be borrowed (J6 of the Journal PRD). A failure makes the
     /// store refuse writes until it is reopened.
     pub(crate) fn flush_data(&self) -> Result<()> {
         self.check_writable()?;
         let result = match &self.storage {
-            Storage::File(f) => sys::sync(&f.file, &f.path),
+            Storage::File(f) => {
+                self.data_syncs.fetch_add(1, Ordering::Relaxed);
+                sys::sync(&f.file, &f.path)
+            }
             Storage::Memory(_) => Ok(()),
         };
         result.map_err(|e| self.fail_flush(e))
@@ -811,6 +822,7 @@ fn file_pager(
         }),
         max_size,
         writes_disabled: Arc::new(AtomicBool::new(false)),
+        data_syncs: AtomicU64::new(0),
     }
 }
 

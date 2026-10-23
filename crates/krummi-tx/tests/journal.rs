@@ -259,11 +259,17 @@ fn closing_a_store_nobody_changed_leaves_it_byte_identical() {
 }
 
 /// S3 of the journal follow-ups (J5): deferred commits alone, without any durable one, still reach `krummi.data`
-/// once enough of them are pending, so the versions waiting in `krummi.temp` stay bounded.
+/// once enough of them are pending, so the versions waiting in `krummi.temp` stay bounded. The bound follows the
+/// bytes from which a transfer pass starts at once, lowered here from 32 MiB to 256 KiB.
 #[test]
 fn deferred_commits_alone_do_not_pile_up_in_the_temporary_area() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
+    engine.set_transfer_pacing(
+        std::time::Duration::from_millis(200),
+        256 * 1024,
+        std::time::Duration::from_secs(2),
+    );
     let mut x = 0x9E37_79B9_7F4A_7C15u64;
     let mut most = 0;
     for _ in 0..400 {

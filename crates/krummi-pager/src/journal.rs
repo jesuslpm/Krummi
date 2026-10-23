@@ -236,6 +236,8 @@ struct Shared {
     sync_hook: Mutex<Option<Hook>>,
     /// Called by the writer when a group fails, so the transaction layer can wake its waiting requests (T12).
     failure_hook: Mutex<Option<Hook>>,
+    /// Called by the writer when a group is durable, so its versions can go to `krummi.data` (J5).
+    durable_hook: Mutex<Option<Hook>>,
     /// Writes of groups so far, one per file a group touches (tests: AC-E2, AC-E8).
     writes: AtomicU64,
 }
@@ -322,6 +324,7 @@ impl Journal {
             writes_disabled: pager.failure_flag(),
             sync_hook: Mutex::new(None),
             failure_hook: Mutex::new(None),
+            durable_hook: Mutex::new(None),
             writes: AtomicU64::new(0),
         });
         let out_of_memory = || Error::OutOfMemory { requested: 0 };
@@ -367,6 +370,15 @@ impl Journal {
         *self
             .shared
             .failure_hook
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Sets the function the writer calls when a group is durable, or none (J5).
+    pub(crate) fn set_durable_hook(&self, hook: Option<Hook>) {
+        *self
+            .shared
+            .durable_hook
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = hook;
     }
@@ -570,9 +582,14 @@ impl Journal {
         self.shared.lock().files.is_empty()
     }
 
-    /// Whether the journal has gone on in more than one file since its files were last removed.
-    pub(crate) fn has_old_files(&self) -> bool {
-        self.shared.lock().files.len() > 1
+    /// Whether [`Journal::remove_files`] with `applied` would remove a file, the current one aside: whether
+    /// recording `applied` in both header copies releases anything.
+    pub(crate) fn can_remove_files(&self, applied: u64) -> bool {
+        let state = self.shared.lock();
+        state
+            .files
+            .front()
+            .is_some_and(|&(number, last)| state.removable(number, last, applied, false))
     }
 
     /// Removes the files whose commits are all at most `applied` (the smaller of what the two header copies
@@ -580,11 +597,10 @@ impl Journal {
     pub(crate) fn remove_files(&self, pager: &Pager, applied: u64, all: bool) -> Result<()> {
         let mut state = self.shared.lock();
         while let Some(&(number, last)) = state.files.front() {
-            let is_current = state.current_number() == Some(number);
-            if last > applied || (is_current && !all) {
+            if !state.removable(number, last, applied, all) {
                 break;
             }
-            if is_current {
+            if state.current_number() == Some(number) {
                 state.current = None;
             }
             match sys::remove(&self.shared.folder.join(file_name(number))) {
@@ -615,6 +631,12 @@ impl Drop for Journal {
 }
 
 impl State {
+    /// Whether file `number`, whose last commit is `last`, may go with `applied`: the current file only when
+    /// `all`. Every release decision goes through here.
+    fn removable(&self, number: u64, last: u64, applied: u64, all: bool) -> bool {
+        last <= applied && (all || self.current_number() != Some(number))
+    }
+
     fn current_number(&self) -> Option<u64> {
         self.current
             .as_ref()
@@ -754,6 +776,14 @@ impl Shared {
                 state.queued_bytes -= group.iter().map(|q| q.record.len() as u64).sum::<u64>();
                 self.durable.store(state.synced_upto, Ordering::Release);
                 drop(state);
+                let hook = self
+                    .durable_hook
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                if let Some(hook) = hook {
+                    hook();
+                }
             }
             Err(failure) => {
                 for queued in group.into_iter().rev() {

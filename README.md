@@ -40,8 +40,11 @@ from several threads share one wait for the disk (group commit). The next writer
 see it once it is durable, which is when a durable commit returns. `cargo run --release -p krummi-tx --example
 commit_rate` measures durable commits per second.
 The committed version lives in a scratch area, in mapped files of `krummi.temp`, until no open read needs the
-version before it; then it is written in its place in `krummi.data` and the header records how far the journal has
-been applied. Opening a store after a crash replays the journal from that point.
+version before it; then the store's transfer thread writes it in its place in `krummi.data`. Commits, the end of a
+read and the journal making a group durable only wake that thread, which gathers them into one pass at most every
+200 ms (at once when the scratch area holds 32 MiB), so a page many commits rewrite is written once per pass. It
+flushes `krummi.data` and records in the header how far the journal has been applied only when that releases a
+journal file, at most every 2 s. Opening a store after a crash replays the journal from that point.
 
 ## Layout
 

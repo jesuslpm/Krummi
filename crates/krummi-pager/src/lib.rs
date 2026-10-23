@@ -11,6 +11,7 @@ mod recovery;
 mod scratch;
 mod sys;
 mod temp;
+mod transfer;
 
 pub use error::{Error, ErrorKind, Result};
 pub use journal::{JOURNAL_PREFIX, RELEASE_FILE_LIMIT};

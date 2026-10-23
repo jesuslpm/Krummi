@@ -206,9 +206,9 @@ fn ac_e13_failures_of_the_journals_writer() {
 fn ac_e17_a_commit_waiting_for_room_in_the_queue() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
-    // One record per journal file, so the transfer records itself in the header and flushes `krummi.data`.
-    engine.set_journal_file_limit(4096);
     let pages = reserve(&engine, 3, "-");
+    // The transfer that fails is the one the test asks for (`transfer_now`), which writes "held back" in place.
+    engine.set_transfer_paused(true);
     let hold = engine.read().unwrap();
     {
         let mut tx = engine.write(None).unwrap();
@@ -241,7 +241,7 @@ fn ac_e17_a_commit_waiting_for_room_in_the_queue() {
         drop(hold);
         testing::reset();
         for nth in 0..8 {
-            testing::inject(Op::Sync, nth, Action::Fail(io::ErrorKind::Other));
+            testing::inject(Op::Write, nth, Action::Fail(io::ErrorKind::Other));
         }
         assert!(!engine.transfer_now(), "the transfer failed");
         testing::reset();
@@ -440,6 +440,8 @@ fn ac_e11_a_commit_without_changes_waits_for_what_it_saw() {
         let tmp = tempfile::tempdir().unwrap();
         let engine = disk(tmp.path());
         let pages = reserve(&engine, 1, "-");
+        // The injected failure is for the journal's writer, not for a transfer.
+        engine.set_transfer_paused(true);
         engine.set_journal_paused(true);
         std::thread::scope(|s| {
             let engine = &engine;

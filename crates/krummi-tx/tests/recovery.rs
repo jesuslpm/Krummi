@@ -453,6 +453,8 @@ fn ac_j4_a_missing_journal_file_or_a_reserved_name_of_the_wrong_kind_is_damage()
     }
     let run = Run::finish(source, vec![]);
     drop(hold);
+    // Its transfer thread shares this thread's recording: it must not write into the runs below.
+    drop(engine);
     let folder = run.killed();
     let files = journal_files(folder.path());
     assert!(files.len() >= 3, "{files:?}");
@@ -547,6 +549,8 @@ fn ac_j12_either_damaged_header_copy_still_recovers_everything() {
         for i in 1..=8 {
             commit_all(&engine, &pages, &format!("c{i}"), true);
         }
+        // The transfer thread releases the old files once both header copies record them (J6).
+        common::wait_until(|| journal_files(source.path()).len() == 1);
         let hold = engine.read().unwrap();
         for i in 9..=12 {
             commit_all(&engine, &pages, &format!("c{i}"), true);
@@ -673,7 +677,12 @@ fn ac_j9_a_failed_transfer_refuses_writes_and_recovery_brings_everything_back() 
         assert!(empty.commit().is_ok(), "a commit without changes ends");
     });
     engine.set_transfer_hook(None);
-    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+    // The transfer fails on its own thread, after the commit returned.
+    common::wait_until(|| {
+        engine
+            .write(None)
+            .is_err_and(|error| error.kind() == ErrorKind::Io)
+    });
     assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("b"));
     testing::reset();
     for nth in 0..64 {

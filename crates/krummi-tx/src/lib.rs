@@ -221,19 +221,41 @@ impl Engine {
         result
     }
 
-    /// Transfers to `krummi.data` what no read needs; a failure makes the store refuse writes, which the next
-    /// operations report (J5, J13).
-    fn transfer(&self) {
+    /// Runs a transfer pass now on this thread, as the transfer thread does, and returns whether the store still
+    /// accepts writes; a failure makes it refuse them, which the next operations report (tests: AC-E17, J13).
+    #[cfg(feature = "test-hooks")]
+    pub fn transfer_now(&self) -> bool {
         if self.scratch.transfer().is_err() {
             self.note_failure();
         }
+        self.scratch.pager().accepts_writes()
     }
 
-    /// Runs a transfer now, as after a commit, and returns whether the store still accepts writes (tests: AC-E17).
+    /// Sets the minimum time between transfer passes, the bytes of the scratch area from which a pass starts
+    /// without waiting for it, and the minimum time between flushes of `krummi.data` that release journal files
+    /// (tests).
     #[cfg(feature = "test-hooks")]
-    pub fn transfer_now(&self) -> bool {
-        self.transfer();
-        self.scratch.pager().accepts_writes()
+    pub fn set_transfer_pacing(
+        &self,
+        interval: Duration,
+        bytes: u64,
+        data_sync_interval: Duration,
+    ) {
+        self.scratch
+            .set_transfer_pacing(interval, bytes, data_sync_interval);
+    }
+
+    /// Stops the transfer thread from starting passes, waiting for the one it may be running, or lets it go on
+    /// (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_transfer_paused(&self, paused: bool) {
+        self.scratch.set_transfer_paused(paused);
+    }
+
+    /// A flag that stays set while the transfer thread runs, also after the store closes (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn transfer_thread_alive(&self) -> Arc<AtomicBool> {
+        self.scratch.transfer_thread_alive()
     }
 
     /// Transfers everything no read needs and records it in both header copies (tests: AC-J18).
@@ -246,6 +268,18 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn scratch_bytes(&self) -> u64 {
         self.scratch.scratch_bytes()
+    }
+
+    /// Transfer passes so far (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn transfer_passes(&self) -> u64 {
+        self.scratch.transfer_passes()
+    }
+
+    /// Flushes of `krummi.data` to the disk so far (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn data_syncs(&self) -> u64 {
+        self.scratch.pager().data_syncs()
     }
 
     /// Sets the size at which the journal goes on in a new file (tests).
