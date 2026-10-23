@@ -222,7 +222,7 @@ function New-Fixture {
 
 function Get-Folder {
     param($Fixture, [string]$Name)
-    return Join-Path $Fixture.Root "muninndb-$Name"
+    return Join-Path $Fixture.Root "krummi-$Name"
 }
 
 function Get-State {
@@ -372,14 +372,14 @@ try {
         Assert-Equal (Get-Content -LiteralPath (Join-Path $F1.Main '.atl\skill-registry.md') -Raw) (Get-Content -LiteralPath (Join-Path $copy1 '.atl\skill-registry.md') -Raw) 'skill registry'
         Assert-True (Test-Path -LiteralPath (Join-Path $copy1 'work') -PathType Container) 'work folder missing'
         $engram = Get-Content -LiteralPath (Join-Path $copy1 '.engram\config.json') -Raw | ConvertFrom-Json
-        Assert-Equal "muninndb-$n1" $engram.project_name 'Engram project of the copy'
+        Assert-Equal "krummi-$n1" $engram.project_name 'Engram project of the copy'
         Assert-Equal 'main' (@(Invoke-GitIn -Path $F1.Main -Arguments @('config', '--get', "branch.feat/$n1.worktreebase"))[0]) 'recorded base'
         Assert-True (@(Invoke-GitIn -Path $F1.Main -Arguments @('config', '--get-all', 'worktreebase.main.created')) -contains $n1) 'copy not in worktreebase.main.created'
         Assert-Equal 0 @(Invoke-GitIn -Path $copy1 -Arguments @('status', '--porcelain')).Count 'git status of the copy'
         Assert-LineMatch $r ('^\s*Carpeta:\s+' + [regex]::Escape($copy1) + '$')
         Assert-LineMatch $r ('^\s*Rama:\s+' + [regex]::Escape("feat/$n1") + '$')
         Assert-LineMatch $r '^\s*Base:\s+main$'
-        Assert-LineMatch $r ('^\s*Proyecto Engram:\s+' + [regex]::Escape("muninndb-$n1") + '$')
+        Assert-LineMatch $r ('^\s*Proyecto Engram:\s+' + [regex]::Escape("krummi-$n1") + '$')
         Assert-Line $r "Siguiente paso: abre '$copy1' en una ventana nueva del editor, inicia allí una sesión nueva del agente y pide el trabajo del cambio '$n1'."
     }
 
@@ -418,9 +418,9 @@ try {
             $r = Invoke-Script -Fixture $F1 -Script 'Get-Worktrees.ps1' -Cwd $where.Cwd -Scripts $where.Scripts
             Assert-Exit $r 0
             $row1 = Get-ListRow -Result $r -Name $n1
-            Assert-Equal "$n1|feat/$n1|main|sí|$copy1|muninndb-$n1" "$($row1.Name)|$($row1.Branch)|$($row1.Base)|$($row1.Merged)|$($row1.Folder)|$($row1.Engram)" 'row 1'
+            Assert-Equal "$n1|feat/$n1|main|sí|$copy1|krummi-$n1" "$($row1.Name)|$($row1.Branch)|$($row1.Base)|$($row1.Merged)|$($row1.Folder)|$($row1.Engram)" 'row 1'
             $row2 = Get-ListRow -Result $r -Name $n2
-            Assert-Equal "$n2|feat/$n2|ensayo|no|$copy2|muninndb-$n2" "$($row2.Name)|$($row2.Branch)|$($row2.Base)|$($row2.Merged)|$($row2.Folder)|$($row2.Engram)" 'row 2'
+            Assert-Equal "$n2|feat/$n2|ensayo|no|$copy2|krummi-$n2" "$($row2.Name)|$($row2.Branch)|$($row2.Base)|$($row2.Merged)|$($row2.Folder)|$($row2.Engram)" 'row 2'
         }
     }
 
@@ -436,7 +436,7 @@ try {
         $found = @{}
         foreach ($where in @($copy1, $copy2, $F1.Main)) {
             Push-Location -LiteralPath $where
-            try { $found[$where] = (@(Invoke-Engram -Arguments @('search', $token)) -join ' ') -match [regex]::Escape("project: muninndb-$n1") }
+            try { $found[$where] = (@(Invoke-Engram -Arguments @('search', $token)) -join ' ') -match [regex]::Escape("project: krummi-$n1") }
             finally { Pop-Location }
         }
         Assert-True $found[$copy1] 'the memory is not found from its own copy'
@@ -461,7 +461,7 @@ try {
     Test-Case 'create: a name too long for Windows paths is refused (AC-W3)' {
         $longest = 0
         foreach ($path in (Invoke-GitIn -Path $F1.Main -Arguments @('ls-tree', '-r', '--name-only', 'main'))) { if ($path.Length -gt $longest) { $longest = $path.Length } }
-        $max = 259 - ("$($F1.Root)\muninndb-").Length - 1 - [Math]::Max($longest, 100)
+        $max = 259 - ("$($F1.Root)\krummi-").Length - 1 - [Math]::Max($longest, 100)
         $name = 'a' * ($max + 1)
         $before = Get-State -Fixture $F1
         $r = New-Copy -Fixture $F1 -Name $name
@@ -506,10 +506,10 @@ try {
 
     Test-Case 'create: an existing Engram project is refused (AC-W3)' {
         $name = "$P-eta"
-        New-EngramProject -Project "muninndb-$name"
+        New-EngramProject -Project "krummi-$name"
         $before = Get-State -Fixture $F1
         $r = New-Copy -Fixture $F1 -Name $name
-        Assert-Refused $r (Get-MsgExists 'el proyecto Engram' "muninndb-$name") $before $F1
+        Assert-Refused $r (Get-MsgExists 'el proyecto Engram' "krummi-$name") $before $F1
     }
 
     Test-Case 'create, remove and rehearsal operations are refused from a copy (AC-W14)' {
@@ -626,7 +626,7 @@ try {
     }
 
     Test-Case 'remove: a merged and clean copy goes; Engram project and Claude memory stay (AC-W10)' {
-        New-EngramProject -Project "muninndb-$m1"
+        New-EngramProject -Project "krummi-$m1"
         $claude = New-ClaudeMemory -Fixture $F2 -Folder $mcopy1
         $mainTip = Get-Sha -Path $F2.Main -Ref 'refs/heads/main'
         $r = Remove-Copy -Fixture $F2 -Name $m1
@@ -636,7 +636,7 @@ try {
         $registered = @(Invoke-GitIn -Path $F2.Main -Arguments @('worktree', 'list', '--porcelain')) -join "`n"
         Assert-True ($registered -notmatch [regex]::Escape("feat/$m1")) 'still registered'
         Assert-Equal 0 @(Invoke-GitIn -Path $F2.Main -Arguments @('config', '--get', "branch.feat/$m1.worktreebase") -AllowFailure).Count 'recorded base left'
-        Assert-True (@(Get-EngramProjectList) -contains "muninndb-$m1") 'the Engram project was deleted'
+        Assert-True (@(Get-EngramProjectList) -contains "krummi-$m1") 'the Engram project was deleted'
         Assert-True (Test-Path -LiteralPath (Join-Path $claude 'memory\MEMORY.md')) 'the Claude memory was deleted'
         Assert-Equal $mainTip (Get-Sha -Path $F2.Main -Ref 'refs/heads/main') 'main tip'
     }
@@ -677,7 +677,7 @@ try {
     }
 
     Test-Case 'discard: tags the branch tip, then the copy, branch, Engram project and Claude memory go (AC-W11)' {
-        New-EngramProject -Project "muninndb-$r1"
+        New-EngramProject -Project "krummi-$r1"
         $claude = New-ClaudeMemory -Fixture $F3 -Folder $rcopy1
         $tip = Get-Sha -Path $F3.Main -Ref "refs/heads/feat/$r1"
         $r = Remove-Copy -Fixture $F3 -Name $r1 -Discard
@@ -685,7 +685,7 @@ try {
         Assert-Equal $tip (Get-Sha -Path $F3.Main -Ref "refs/tags/exp/$r1") 'exp tag'
         Assert-True (-not (Test-Path -LiteralPath $rcopy1)) 'folder left'
         Assert-True (-not (Test-Ref -Path $F3.Main -Ref "refs/heads/feat/$r1")) 'branch left'
-        Assert-True (@(Get-EngramProjectList) -notcontains "muninndb-$r1") 'Engram project left'
+        Assert-True (@(Get-EngramProjectList) -notcontains "krummi-$r1") 'Engram project left'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $claude 'memory'))) 'Claude memory left'
         Assert-True (Test-Path -LiteralPath (Join-Path $claude 'session.jsonl')) 'the session history was deleted'
     }
@@ -713,7 +713,7 @@ try {
         Assert-True (-not (Test-Path -LiteralPath $rcopy2)) 'folder left'
         Assert-True (-not (Test-Ref -Path $F3.Main -Ref "refs/heads/feat/$r2")) 'branch left'
         $registered = @(Invoke-GitIn -Path $F3.Main -Arguments @('worktree', 'list', '--porcelain')) -join "`n"
-        Assert-True ($registered -notmatch [regex]::Escape("muninndb-$r2")) 'still registered'
+        Assert-True ($registered -notmatch [regex]::Escape("krummi-$r2")) 'still registered'
     }
 
     Test-Case 'remove: repeating it when nothing is left changes nothing' {
@@ -761,13 +761,13 @@ try {
         Assert-Exit (New-Copy -Fixture $F4 -Name $prd -Base 'ensayo') 0
         Add-Commit -Path (Get-Folder -Fixture $F4 -Name $prd) -File 'prd.md'
         Assert-Exit (Merge-Copy -Fixture $F4 -Name $prd) 0
-        New-EngramProject -Project "muninndb-$prd"
+        New-EngramProject -Project "krummi-$prd"
         $null = New-ClaudeMemory -Fixture $F4 -Folder (Get-Folder -Fixture $F4 -Name $prd)
         Assert-Exit (Remove-Copy -Fixture $F4 -Name $prd) 0
         foreach ($name in @($vibe, $odd)) {
             Assert-Exit (New-Copy -Fixture $F4 -Name $name -Base 'ensayo') 0
             Add-Commit -Path (Get-Folder -Fixture $F4 -Name $name) -File "$name.txt"
-            New-EngramProject -Project "muninndb-$name"
+            New-EngramProject -Project "krummi-$name"
             $null = New-ClaudeMemory -Fixture $F4 -Folder (Get-Folder -Fixture $F4 -Name $name)
         }
         Assert-Exit (Merge-Copy -Fixture $F4 -Name $odd) 0
@@ -804,7 +804,7 @@ try {
         Assert-Equal 0 @(Invoke-GitIn -Path $F4.Main -Arguments @('for-each-ref', '--format=%(refname)', 'refs/tags')).Count 'tags'
         $projects = @(Get-EngramProjectList)
         foreach ($name in @($prd, $vibe, $odd)) {
-            Assert-True ($projects -notcontains "muninndb-$name") "Engram project of $name left"
+            Assert-True ($projects -notcontains "krummi-$name") "Engram project of $name left"
             $key = ((Get-Folder -Fixture $F4 -Name $name) -replace '[^A-Za-z0-9]', '-')
             Assert-True (-not (Test-Path -LiteralPath (Join-Path (Join-Path $F4.Claude $key) 'memory'))) "Claude memory of $name left"
             Assert-True (-not (Test-Path -LiteralPath (Get-Folder -Fixture $F4 -Name $name))) "folder of $name left"

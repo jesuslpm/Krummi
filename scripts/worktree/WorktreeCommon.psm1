@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Shared rules of the MuninnDB working copies (worktrees): derived names, which copy a session runs in,
+    Shared rules of the Krummi working copies (worktrees): derived names, which copy a session runs in,
     git queries, Engram projects, Claude Code memory and the user-facing messages.
 
 .DESCRIPTION
@@ -10,8 +10,8 @@
     From one change name <n> (lowercase letters, digits and single hyphens) everything is derived:
 
       branch          feat/<n>
-      folder          <Root>\muninndb-<n>        (Root defaults to C:\wt)
-      Engram project  muninndb-<n>
+      folder          <Root>\krummi-<n>        (Root defaults to C:\wt)
+      Engram project  krummi-<n>
       work folder     <copy>\work                     (ignored by git)
       discard tag     exp/<n>
 
@@ -27,8 +27,8 @@
 
 Set-StrictMode -Version 2.0
 
-$script:FolderPrefix = 'muninndb-'
-$script:EngramPrefix = 'muninndb-'
+$script:FolderPrefix = 'krummi-'
+$script:EngramPrefix = 'krummi-'
 $script:PrivateFiles = @('.claude\settings.local.json', '.atl\skill-registry.md')
 $script:NamePattern = '^[a-z0-9]+(-[a-z0-9]+)*$'
 $script:MaxPath = 259
@@ -300,7 +300,7 @@ function Get-EngramProjectName {
 
 function Get-MaxNameLength {
     <#
-    Longest change name that keeps every path under 259 characters: 259 - length of '<Root>\muninndb-' - 1
+    Longest change name that keeps every path under 259 characters: 259 - length of '<Root>\krummi-' - 1
     (the separator after the name) - max(longest path tracked in the base, 100 reserved for build output).
     #>
     param(

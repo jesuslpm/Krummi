@@ -9,7 +9,7 @@
     The copies are every name in worktreebase.<Base>.created (each copy ever created on the base, so copies
     already removed or discarded are cleaned too) plus any live branch whose recorded base is <Base>. A name whose
     live branch now records another base is skipped and reported. For each copy, as in Remove-Worktree.ps1: the
-    folder and registration (never --force), the branch, the tag exp/<n>, the Engram project muninndb-<n> and the memory folder Claude Code
+    folder and registration (never --force), the branch, the tag exp/<n>, the Engram project krummi-<n> and the memory folder Claude Code
     keeps for the copy's path (never the session history). Then the base branch and its worktreebase.<Base>
     config section.
 

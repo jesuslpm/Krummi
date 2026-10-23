@@ -10,7 +10,7 @@
     Without -Discard the branch must have no commit that its base lacks (the base recorded at creation); the
     copy's Engram project and Claude Code memory are kept. With -Discard an unmerged branch is accepted: the tag
     exp/<n> is created at its tip (refused when exp/<n> already exists elsewhere) and then the Engram project
-    muninndb-<n> and the memory folder Claude Code keeps for the copy's path are deleted too (never the
+    krummi-<n> and the memory folder Claude Code keeps for the copy's path are deleted too (never the
     session history).
 
     Always refused, touching nothing: from a copy; from inside the copy being removed; with uncommitted changes
@@ -25,7 +25,7 @@
     Exit codes: 0 removed, or nothing of <Name> was left; 1 refused or stopped.
 
 .PARAMETER Name
-    Change name of the copy: folder <Root>\muninndb-<Name>, branch feat/<Name>.
+    Change name of the copy: folder <Root>\krummi-<Name>, branch feat/<Name>.
 
 .PARAMETER Discard
     Remove an unmerged copy, keeping its history in the tag exp/<Name>, and delete its Engram project and Claude

@@ -14,7 +14,7 @@ B, C, K = nba.BLANK, nba.CODE, nba.COMMENT
 
 class AreaTests(unittest.TestCase):
     def test_crate_files_group_by_crate(self):
-        self.assertEqual(nba.area_of("crates/muninndb-core/src/main.rs"), "crates/muninndb-core")
+        self.assertEqual(nba.area_of("crates/krummi-core/src/main.rs"), "crates/krummi-core")
 
     def test_other_folders_group_by_first_segment(self):
         self.assertEqual(nba.area_of("docs/methodology/slides.md"), "docs")

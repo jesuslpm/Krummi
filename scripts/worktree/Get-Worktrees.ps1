@@ -32,7 +32,7 @@ if ($copies.Count -eq 0) {
 $rows = foreach ($copy in $copies) {
     $branch = if ($copy.Branch) { $copy.Branch -replace '^refs/heads/', '' } else { '(sin rama)' }
     $leaf = Split-Path -Leaf $copy.Path
-    $name = if ($branch -match '^feat/(.+)$') { $Matches[1] } elseif ($leaf -like 'muninndb-*') { $leaf.Substring('muninndb-'.Length) } else { $leaf }
+    $name = if ($branch -match '^feat/(.+)$') { $Matches[1] } elseif ($leaf -like 'krummi-*') { $leaf.Substring('krummi-'.Length) } else { $leaf }
 
     $base = Get-RecordedBase -MainRoot $mainRoot -Name $name
     $merged = '?'

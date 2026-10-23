@@ -96,11 +96,11 @@ class GuardTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = os.path.realpath(tempfile.mkdtemp(prefix="wt-guard-"))
-        cls.main = os.path.join(cls.root, "muninndb")
-        cls.copy_a = os.path.join(cls.root, "wt", "muninndb-a")
-        cls.copy_b = os.path.join(cls.root, "wt", "muninndb-b")
-        cls.copy_c = os.path.join(cls.root, "wt", "muninndb-c")
-        cls.prefix_sibling = os.path.join(cls.root, "muninndb-other")
+        cls.main = os.path.join(cls.root, "krummi")
+        cls.copy_a = os.path.join(cls.root, "wt", "krummi-a")
+        cls.copy_b = os.path.join(cls.root, "wt", "krummi-b")
+        cls.copy_c = os.path.join(cls.root, "wt", "krummi-c")
+        cls.prefix_sibling = os.path.join(cls.root, "krummi-other")
         os.makedirs(cls.prefix_sibling)
         git("init", "-q", "-b", "main", cls.main)
         git("commit", "-q", "--allow-empty", "-m", "init", cwd=cls.main)
@@ -110,7 +110,7 @@ class GuardTestCase(unittest.TestCase):
         git("worktree", "add", "-q", "--detach", cls.copy_c, "main", cwd=cls.main)
         git("config", "branch.feat/a.worktreebase", "main", cwd=cls.main)
         git("config", "branch.feat/b.worktreebase", "ensayo", cwd=cls.main)
-        with open(os.path.join(cls.main, ".git", "worktrees", "muninndb-c", "HEAD"), "w") as head:
+        with open(os.path.join(cls.main, ".git", "worktrees", "krummi-c", "HEAD"), "w") as head:
             head.write("ref: refs/heads/main\n")
 
     @classmethod
@@ -179,7 +179,7 @@ class FileToolTests(GuardTestCase):
         self.assertBlocked(outcome, write_block(self.copy_a))
 
     def test_relative_path_escaping_into_the_main_copy_is_blocked(self):
-        self.assertBlocked(self.write(self.copy_a, "../../muninndb/x.md"), write_block(self.copy_a))
+        self.assertBlocked(self.write(self.copy_a, "../../krummi/x.md"), write_block(self.copy_a))
 
     def test_paths_elsewhere_pass(self):
         self.assertAllowed(self.write(self.copy_a, os.path.join(self.root, "scratch", "notes.txt")))

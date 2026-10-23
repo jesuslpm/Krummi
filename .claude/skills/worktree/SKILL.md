@@ -11,7 +11,7 @@ metadata:
 
 Load when the developer says one of the phrases below, or asks to create, list, merge, remove or discard a
 worktree (a copy of this repository for one change) or a rehearsal base. A copy named `<n>` owns branch
-`feat/<n>`, folder `C:\wt\muninndb-<n>`, Engram project `muninndb-<n>`, its git-ignored `work`
+`feat/<n>`, folder `C:\wt\krummi-<n>`, Engram project `krummi-<n>`, its git-ignored `work`
 folder and, once discarded, tag `exp/<n>`. The scripts hold all the logic; this skill only routes.
 
 ## Hard Rules
@@ -40,7 +40,7 @@ folder and, once discarded, tag `exp/<n>`. The scripts hold all the logic; this 
 | `Crea la base de ensayo <base>` | main | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/worktree/New-RehearsalBase.ps1 -Base <base>` |
 | `Descarta el ensayo <base>` | main | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/worktree/Remove-Rehearsal.ps1 -Base <base>` |
 
-Wrong session: say where to ask for it (the main copy's session, or the session of `C:\wt\muninndb-<n>`)
+Wrong session: say where to ask for it (the main copy's session, or the session of `C:\wt\krummi-<n>`)
 and stop. Change nothing.
 
 ## Execution Steps

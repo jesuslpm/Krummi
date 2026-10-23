@@ -7,10 +7,10 @@
     Run from the MAIN copy (chicago-crime PRD docs/prd/worktrees/worktrees.prd.md, "Crear una copia"). For the change <Name>:
 
       branch          feat/<Name>, from the base (default main); the base is recorded in the repository config
-      folder          <Root>\muninndb-<Name>
+      folder          <Root>\krummi-<Name>
       private files   .claude\settings.local.json and .atl\skill-registry.md, when the main copy has them
       work folder     <folder>\work (ignored by git), for acceptance runs and generated datasets
-      Engram project  muninndb-<Name> (engram init in the copy)
+      Engram project  krummi-<Name> (engram init in the copy)
 
     then checks that git sees the copy clean, opens it in a new editor window (code -n) and prints the folder,
     branch, base, Engram project and the next step.
