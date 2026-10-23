@@ -4,8 +4,7 @@
 //! I/O. The signal keeps one deadline, when the next pass is due: no sooner than a minimum interval after the
 //! previous pass, so the signals raised meanwhile collapse into one pass and a page that many commits rewrite is
 //! written once per pass, not once per commit; at once when the scratch area grew by a threshold since the last
-//! pass. A pass that finds journal files to release but flushed `krummi.data` too recently, or that failed without
-//! making the store refuse writes, sets the deadline to try again.
+//! pass. A pass that failed without making the store refuse writes sets the deadline to try again.
 //!
 //! No other thread transfers while the store is open: a writer that needs room (T14) and the tests that run a
 //! transfer or a checkpoint send a [`Demand`] and wait for the thread to serve it. Only the close and the drop of
@@ -27,15 +26,12 @@ const PASS_INTERVAL: Duration = Duration::from_millis(200);
 /// Growth of the scratch area since the last pass from which a signal starts a pass without waiting for the
 /// interval.
 const PASS_BYTES: u64 = 32 << 20;
-/// Minimum time between two flushes of `krummi.data` that release journal files.
-const DATA_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 
-/// When the transfer thread runs its passes and flushes `krummi.data`; tests change it.
+/// When the transfer thread runs its passes; tests change it.
 #[derive(Clone, Copy)]
 pub(crate) struct Pacing {
     pub(crate) interval: Duration,
     pub(crate) bytes: u64,
-    pub(crate) data_sync_interval: Duration,
 }
 
 impl Default for Pacing {
@@ -43,7 +39,6 @@ impl Default for Pacing {
         Pacing {
             interval: PASS_INTERVAL,
             bytes: PASS_BYTES,
-            data_sync_interval: DATA_SYNC_INTERVAL,
         }
     }
 }
@@ -51,8 +46,7 @@ impl Default for Pacing {
 /// Work that a caller waits for the transfer thread to do.
 #[derive(Clone, Copy)]
 pub(crate) enum Demand {
-    /// A pass like the thread's own, which releases journal files however recently `krummi.data` was flushed
-    /// (tests).
+    /// A pass like the thread's own (tests).
     Pass,
     /// Every version no read needs, after making every queued commit durable (a writer that needs room, T14).
     Flush,
@@ -109,8 +103,8 @@ impl SignalState {
 
 /// What the transfer thread does next.
 enum Work {
-    Demand(u64, Demand, Pacing),
-    Pass(Pacing),
+    Demand(u64, Demand),
+    Pass,
     Stop,
 }
 
@@ -202,13 +196,13 @@ impl Signal {
         Arc::clone(&self.alive)
     }
 
-    /// Records what the thread's last work left: `kept` bytes in the scratch area, and a pass to try again at
-    /// `retry_at`, no sooner than the pass interval. Only the thread calls it, so nobody needs waking.
-    fn after_work(&self, kept: u64, retry_at: Option<Instant>) {
+    /// Records what the thread's last work left: `kept` bytes in the scratch area, and whether to try a pass
+    /// again, once the pass interval is over. Only the thread calls it, so nobody needs waking.
+    fn after_work(&self, kept: u64, retry: bool) {
         let mut state = self.lock();
         state.kept = kept;
-        if let Some(at) = retry_at {
-            let at = at.max(state.ready());
+        if retry {
+            let at = state.ready();
             state.ask(at);
         }
     }
@@ -222,7 +216,7 @@ impl Signal {
                 return Work::Stop;
             }
             if let Some((ticket, demand)) = state.demands.pop_front() {
-                return Work::Demand(ticket, demand, state.pacing);
+                return Work::Demand(ticket, demand);
             }
             let now = Instant::now();
             state = match state.due.filter(|_| !state.paused && !failed) {
@@ -242,7 +236,7 @@ impl Signal {
         // Signals raised from here on ask for the next pass: this one may have built its list before them.
         state.due = None;
         state.last_pass = Some(Instant::now());
-        Work::Pass(state.pacing)
+        Work::Pass
     }
 
     fn lock(&self) -> MutexGuard<'_, SignalState> {
@@ -297,34 +291,24 @@ impl Drop for Alive {
 fn run(signal: &Signal, shared: &Shared) {
     let mut failed = false;
     loop {
-        let outcome = match signal.next_work(failed) {
+        let succeeded = match signal.next_work(failed) {
             Work::Stop => return,
-            Work::Demand(ticket, demand, pacing) => {
-                let outcome = shared.serve(demand, pacing.data_sync_interval);
-                let kept = match &outcome {
-                    Ok(next) => Ok(*next),
-                    Err(error) => Err(error.duplicate()),
-                };
-                signal.answer(ticket, outcome.map(|_| ()));
-                kept
+            Work::Demand(ticket, demand) => {
+                let outcome = shared.serve(demand);
+                let succeeded = outcome.is_ok();
+                signal.answer(ticket, outcome);
+                succeeded
             }
-            Work::Pass(pacing) => shared.pass(pacing.data_sync_interval),
+            Work::Pass => shared.pass().is_ok(),
         };
-        let retry_at = match outcome {
-            // A release put off by the data flush interval.
-            Ok(next) => next,
-            // Only a failure that made the store refuse writes ends the passes (J13).
-            Err(_) if shared.refuses_writes() => {
-                if !failed {
-                    failed = true;
-                    shared.report_failure();
-                }
-                None
-            }
-            // After another one (a full disk, T12) the pass is tried again once the pass interval is over, so
-            // what it left reaches `krummi.data` without another commit, and a failing pass never spins.
-            Err(_) => Some(Instant::now()),
-        };
-        signal.after_work(shared.scratch_bytes(), retry_at);
+        // Only a failure that made the store refuse writes ends the passes (J13). After another one (a full disk,
+        // T12) the pass is tried again once the pass interval is over, so what it left reaches `krummi.data`
+        // without another commit, and a failing pass never spins.
+        let retry = !succeeded && !shared.refuses_writes();
+        if !succeeded && !retry && !failed {
+            failed = true;
+            shared.report_failure();
+        }
+        signal.after_work(shared.scratch_bytes(), retry);
     }
 }

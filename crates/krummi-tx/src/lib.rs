@@ -231,18 +231,11 @@ impl Engine {
         self.scratch.pager().accepts_writes()
     }
 
-    /// Sets the minimum time between transfer passes, the bytes of the scratch area from which a pass starts
-    /// without waiting for it, and the minimum time between flushes of `krummi.data` that release journal files
-    /// (tests).
+    /// Sets the minimum time between transfer passes and the growth of the scratch area since the last pass from
+    /// which a pass starts without waiting for it (tests).
     #[cfg(feature = "test-hooks")]
-    pub fn set_transfer_pacing(
-        &self,
-        interval: Duration,
-        bytes: u64,
-        data_sync_interval: Duration,
-    ) {
-        self.scratch
-            .set_transfer_pacing(interval, bytes, data_sync_interval);
+    pub fn set_transfer_pacing(&self, interval: Duration, bytes: u64) {
+        self.scratch.set_transfer_pacing(interval, bytes);
     }
 
     /// Stops the transfer thread from starting passes, waiting for the one it may be running, or lets it go on

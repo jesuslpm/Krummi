@@ -29,7 +29,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::format::Header;
@@ -85,7 +85,7 @@ pub(crate) struct Shared {
     journal: Option<Journal>,
     state: Mutex<State>,
     /// Held while versions are written in place, so no two writes of a page overlap (J5).
-    flushing: Mutex<Flushing>,
+    flushing: Mutex<()>,
     /// Wakes the transfer thread.
     signal: Arc<Signal>,
     /// Called by a transfer while it holds `flushing`, once it knows what it writes (tests).
@@ -95,12 +95,6 @@ pub(crate) struct Shared {
     failure_hook: Mutex<Option<Hook>>,
     /// Transfer passes so far (tests).
     passes: AtomicU64,
-}
-
-/// What `flushing` guards besides the writes themselves.
-struct Flushing {
-    /// When a transfer last flushed `krummi.data` to release journal files.
-    last_data_sync: Option<Instant>,
 }
 
 type Hook = Arc<dyn Fn() + Send + Sync>;
@@ -175,9 +169,7 @@ impl Scratch {
             area: Arc::new(TempArea::new(pager.folder())),
             journal,
             pager: Some(pager),
-            flushing: Mutex::new(Flushing {
-                last_data_sync: None,
-            }),
+            flushing: Mutex::new(()),
             signal,
             transfer_hook: Mutex::new(None),
             failure_hook: Mutex::new(None),
@@ -316,19 +308,10 @@ impl Scratch {
         self.shared.passes.load(Ordering::Relaxed)
     }
 
-    /// Sets the minimum time between passes, the scratch bytes from which a pass starts without waiting for it,
-    /// and the minimum time between flushes of `krummi.data` that release journal files (tests).
-    pub fn set_transfer_pacing(
-        &self,
-        interval: Duration,
-        bytes: u64,
-        data_sync_interval: Duration,
-    ) {
-        self.shared.signal.set_pacing(Pacing {
-            interval,
-            bytes,
-            data_sync_interval,
-        });
+    /// Sets the minimum time between passes and the growth of the scratch area since the last pass from which a
+    /// pass starts without waiting for it (tests).
+    pub fn set_transfer_pacing(&self, interval: Duration, bytes: u64) {
+        self.shared.signal.set_pacing(Pacing { interval, bytes });
     }
 
     /// Stops the transfer thread from starting passes, waiting for the one it may be running, or lets it go on
@@ -385,7 +368,7 @@ impl Scratch {
     fn demand(&self, demand: Demand) -> Result<()> {
         match self.shared.signal.demand(demand) {
             Some(outcome) => outcome,
-            None => self.shared.serve(demand, Duration::ZERO).map(|_| ()),
+            None => self.shared.serve(demand),
         }
     }
 
@@ -477,36 +460,28 @@ impl Shared {
     }
 
     /// One transfer pass (J5): writes in place the durable versions no read needs any more, then releases the
-    /// journal files `krummi.data` no longer needs, unless it was flushed less than `data_sync_interval` ago, and
-    /// then returns when to try that release again.
-    pub(crate) fn pass(&self, data_sync_interval: Duration) -> Result<Option<Instant>> {
-        let mut flushing = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
+    /// journal files `krummi.data` no longer needs.
+    pub(crate) fn pass(&self) -> Result<()> {
+        let flushing = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
         self.passes.fetch_add(1, Ordering::Relaxed);
         self.flush_locked(&flushing, false)?;
-        self.release_files(&mut flushing, data_sync_interval)
+        self.release_files(&flushing)
     }
 
-    /// Does what a caller asked the transfer thread for, releasing journal files no sooner than
-    /// `data_sync_interval` after the last flush of `krummi.data` unless the demand says otherwise, and returns
-    /// when to try a release put off again.
-    pub(crate) fn serve(
-        &self,
-        demand: Demand,
-        data_sync_interval: Duration,
-    ) -> Result<Option<Instant>> {
+    /// Does what a caller asked the transfer thread for.
+    pub(crate) fn serve(&self, demand: Demand) -> Result<()> {
         if let Demand::Pass = demand {
-            return self.pass(Duration::ZERO);
+            return self.pass();
         }
-        let mut flushing = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
+        let flushing = self.flushing.lock().unwrap_or_else(PoisonError::into_inner);
         self.flush_locked(&flushing, true)?;
         if let Demand::Flush = demand {
-            return self.release_files(&mut flushing, data_sync_interval);
+            return self.release_files(&flushing);
         }
         if let Some(journal) = &self.journal {
             journal.start_new_file(self.pager())?;
         }
-        self.record_applied(&mut flushing)?;
-        Ok(None)
+        self.record_applied(&flushing)
     }
 
     /// Whether the store refuses writes after a failed write (T12).
@@ -535,7 +510,7 @@ impl Shared {
     /// Writes in place every newest version that no open snapshot is older than and that is durable, after
     /// retiring the versions that no snapshot can read any more; with `force`, it first waits until every queued
     /// commit is durable, so every such version goes (J5). It calls the test hook once it knows what it writes.
-    fn flush_locked(&self, _flushing: &MutexGuard<'_, Flushing>, force: bool) -> Result<()> {
+    fn flush_locked(&self, _flushing: &MutexGuard<'_, ()>, force: bool) -> Result<()> {
         let pager = self.pager();
         if force && let Some(journal) = &self.journal {
             journal.make_durable(pager)?;
@@ -591,39 +566,25 @@ impl Shared {
         outcome
     }
 
-    /// Releases the journal files that `krummi.data` no longer needs (J6): only when the oldest one can go, since
-    /// otherwise flushing `krummi.data` frees nothing, and no sooner than `data_sync_interval` after the last
-    /// flush; otherwise returns when to try again.
-    fn release_files(
-        &self,
-        flushing: &mut MutexGuard<'_, Flushing>,
-        data_sync_interval: Duration,
-    ) -> Result<Option<Instant>> {
-        let Some(journal) = &self.journal else {
-            return Ok(None);
-        };
-        if !journal.can_remove_files(self.applied(journal)) {
-            return Ok(None);
-        }
-        if let Some(last) = flushing.last_data_sync {
-            let due = last + data_sync_interval;
-            if Instant::now() < due {
-                return Ok(Some(due));
+    /// Releases the journal files that `krummi.data` no longer needs (J6), only when the oldest one can go: otherwise
+    /// flushing `krummi.data` frees nothing.
+    fn release_files(&self, flushing: &MutexGuard<'_, ()>) -> Result<()> {
+        match &self.journal {
+            Some(journal) if journal.can_remove_files(self.applied(journal)) => {
+                self.record_applied(flushing)
             }
+            _ => Ok(()),
         }
-        self.record_applied(flushing)?;
-        Ok(None)
     }
 
     /// Flushes `krummi.data`, records in both header copies the last commit it holds entirely, and removes the
     /// journal files neither copy needs any more (J6).
-    fn record_applied(&self, flushing: &mut MutexGuard<'_, Flushing>) -> Result<()> {
+    fn record_applied(&self, _flushing: &MutexGuard<'_, ()>) -> Result<()> {
         let Some(journal) = &self.journal else {
             return Ok(());
         };
         let pager = self.pager();
         pager.flush_data()?;
-        flushing.last_data_sync = Some(Instant::now());
         let applied = self.applied(journal);
         // A file goes only once both copies record it, so both are written now (J8).
         for _ in 0..2 {

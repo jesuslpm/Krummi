@@ -289,20 +289,15 @@ fn a_transfer_failing_without_refusing_writes_is_retried() {
 }
 
 /// S1, S2 (RDD R3/R4): a pass that keeps failing without refusing writes (a full disk) is tried again at most once
-/// per pass interval, even when a put-off journal file release is already due, and once the disk has room the
-/// versions it kept reach `krummi.data` with no further commit.
+/// per pass interval, and once the disk has room the versions it kept reach `krummi.data` with no further commit.
 #[test]
-fn a_failing_pass_does_not_spin_on_a_due_release() {
+fn a_failing_pass_is_retried_once_per_pass_interval() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
-    let interval = std::time::Duration::from_millis(50);
-    engine.set_transfer_pacing(interval, u64::MAX, std::time::Duration::from_secs(1));
+    engine.set_transfer_pacing(std::time::Duration::from_millis(50), u64::MAX);
     engine.set_journal_file_limit(4096);
     let page = new_page(&engine, "a");
     set(&engine, page, "b");
-    wait_until(|| journal_files(tmp.path()) == 1);
-    // Released now: the next release is put off for a second, and the pass that writes "c" leaves it due then.
-    set(&engine, page, "c");
     wait_until(|| engine.scratch_bytes() == 0);
     engine.set_transfer_hook(Some(Arc::new(|| {
         testing::inject(
@@ -333,11 +328,7 @@ fn a_failing_pass_does_not_spin_on_a_due_release() {
 fn a_pass_starts_at_once_only_when_the_scratch_area_grew_by_the_threshold() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
-    engine.set_transfer_pacing(
-        std::time::Duration::from_secs(5),
-        1 << 20,
-        std::time::Duration::from_secs(2),
-    );
+    engine.set_transfer_pacing(std::time::Duration::from_secs(5), 1 << 20);
     let hot = new_page(&engine, "a");
     let read = engine.read().unwrap();
     // Over the threshold at once: one immediate pass, which can move nothing past the read.

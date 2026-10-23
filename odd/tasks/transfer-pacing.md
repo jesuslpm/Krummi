@@ -23,7 +23,7 @@ Estimate: 45 min – 1 h 30 min. Real start: 2026-10-23 19:55:31 +0100.
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1, S2, S3, S5 | inline | done | see `git log` |
-| T2 | S4, S5 | inline | pending | |
+| T2 | S4, S5 | inline | done | see `git log` |
 
 Route evidence: one module (`crates/krummi-pager/src/transfer.rs`, `scratch.rs`) and its tests; understood; no
 Writer trigger reason. Risk: item 4 (concurrency: the transfer thread's wake-up rules): independent verifier.
@@ -40,3 +40,11 @@ Writer trigger reason. Risk: item 4 (concurrency: the transfer thread's wake-up 
   threshold` gave 50 passes for 50 commits. GREEN after T1; suite 197 passed in both journal write modes; fmt and
   clippy clean. After T1: 15,914 / 31,310 / 12,329; 14,485 / 30,768 / 12,945; 14,623 / 30,826 / 13,960; means
   15,007 / 30,968 / 13,078 (+5.8 %, +4.6 %, +3.0 %).
+- **L4** (T2 evidence): temporary measuring build of `commit_rate` (not committed: journal file limit from
+  `KRUMMI_FILE_LIMIT`, plus a data flush column), binaries with and without the 2 s interval run alternately, 3 s
+  per thread count, direct journal writes. Release file size (16 MiB), 3 rounds, means with / without: 1 thread
+  14,960 / 14,309 (−4.4 %), 4 threads 30,435 / 30,273 (−0.5 %), 16 threads 12,959 / 13,713 (+5.8 %). 1 MiB files,
+  6 rounds: 12,515 / 12,661 (+1.2 %), 22,078 / 21,152 (−4.2 %), 12,317 / 11,970 (−2.8 %); the samples of each pair
+  overlap (spread about ±10 %). Data flushes in 3 s: 2 with the interval (one release and the close), 9 to 20
+  without. Decision per L2: no worsening beyond noise, so the interval is removed (`Flushing`, the put-off release
+  and the third pacing value go). Suite 197 passed in both journal write modes; fmt and clippy clean.
