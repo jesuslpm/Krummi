@@ -288,8 +288,9 @@ fn a_transfer_failing_without_refusing_writes_is_retried() {
     assert_eq!(read_text(&disk(tmp.path()), page), "c");
 }
 
-/// S2 (RDD R3/R4): a pass that keeps failing without refusing writes (a full disk) is not run again at once, even
-/// when a put-off journal file release is already due: the passes wait for the next signal.
+/// S1, S2 (RDD R3/R4): a pass that keeps failing without refusing writes (a full disk) is tried again at most once
+/// per pass interval, even when a put-off journal file release is already due, and once the disk has room the
+/// versions it kept reach `krummi.data` with no further commit.
 #[test]
 fn a_failing_pass_does_not_spin_on_a_due_release() {
     let tmp = tempfile::tempdir().unwrap();
@@ -315,9 +316,12 @@ fn a_failing_pass_does_not_spin_on_a_due_release() {
     std::thread::sleep(std::time::Duration::from_millis(1500));
     let passes = engine.transfer_passes() - before;
     engine.set_transfer_hook(None);
-    assert!(passes < 20, "{passes} failing passes in 1.5 s");
-    set(&engine, page, "e");
+    // One pass per 50 ms interval at most, and some, since the failing pass is tried again.
+    assert!(
+        (2..=40).contains(&passes),
+        "{passes} failing passes in 1.5 s"
+    );
     wait_until(|| engine.scratch_bytes() == 0);
-    assert_eq!(read_text(&engine, page), "e");
+    assert_eq!(read_text(&engine, page), "d");
     engine.close().unwrap();
 }

@@ -88,3 +88,13 @@ Writer trigger reason. Risk: item 4 (a new thread, condvar ordering, shutdown): 
   the put-off release until the next signal, and a put-off release also waits for the pass interval. Test
   `a_failing_pass_does_not_spin_on_a_due_release` (RED: 15,617 and 17,798 passes in 1.5 s; GREEN). Suite 196
   passed; fmt and clippy clean.
+- **L10** (RDD review, 2026-10-23): commit `ebf0115` against `74ab5d1`; lenses resilience, reliability; result
+  approved, acknowledged (lineage `review-f25c21c7fef249d3`, authority burned). Findings: R3/R4-failure-drops-due-
+  release (WARNING, both lenses): dropping the retry after a failure left versions and journal files waiting for
+  the next commit on an idle store after a transient full disk; R3-interval-clamp-unproved (SUGGESTION): no test
+  needed the interval clamp; R3-timing-threshold-test (SUGGESTION): the 1.5 s test relies on wall-clock time.
+  Resolution (follow-up commit): a failure that leaves the store accepting writes retries the pass once the pass
+  interval is over; the test now checks paced retries (2 to 40 passes in 1.5 s at 50 ms) and that "d" reaches
+  `krummi.data` with no new commit (RED: 1 pass and no retry; GREEN), and it fails without the interval clamp
+  (24,965 passes). The wall-clock window stays: a pass count alone cannot tell paced retries from a spin.
+  Suite 196 passed in both journal write modes; fmt and clippy clean.

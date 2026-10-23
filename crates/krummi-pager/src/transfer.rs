@@ -180,8 +180,8 @@ impl Signal {
     }
 
     /// Waits for the next work: a demand, served first; or a pass, once it is asked for and the interval since
-    /// `last_pass` is over (or it is urgent), or once `retry_at` is reached. Paused or `failed`, it only serves
-    /// demands.
+    /// `last_pass` is over (or it is urgent), or once `retry_at` is reached, no sooner than that interval either.
+    /// Paused or `failed`, it only serves demands.
     fn next_work(
         &self,
         last_pass: Option<Instant>,
@@ -205,7 +205,7 @@ impl Signal {
             }
             let now = Instant::now();
             let ready = last_pass.map_or(now, |last| last + state.pacing.interval);
-            // A put-off release also waits for the interval since the last pass.
+            // A put-off release or a failed pass also waits for the interval since the last pass.
             let retry_at = retry_at.map(|at| at.max(ready));
             if retry_at.is_some_and(|at| now >= at) {
                 break;
@@ -309,16 +309,16 @@ fn run(signal: &Signal, shared: &Shared) {
         };
         match outcome {
             Ok(next) => retry_at = next,
-            Err(_) => {
-                // Only a failure that made the store refuse writes ends the passes (J13); after another one (a
-                // full disk, T12), the next signal tries again, as the next commit did before, and a put-off
-                // release waits for it too, so a failing pass is never run again at once.
-                retry_at = None;
-                if !failed && shared.refuses_writes() {
+            // Only a failure that made the store refuse writes ends the passes (J13).
+            Err(_) if shared.refuses_writes() => {
+                if !failed {
                     failed = true;
                     shared.report_failure();
                 }
             }
+            // After another one (a full disk, T12) the pass is tried again once the pass interval is over, so
+            // what it left reaches `krummi.data` without another commit, and a failing pass never spins.
+            Err(_) => retry_at = Some(Instant::now()),
         }
     }
 }
