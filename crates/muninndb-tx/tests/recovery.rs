@@ -733,8 +733,6 @@ fn ac_j15_incompressible_commits_are_recovered() {
 /// "not a store" (the mark), no difference, or, only inside the last journal record, the loss of that last commit
 /// (J9); never data that was not written.
 fn ac10_journal_sweep(step: usize) {
-    // The sweep checks damage detection, not durability: its flushes to disk are skipped.
-    testing::skip_syncs(true);
     let (source, engine) = Run::start();
     let pages = reserve(&engine, 2, "c0");
     let hold = engine.read().unwrap();
@@ -744,6 +742,9 @@ fn ac10_journal_sweep(step: usize) {
     let run = Run::finish(source, vec![]);
     drop(hold);
     let crashed = run.killed();
+    // The sweep checks damage detection, not durability: its flushes to disk are skipped. Set after the run,
+    // because recording a run resets this thread's test state.
+    testing::skip_syncs(true);
     let files: Vec<PathBuf> = fs::read_dir(crashed.path())
         .unwrap()
         .map(|e| e.unwrap().path())
