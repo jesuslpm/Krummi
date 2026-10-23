@@ -67,8 +67,8 @@ pub fn rewrite_format_version(data: &Path, version: u32) {
     fs::write(data, bytes).unwrap();
 }
 
-const HOLD_ENV: &str = "MUNINN_TEST_HOLD_STORE";
-const READY_ENV: &str = "MUNINN_TEST_READY_FILE";
+const HOLD_ENV: &str = "KRUMMI_TEST_HOLD_STORE";
+const READY_ENV: &str = "KRUMMI_TEST_READY_FILE";
 
 /// Starts a child process that opens the store in `folder` and holds it until killed. Returns once the store
 /// is open.

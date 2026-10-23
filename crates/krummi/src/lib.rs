@@ -28,7 +28,7 @@ pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StoreOptions {
     /// Maximum size of the store in bytes while it stays open: at least 1 MiB, rounded down to the page size. It
-    /// counts the data file and the committed page versions that are not in it yet (in the `muninn.temp`
+    /// counts the data file and the committed page versions that are not in it yet (in the `krummi.temp`
     /// subfolder), not the journal. Recovery after a crash restores the store even beyond it.
     pub max_size: Option<u64>,
 }
@@ -42,8 +42,8 @@ pub struct Store {
 impl Store {
     /// Opens the store in `folder`. A missing folder is created with its parents, and an empty folder gets a
     /// new store. If the store closed in a crash, opening recovers it first: every commit that was durable is
-    /// there, and no part of one that was not. Besides `muninn.data`, an open store may keep in its folder the
-    /// journal files `muninn.journal.<number>` and the `muninn.temp` subfolder; a clean close removes them.
+    /// there, and no part of one that was not. Besides `krummi.data`, an open store may keep in its folder the
+    /// journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a clean close removes them.
     pub fn open(folder: impl AsRef<Path>, options: &StoreOptions) -> Result<Store> {
         let engine = krummi_tx::Engine::open(folder, &engine_options(options))?;
         Ok(Store { engine })
@@ -91,7 +91,7 @@ impl Store {
         self.engine.make_durable()
     }
 
-    /// Closes the store: moves what was committed into `muninn.data`, removes the journal and the temporary
+    /// Closes the store: moves what was committed into `krummi.data`, removes the journal and the temporary
     /// files, and releases its lock, even if writing fails; then the journal stays and the next opening recovers
     /// every commit. Dropping a `Store` does the same, but does not report a failure.
     pub fn close(self) -> Result<()> {

@@ -1,6 +1,6 @@
 //! The write-ahead journal (J2, J4, J10, J11, J12 and J16 of the Journal PRD).
 //!
-//! The journal is a sequence of files `muninn.journal.<19 digits>` in the store's folder, numbered one by one. Each
+//! The journal is a sequence of files `krummi.journal.<19 digits>` in the store's folder, numbered one by one. Each
 //! commit is one record, aligned to [`ALIGN`] bytes so that recovery can find the records after a damaged one:
 //!
 //! - a 64-byte header: magic, commit number (`txid`), `durable_upto` (the last commit that was durable when the
@@ -29,7 +29,7 @@ use crate::pager::Pager;
 use crate::sys;
 
 /// Prefix of the journal files' names (J2).
-pub const JOURNAL_PREFIX: &str = "muninn.journal.";
+pub const JOURNAL_PREFIX: &str = "krummi.journal.";
 /// Records start at multiples of this many bytes of their file.
 pub(crate) const ALIGN: u64 = 4096;
 /// Size of a record header.
@@ -40,7 +40,7 @@ pub(crate) const PENDING_BYTES_LIMIT: u64 = 1 << 20;
 pub(crate) const PENDING_COMMITS_LIMIT: u64 = 256;
 /// Size at which the journal goes on in a new file.
 pub(crate) const DEFAULT_FILE_LIMIT: u64 = 16 << 20;
-const MAGIC: u64 = u64::from_le_bytes(*b"MuninnJ1");
+const MAGIC: u64 = u64::from_le_bytes(*b"KrummiJ1");
 const FLAG_COMPRESSED: u32 = 1;
 /// Bytes of one page in a raw payload: its number and the sealed page.
 pub(crate) const PAGE_ENTRY: usize = 8 + PAGE_SIZE;
@@ -481,14 +481,14 @@ mod tests {
 
     #[test]
     fn file_names_round_trip_and_others_are_not_journal_files() {
-        assert_eq!(file_name(1), "muninn.journal.0000000000000000001");
+        assert_eq!(file_name(1), "krummi.journal.0000000000000000001");
         assert_eq!(parse_file_name(OsStr::new(&file_name(42))), Some(42));
         for other in [
-            "muninn.journal.1",
-            "muninn.journal.00000000000000000001",
-            "muninn.journal.000000000000000000a",
-            "muninn.journal.0000000000000000001.bak",
-            "muninn.data",
+            "krummi.journal.1",
+            "krummi.journal.00000000000000000001",
+            "krummi.journal.000000000000000000a",
+            "krummi.journal.0000000000000000001.bak",
+            "krummi.data",
         ] {
             assert_eq!(parse_file_name(OsStr::new(other)), None, "{other}");
         }

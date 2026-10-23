@@ -17,9 +17,9 @@ fn names(folder: &Path) -> Vec<String> {
     names
 }
 
-/// AC-J11: the versions a long read retains live in files of `muninn.temp`, which the close removes.
+/// AC-J11: the versions a long read retains live in files of `krummi.temp`, which the close removes.
 #[test]
-fn ac_j11_retained_versions_live_in_muninn_temp_until_close() {
+fn ac_j11_retained_versions_live_in_krummi_temp_until_close() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
     let page = new_page(&engine, "v0");
@@ -81,21 +81,21 @@ fn journal_bytes(folder: &Path) -> u64 {
         .sum()
 }
 
-/// AC-J1: opening leaves only `muninn.data`; a commit adds journal files while the transfer is held back; a clean
-/// close leaves only `muninn.data` again, with every change.
+/// AC-J1: opening leaves only `krummi.data`; a commit adds journal files while the transfer is held back; a clean
+/// close leaves only `krummi.data` again, with every change.
 #[test]
 fn ac_j1_the_journal_appears_with_commits_and_goes_with_a_clean_close() {
     let tmp = tempfile::tempdir().unwrap();
     let folder = tmp.path().join("new").join("store");
     let engine = disk(&folder);
-    assert_eq!(names(&folder), vec!["muninn.data"]);
+    assert_eq!(names(&folder), vec!["krummi.data"]);
     let page = new_page(&engine, "a");
     let hold = engine.read().unwrap();
     set(&engine, page, "b");
     assert!(!journal_files(&folder).is_empty());
     drop(hold);
     engine.close().unwrap();
-    assert_eq!(names(&folder), vec!["muninn.data"]);
+    assert_eq!(names(&folder), vec!["krummi.data"]);
     let engine = disk(&folder);
     assert_eq!(read_text(&engine, page), "b");
     engine.close().unwrap();
@@ -252,11 +252,11 @@ fn closing_a_store_nobody_changed_leaves_it_byte_identical() {
     assert_eq!(read_text(&engine, page), "a");
     engine.close().unwrap();
     assert_eq!(fs::read(&data).unwrap(), before);
-    assert_eq!(names(tmp.path()), vec!["muninn.data"]);
+    assert_eq!(names(tmp.path()), vec!["krummi.data"]);
 }
 
-/// S3 of the journal follow-ups (J5): deferred commits alone, without any durable one, still reach `muninn.data`
-/// once enough of them are pending, so the versions waiting in `muninn.temp` stay bounded.
+/// S3 of the journal follow-ups (J5): deferred commits alone, without any durable one, still reach `krummi.data`
+/// once enough of them are pending, so the versions waiting in `krummi.temp` stay bounded.
 #[test]
 fn deferred_commits_alone_do_not_pile_up_in_the_temporary_area() {
     let tmp = tempfile::tempdir().unwrap();

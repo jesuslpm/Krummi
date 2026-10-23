@@ -215,8 +215,8 @@ fn creation_points() -> usize {
     points
 }
 
-const ABORT_FOLDER_ENV: &str = "MUNINN_TEST_ABORT_FOLDER";
-const ABORT_POINT_ENV: &str = "MUNINN_TEST_ABORT_POINT";
+const ABORT_FOLDER_ENV: &str = "KRUMMI_TEST_ABORT_FOLDER";
+const ABORT_POINT_ENV: &str = "KRUMMI_TEST_ABORT_POINT";
 
 #[test]
 fn ac_p9_a_creation_killed_at_any_point_leaves_a_complete_store_or_none() {
@@ -372,13 +372,13 @@ fn store_file_names_are_case_insensitive_on_windows() {
         .unwrap()
         .close()
         .unwrap();
-    fs::rename(tmp.path().join(DATA_FILE), tmp.path().join("MUNINN.DATA")).unwrap();
+    fs::rename(tmp.path().join(DATA_FILE), tmp.path().join("KRUMMI.DATA")).unwrap();
     Pager::open(tmp.path(), &options())
         .unwrap()
         .close()
         .unwrap();
     let leftover = tempfile::tempdir().unwrap();
-    fs::write(leftover.path().join("Muninn.Data.New"), b"half").unwrap();
+    fs::write(leftover.path().join("Krummi.Data.New"), b"half").unwrap();
     Pager::open(leftover.path(), &options())
         .unwrap()
         .close()
@@ -447,7 +447,7 @@ fn a_symlink_to_the_store_folder_is_the_same_store() {
     pager.close().unwrap();
 }
 
-/// A creation whose lock fails for an I/O reason leaves no `muninn.data.new` behind (R3-001 and
+/// A creation whose lock fails for an I/O reason leaves no `krummi.data.new` behind (R3-001 and
 /// R3-cleanup-wiring-untested of the reviews).
 #[test]
 fn a_creation_that_cannot_lock_leaves_nothing_behind() {
@@ -473,7 +473,7 @@ fn a_creation_whose_file_another_opener_holds_leaves_it_to_that_opener() {
     assert_only_a_complete_store(tmp.path());
 }
 
-const TRY_OPEN_ENV: &str = "MUNINN_TEST_TRY_OPEN";
+const TRY_OPEN_ENV: &str = "KRUMMI_TEST_TRY_OPEN";
 
 /// S2 of the fork-safe lock: a failed second open in the same process does not release the lock, so another
 /// process still finds the store in use.

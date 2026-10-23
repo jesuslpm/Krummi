@@ -105,7 +105,7 @@ fn ac_t10_ac_t11_what_must_not_compile() {
 }
 
 /// J1 and J17 of the Journal PRD: a deferred commit and making what is committed durable, on disk and in a
-/// temporary store; a clean close leaves only `muninn.data`.
+/// temporary store; a clean close leaves only `krummi.data`.
 #[test]
 fn j1_deferred_commits_and_making_them_durable() {
     stores(|store| {
@@ -122,5 +122,5 @@ fn j1_deferred_commits_and_making_them_durable() {
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(names, vec!["muninn.data"]);
+    assert_eq!(names, vec!["krummi.data"]);
 }

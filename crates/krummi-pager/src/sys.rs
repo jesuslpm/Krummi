@@ -552,7 +552,7 @@ mod rename_info_tests {
         for length in 1..=12 {
             let to = Path::new(r"C:\stores")
                 .join("s".repeat(length))
-                .join("muninn.data");
+                .join("krummi.data");
             let units: Vec<u16> = to.as_os_str().encode_wide().collect();
             let (buffer, size) = rename_info(&to);
             let bytes: Vec<u8> = buffer.iter().flat_map(|w| w.to_ne_bytes()).collect();

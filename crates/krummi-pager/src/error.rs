@@ -17,7 +17,7 @@ pub enum ErrorKind {
     Access,
     /// The store is already open, by another process or by this one.
     StoreInUse,
-    /// The folder does not contain a MuninnDB store.
+    /// The folder does not contain a Krummi store.
     NotAStore,
     /// Part of the store is damaged.
     Damaged,
@@ -181,7 +181,7 @@ impl fmt::Display for Error {
             Error::StoreInUse { folder } => write!(f, "store {} is already open", folder.display()),
             Error::NotAStore { folder } => write!(
                 f,
-                "folder {} does not contain a MuninnDB store",
+                "folder {} does not contain a Krummi store",
                 folder.display()
             ),
             Error::Damaged { folder, page } => {
@@ -197,7 +197,7 @@ impl fmt::Display for Error {
                 expected,
             } => write!(
                 f,
-                "store {} has format {found}, but this version of MuninnDB uses format {expected}",
+                "store {} has format {found}, but this version of Krummi uses format {expected}",
                 folder.display()
             ),
             Error::DiskFull { folder } => {

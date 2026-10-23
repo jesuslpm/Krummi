@@ -165,7 +165,7 @@ fn ac_p14_a_temporary_store_works_and_respects_its_maximum_size() {
     assert!(info.temporary);
     assert_eq!(
         (info.format_version, info.page_size, info.size_bytes),
-        (2, 8192, INITIAL_SIZE)
+        (3, 8192, INITIAL_SIZE)
     );
     let mut page = HEADER_PAGES;
     let error = loop {
@@ -210,7 +210,7 @@ fn ac14_a_temporary_store_creates_no_files() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env("MUNINN_TEST_TEMPORARY", "1")
+        .env("KRUMMI_TEST_TEMPORARY", "1")
         .env("TMP", &private_temp)
         .env("TEMP", &private_temp)
         .env("TMPDIR", &private_temp)
@@ -225,7 +225,7 @@ fn ac14_a_temporary_store_creates_no_files() {
 /// Helper run in a child process by `ac14_a_temporary_store_creates_no_files`.
 #[test]
 fn child_helper_temporary_store() {
-    if std::env::var_os("MUNINN_TEST_TEMPORARY").is_none() {
+    if std::env::var_os("KRUMMI_TEST_TEMPORARY").is_none() {
         return;
     }
     let mut pager = Pager::open_temporary(&OpenOptions::default()).unwrap();
@@ -283,7 +283,7 @@ fn ac20_a_page_reference_cannot_outlive_the_store() {
     cases.compile_fail("tests/ui/*.rs");
 }
 
-/// AC10, full: flips every byte of `muninn.data` one at a time. It reopens the store 65,536 times, which takes
+/// AC10, full: flips every byte of `krummi.data` one at a time. It reopens the store 65,536 times, which takes
 /// minutes where an antivirus scans each modified file, so it runs as an acceptance step:
 /// `cargo test -p krummi-pager --test pages -- --ignored ac10`.
 #[test]
@@ -301,7 +301,7 @@ fn ac10_sample_no_damaged_byte_returns_wrong_data() {
     });
 }
 
-/// Writes a small store, then flips each selected byte of `muninn.data` one at a time and reads everything
+/// Writes a small store, then flips each selected byte of `krummi.data` one at a time and reads everything
 /// back: every flip is a damage error on its own page, a "not a store" error in the mark, or no difference.
 fn damaged_byte_sweep(selected: impl Fn(usize) -> bool) {
     let tmp = tempfile::tempdir().unwrap();

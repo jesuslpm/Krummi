@@ -118,7 +118,7 @@ impl Engine {
         })
     }
 
-    /// Information about the store (P12): `muninn.data` as it is (T14).
+    /// Information about the store (P12): `krummi.data` as it is (T14).
     pub fn info(&self) -> Info {
         self.scratch.info()
     }
@@ -175,14 +175,14 @@ impl Engine {
         result
     }
 
-    /// Closes the store: transfers what was committed to `muninn.data`, removes the journal and releases its
+    /// Closes the store: transfers what was committed to `krummi.data`, removes the journal and releases its
     /// lock, which is released even if writing fails; then the journal stays for the next opening (J14, P14).
     /// Dropping an `Engine` does the same, without reporting a failure.
     pub fn close(self) -> Result<()> {
         self.scratch.close()
     }
 
-    /// Transfers to `muninn.data` what no read needs; a failure makes the store refuse writes, which the next
+    /// Transfers to `krummi.data` what no read needs; a failure makes the store refuse writes, which the next
     /// operations report (J5, J13).
     fn transfer(&self) {
         if self.scratch.transfer().is_err() {
@@ -196,7 +196,7 @@ impl Engine {
         self.scratch.checkpoint()
     }
 
-    /// Bytes of committed page versions that are not in `muninn.data` yet (tests).
+    /// Bytes of committed page versions that are not in `krummi.data` yet (tests).
     #[cfg(feature = "test-hooks")]
     pub fn scratch_bytes(&self) -> u64 {
         self.scratch.scratch_bytes()

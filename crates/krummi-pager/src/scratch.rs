@@ -182,7 +182,7 @@ impl Scratch {
         }
     }
 
-    /// Transfers to `muninn.data` the durable versions that no read needs any more, unless a transfer is already
+    /// Transfers to `krummi.data` the durable versions that no read needs any more, unless a transfer is already
     /// running (J5). It never waits for another transfer, so it never blocks a writer or a reader.
     pub fn transfer(&self) -> Result<()> {
         let guard = match self.flushing.try_lock() {
@@ -284,7 +284,7 @@ impl Scratch {
         Ok(())
     }
 
-    /// Flushes `muninn.data`, records in the next header copy the last commit it holds entirely, and removes the
+    /// Flushes `krummi.data`, records in the next header copy the last commit it holds entirely, and removes the
     /// journal files that neither header copy needs (J6).
     fn record_applied(&self, _flushing: &MutexGuard<'_, ()>) -> Result<()> {
         let Some(journal) = &self.journal else {
@@ -292,7 +292,7 @@ impl Scratch {
         };
         let pager = self.pager();
         // A version dropped because a newer one supersedes it counts as applied only if the newer one cannot be
-        // lost: every commit must be durable before the header says how far `muninn.data` goes (J4, J10).
+        // lost: every commit must be durable before the header says how far `krummi.data` goes (J4, J10).
         journal.make_durable(pager)?;
         pager.flush_data()?;
         let applied = self.lock().applied();
@@ -338,7 +338,7 @@ impl Scratch {
             state.bytes -= versions.len() as u64 * PAGE_SIZE_U64;
         }
         state.retired.clear();
-        // Nothing was committed since the store opened: `muninn.data` and its header are already what a close
+        // Nothing was committed since the store opened: `krummi.data` and its header are already what a close
         // would leave, so a close writes nothing, unless a header copy is damaged and the close can repair it (P6).
         let unchanged = pages_written == 0
             && self.journal.as_ref().is_none_or(Journal::has_no_files)

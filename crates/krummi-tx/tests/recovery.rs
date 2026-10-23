@@ -128,7 +128,7 @@ fn record_offsets(file: &Path) -> Vec<usize> {
     let bytes = fs::read(file).unwrap();
     let mut offsets = Vec::new();
     let mut offset = 0;
-    while offset + 64 <= bytes.len() && bytes[offset..offset + 8] == *b"MuninnJ1" {
+    while offset + 64 <= bytes.len() && bytes[offset..offset + 8] == *b"KrummiJ1" {
         offsets.push(offset);
         let stored =
             u64::from_le_bytes(bytes[offset + 32..offset + 40].try_into().unwrap()) as usize;
@@ -353,7 +353,7 @@ fn ac_j7_deferred_commits_survive_as_a_prefix() {
 }
 
 /// AC-J2 (J5, J8): commits a long read kept from the data file are recovered after a crash, and the next close
-/// leaves only `muninn.data`.
+/// leaves only `krummi.data`.
 #[test]
 fn ac_j2_commits_held_back_by_a_read_are_recovered() {
     let (source, engine) = Run::start();
@@ -467,7 +467,7 @@ fn ac_j4_a_missing_journal_file_or_a_reserved_name_of_the_wrong_kind_is_damage()
     assert_eq!(snapshot(folder.path()), before);
 }
 
-/// A store whose commits grew `muninn.data`, cut by a power failure that lost the growth.
+/// A store whose commits grew `krummi.data`, cut by a power failure that lost the growth.
 fn crashed_after_growth(pages: usize) -> (TempDir, Vec<u64>) {
     let (source, engine) = Run::start();
     let reserved = reserve(&engine, pages, "grown");
@@ -514,7 +514,7 @@ fn ac_j5_disk_full_during_recovery() {
     testing::reset();
 }
 
-/// AC-J10 (J8): recovery restores `muninn.data` even beyond the maximum size asked when opening.
+/// AC-J10 (J8): recovery restores `krummi.data` even beyond the maximum size asked when opening.
 #[test]
 fn ac_j10_recovery_ignores_the_maximum_size() {
     let (folder, pages) = crashed_after_growth(200);
@@ -677,7 +677,7 @@ fn ac_j9_a_failed_transfer_refuses_writes_and_recovery_brings_everything_back() 
     assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("b"));
 }
 
-/// AC-J16 (J2): a folder without a store that holds journal files or `muninn.temp` is not a store.
+/// AC-J16 (J2): a folder without a store that holds journal files or `krummi.temp` is not a store.
 #[test]
 fn ac_j16_journal_files_without_a_store_are_not_a_store() {
     for layout in ["journal", "journal and new", "temp"] {
@@ -687,7 +687,7 @@ fn ac_j16_journal_files_without_a_store_are_not_a_store() {
             "journal" => fs::write(&journal, b"x").unwrap(),
             "journal and new" => {
                 fs::write(&journal, b"x").unwrap();
-                fs::write(tmp.path().join("muninn.data.new"), b"y").unwrap();
+                fs::write(tmp.path().join("krummi.data.new"), b"y").unwrap();
             }
             _ => fs::create_dir(tmp.path().join(TEMP_DIR)).unwrap(),
         }
@@ -844,7 +844,7 @@ fn ac12_a_failed_journal_flush_refuses_writes_and_reopening_recovers() {
     );
 }
 
-const CHILD_ENV: &str = "MUNINN_TEST_CHILD_CRASH";
+const CHILD_ENV: &str = "KRUMMI_TEST_CHILD_CRASH";
 
 /// AC1 and AC3 with a real process: the child commits durably, opens another write with changes, and dies.
 #[test]
@@ -992,4 +992,177 @@ fn a_failed_wipe_after_a_failed_append_refuses_writes() {
     assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::DiskFull);
     testing::reset();
     assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+}
+
+// Leftovers of the old product name (rename-to-krummi PRD: R1, R3–R6; AC-R1–AC-R4, AC-R6). These are the only tests
+// that spell the names MuninnDB used, which the PRD allows (R10).
+
+/// The identification mark at the start of the data file of a MuninnDB store.
+const MUNINNDB_MARK: [u8; 16] = *b"\x89MuninnDB\r\n\x1a\n\0\0\0";
+const MUNINNDB_DATA: &str = "muninn.data";
+const MUNINNDB_NEW_DATA: &str = "muninn.data.new";
+const MUNINNDB_JOURNAL_PREFIX: &str = "muninn.journal.";
+const MUNINNDB_TEMP: &str = "muninn.temp";
+
+/// Turns the store in `folder` into what MuninnDB left on disk: its file names, its mark and format `2`.
+fn make_muninndb_store(folder: &Path) {
+    let data = folder.join(DATA_FILE);
+    let mut bytes = fs::read(&data).unwrap();
+    let pages = 2 * krummi_pager::format::PAGE_SIZE;
+    let mut header = header_copies(&bytes[..pages])
+        .into_iter()
+        .flatten()
+        .max_by_key(|h| h.revision)
+        .unwrap();
+    header.format_version = 2;
+    krummi_pager::format::write_header_pages(&mut bytes[..pages], &header);
+    bytes[..MUNINNDB_MARK.len()].copy_from_slice(&MUNINNDB_MARK);
+    fs::write(&data, bytes).unwrap();
+    for name in names(folder) {
+        let old = if name == DATA_FILE {
+            MUNINNDB_DATA.to_owned()
+        } else if let Some(number) = name.strip_prefix(JOURNAL_PREFIX) {
+            format!("{MUNINNDB_JOURNAL_PREFIX}{number}")
+        } else if name == TEMP_DIR {
+            MUNINNDB_TEMP.to_owned()
+        } else {
+            continue;
+        };
+        fs::rename(folder.join(&name), folder.join(old)).unwrap();
+    }
+}
+
+/// AC-R1 (R3, R5): a new store is `krummi.data` with the new mark and format `3`; with commits not yet transferred
+/// the folder also holds `krummi.journal.<19 digits>` and `krummi.temp`, which a clean close removes.
+#[test]
+fn ac_r1_a_new_store_uses_the_krummi_names_mark_and_format_3() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = open(tmp.path());
+    assert_eq!(engine.info().format_version, 3);
+    assert_eq!(names(tmp.path()), vec!["krummi.data"]);
+    let pages = reserve(&engine, 1, "c0");
+    let hold = engine.read().unwrap();
+    commit_all(&engine, &pages, "c1", true);
+    assert_eq!(
+        names(tmp.path()),
+        vec![
+            "krummi.data",
+            "krummi.journal.0000000000000000001",
+            "krummi.temp"
+        ]
+    );
+    drop(hold);
+    engine.close().unwrap();
+    assert_eq!(names(tmp.path()), vec!["krummi.data"]);
+    // The store keeps the data file locked while it is open, so its first bytes are read after closing.
+    assert_eq!(
+        &fs::read(tmp.path().join("krummi.data")).unwrap()[..8],
+        b"\x89Krummi\r"
+    );
+}
+
+/// AC-R2 (R6): folders with what MuninnDB left are not stores, and the opening touches nothing; AC-R6 (R1): the
+/// error names Krummi and not MuninnDB.
+#[test]
+fn ac_r2_ac_r6_what_muninndb_left_is_not_a_store() {
+    let closed = tempfile::tempdir().unwrap();
+    open(closed.path()).close().unwrap();
+    make_muninndb_store(closed.path());
+    let (crashed, _) = crashed_with(3, None);
+    make_muninndb_store(crashed.path());
+    assert!(
+        names(crashed.path())
+            .iter()
+            .any(|n| n.starts_with(MUNINNDB_JOURNAL_PREFIX))
+    );
+    let lone = |name: &str, dir: bool| {
+        let tmp = tempfile::tempdir().unwrap();
+        if dir {
+            fs::create_dir(tmp.path().join(name)).unwrap();
+        } else {
+            fs::write(tmp.path().join(name), b"x").unwrap();
+        }
+        tmp
+    };
+    let folders = [
+        ("closed", closed),
+        ("crashed", crashed),
+        ("new data", lone(MUNINNDB_NEW_DATA, false)),
+        (
+            "journal",
+            lone(&format!("{MUNINNDB_JOURNAL_PREFIX}{:019}", 1), false),
+        ),
+        ("temp", lone(MUNINNDB_TEMP, true)),
+    ];
+    for (case, folder) in &folders {
+        let before = snapshot(folder.path());
+        let err = open_err(folder.path());
+        assert_eq!(err.kind(), ErrorKind::NotAStore, "{case}");
+        let message = err.to_string();
+        assert!(message.contains("Krummi"), "{case}: {message}");
+        assert!(
+            !message.to_lowercase().contains("muninn"),
+            "{case}: {message}"
+        );
+        assert_eq!(snapshot(folder.path()), before, "{case}");
+    }
+}
+
+/// AC-R3 (R4): a `krummi.data` that starts with the MuninnDB mark is not a store and stays as it was.
+#[test]
+fn ac_r3_the_muninndb_mark_is_not_the_mark() {
+    let tmp = tempfile::tempdir().unwrap();
+    open(tmp.path()).close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let mut bytes = fs::read(&data).unwrap();
+    bytes[..MUNINNDB_MARK.len()].copy_from_slice(&MUNINNDB_MARK);
+    fs::write(&data, &bytes).unwrap();
+    assert_eq!(open_err(tmp.path()).kind(), ErrorKind::NotAStore);
+    assert_eq!(fs::read(&data).unwrap(), bytes);
+}
+
+/// AC-R4 (R3, P7, J8, J14): MuninnDB entries in the folder of a Krummi store are foreign: use, close, a crash and
+/// its recovery leave them as they were.
+#[test]
+fn ac_r4_muninndb_entries_in_a_krummi_store_are_foreign() {
+    let add_foreign = |folder: &Path| {
+        fs::write(folder.join(MUNINNDB_DATA), b"old data").unwrap();
+        fs::write(
+            folder.join(format!("{MUNINNDB_JOURNAL_PREFIX}{:019}", 1)),
+            b"old journal",
+        )
+        .unwrap();
+        fs::create_dir(folder.join(MUNINNDB_TEMP)).unwrap();
+        fs::write(folder.join(MUNINNDB_TEMP).join("chunk"), b"old temp").unwrap();
+    };
+    let foreign = |folder: &Path| -> Vec<(String, Vec<u8>)> {
+        snapshot(folder)
+            .into_iter()
+            .filter(|(name, _)| name.to_lowercase().starts_with("muninn"))
+            .collect()
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    open(tmp.path()).close().unwrap();
+    add_foreign(tmp.path());
+    let before = foreign(tmp.path());
+    assert_eq!(before.len(), 4);
+    let engine = open(tmp.path());
+    let pages = reserve(&engine, 2, "a");
+    commit_all(&engine, &pages, "b", true);
+    engine.close().unwrap();
+    assert_eq!(foreign(tmp.path()), before);
+
+    let (crashed, pages) = crashed_with(3, None);
+    assert!(
+        names(crashed.path())
+            .iter()
+            .any(|n| n.starts_with(JOURNAL_PREFIX))
+    );
+    add_foreign(crashed.path());
+    let before = foreign(crashed.path());
+    let engine = open(crashed.path());
+    assert_eq!(texts(&engine, &pages), vec![Some("c3".to_owned())]);
+    engine.close().unwrap();
+    assert_eq!(foreign(crashed.path()), before);
 }

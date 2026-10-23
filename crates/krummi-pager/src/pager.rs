@@ -18,9 +18,9 @@ use crate::format::{
 use crate::sys;
 
 /// Name of the data file of a store (P3).
-pub const DATA_FILE: &str = "muninn.data";
+pub const DATA_FILE: &str = "krummi.data";
 /// Name of the file a store is prepared in before it becomes [`DATA_FILE`] (P8).
-pub const NEW_DATA_FILE: &str = "muninn.data.new";
+pub const NEW_DATA_FILE: &str = "krummi.data.new";
 /// Smallest maximum size accepted when opening a store (P10).
 pub const MIN_MAX_SIZE: u64 = 1 << 20;
 /// Size of a new store (at most 1 MiB, P11).
@@ -43,7 +43,7 @@ pub struct Info {
     pub format_version: u32,
     /// Page size in bytes.
     pub page_size: u32,
-    /// Size of the store in bytes: of `muninn.data` without an incomplete final page, or of the memory its
+    /// Size of the store in bytes: of `krummi.data` without an incomplete final page, or of the memory its
     /// pages take in temporary mode.
     pub size_bytes: u64,
     /// Number of pages, header pages included.
@@ -172,7 +172,7 @@ impl Pager {
             if only_leftover {
                 match fs::symlink_metadata(folder.join(NEW_DATA_FILE)) {
                     Ok(meta) if meta.is_file() => {}
-                    // A folder named muninn.data.new is not a leftover of ours.
+                    // A folder named krummi.data.new is not a leftover of ours.
                     Ok(_) => {
                         return Err(Error::NotAStore {
                             folder: folder.to_path_buf(),
@@ -449,7 +449,7 @@ impl Pager {
         self.writes_disabled.store(false, Ordering::Release);
     }
 
-    /// Flushes `muninn.data` to the disk while pages may be borrowed (J6 of the Journal PRD). A failure makes the
+    /// Flushes `krummi.data` to the disk while pages may be borrowed (J6 of the Journal PRD). A failure makes the
     /// store refuse writes until it is reopened.
     pub(crate) fn flush_data(&self) -> Result<()> {
         self.check_writable()?;
@@ -592,7 +592,7 @@ impl Pager {
         Ok(())
     }
 
-    /// Classifies a failed write of something that belongs to the store outside `muninn.data` (the journal, the
+    /// Classifies a failed write of something that belongs to the store outside `krummi.data` (the journal, the
     /// temporary area), with the same consequence as a failed page write: an I/O failure makes the store refuse
     /// writes until it is reopened (G12).
     pub(crate) fn fail_write(&self, source: io::Error, requested: u64) -> Error {
@@ -808,7 +808,7 @@ fn file_pager(
     }
 }
 
-/// Removes the `muninn.data.new` left by an interrupted creation, unless another opener holds it (P8).
+/// Removes the `krummi.data.new` left by an interrupted creation, unless another opener holds it (P8).
 fn discard_leftover(folder: &Path) -> Result<()> {
     let path = folder.join(NEW_DATA_FILE);
     let in_use = || Error::StoreInUse {
@@ -844,17 +844,17 @@ fn create_error(folder: &Path, source: io::Error) -> Error {
 enum Created {
     Store(Box<Pager>),
     /// The folder changed under this opener (another opener created the store or discarded this opener's
-    /// `muninn.data.new`): the caller looks at the folder again.
+    /// `krummi.data.new`): the caller looks at the folder again.
     Retry,
 }
 
-/// Creates a store in an empty folder: prepares it in `muninn.data.new` under the store lock, flushes it and
-/// renames it to `muninn.data` without replacing an existing one, keeping the file open and locked from start
+/// Creates a store in an empty folder: prepares it in `krummi.data.new` under the store lock, flushes it and
+/// renames it to `krummi.data` without replacing an existing one, keeping the file open and locked from start
 /// to end (P8, P9).
 ///
-/// Another opener can only discard this opener's `muninn.data.new` in the instant between its creation and its
+/// Another opener can only discard this opener's `krummi.data.new` in the instant between its creation and its
 /// lock (and only on Unix: on Windows it is opened without delete sharing). The rename then finds that the file
-/// at `muninn.data.new` is no longer this one, and the caller looks at the folder again.
+/// at `krummi.data.new` is no longer this one, and the caller looks at the folder again.
 fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
     let new_path = folder.join(NEW_DATA_FILE);
     let data_path = folder.join(DATA_FILE);

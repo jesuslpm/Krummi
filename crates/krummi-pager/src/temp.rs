@@ -1,7 +1,7 @@
-//! The temporary area (J7 of the Journal PRD): where the committed page versions that are not in `muninn.data` yet
+//! The temporary area (J7 of the Journal PRD): where the committed page versions that are not in `krummi.data` yet
 //! live, outside the process memory for stores on disk.
 //!
-//! The area is a set of chunks of page-sized slots. For a store on disk each chunk is a file of the `muninn.temp`
+//! The area is a set of chunks of page-sized slots. For a store on disk each chunk is a file of the `krummi.temp`
 //! subfolder, mapped for reading and writing; for a temporary store it is plain memory. Chunks are never moved or
 //! unmapped while the area lives, so a reference to a slot stays valid as long as the slot is held.
 //!
@@ -23,7 +23,7 @@ use crate::pager::Pager;
 use crate::sys;
 
 /// Name of the subfolder of the temporary area in the store's folder (J2).
-pub const TEMP_DIR: &str = "muninn.temp";
+pub const TEMP_DIR: &str = "krummi.temp";
 /// Slots of the first chunk; each new chunk doubles the previous one up to [`MAX_CHUNK_PAGES`] (8 MiB), so a store
 /// near a full disk never reserves much more than it needs.
 const FIRST_CHUNK_PAGES: usize = 16;
@@ -31,7 +31,7 @@ const MAX_CHUNK_PAGES: usize = 1024;
 
 /// The temporary area of a store.
 pub(crate) struct TempArea {
-    /// `muninn.temp` for a store on disk, `None` for a temporary store.
+    /// `krummi.temp` for a store on disk, `None` for a temporary store.
     dir: Option<PathBuf>,
     state: Mutex<AreaState>,
 }
@@ -53,7 +53,7 @@ struct Chunk {
 
 /// What owns the memory of a chunk.
 enum Keep {
-    /// A mapped file of `muninn.temp`; the file stays open while it is mapped.
+    /// A mapped file of `krummi.temp`; the file stays open while it is mapped.
     File(#[allow(dead_code)] File, #[allow(dead_code)] MmapMut),
     /// A heap allocation owned through `ptr` (see `Drop`).
     Heap,
@@ -162,7 +162,7 @@ impl TempArea {
         Ok(())
     }
 
-    /// Unmaps every chunk and removes `muninn.temp` (J7). While a slot is still held nothing is unmapped, so its
+    /// Unmaps every chunk and removes `krummi.temp` (J7). While a slot is still held nothing is unmapped, so its
     /// reference stays valid, and the folder may stay behind.
     pub(crate) fn remove(&self) -> io::Result<()> {
         let chunks = {

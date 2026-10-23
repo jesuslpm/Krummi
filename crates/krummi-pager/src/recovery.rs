@@ -3,13 +3,13 @@
 //! Pass 1 reads every journal file the header needs, one record at a time, and finds the intact records, also
 //! after a damaged one: they start at multiples of [`ALIGN`]. Recovery never holds more than one record in memory. It decides, before anything changes, which commits apply:
 //!
-//! - commits up to the one the header records as applied are already in `muninn.data` and are skipped;
+//! - commits up to the one the header records as applied are already in `krummi.data` and are skipped;
 //! - the next ones apply in order while they follow one another;
 //! - when the next expected commit is missing (incomplete, damaged, or in a missing file), it is a commit that did
 //!   not finish if no later intact record was written while it was already durable, and it is discarded with all
 //!   later ones; otherwise the journal is damaged and the opening fails without touching the store.
 //!
-//! Pass 2 writes the pages of the commits that apply, flushes `muninn.data`, records the last one in both header
+//! Pass 2 writes the pages of the commits that apply, flushes `krummi.data`, records the last one in both header
 //! copies and removes the journal and the temporary area. An interruption at any point leaves what the next
 //! opening needs to do the same again.
 
@@ -98,7 +98,7 @@ pub(crate) fn recover(pager: &mut Pager, folder: &Path) -> Result<Recovered> {
     })
 }
 
-/// The journal files in `folder`, sorted by number, and whether `muninn.temp` is there. An entry with a reserved
+/// The journal files in `folder`, sorted by number, and whether `krummi.temp` is there. An entry with a reserved
 /// name of the wrong kind is damage (J9).
 fn list(folder: &Path) -> Result<(Vec<(u64, PathBuf)>, bool)> {
     let mut files = Vec::new();
@@ -243,7 +243,7 @@ fn decide<'a>(found: &'a [Found], applied: u64, folder: &Path) -> Result<Vec<&'a
     Ok(apply)
 }
 
-/// Writes the pages of one commit's raw payload into `muninn.data`, growing it as needed even beyond the maximum
+/// Writes the pages of one commit's raw payload into `krummi.data`, growing it as needed even beyond the maximum
 /// size (J8).
 fn apply_pages(pager: &mut Pager, raw: &[u8], folder: &Path) -> Result<()> {
     let mut highest = 0;

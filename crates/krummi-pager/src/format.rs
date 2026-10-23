@@ -1,13 +1,15 @@
-//! On-disk format of `muninn.data` (decisions P2–P6 of the Pager PRD).
+//! On-disk format of `krummi.data` (decisions P2–P6 of the Pager PRD).
 //!
 //! Layout of the two header pages:
 //!
 //! - page 0: the identification mark (bytes 0..16), then header copy A at byte 64;
 //! - page 1: header copy B at byte 0.
 //!
-//! Format 2 (module 3) adds to each header copy how far the journal has been transferred to `muninn.data`. Format 1
+//! Format 2 (module 3) adds to each header copy how far the journal has been transferred to `krummi.data`. Format 1
 //! copies are still decoded, with their own layout, so that a store of format 1 is refused as an older format and
-//! not as damage (J3 of the Journal PRD).
+//! not as damage (J3 of the Journal PRD). Format 3 (the rename to Krummi) changes only the mark and the file names;
+//! its header copies have the layout of format 2, so a format 2 header with the new mark is an older format (R5 of
+//! the rename-to-krummi PRD).
 //!
 //! Every other page starts with a 16-byte page header (checksum, page number) followed by its payload. The
 //! checksum covers the page number and the payload, so a page written at the wrong position is also detected.
@@ -21,10 +23,10 @@ pub const PAGE_SIZE: usize = 8192;
 /// [`PAGE_SIZE`] as a `u64`, for file offsets.
 pub const PAGE_SIZE_U64: u64 = PAGE_SIZE as u64;
 /// Format version written by this version of the engine (P5).
-pub const FORMAT_VERSION: u32 = 2;
-/// Identification mark at the start of `muninn.data` (P4). The `\r\n`, `\x1a` and `\n` bytes detect text-mode
+pub const FORMAT_VERSION: u32 = 3;
+/// Identification mark at the start of `krummi.data` (P4). The `\r\n`, `\x1a` and `\n` bytes detect text-mode
 /// transfers that would corrupt the file, as in the PNG signature.
-pub const MARK: [u8; 16] = *b"\x89MuninnDB\r\n\x1a\n\0\0\0";
+pub const MARK: [u8; 16] = *b"\x89Krummi\r\n\x1a\n\0\0\0\0\0";
 /// Number of pages that hold the header copies; data pages start after them.
 pub const HEADER_PAGES: u64 = 2;
 /// Size of the per-page header: checksum and page number.
@@ -34,7 +36,7 @@ pub const PAGE_PAYLOAD_SIZE: usize = PAGE_SIZE - PAGE_HEADER_SIZE;
 
 const HEADER_A_OFFSET: usize = 64;
 const HEADER_B_OFFSET: usize = PAGE_SIZE;
-/// Byte offsets of the two header copies in `muninn.data`.
+/// Byte offsets of the two header copies in `krummi.data`.
 pub const HEADER_COPY_OFFSETS: [u64; 2] = [HEADER_A_OFFSET as u64, HEADER_B_OFFSET as u64];
 
 /// A header copy of format 2.
@@ -72,7 +74,7 @@ pub struct Header {
     pub page_size: u32,
     /// Grows each time the header is written; the intact copy with the highest revision is the current one.
     pub revision: u64,
-    /// Last commit whose changes are all in `muninn.data` and flushed to the disk (J6 of the Journal PRD).
+    /// Last commit whose changes are all in `krummi.data` and flushed to the disk (J6 of the Journal PRD).
     pub applied_txid: u64,
     /// Number of the first journal file that may hold commits after `applied_txid`.
     pub journal_first: u64,
@@ -242,7 +244,7 @@ mod tests {
             read_header_pages(&pages),
             HeaderRead::Found(Header::new_store())
         );
-        assert_eq!(Header::new_store().format_version, 2);
+        assert_eq!(Header::new_store().format_version, 3);
     }
 
     #[test]

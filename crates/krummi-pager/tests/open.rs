@@ -19,7 +19,7 @@ fn ac_p1_a_missing_folder_is_created_with_a_new_store() {
     let pager = open(&folder);
     let info = pager.info();
     assert_eq!(info.format_version, FORMAT_VERSION);
-    assert_eq!(info.format_version, 2);
+    assert_eq!(info.format_version, 3);
     assert_eq!(info.page_size, 8192);
     assert!(
         info.size_bytes <= 1_048_576 && info.size_bytes.is_multiple_of(8192),
@@ -228,7 +228,7 @@ fn ac9_other_format_versions_are_refused_without_touching_the_store() {
     let tmp = tempfile::tempdir().unwrap();
     open(tmp.path()).close().unwrap();
     let data = tmp.path().join(DATA_FILE);
-    for version in [0, FORMAT_VERSION + 1] {
+    for version in [0, 2, FORMAT_VERSION + 1] {
         common::rewrite_format_version(&data, version);
         let before = file_bytes(&data);
         match open_err(tmp.path()) {
@@ -319,7 +319,7 @@ fn child_helper_open_and_hold() {
     common::run_child_helper();
 }
 
-/// The data file is named exactly `muninn.data` whatever the length of the folder path (the Windows rename
+/// The data file is named exactly `krummi.data` whatever the length of the folder path (the Windows rename
 /// once read the target name past its end when no padding followed it).
 #[test]
 fn the_data_file_name_does_not_depend_on_the_path_length() {
@@ -352,7 +352,7 @@ fn ac_j6_a_store_of_format_1_is_refused_as_older_without_touching_it() {
     match open_err(tmp.path()) {
         krummi_pager::Error::DifferentFormat {
             found, expected, ..
-        } => assert_eq!((found, expected), (1, 2)),
+        } => assert_eq!((found, expected), (1, FORMAT_VERSION)),
         other => panic!("expected a different format, got {other:?}"),
     }
     assert_eq!(file_bytes(&data), bytes);

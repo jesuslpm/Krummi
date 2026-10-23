@@ -455,7 +455,7 @@ fn ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it() {
     }
 }
 
-/// J6 replaces AC-T21: the close records in both header copies the last commit, which `muninn.data` holds.
+/// J6 replaces AC-T21: the close records in both header copies the last commit, which `krummi.data` holds.
 #[test]
 fn j6_the_close_records_the_last_commit_in_both_header_copies() {
     let tmp = tempfile::tempdir().unwrap();
