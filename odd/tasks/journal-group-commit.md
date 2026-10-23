@@ -99,8 +99,8 @@ implementación*.
 | T2 | S9, S19 (direct I/O, fallback, reservation; test hooks shared with the journal thread) | inline | done | `92b6345` |
 | T3 | S8, S10, S12, S13, S17 (journal thread and groups; readers see durable commits) | inline | done | `6507bb2` |
 | T4 | S1, S2, S3, S4, S5, S6, S7, S11, S16, S18 (turn released at the point of no return, E11, failure listener) | inline | done | `07c655d` |
-| T5 | S15 (measurement on Windows and Linux) | inline | pending | |
-| T6 | S19 (docs, both platforms, independent verification) | inline + verifier | pending | |
+| T5 | S15 (measurement on Windows and Linux) | inline | done | `4e38ff9` |
+| T6 | S19 (docs, both platforms, independent verification) | inline + verifier | done | `e48581d`, `5b44336` |
 
 Route evidence: one behavior spread over dependent deliveries (each needs the previous one); no parallel independent
 units and no context backstop, so no Writer trigger. Risk: items 1 (journal format, format 4) and 4 (concurrency):
@@ -145,3 +145,33 @@ independent verifier at the end and RDD review per high-risk commit.
   waking the requests waiting for the turn. AC-T5's test stopped at every point, so it hung on the new ones; it now
   checks all-or-nothing after the point of no return too. RED for the new criteria not observed on behavior: the
   test file uses the new points, so it does not compile against T3. Suite 186 passed in both modes.
+- **L10** RDD review of T4, recorded when it ended:
+
+  | Commits | Lenses | Result | Findings and resolution | Lineage |
+  |---|---|---|---|---|
+  | `6507bb2..07c655d` | risk, resilience, reliability, readability | approved | WARNING R3-001 and R3-002: AC-E1 and AC-E11 asked for the turn with a zero limit while the held commit could still own it for an instant; fixed in `6165f93` with `next_writer`, which retries until the turn is released, and AC-E11 now checks that aborting does not wait. SUGGESTION R2-failure-paths-diverge: one `refuse_writes` helper for the hook and `note_failure`. SUGGESTION R2-duplicated-queue-helper: `queue_on_thread` moved to the shared test module. SUGGESTION R2-t10-citation: the unused `POINTS_BEFORE_NO_RETURN` constant removed. All in `6165f93`. | `review-26a4cd1b5641bf9e` |
+- **L11** T5: `cargo run --release -p krummi-tx --example commit_rate` (3 s per thread count), durable commits per
+  second:
+
+  | Platform | Journal writes | 1 thread | 4 threads | 16 threads |
+  |---|---|---|---|---|
+  | Windows 11, NTFS | direct | 11,390 | 22,110 | 10,129 |
+  | Windows 11, NTFS | fallback | 474 | 1,012 | 3,189 |
+  | Linux (WSL 2 Ubuntu, ext4) | direct | 117 | 256 | 1,572 |
+  | Linux (WSL 2 Ubuntu, ext4) | fallback | 86 | 274 | 1,239 |
+
+  Grouping gives about 7x (Windows fallback) and 13x (Linux direct) with 16 threads. With direct writes on
+  Windows, 16 threads are slower than 4: every group wakes all the waiting commits (one condition variable). No
+  threshold (D5); a follow-up candidate.
+- **L12** T6: Linux (WSL 2 Ubuntu, Rust 1.99.0, clone `~/muninn-accept`) on `4e38ff9`: suite 186 passed in each mode
+  (64 s direct, 54 s fallback), fmt and clippy clean; full AC10 sweeps in release: Pager 1.9 s, transactions 16 s,
+  journal 30 s (the journal sweep now uses a 32 KiB journal file, `e48581d`). README updated.
+- **L13** Independent verification (Sonnet, high) on `4e38ff9`: no blockers; S1–S14 and S16–S19 met, S6 partially
+  (the `Handoff` point after the point of no return is not exercised; the PRD leaves the points to the
+  implementation), S15 pending the closing report. Differential probe against `d88a74a` on the shared public API:
+  identical output. Probes: no torn or non-durable read with 4 writers and 3 readers; 464 power cuts with
+  concurrent groups; byte flips per group. Advisories: A1 AC-J8 raced with the writer (failed once on Linux in
+  fallback mode) — fixed in `5b44336` by pausing the writer; A2 a panic in the `Handoff` hook skips the wake-up
+  (baseline); A3 flips in the zero padding after a record are not detected (baseline). The verifier also started
+  the full AC10 sweeps in debug on Windows (27 min for one); stopped on the parent's request at 13:07, since they
+  had already passed on Linux. Its scratch folders were removed by the parent.

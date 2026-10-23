@@ -1,4 +1,5 @@
-//! Durable commits per second with 1, 4 and 16 threads committing at once (E16 of the grouped journal PRD).
+//! Durable commits per second with 1, 4 and 16 threads committing at once (decision E16 of the grouped journal
+//! PRD, checked by criterion AC-E15).
 //!
 //! Run it twice, with direct journal writes and with the fallback through the system's cache:
 //!
@@ -9,7 +10,9 @@
 //!
 //! Each run opens a new store in a temporary folder inside `folder` (the system's temporary folder by default),
 //! with journal files of the release size, and lets every thread commit one page of its own, durably, for
-//! `seconds` (3 by default). It prints one Markdown table row per thread count. There is no threshold (D5).
+//! `seconds` (3 by default). It prints one Markdown table row per thread count. There is no threshold (D5). The
+//! journal-writes column repeats what was asked (whether `KRUMMI_JOURNAL_BUFFERED` is set): a file system that
+//! refuses direct writes makes the engine fall back without saying so (E6).
 
 use std::time::{Duration, Instant};
 

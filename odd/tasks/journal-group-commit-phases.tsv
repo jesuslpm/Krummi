@@ -16,3 +16,19 @@
 2026-10-23T12:13:32+01:00	mark	implement	T5
 2026-10-23T12:14:11+01:00	bg-end	review	RDD T4
 2026-10-23T12:14:49+01:00	mark	fix	T4-review
+2026-10-23T12:19:44+01:00	mark	checks	T6
+2026-10-23T12:20:20+01:00	bg-start	acceptance	Linux suite and measurement
+2026-10-23T12:20:51+01:00	mark	docs	T6
+2026-10-23T12:22:31+01:00	bg-end	acceptance	Linux suite and measurement
+2026-10-23T12:22:48+01:00	bg-start	acceptance	Linux suites
+2026-10-23T12:22:52+01:00	bg-end	acceptance	Linux suites
+2026-10-23T12:23:04+01:00	bg-start	acceptance	Linux suites
+2026-10-23T12:25:07+01:00	bg-end	acceptance	Linux suites
+2026-10-23T12:25:47+01:00	bg-start	acceptance	Linux full AC10 sweeps
+2026-10-23T12:28:42+01:00	bg-end	acceptance	Linux full AC10 sweeps
+2026-10-23T13:09:26+01:00	mark	fix	verifier-A1
+2026-10-23T13:10:38+01:00	mark	review	last-slice
+2026-10-23T13:10:54+01:00	bg-start	review	RDD last slice
+2026-10-23T13:10:54+01:00	bg-start	acceptance	Linux suites final
+2026-10-23T13:12:58+01:00	bg-end	acceptance	Linux suites final
+2026-10-23T13:12:58+01:00	bg-end	review	RDD last slice
