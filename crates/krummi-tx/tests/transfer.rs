@@ -287,3 +287,37 @@ fn a_transfer_failing_without_refusing_writes_is_retried() {
     engine.close().unwrap();
     assert_eq!(read_text(&disk(tmp.path()), page), "c");
 }
+
+/// S2 (RDD R3/R4): a pass that keeps failing without refusing writes (a full disk) is not run again at once, even
+/// when a put-off journal file release is already due: the passes wait for the next signal.
+#[test]
+fn a_failing_pass_does_not_spin_on_a_due_release() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let interval = std::time::Duration::from_millis(50);
+    engine.set_transfer_pacing(interval, u64::MAX, std::time::Duration::from_secs(1));
+    engine.set_journal_file_limit(4096);
+    let page = new_page(&engine, "a");
+    set(&engine, page, "b");
+    wait_until(|| journal_files(tmp.path()) == 1);
+    // Released now: the next release is put off for a second, and the pass that writes "c" leaves it due then.
+    set(&engine, page, "c");
+    wait_until(|| engine.scratch_bytes() == 0);
+    engine.set_transfer_hook(Some(Arc::new(|| {
+        testing::inject(
+            Op::Write,
+            testing::count(Op::Write),
+            Action::Fail(std::io::ErrorKind::StorageFull),
+        );
+    })));
+    set(&engine, page, "d");
+    let before = engine.transfer_passes();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let passes = engine.transfer_passes() - before;
+    engine.set_transfer_hook(None);
+    assert!(passes < 20, "{passes} failing passes in 1.5 s");
+    set(&engine, page, "e");
+    wait_until(|| engine.scratch_bytes() == 0);
+    assert_eq!(read_text(&engine, page), "e");
+    engine.close().unwrap();
+}

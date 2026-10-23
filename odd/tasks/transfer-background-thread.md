@@ -80,3 +80,11 @@ Writer trigger reason. Risk: item 4 (a new thread, condvar ordering, shutdown): 
   caller and passes stop until the close (out of domain); A3 with over 32 MiB held by a long read every commit
   starts a pass, no more than the baseline's one transfer per commit; A4 a stale `retry_at` after a demand costs
   one extra pass. Verifier probes (6 writers, 3 readers, close/drop/reopen) passed.
+- **L9** (RDD review, 2026-10-23): commits `6709631`, `ae06585`, `74ab5d1` (phase log) against `c075d29`; lenses
+  risk, resilience, reliability; result approved, acknowledged (lineage `review-fec7abde0abc0132`, authority
+  burned). Findings, both WARNING and informational, same cause: R3-retry-at-busy-loop (reliability) and
+  R4-stale-retry-spin (resilience) at `transfer.rs:308-316`: after a pass fails without refusing writes, a due
+  put-off release made the thread run failing passes back to back. Resolution (follow-up commit): a failure drops
+  the put-off release until the next signal, and a put-off release also waits for the pass interval. Test
+  `a_failing_pass_does_not_spin_on_a_due_release` (RED: 15,617 and 17,798 passes in 1.5 s; GREEN). Suite 196
+  passed; fmt and clippy clean.

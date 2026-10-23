@@ -204,12 +204,14 @@ impl Signal {
                 continue;
             }
             let now = Instant::now();
+            let ready = last_pass.map_or(now, |last| last + state.pacing.interval);
+            // A put-off release also waits for the interval since the last pass.
+            let retry_at = retry_at.map(|at| at.max(ready));
             if retry_at.is_some_and(|at| now >= at) {
                 break;
             }
             let mut deadline = retry_at;
             if state.requested {
-                let ready = last_pass.map_or(now, |last| last + state.pacing.interval);
                 if state.urgent || now >= ready {
                     break;
                 }
@@ -307,13 +309,16 @@ fn run(signal: &Signal, shared: &Shared) {
         };
         match outcome {
             Ok(next) => retry_at = next,
-            // Only a failure that made the store refuse writes ends the passes (J13); after another one (a full
-            // disk, T12), the next signal tries again, as the next commit did before.
-            Err(_) if !failed && shared.refuses_writes() => {
-                failed = true;
-                shared.report_failure();
+            Err(_) => {
+                // Only a failure that made the store refuse writes ends the passes (J13); after another one (a
+                // full disk, T12), the next signal tries again, as the next commit did before, and a put-off
+                // release waits for it too, so a failing pass is never run again at once.
+                retry_at = None;
+                if !failed && shared.refuses_writes() {
+                    failed = true;
+                    shared.report_failure();
+                }
             }
-            Err(_) => {}
         }
     }
 }
