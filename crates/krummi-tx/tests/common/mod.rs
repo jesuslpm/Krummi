@@ -74,3 +74,39 @@ pub fn wait_until(condition: impl Fn() -> bool) {
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+
+/// Runs `commit` on a new thread that shares this thread's fault state and recording, and waits until the
+/// journal's queue holds `queued` commits.
+pub fn queue_on_thread<'s, T: Send + 's>(
+    s: &'s std::thread::Scope<'s, '_>,
+    engine: &'s Engine,
+    queued: usize,
+    commit: impl FnOnce() -> T + Send + 's,
+) -> std::thread::ScopedJoinHandle<'s, T> {
+    let context = krummi_pager::testing::context();
+    let handle = s.spawn(move || {
+        krummi_pager::testing::adopt(&context);
+        commit()
+    });
+    wait_until(|| engine.journal_queued() == queued);
+    handle
+}
+
+/// The write transaction, once the commit that passed its point of no return on another thread has released the
+/// turn (it still holds it for an instant after entering the journal's queue).
+pub fn next_writer(engine: &Engine) -> WriteTransaction<'_> {
+    let start = Instant::now();
+    loop {
+        match engine.write(Some(Duration::ZERO)) {
+            Ok(tx) => return tx,
+            Err(e) if e.kind() == krummi_tx::ErrorKind::Timeout => {
+                assert!(
+                    start.elapsed() < Duration::from_secs(10),
+                    "the turn was never released"
+                );
+                std::thread::yield_now();
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+}

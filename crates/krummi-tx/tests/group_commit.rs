@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use common::{disk, put, read_text, text, wait_until};
+use common::{disk, next_writer, put, queue_on_thread, read_text, text, wait_until};
 use krummi_pager::DATA_FILE;
 use krummi_pager::testing::{self, Action, Op};
 use krummi_tx::{Engine, ErrorKind};
@@ -253,23 +253,6 @@ fn ac_e17_a_commit_waiting_for_room_in_the_queue() {
     assert_eq!(read_text(&engine, pages[2]), "-");
 }
 
-/// Runs `commit` on a new thread that shares this thread's fault state, and waits until the journal's queue holds
-/// `queued` commits.
-fn queue_on_thread<'s, T: Send + 's>(
-    s: &'s std::thread::Scope<'s, '_>,
-    engine: &'s Engine,
-    queued: usize,
-    commit: impl FnOnce() -> T + Send + 's,
-) -> std::thread::ScopedJoinHandle<'s, T> {
-    let context = testing::context();
-    let handle = s.spawn(move || {
-        testing::adopt(&context);
-        commit()
-    });
-    wait_until(|| engine.journal_queued() == queued);
-    handle
-}
-
 fn commit_on(engine: &Engine, page: u64, value: &str) -> krummi_tx::Result<()> {
     let mut tx = engine.write(None).unwrap();
     put(&mut tx, page, value);
@@ -291,7 +274,7 @@ fn ac_e1_the_turn_is_released_at_the_point_of_no_return() {
             commit_on(engine, pages[0], "b").unwrap();
             read_text(engine, pages[0])
         });
-        let next = engine.write(Some(Duration::ZERO)).unwrap();
+        let next = next_writer(engine);
         assert_eq!(
             text(next.page(pages[0]).unwrap()),
             "b",
@@ -434,7 +417,7 @@ fn ac_e7_a_deferred_commit_returns_without_waiting() {
         let pages = &pages;
         let held = queue_on_thread(s, engine, 1, move || commit_on(engine, pages[0], "durable"));
         commit_deferred(engine, pages[1], "deferred");
-        let next = engine.write(Some(Duration::ZERO)).unwrap();
+        let next = next_writer(engine);
         assert_eq!(text(next.page(pages[0]).unwrap()), "durable");
         assert_eq!(text(next.page(pages[1]).unwrap()), "deferred");
         next.abort();
@@ -462,11 +445,12 @@ fn ac_e11_a_commit_without_changes_waits_for_what_it_saw() {
             let engine = &engine;
             let pages = &pages;
             let held = queue_on_thread(s, engine, 1, move || commit_on(engine, pages[0], "held"));
-            let deferred = engine.write(Some(Duration::ZERO)).unwrap();
-            deferred.commit_deferred().unwrap();
+            // Aborting, and a deferred commit without changes, end at once with commits pending.
+            next_writer(engine).abort();
+            next_writer(engine).commit_deferred().unwrap();
             let (done, finished) = mpsc::channel();
             let empty = s.spawn(move || {
-                let tx = engine.write(Some(Duration::ZERO)).unwrap();
+                let tx = next_writer(engine);
                 let result = tx.commit();
                 done.send(()).unwrap();
                 result

@@ -47,10 +47,6 @@ pub enum Point {
     CommitWait,
 }
 
-/// Points before the commit's point of no return: an interruption there applies nothing (T10).
-pub const POINTS_BEFORE_NO_RETURN: [Point; 3] =
-    [Point::CommitFlush, Point::CommitSeal, Point::CommitPublish];
-
 #[cfg(feature = "test-hooks")]
 type Hook = std::sync::Arc<dyn Fn(Point) + Send + Sync>;
 
@@ -72,6 +68,17 @@ pub struct Engine {
 struct Turns {
     queue: Mutex<Queue>,
     turn: Condvar,
+}
+
+impl Turns {
+    /// The store refuses writes (T12): the requests waiting for the turn fail at once, and so do new ones.
+    fn refuse_writes(&self) {
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .io_failed = true;
+        self.turn.notify_all();
+    }
 }
 
 struct Queue {
@@ -123,15 +130,10 @@ impl Engine {
             }),
             turn: Condvar::new(),
         });
+        // The journal's writer calls it when a group fails: the store already refuses writes, and the writer has
+        // woken its own waiters (E8).
         let woken = Arc::clone(&turns);
-        scratch.set_failure_hook(Some(Arc::new(move || {
-            woken
-                .queue
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .io_failed = true;
-            woken.turn.notify_all();
-        })));
+        scratch.set_failure_hook(Some(Arc::new(move || woken.refuse_writes())));
         Ok(Engine {
             max_size: pager.info().max_size,
             scratch,
@@ -381,8 +383,7 @@ impl Engine {
     /// Records that the store refuses writes, if it does: the waiting requests fail at once (T12).
     fn note_failure(&self) {
         if !self.scratch.pager().accepts_writes() {
-            self.lock_queue().io_failed = true;
-            self.turns.turn.notify_all();
+            self.turns.refuse_writes();
             self.scratch.wake();
         }
     }

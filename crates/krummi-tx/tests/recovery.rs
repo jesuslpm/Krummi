@@ -834,26 +834,6 @@ fn ac_e8_deferred_commits_become_durable_like_durable_ones() {
     }
 }
 
-/// Commits `value` into `page` on a new thread that shares this thread's fault state and recording, waits until
-/// the journal's queue holds `queued` commits, and returns the thread, which gives the recorded count once its
-/// commit returned.
-fn queue_commit<'s>(
-    s: &'s std::thread::Scope<'s, '_>,
-    engine: &'s Engine,
-    queued: usize,
-    page: u64,
-    value: &'s str,
-    durable: bool,
-) -> std::thread::ScopedJoinHandle<'s, usize> {
-    let context = testing::context();
-    let handle = s.spawn(move || {
-        testing::adopt(&context);
-        commit_all(engine, &[page], value, durable)
-    });
-    common::wait_until(|| engine.journal_queued() == queued);
-    handle
-}
-
 /// Writes the commits `(page, durable)` of one group: each enters the queue in order while the writer is paused,
 /// then they are written together. Returns the recorded count when each one had returned.
 fn group(engine: &Engine, commits: &[(u64, bool)], value: &str) -> Vec<usize> {
@@ -862,7 +842,11 @@ fn group(engine: &Engine, commits: &[(u64, bool)], value: &str) -> Vec<usize> {
         let threads: Vec<_> = commits
             .iter()
             .enumerate()
-            .map(|(i, &(page, durable))| queue_commit(s, engine, i + 1, page, value, durable))
+            .map(|(i, &(page, durable))| {
+                common::queue_on_thread(s, engine, i + 1, move || {
+                    commit_all(engine, &[page], value, durable)
+                })
+            })
             .collect();
         engine.set_journal_paused(false);
         threads
