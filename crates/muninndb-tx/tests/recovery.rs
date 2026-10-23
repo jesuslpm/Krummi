@@ -335,18 +335,20 @@ fn ac_j7_deferred_commits_survive_as_a_prefix() {
         let pages = reserve(&engine, 1, "a");
         commit_all(&engine, &pages, "deferred", false);
         if close {
-            let ops = testing::take_recording();
             engine.close().unwrap();
-            let _ = ops;
-            let engine = open(source.path());
-            assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("deferred"));
-            continue;
+        } else {
+            engine.make_durable().unwrap();
         }
-        engine.make_durable().unwrap();
         let run = Run::finish(source, vec![]);
-        let folder = run.crash(run.ops.len(), Model::Flushed);
-        let engine = open(folder.path());
-        assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("deferred"));
+        for model in POWER_CUTS {
+            let folder = run.crash(run.ops.len(), model);
+            let engine = open(folder.path());
+            assert_eq!(
+                texts(&engine, &pages)[0].as_deref(),
+                Some("deferred"),
+                "close {close} {model:?}"
+            );
+        }
     }
 }
 

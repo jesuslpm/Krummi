@@ -24,9 +24,10 @@ use crate::sys;
 
 /// Name of the subfolder of the temporary area in the store's folder (J2).
 pub const TEMP_DIR: &str = "muninn.temp";
-/// Slots of the first chunk; each new chunk doubles the previous one up to [`MAX_CHUNK_PAGES`].
+/// Slots of the first chunk; each new chunk doubles the previous one up to [`MAX_CHUNK_PAGES`] (8 MiB), so a store
+/// near a full disk never reserves much more than it needs.
 const FIRST_CHUNK_PAGES: usize = 16;
-const MAX_CHUNK_PAGES: usize = 4096;
+const MAX_CHUNK_PAGES: usize = 1024;
 
 /// The temporary area of a store.
 pub(crate) struct TempArea {

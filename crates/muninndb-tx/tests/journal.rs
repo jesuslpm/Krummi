@@ -278,3 +278,27 @@ fn deferred_commits_alone_do_not_pile_up_in_the_temporary_area() {
     assert!(most < 2 << 20, "{most} bytes waited in the temporary area");
     engine.close().unwrap();
 }
+
+/// S4 of the journal follow-ups: the temporary area grows in files of at most 8 MiB.
+#[test]
+fn the_temporary_area_grows_in_files_of_at_most_8_mib() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let hold = engine.read().unwrap();
+    for _ in 0..21 {
+        let mut tx = engine.write(None).unwrap();
+        for _ in 0..100 {
+            tx.allocate().unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    let temp = tmp.path().join(TEMP_DIR);
+    let sizes: Vec<u64> = fs::read_dir(&temp)
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .collect();
+    assert!(sizes.iter().sum::<u64>() >= 2100 * 8192, "{sizes:?}");
+    assert!(sizes.iter().all(|&s| s <= 8 << 20), "{sizes:?}");
+    drop(hold);
+    engine.close().unwrap();
+}
