@@ -71,7 +71,23 @@ Evaluaciones que no abrieron revisión:
 
 ## Pasos externos del cierre
 
-Se completa en la confirmación final, tras la fusión (R9).
+Hechos tras la fusión en `main` (`ec70386`), en el orden de R9, con la autorización dada al arrancar:
+
+1. **GitHub** (AC-R10, PASS): `gh repo rename Krummi -R jesuslpm/MuninnDB --yes` salió con código 0, y
+   `gh repo view jesuslpm/Krummi` responde `jesuslpm/Krummi`, `https://github.com/jesuslpm/Krummi`.
+2. **Remoto** (AC-R10, PASS): `origin` es `https://github.com/jesuslpm/Krummi.git`, y `git fetch` funciona.
+   `origin/main` sigue en `8168fa1`: no se publicó nada.
+3. **Memoria** (AC-R12, PASS en la copia, pendiente en la detección):
+   - Se exportó `muninndb`, que tenía 24 memorias, incluidas las guardadas en esta ejecución. Se importaron en
+     `krummi` con `sync_id` y fechas nuevos, dentro de una sesión nueva que las agrupa; las sesiones viejas no se
+     copiaron.
+   - Resultado: `krummi` tiene 24 memorias y `muninndb` conserva las suyas, 24. Comparadas por tipo, título,
+     contenido, ámbito y clave de tema, las dos colecciones son idénticas.
+   - Engram no tenía cómo renombrar ni fusionar el proyecto. La importación pide que exista la sesión de cada
+     memoria: probada antes en una base desechable.
+   - En `C:\projects\MuninnDB`, Engram sigue detectando `muninndb`, porque esta carpeta ya tiene sesiones de ese
+     proyecto. En un clon nuevo con el `origin` nuevo detecta `krummi`. La detección se comprueba después de mover la
+     carpeta a `C:\projects\Krummi` (R12).
 
 ## Tiempo
 
@@ -182,6 +198,9 @@ formatos. Por eso se añadieron `scripts/antivirus/` y su uso en el README.
 
 ## Pendiente (no bloqueante)
 
+- Que Engram detecte `krummi` en la copia principal: hoy detecta `muninndb` por la carpeta. Se comprueba después de
+  mover la carpeta a `C:\projects\Krummi`, que es un paso del usuario (R12). Las memorias ya están copiadas.
+
 - 25 enlaces rotos en `docs/methodology`, que apuntan a PRD e informes de chicago-crime. Ya estaban rotos en `main` y
   este cambio no los toca.
 - En Windows, con el antivirus activo, el barrido completo del Pager es lento en esta máquina. En `main` se estimaban
@@ -196,6 +215,9 @@ formatos. Por eso se añadieron `scripts/antivirus/` y su uso en el README.
 con el verificador independiente y RDD (riesgo y fiabilidad).
 
 ## Limpieza manual
+
+- Mover la copia principal a `C:\projects\Krummi` con el editor cerrado (R12) y, ya abierta en la carpeta nueva,
+  comprobar que Engram detecta `krummi`.
 
 - Quitar la exclusión de Defender, como administrador:
   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/antivirus/Remove-DefenderExclusion.ps1`.

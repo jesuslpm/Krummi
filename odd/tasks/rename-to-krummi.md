@@ -121,3 +121,9 @@ review.
 ## Closing
 
 Report: [rename-to-krummi-report.md](rename-to-krummi-report.md).
+- **L19** External steps after the merge (`ec70386`): GitHub repository renamed to `jesuslpm/Krummi` (verified with
+  `gh repo view`); `origin` repointed, fetch works, `origin/main` still `8168fa1` (nothing pushed); Engram: 24
+  memories of `muninndb` copied into `krummi` by export and import (new sync ids and dates, one carrier session;
+  tested first on a throwaway database), multisets of (type, title, content, scope, topic key) identical, `muninndb`
+  unchanged. Engram still detects `muninndb` in `C:\projects\MuninnDB` (sessions registered by folder); a fresh clone
+  with the new `origin` detects `krummi`. Detection to be checked after the user moves the folder (R12).
