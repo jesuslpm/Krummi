@@ -62,3 +62,13 @@ Writer trigger reason. Risk: item 4 (concurrency: the transfer thread's wake-up 
   checks that growing by the threshold again starts a pass within 2 s while the interval is 5 s, and fails without
   the growth rule: the pass came after 4.97 s); R3-set-pacing-deadline (a shortened interval does not pull in a
   pending deadline; test hook only, kept). Suite 197 passed; fmt and clippy clean.
+- **L7** (RDD review, 2026-10-23): commit `093b4cd` against `fdcf161`; lens reliability; approved, acknowledged
+  (lineage `review-74f106f7a3a80f30`). Findings: R3-growth-positive-attribution (WARNING): the positive half could
+  pass without the growth rule if a pending interval deadline fell inside its 2 s window; that needs the first half
+  to take over 3 s (the only pending deadline is 5 s after the first urgent pass, and passes are counted when they
+  start), so it is kept as a pending note. R3-growth-wallclock-bound (SUGGESTION): the 2 s window also covers 150
+  allocations and a commit; kept, pending.
+
+## Closing
+
+Closing report: [transfer-pacing-report.md](transfer-pacing-report.md).
