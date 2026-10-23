@@ -39,6 +39,7 @@ struct State {
     abort_at_point: Option<usize>,
     points: usize,
     recording: Option<Vec<Recorded>>,
+    skip_syncs: bool,
 }
 
 thread_local! {
@@ -53,6 +54,17 @@ pub fn inject(op: Op, nth: usize, action: Action) {
 /// Number of calls of `op` on this thread since the last [`reset`].
 pub fn count(op: Op) -> usize {
     STATE.with(|s| s.borrow().counts.get(&op).copied().unwrap_or(0))
+}
+
+/// Makes the flushes to disk of this thread succeed without flushing, for tests that check damage detection and
+/// not durability, such as the AC10 sweeps, which reopen a store tens of thousands of times.
+pub fn skip_syncs(skip: bool) {
+    STATE.with(|s| s.borrow_mut().skip_syncs = skip);
+}
+
+/// Whether this thread skips its flushes to disk.
+pub(crate) fn syncs_skipped() -> bool {
+    STATE.with(|s| s.borrow().skip_syncs)
 }
 
 /// Kills the process before the operation number `point` (from 0, counting every operation of this thread).

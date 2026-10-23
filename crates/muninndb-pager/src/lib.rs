@@ -28,6 +28,6 @@ pub mod testing {
     pub use crate::sys::Op;
     pub use crate::sys::faults::{
         Action, Model, Recorded, abort_at, count, inject, materialize, points, recorded_len, reset,
-        start_recording, take_recording,
+        skip_syncs, start_recording, take_recording,
     };
 }

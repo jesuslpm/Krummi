@@ -389,6 +389,11 @@ impl Journal {
             .map_or(state.next_number, |(number, _)| *number)
     }
 
+    /// Whether no journal file exists: nothing was committed since the store opened or the files were removed.
+    pub(crate) fn has_no_files(&self) -> bool {
+        self.lock().files.is_empty()
+    }
+
     /// Whether the journal has gone on in more than one file since its files were last removed.
     pub(crate) fn has_old_files(&self) -> bool {
         self.lock().files.len() > 1

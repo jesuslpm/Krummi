@@ -466,7 +466,13 @@ fn write_zeros(file: &File, old_len: u64, new_len: u64) -> io::Result<()> {
 /// Flushes the file's data and size to the disk.
 pub(crate) fn sync(file: &File, path: &Path) -> io::Result<()> {
     before(Op::Sync, path)?;
-    file.sync_all()?;
+    #[cfg(any(test, feature = "test-hooks"))]
+    let skipped = faults::syncs_skipped();
+    #[cfg(not(any(test, feature = "test-hooks")))]
+    let skipped = false;
+    if !skipped {
+        file.sync_all()?;
+    }
     #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::Sync(path.to_path_buf()));
     Ok(())
@@ -620,8 +626,16 @@ pub(crate) fn remove(path: &Path) -> io::Result<()> {
 /// flushed through the renamed file instead (see [`rename_open_no_replace`]).
 pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     before(Op::SyncDir, dir)?;
+    #[cfg(any(test, feature = "test-hooks"))]
+    let skipped = faults::syncs_skipped();
+    #[cfg(not(any(test, feature = "test-hooks")))]
+    let skipped = false;
     #[cfg(unix)]
-    File::open(dir)?.sync_all()?;
+    if !skipped {
+        File::open(dir)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = skipped;
     #[cfg(any(test, feature = "test-hooks"))]
     hooks::record(faults::Recorded::SyncDir(dir.to_path_buf()));
     Ok(())

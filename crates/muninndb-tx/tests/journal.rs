@@ -238,3 +238,19 @@ fn ac_j18_the_journal_stays_bounded_and_outside_the_maximum_size() {
     assert_eq!(read_text(&engine, pages[3]), "1-999");
     engine.close().unwrap();
 }
+
+/// S1 of the journal follow-ups: closing a store nobody changed writes nothing.
+#[test]
+fn closing_a_store_nobody_changed_leaves_it_byte_identical() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let page = new_page(&engine, "a");
+    engine.close().unwrap();
+    let data = tmp.path().join(muninndb_pager::DATA_FILE);
+    let before = fs::read(&data).unwrap();
+    let engine = disk(tmp.path());
+    assert_eq!(read_text(&engine, page), "a");
+    engine.close().unwrap();
+    assert_eq!(fs::read(&data).unwrap(), before);
+    assert_eq!(names(tmp.path()), vec!["muninn.data"]);
+}

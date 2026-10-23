@@ -509,6 +509,8 @@ fn ac14_a_temporary_store_with_transactions_touches_no_file() {
 /// AC10 on a store with transactions: every altered byte gives the damage class, "not a store" (the mark) or no
 /// visible difference, never different data. The suite runs a sample; the full sweep is an acceptance step.
 fn ac10_sweep(step: usize) {
+    // The sweep checks damage detection, not durability: its flushes to disk are skipped.
+    testing::skip_syncs(true);
     let tmp = tempfile::tempdir().unwrap();
     let source = tmp.path().join("source");
     let engine = disk(&source);

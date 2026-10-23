@@ -324,6 +324,7 @@ impl Scratch {
         let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
         let mut pages: Vec<_> = state.versions.keys().copied().collect();
         pages.sort_unstable();
+        let pages_written = pages.len();
         for page_number in pages {
             let page = &state.versions[&page_number]
                 .last()
@@ -336,7 +337,11 @@ impl Scratch {
             state.bytes -= versions.len() as u64 * PAGE_SIZE_U64;
         }
         state.retired.clear();
-        if let Some(journal) = &self.journal {
+        // Nothing was committed since the store opened: `muninn.data` and its header are already what a close
+        // would leave, so a close writes nothing.
+        let unchanged =
+            pages_written == 0 && self.journal.as_ref().is_none_or(Journal::has_no_files);
+        if let Some(journal) = self.journal.as_ref().filter(|_| !unchanged) {
             pager.flush_data()?;
             let applied = state.last_committed;
             for _ in 0..2 {
