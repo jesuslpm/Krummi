@@ -120,8 +120,13 @@ pub struct WriteTransaction<'s> {
 
 impl WriteTransaction<'_> {
     /// Commits the transaction durably: it returns once its changes survive a crash of the process or the
-    /// system and a power cut, and they become visible to every transaction opened after this returns. If one of
-    /// its operations failed, the commit fails with the class of the first failure and applies nothing.
+    /// system and a power cut, and they become visible to every transaction opened after this returns. The next
+    /// write transaction may start, and see them, while this one waits for the disk; commits that wait at the same
+    /// time share one write of the journal. If one of its operations failed, the commit fails with the class of
+    /// the first failure and applies nothing; once it waits for the disk it can only fail with [`ErrorKind::Io`],
+    /// and then the store refuses writes and the commit may still be there, entire, after the close or the next
+    /// opening: its outcome is unknown, never partial.
+    /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
         self.inner.commit()
     }

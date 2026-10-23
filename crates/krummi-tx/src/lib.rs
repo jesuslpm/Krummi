@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
@@ -29,18 +29,27 @@ pub const FIRST_PAGE: u64 = META_PAGE + 1;
 pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
 
 /// A point of a commit or of the hand-off of the write turn where tests can stop or interrupt the engine
-/// (AC-T5, AC-T18, AC-T19). Every commit point comes before the commit is written to the journal.
+/// (AC-T5, AC-T18, AC-T19, AC-E6). The first three come before the commit's point of no return, when it enters the
+/// journal's queue (E2 of the grouped journal PRD); the others after it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Point {
     /// The commit starts.
     CommitFlush,
     /// The commit is about to seal its pages.
     CommitSeal,
-    /// The commit is about to write its pages to the temporary area and the journal and publish them.
+    /// The commit is about to write its pages to the temporary area and the journal's queue and publish them.
     CommitPublish,
+    /// The commit passed its point of no return and is about to release the turn.
+    CommitQueued,
     /// A write transaction ended and others are waiting for the turn.
     Handoff,
+    /// The commit released the turn and is about to wait until it is durable.
+    CommitWait,
 }
+
+/// Points before the commit's point of no return: an interruption there applies nothing (T10).
+pub const POINTS_BEFORE_NO_RETURN: [Point; 3] =
+    [Point::CommitFlush, Point::CommitSeal, Point::CommitPublish];
 
 #[cfg(feature = "test-hooks")]
 type Hook = std::sync::Arc<dyn Fn(Point) + Send + Sync>;
@@ -50,14 +59,19 @@ pub struct Engine {
     scratch: Scratch,
     folder: Option<PathBuf>,
     max_size: Option<u64>,
-    queue: Mutex<Queue>,
-    turn: Condvar,
+    /// The write turn, shared with the journal's writer, which wakes the waiting requests when it fails (T12).
+    turns: Arc<Turns>,
     /// Next page to reserve, as of the newest commit.
     next_page: AtomicU64,
     /// Whether the meta page was ever committed.
     meta_written: AtomicBool,
     #[cfg(feature = "test-hooks")]
     hook: Mutex<Option<Hook>>,
+}
+
+struct Turns {
+    queue: Mutex<Queue>,
+    turn: Condvar,
 }
 
 struct Queue {
@@ -100,10 +114,7 @@ impl Engine {
             }
             next
         };
-        Ok(Engine {
-            max_size: pager.info().max_size,
-            scratch,
-            folder,
+        let turns = Arc::new(Turns {
             queue: Mutex::new(Queue {
                 owner: None,
                 waiting: VecDeque::new(),
@@ -111,6 +122,21 @@ impl Engine {
                 io_failed: false,
             }),
             turn: Condvar::new(),
+        });
+        let woken = Arc::clone(&turns);
+        scratch.set_failure_hook(Some(Arc::new(move || {
+            woken
+                .queue
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .io_failed = true;
+            woken.turn.notify_all();
+        })));
+        Ok(Engine {
+            max_size: pager.info().max_size,
+            scratch,
+            folder,
+            turns,
             next_page: AtomicU64::new(next_page),
             meta_written: AtomicBool::new(!fresh),
             #[cfg(feature = "test-hooks")]
@@ -181,6 +207,16 @@ impl Engine {
     /// Dropping an `Engine` does the same, without reporting a failure.
     pub fn close(self) -> Result<()> {
         self.scratch.close()
+    }
+
+    /// Waits until commit `txid` is durable (J4, E4); a failed group fails it with the I/O class and the waiting
+    /// requests with it (E8, T12).
+    fn wait_durable(&self, txid: u64) -> Result<()> {
+        let result = self.scratch.wait_durable(txid);
+        if result.is_err() {
+            self.note_failure();
+        }
+        result
     }
 
     /// Transfers to `krummi.data` what no read needs; a failure makes the store refuse writes, which the next
@@ -299,7 +335,7 @@ impl Engine {
         loop {
             if queue.io_failed {
                 leave(&mut queue, ticket);
-                self.turn.notify_all();
+                self.turns.turn.notify_all();
                 return Err(self.writes_refused());
             }
             if queue.owner.is_none() && queue.waiting.front() == Some(&ticket) {
@@ -308,6 +344,7 @@ impl Engine {
             }
             queue = match deadline {
                 None => self
+                    .turns
                     .turn
                     .wait(queue)
                     .unwrap_or_else(PoisonError::into_inner),
@@ -315,10 +352,11 @@ impl Engine {
                     let now = Instant::now();
                     if now >= deadline {
                         leave(&mut queue, ticket);
-                        self.turn.notify_all();
+                        self.turns.turn.notify_all();
                         return Err(self.timeout(limit));
                     }
-                    self.turn
+                    self.turns
+                        .turn
                         .wait_timeout(queue, deadline - now)
                         .unwrap_or_else(PoisonError::into_inner)
                         .0
@@ -337,20 +375,23 @@ impl Engine {
         if waiting {
             self.hook(Point::Handoff);
         }
-        self.turn.notify_all();
+        self.turns.turn.notify_all();
     }
 
     /// Records that the store refuses writes, if it does: the waiting requests fail at once (T12).
     fn note_failure(&self) {
         if !self.scratch.pager().accepts_writes() {
             self.lock_queue().io_failed = true;
-            self.turn.notify_all();
+            self.turns.turn.notify_all();
             self.scratch.wake();
         }
     }
 
     fn lock_queue(&self) -> MutexGuard<'_, Queue> {
-        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
+        self.turns
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn misuse(&self, reason: &'static str) -> Error {

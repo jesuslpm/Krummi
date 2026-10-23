@@ -252,3 +252,260 @@ fn ac_e17_a_commit_waiting_for_room_in_the_queue() {
     wait_until(|| text(engine.read().unwrap().page(pages[1]).unwrap()) == "queued");
     assert_eq!(read_text(&engine, pages[2]), "-");
 }
+
+/// Runs `commit` on a new thread that shares this thread's fault state, and waits until the journal's queue holds
+/// `queued` commits.
+fn queue_on_thread<'s, T: Send + 's>(
+    s: &'s std::thread::Scope<'s, '_>,
+    engine: &'s Engine,
+    queued: usize,
+    commit: impl FnOnce() -> T + Send + 's,
+) -> std::thread::ScopedJoinHandle<'s, T> {
+    let context = testing::context();
+    let handle = s.spawn(move || {
+        testing::adopt(&context);
+        commit()
+    });
+    wait_until(|| engine.journal_queued() == queued);
+    handle
+}
+
+fn commit_on(engine: &Engine, page: u64, value: &str) -> krummi_tx::Result<()> {
+    let mut tx = engine.write(None).unwrap();
+    put(&mut tx, page, value);
+    tx.commit()
+}
+
+/// AC-E1 (E2, E3): a durable commit held after its point of no return has released the turn; the next writer sees
+/// its changes, a read does not, and once it returns a read on its thread does.
+#[test]
+fn ac_e1_the_turn_is_released_at_the_point_of_no_return() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let pages = reserve(&engine, 1, "a");
+    engine.set_journal_paused(true);
+    std::thread::scope(|s| {
+        let engine = &engine;
+        let pages = &pages;
+        let held = queue_on_thread(s, engine, 1, move || {
+            commit_on(engine, pages[0], "b").unwrap();
+            read_text(engine, pages[0])
+        });
+        let next = engine.write(Some(Duration::ZERO)).unwrap();
+        assert_eq!(
+            text(next.page(pages[0]).unwrap()),
+            "b",
+            "the next writer sees it"
+        );
+        assert_eq!(read_text(engine, pages[0]), "a", "a read does not");
+        next.abort();
+        engine.set_journal_paused(false);
+        assert_eq!(
+            held.join().unwrap(),
+            "b",
+            "after it returns, its thread sees it"
+        );
+    });
+}
+
+/// AC-E2 (E4, G4), first part: durable commits from 8 threads held in the queue are written in one write and
+/// become visible together.
+#[test]
+fn ac_e2_commits_waiting_together_share_one_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let pages = reserve(&engine, 8, "-");
+    engine.set_journal_paused(true);
+    let writes = engine.journal_writes();
+    std::thread::scope(|s| {
+        let engine = &engine;
+        let mut threads = Vec::new();
+        for (i, &page) in pages.iter().enumerate() {
+            threads.push(queue_on_thread(s, engine, i + 1, move || {
+                commit_on(engine, page, &format!("t{i}"))
+            }));
+        }
+        let read = engine.read().unwrap();
+        assert!(pages.iter().all(|&p| text(read.page(p).unwrap()) == "-"));
+        engine.set_journal_paused(false);
+        for thread in threads {
+            thread.join().unwrap().unwrap();
+        }
+    });
+    assert_eq!(engine.journal_writes(), writes + 1, "one write for the 8");
+    let read = engine.read().unwrap();
+    for (i, &page) in pages.iter().enumerate() {
+        assert_eq!(text(read.page(page).unwrap()), format!("t{i}"));
+    }
+}
+
+/// AC-E5 (E8, T12): when the write of a group fails, its durable commits fail with the I/O class, so do the open
+/// writer's commit and every request, the one already waiting included, and reads see none of them.
+#[test]
+fn ac_e5_a_failed_group_fails_its_commits_and_the_store_refuses_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let pages = reserve(&engine, 5, "-");
+    engine.set_journal_paused(true);
+    commit_deferred(&engine, pages[0], "deferred");
+    std::thread::scope(|s| {
+        let engine = &engine;
+        let pages = &pages;
+        let held: Vec<_> = (1..=3)
+            .map(|i| {
+                queue_on_thread(s, engine, i + 1, move || {
+                    commit_on(engine, pages[i], "held")
+                })
+            })
+            .collect();
+        let mut open = engine.write(None).unwrap();
+        assert_eq!(text(open.page(pages[1]).unwrap()), "held", "it sees them");
+        put(&mut open, pages[4], "open");
+        let waiting = s.spawn(move || engine.write(None).err().map(|e| e.kind()));
+        wait_until(|| engine.queued() == 1);
+        testing::reset();
+        testing::inject(Op::Write, 0, Action::Fail(io::ErrorKind::Other));
+        engine.set_journal_paused(false);
+        for commit in held {
+            assert_eq!(commit.join().unwrap().unwrap_err().kind(), ErrorKind::Io);
+        }
+        assert_eq!(
+            waiting.join().unwrap(),
+            Some(ErrorKind::Io),
+            "the waiting request fails while the writer is open"
+        );
+        assert_eq!(open.commit().unwrap_err().kind(), ErrorKind::Io);
+    });
+    testing::reset();
+    assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
+    let read = engine.read().unwrap();
+    assert!(
+        pages.iter().all(|&p| text(read.page(p).unwrap()) == "-"),
+        "reads see none"
+    );
+    drop(read);
+    drop(engine);
+    let engine = disk(tmp.path());
+    let present: Vec<bool> = pages[..4]
+        .iter()
+        .map(|&p| read_text(&engine, p) != "-")
+        .collect();
+    let prefix = present.iter().take_while(|&&p| p).count();
+    assert!(present[prefix..].iter().all(|&p| !p), "{present:?}");
+    assert_eq!(read_text(&engine, pages[4]), "-");
+}
+
+/// AC-E6 (E2): a panic after the point of no return does not undo the commit.
+#[test]
+fn ac_e6_a_panic_after_the_point_of_no_return_keeps_the_commit() {
+    use krummi_tx::Point;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::Arc;
+    for target in [Point::CommitQueued, Point::CommitWait] {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = disk(tmp.path());
+        let pages = reserve(&engine, 1, "a");
+        let txid = engine.journal_durable() + 1;
+        engine.set_hook(Some(Arc::new(move |point| {
+            if point == target {
+                panic!("interrupted at {point:?}");
+            }
+        })));
+        let committed = catch_unwind(AssertUnwindSafe(|| commit_on(&engine, pages[0], "b")));
+        engine.set_hook(None);
+        assert!(committed.is_err(), "{target:?}");
+        wait_until(|| engine.journal_durable() >= txid);
+        assert_eq!(read_text(&engine, pages[0]), "b", "{target:?}");
+        engine.close().unwrap();
+        assert_eq!(read_text(&disk(tmp.path()), pages[0]), "b", "{target:?}");
+    }
+}
+
+/// AC-E7 (E3, E5): a deferred commit behind a held durable one returns at once; the next writer sees both, a read
+/// on its thread neither, until their group is durable.
+#[test]
+fn ac_e7_a_deferred_commit_returns_without_waiting() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let pages = reserve(&engine, 2, "-");
+    engine.set_journal_paused(true);
+    std::thread::scope(|s| {
+        let engine = &engine;
+        let pages = &pages;
+        let held = queue_on_thread(s, engine, 1, move || commit_on(engine, pages[0], "durable"));
+        commit_deferred(engine, pages[1], "deferred");
+        let next = engine.write(Some(Duration::ZERO)).unwrap();
+        assert_eq!(text(next.page(pages[0]).unwrap()), "durable");
+        assert_eq!(text(next.page(pages[1]).unwrap()), "deferred");
+        next.abort();
+        let read = engine.read().unwrap();
+        assert_eq!(text(read.page(pages[0]).unwrap()), "-");
+        assert_eq!(text(read.page(pages[1]).unwrap()), "-");
+        drop(read);
+        engine.set_journal_paused(false);
+        held.join().unwrap().unwrap();
+    });
+    wait_until(|| engine.journal_queued() == 0 && read_text(&engine, pages[1]) == "deferred");
+    assert_eq!(read_text(&engine, pages[0]), "durable");
+}
+
+/// AC-E11 (E11): a durable commit without changes waits for the commits its transaction saw, and fails if their
+/// group fails; a deferred one, or one with nothing pending, ends at once.
+#[test]
+fn ac_e11_a_commit_without_changes_waits_for_what_it_saw() {
+    for fails in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = disk(tmp.path());
+        let pages = reserve(&engine, 1, "-");
+        engine.set_journal_paused(true);
+        std::thread::scope(|s| {
+            let engine = &engine;
+            let pages = &pages;
+            let held = queue_on_thread(s, engine, 1, move || commit_on(engine, pages[0], "held"));
+            let deferred = engine.write(Some(Duration::ZERO)).unwrap();
+            deferred.commit_deferred().unwrap();
+            let (done, finished) = mpsc::channel();
+            let empty = s.spawn(move || {
+                let tx = engine.write(Some(Duration::ZERO)).unwrap();
+                let result = tx.commit();
+                done.send(()).unwrap();
+                result
+            });
+            assert!(
+                finished.recv_timeout(Duration::from_millis(200)).is_err(),
+                "it waits"
+            );
+            if fails {
+                testing::reset();
+                testing::inject(Op::Write, 0, Action::Fail(io::ErrorKind::Other));
+            }
+            engine.set_journal_paused(false);
+            let result = empty.join().unwrap();
+            let held = held.join().unwrap();
+            if fails {
+                assert_eq!(result.unwrap_err().kind(), ErrorKind::Io);
+                assert_eq!(held.unwrap_err().kind(), ErrorKind::Io);
+            } else {
+                result.unwrap();
+                held.unwrap();
+            }
+        });
+        testing::reset();
+        if !fails {
+            engine
+                .write(Some(Duration::ZERO))
+                .unwrap()
+                .commit()
+                .unwrap();
+        }
+    }
+}
+
+/// AC-E18 (E14): in a temporary store a deferred commit is visible as soon as it returns.
+#[test]
+fn ac_e18_a_temporary_store_shows_a_deferred_commit_at_once() {
+    let engine = common::temporary();
+    let pages = reserve(&engine, 1, "-");
+    commit_deferred(&engine, pages[0], "deferred");
+    assert_eq!(read_text(&engine, pages[0]), "deferred");
+}

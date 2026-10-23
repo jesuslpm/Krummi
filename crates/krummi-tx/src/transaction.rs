@@ -87,10 +87,13 @@ impl<'e> WriteTransaction<'e> {
         self.track(result)
     }
 
-    /// Commits the transaction durably (J4 of the Journal PRD): it returns once the commit survives a crash, and
-    /// its changes become visible to every transaction opened after this returns (T2). If an operation failed, the
-    /// commit fails with the class of the first failure and applies nothing (T11). A transaction without changes
-    /// commits without writing anything (T10). The transaction ends either way.
+    /// Commits the transaction durably (J4 of the Journal PRD): once nothing can make it fail without the store
+    /// refusing writes, the commit enters the journal's queue and releases the turn, its point of no return (E2 of
+    /// the grouped journal PRD); the next writer sees it at once, and it returns once it survives a crash, visible
+    /// to every transaction opened after this returns (T2, E3). If an operation failed, the commit fails with the
+    /// class of the first failure and applies nothing (T11); after the point of no return it can only fail with the
+    /// I/O class, when its group fails (E8), and the close may still write it, entire (E12, J12). A transaction without changes writes nothing, and waits until the
+    /// commits it saw are durable (E11). The transaction ends either way.
     pub fn commit(self) -> Result<()> {
         self.commit_with(true)
     }
@@ -108,7 +111,15 @@ impl<'e> WriteTransaction<'e> {
             return Err(error);
         }
         if self.dirty.is_empty() {
-            return Ok(());
+            // E11: what it saw may not be durable yet; aborting, or a deferred commit, never waits.
+            let seen = self.writer.snapshot().txid();
+            let engine = self.engine;
+            drop(self);
+            return if durable {
+                engine.wait_durable(seen)
+            } else {
+                Ok(())
+            };
         }
         self.engine.hook(Point::CommitFlush);
         self.engine.hook(Point::CommitSeal);
@@ -121,19 +132,22 @@ impl<'e> WriteTransaction<'e> {
         self.engine.hook(Point::CommitPublish);
         let committed = self.writer.commit(&pages);
         let txid = self.track(committed)?;
-        if durable {
-            let durable = self.engine.scratch.wait_durable(txid);
-            self.track(durable)?;
-        }
+        // The point of no return (E2): the commit is in the journal's queue and the next writer sees it.
         self.engine
             .next_page
             .store(self.next_page, Ordering::Release);
         if reserved {
             self.engine.meta_written.store(true, Ordering::Release);
         }
-        // The turn goes to the next writer before the transfer, which never blocks it (J5).
+        self.engine.hook(Point::CommitQueued);
+        // The turn goes to the next writer before waiting for the disk and before the transfer, which never
+        // blocks it (E2, J5).
         let engine = self.engine;
         drop(self);
+        if durable {
+            engine.hook(Point::CommitWait);
+            engine.wait_durable(txid)?;
+        }
         engine.transfer();
         Ok(())
     }

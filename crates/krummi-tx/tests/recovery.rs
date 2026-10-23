@@ -834,6 +834,214 @@ fn ac_e8_deferred_commits_become_durable_like_durable_ones() {
     }
 }
 
+/// Commits `value` into `page` on a new thread that shares this thread's fault state and recording, waits until
+/// the journal's queue holds `queued` commits, and returns the thread, which gives the recorded count once its
+/// commit returned.
+fn queue_commit<'s>(
+    s: &'s std::thread::Scope<'s, '_>,
+    engine: &'s Engine,
+    queued: usize,
+    page: u64,
+    value: &'s str,
+    durable: bool,
+) -> std::thread::ScopedJoinHandle<'s, usize> {
+    let context = testing::context();
+    let handle = s.spawn(move || {
+        testing::adopt(&context);
+        commit_all(engine, &[page], value, durable)
+    });
+    common::wait_until(|| engine.journal_queued() == queued);
+    handle
+}
+
+/// Writes the commits `(page, durable)` of one group: each enters the queue in order while the writer is paused,
+/// then they are written together. Returns the recorded count when each one had returned.
+fn group(engine: &Engine, commits: &[(u64, bool)], value: &str) -> Vec<usize> {
+    engine.set_journal_paused(true);
+    let returned = std::thread::scope(|s| {
+        let threads: Vec<_> = commits
+            .iter()
+            .enumerate()
+            .map(|(i, &(page, durable))| queue_commit(s, engine, i + 1, page, value, durable))
+            .collect();
+        engine.set_journal_paused(false);
+        threads
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    common::wait_until(|| engine.journal_queued() == 0);
+    returned
+}
+
+/// AC-E2 (E4, G4), second part: 16 threads committing 1,000 durable writes each at once all succeed, never with
+/// two write transactions open, and all of them are there after the process is killed.
+#[test]
+fn ac_e2_many_threads_commit_at_once_and_survive_a_crash() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    const THREADS: usize = 16;
+    const COMMITS: usize = 1000;
+    let (source, engine) = Run::start();
+    let pages = reserve(&engine, THREADS, "-");
+    let open_now = AtomicUsize::new(0);
+    let most = AtomicUsize::new(0);
+    let context = testing::context();
+    std::thread::scope(|s| {
+        for (t, &page) in pages.iter().enumerate() {
+            let (engine, open_now, most, context) = (&engine, &open_now, &most, &context);
+            s.spawn(move || {
+                testing::adopt(context);
+                for i in 0..COMMITS {
+                    let mut tx = engine.write(None).unwrap();
+                    let now = open_now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(now, Ordering::SeqCst);
+                    put(&mut tx, page, &format!("t{t}-{i}"));
+                    open_now.fetch_sub(1, Ordering::SeqCst);
+                    tx.commit().unwrap();
+                }
+            });
+        }
+    });
+    assert_eq!(
+        most.load(Ordering::SeqCst),
+        1,
+        "never two write transactions open"
+    );
+    let run = Run::finish(source, vec![]);
+    drop(engine);
+    let folder = run.killed();
+    let engine = open(folder.path());
+    for (t, text) in texts(&engine, &pages).into_iter().enumerate() {
+        assert_eq!(text, Some(format!("t{t}-{}", COMMITS - 1)));
+    }
+}
+
+/// AC-E3 (E8, E9): with commits in both modes grouped one, two and three at a time, a power cut at any point
+/// leaves a prefix with every durable commit that had returned and every group before the one being written.
+#[test]
+fn ac_e3_power_cuts_with_groups_leave_a_prefix() {
+    let (source, engine) = Run::start();
+    let pages = reserve(&engine, 6, "-");
+    let modes = [true, false, true, true, false, true];
+    let mut returned = Vec::new();
+    for range in [0..1, 1..3, 3..6] {
+        let commits: Vec<(u64, bool)> = range.clone().map(|i| (pages[i], modes[i])).collect();
+        returned.extend(group(&engine, &commits, "v"));
+    }
+    let run = Run::finish(source, returned);
+    drop(engine);
+    for cut in 0..=run.ops.len() {
+        for model in POWER_CUTS {
+            let folder = run.crash(cut, model);
+            if !folder.path().join(DATA_FILE).exists() {
+                continue;
+            }
+            let engine = open(folder.path());
+            let present: Vec<bool> = texts(&engine, &pages)
+                .iter()
+                .map(|t| t.as_deref() == Some("v"))
+                .collect();
+            let prefix = present.iter().take_while(|&&p| p).count();
+            assert!(
+                present[prefix..].iter().all(|&p| !p),
+                "cut {cut} {model:?}: {present:?}"
+            );
+            let must = (0..modes.len())
+                .filter(|&i| modes[i] && run.returned[i] <= cut)
+                .map(|i| i + 1)
+                .max()
+                .unwrap_or(0);
+            assert!(
+                prefix >= must,
+                "cut {cut} {model:?}: {present:?}, durable up to {must}"
+            );
+        }
+    }
+}
+
+/// AC-E4 (E2, E7): a commit that needs a new journal file without space to reserve it fails with the disk-full
+/// class before its point of no return: the writer waiting gets the turn without its changes, the next commit
+/// works once there is space, and a crash afterwards leaves no damage.
+#[test]
+fn ac_e4_no_space_to_reserve_the_journal_fails_before_the_point_of_no_return() {
+    let (source, engine) = Run::start();
+    engine.set_journal_file_limit(4096);
+    let pages = reserve(&engine, 1, "kept");
+    let context = testing::context();
+    std::thread::scope(|s| {
+        let mut tx = engine.write(None).unwrap();
+        put(&mut tx, pages[0], "lost");
+        let engine = &engine;
+        let pages = &pages;
+        let context = &context;
+        let waiting = s.spawn(move || {
+            testing::adopt(context);
+            let next = engine.write(None).unwrap();
+            text(next.page(pages[0]).unwrap())
+        });
+        common::wait_until(|| engine.queued() == 1);
+        testing::inject(
+            Op::Reserve,
+            testing::count(Op::Reserve),
+            Action::Fail(std::io::ErrorKind::StorageFull),
+        );
+        assert_eq!(tx.commit().unwrap_err().kind(), ErrorKind::DiskFull);
+        assert_eq!(
+            waiting.join().unwrap(),
+            "kept",
+            "the next writer does not see it"
+        );
+    });
+    commit_all(&engine, &pages, "after", true);
+    let run = Run::finish(source, vec![]);
+    drop(engine);
+    let engine = open(run.killed().path());
+    assert_eq!(texts(&engine, &pages)[0].as_deref(), Some("after"));
+}
+
+/// AC-E16 (E9): commits written together count as one group for J9: damage in the last group discards the damaged
+/// commit and the later ones without an error; damage in an earlier group is damage.
+#[test]
+fn ac_e16_damage_is_judged_by_group() {
+    let (source, engine) = Run::start();
+    let pages = reserve(&engine, 6, "-");
+    let hold = engine.read().unwrap();
+    for range in [0..3, 3..6] {
+        let commits: Vec<(u64, bool)> = range.map(|i| (pages[i], true)).collect();
+        group(&engine, &commits, "v");
+    }
+    let run = Run::finish(source, vec![]);
+    drop(hold);
+    drop(engine);
+    let crashed = run.killed();
+    let journal = journal_files(crashed.path()).pop().unwrap();
+    let offsets = record_offsets(&journal);
+    assert_eq!(offsets.len(), 7, "the reservation and two groups of three");
+    let pristine = fs::read(&journal).unwrap();
+
+    // The second commit of the last group.
+    let mut bytes = pristine.clone();
+    bytes[offsets[5] + 100] ^= 0xFF;
+    fs::write(&journal, &bytes).unwrap();
+    let engine = open(crashed.path());
+    let present: Vec<bool> = texts(&engine, &pages)
+        .iter()
+        .map(|t| t.as_deref() == Some("v"))
+        .collect();
+    assert_eq!(present, vec![true, true, true, true, false, false]);
+    drop(engine);
+
+    // A commit of the first group.
+    let crashed = run.killed();
+    let journal = journal_files(crashed.path()).pop().unwrap();
+    let mut bytes = fs::read(&journal).unwrap();
+    bytes[offsets[2] + 100] ^= 0xFF;
+    fs::write(&journal, &bytes).unwrap();
+    let before = snapshot(crashed.path());
+    assert_eq!(open_err(crashed.path()).kind(), ErrorKind::Damaged);
+    assert_eq!(snapshot(crashed.path()), before);
+}
+
 /// AC10 with the journal: altering any byte of a crashed store, its journal included, gives the damage class,
 /// "not a store" (the mark), no difference, or, only inside the last journal record, the loss of that last commit
 /// (J9); never data that was not written.

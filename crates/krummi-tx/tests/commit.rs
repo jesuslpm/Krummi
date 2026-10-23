@@ -188,6 +188,20 @@ fn ac_t5_a_read_during_a_commit_sees_all_of_it_or_nothing() {
                 assert_eq!(seen, ("a".into(), "a".into()), "at {expected:?}");
                 resume.send(()).unwrap();
             }
+            // After the point of no return the commit becomes visible once durable: all of it or nothing (E3).
+            for expected in [Point::CommitQueued, Point::CommitWait] {
+                assert_eq!(reached.recv().unwrap(), expected);
+                let read = engine.read().unwrap();
+                let seen = (
+                    text(read.page(first).unwrap()),
+                    text(read.page(second).unwrap()),
+                );
+                assert!(
+                    seen == ("a".into(), "a".into()) || seen == ("b".into(), "b".into()),
+                    "at {expected:?}: {seen:?}"
+                );
+                resume.send(()).unwrap();
+            }
         });
         engine.set_hook(None);
         assert_eq!(
