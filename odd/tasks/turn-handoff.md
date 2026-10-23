@@ -55,3 +55,14 @@ verifier.
   47,474; 13,991 / 43,144; 11,142 / 40,266; 13,620 / 47,009; 13,152 / 47,950. The L2 event was not reproduced
   (about 700 branch and 600 baseline runs). Not done: a probe for a failure inside `begin_write`, a buffered
   measurement (done in L3), more L2 hunting. Advisory: the new test's limit of 12 wakeups counts spurious ones too.
+- **L5** (RDD review, 2026-10-23): commits `b0e3066`, `6b0a2c3` against `8704e27`; lenses resilience, reliability;
+  approved, acknowledged (lineage `review-21b8329fa80ad2c4`). Findings: R3-timeout-handoff-untested (WARNING): no
+  test exercises the timeout path that passes the turn on. Analysis: the branch cannot be reached; under the same
+  lock a waiter checks whether it can take the turn before its deadline, so it leaves only when the turn has an
+  owner (whose release wakes the next one) or when it is not first (the first was woken by the release). Kept as
+  a defensive line; pending note. R4-001 and R3-wakeup-bound-counts-spurious (SUGGESTION): the test's limit of 12
+  counts spurious wakeups; margin 4 over 8 handoffs, kept.
+
+## Closing
+
+Closing report: [turn-handoff-report.md](turn-handoff-report.md).
