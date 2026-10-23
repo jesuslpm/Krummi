@@ -465,6 +465,11 @@ impl Shared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Bytes of page versions held only in the scratch area (T14).
+    pub(crate) fn scratch_bytes(&self) -> u64 {
+        self.lock().bytes
+    }
+
     fn wake(&self) {
         if let Some(journal) = &self.journal {
             journal.wake();
@@ -562,17 +567,28 @@ impl Shared {
         if let Some(hook) = hook {
             hook();
         }
-        for (page_number, txid, page) in pending {
+        let mut written = 0;
+        let mut outcome = Ok(());
+        for (page_number, _, page) in &pending {
             // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
             // where its newest version stays until the write ends, and `flushing` makes this the only write.
-            unsafe { pager.write_sealed_shared(page_number, page.page())? };
-            let mut state = self.lock();
-            if state.versions[&page_number].last().map(|v| v.txid) == Some(txid) {
-                let versions = state.versions.remove(&page_number).unwrap_or_default();
+            if let Err(error) = unsafe { pager.write_sealed_shared(*page_number, page.page()) } {
+                outcome = Err(error);
+                break;
+            }
+            written += 1;
+        }
+        // The versions written, those before a failure too, leave the scratch area under one lock, unless a newer
+        // commit published another version of their page meanwhile.
+        let mut state = self.lock();
+        for (page_number, txid, _) in &pending[..written] {
+            if state.versions[page_number].last().map(|v| v.txid) == Some(*txid) {
+                let versions = state.versions.remove(page_number).unwrap_or_default();
                 state.retire(versions);
             }
         }
-        Ok(())
+        drop(state);
+        outcome
     }
 
     /// Releases the journal files that `krummi.data` no longer needs (J6): only when the oldest one can go, since

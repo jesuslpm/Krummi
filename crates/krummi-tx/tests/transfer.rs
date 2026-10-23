@@ -325,3 +325,37 @@ fn a_failing_pass_does_not_spin_on_a_due_release() {
     assert_eq!(read_text(&engine, page), "d");
     engine.close().unwrap();
 }
+
+/// Transfer pacing S1: once a long read holds more than the threshold in the scratch area, commits that add less
+/// than the threshold do not start a pass each; a pass starts at once only when the area grew by the threshold
+/// since the last one.
+#[test]
+fn a_pass_starts_at_once_only_when_the_scratch_area_grew_by_the_threshold() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    engine.set_transfer_pacing(
+        std::time::Duration::from_secs(5),
+        1 << 20,
+        std::time::Duration::from_secs(2),
+    );
+    let hot = new_page(&engine, "a");
+    let read = engine.read().unwrap();
+    // Over the threshold at once: one immediate pass, which can move nothing past the read.
+    let mut tx = engine.write(None).unwrap();
+    for _ in 0..150 {
+        tx.allocate().unwrap();
+    }
+    tx.commit().unwrap();
+    assert!(engine.scratch_bytes() >= 1 << 20);
+    let before = engine.transfer_passes();
+    for i in 0..50 {
+        set(&engine, hot, &format!("{i}"));
+    }
+    let passes = engine.transfer_passes() - before;
+    assert!(
+        passes <= 2,
+        "{passes} passes for 50 commits that added 400 KiB"
+    );
+    drop(read);
+    engine.close().unwrap();
+}
