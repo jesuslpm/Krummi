@@ -175,3 +175,13 @@ independent verifier at the end and RDD review per high-risk commit.
   (baseline); A3 flips in the zero padding after a record are not detected (baseline). The verifier also started
   the full AC10 sweeps in debug on Windows (27 min for one); stopped on the parent's request at 13:07, since they
   had already passed on Linux. Its scratch folders were removed by the parent.
+- **L14** RDD reviews of the last slice, recorded when they ended:
+
+  | Commits | Lenses | Result | Findings and resolution | Lineage |
+  |---|---|---|---|---|
+  | `07c655d..5b44336` | reliability, readability | approved | WARNING R2-001: the example said E16 while a test is named AC-E16; both are right (decision E16 is checked by AC-E15, AC-E16 checks E9), clarified in `fee50a9`. SUGGESTION R2-002: the mode column only repeats the request; documented in `fee50a9`. SUGGESTION R3-next-writer-busy-poll: the test helper spins while it waits; accepted (tests only). | `review-2ef84e644b718821` |
+  | `5b44336..fee50a9` | readability | approved | SUGGESTION R2-l11-journal-writes-label: the L11 table should say that its mode column repeats the request; noted in the closing report. | `review-b4905c1137f469b4` |
+
+## Closing
+
+Closing report: [journal-group-commit-report.md](journal-group-commit-report.md).
