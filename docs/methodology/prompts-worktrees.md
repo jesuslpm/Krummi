@@ -9,7 +9,7 @@ La skill `worktree` lleva cada frase a su script de `scripts/worktree/`. La [gu�
 
 ## Antes de empezar
 
-- **Copia principal**: `C:\projects\MuninnDB`. **Copia de un cambio**: `C:\wt\muninndb-<n>`.
+- **Copia principal**: `C:\projects\Krummi`. **Copia de un cambio**: `C:\wt\krummi-<n>`.
 - **Nombre del cambio** `<n>`: minúsculas, dígitos y guiones simples (por ejemplo, `startswith-odd`).
 - **Una sesión nueva del agente por copia**, abierta en la raíz de la copia. Una sesión abierta en una
   subcarpeta no carga el guardián.
@@ -37,8 +37,8 @@ Sesión: copia principal.
 Crea un worktree para el cambio <n>
 ```
 
-Crea la rama `feat/<n>` desde `main` y la carpeta `C:\wt\muninndb-<n>`. Copia los permisos locales
-y el registro de skills. También crea la carpeta de trabajo `work`, asigna el proyecto Engram `muninndb-<n>` y abre una ventana nueva del editor en la raíz
+Crea la rama `feat/<n>` desde `main` y la carpeta `C:\wt\krummi-<n>`. Copia los permisos locales
+y el registro de skills. También crea la carpeta de trabajo `work`, asigna el proyecto Engram `krummi-<n>` y abre una ventana nueva del editor en la raíz
 de la copia. Si algo no es válido, no crea nada.
 
 ### 2. Crear una copia sobre otra base

@@ -1,20 +1,20 @@
-# MuninnDB
+# Krummi
 
 An embedded, transactional storage engine in Rust, inspired by [Voron](https://github.com/ravendb/ravendb),
-the storage engine of RavenDB. The name follows Voron's: *voron* is Russian for raven, and Muninn is the raven
-of memory in Norse mythology.
+the storage engine of RavenDB. The name follows Voron's: *voron* is Russian for raven, and *krummi* is the
+Icelandic nickname for the raven.
 
-Implemented so far: module 1, the **Pager** ([PRD](docs/prd/muninndb/pager.prd.md)), module 2, the
-**transactions** ([PRD](docs/prd/muninndb/transactions.prd.md)), and module 3, the **journal and recovery**
-([PRD](docs/prd/muninndb/journal.prd.md)). An application can create, open, inspect and close stores, on disk or in
+Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.md)), module 2, the
+**transactions** ([PRD](docs/prd/krummi/transactions.prd.md)), and module 3, the **journal and recovery**
+([PRD](docs/prd/krummi/journal.prd.md)). An application can create, open, inspect and close stores, on disk or in
 memory, and open read transactions from any number of threads and one write transaction at a time, which the others
 wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
-crash recovers it. Storing data in transactions arrives with the data structures of the next modules. The product and its split into modules are in the [root PRD](docs/prd/muninndb/muninndb.prd.md).
-Every product change starts with a PRD in `docs/prd/muninndb/` (see `CLAUDE.md`).
+crash recovers it. Storing data in transactions arrives with the data structures of the next modules. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
+Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
 
 ```rust
 use std::time::Duration;
-use muninndb::{Store, StoreOptions};
+use krummi::{Store, StoreOptions};
 
 let store = Store::open("data/orders", &StoreOptions::default())?;
 println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary
@@ -24,34 +24,34 @@ write.commit()?; // durable when it returns, and visible to the reads opened fro
 store.write()?.commit_deferred()?; // returns before reaching the disk; survives a crash of the process
 store.make_durable()?; // now the deferred commits survive a power cut too
 drop(read);
-store.close()?; // moves everything into muninn.data and removes the journal
+store.close()?; // moves everything into krummi.data and removes the journal
 ```
 
-A store is a folder with one file, `muninn.data`, made of 8 KiB pages. While it is open, the folder may also hold
-the journal files `muninn.journal.<number>` and the `muninn.temp` subfolder; a clean close removes them. Only one
-process can have it open at a time. The `muninndb` crate is the public API; `muninndb-pager` and `muninndb-tx` are internal to the engine, and
-`muninndb-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
+A store is a folder with one file, `krummi.data`, made of 8 KiB pages. While it is open, the folder may also hold
+the journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a clean close removes them. Only one
+process can have it open at a time. The `krummi` crate is the public API; `krummi-pager` and `krummi-tx` are internal to the engine, and
+`krummi-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
 
 As in Voron, a write transaction changes copies of its pages and every page keeps its number. A commit is written
 to the write-ahead journal (LZ4-compressed records with checksums) and, in durable mode, flushed before it returns.
-The committed version lives in a scratch area, in mapped files of `muninn.temp`, until no open read needs the
-version before it; then it is written in its place in `muninn.data` and the header records how far the journal has
+The committed version lives in a scratch area, in mapped files of `krummi.temp`, until no open read needs the
+version before it; then it is written in its place in `krummi.data` and the header records how far the journal has
 been applied. Opening a store after a crash replays the journal from that point.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `crates/muninndb/` | Public API of the engine |
-| `crates/muninndb-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
-| `crates/muninndb-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API |
+| `crates/krummi/` | Public API of the engine |
+| `crates/krummi-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
+| `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
 | `.claude/skills/` | Project skills: `prd`, `vibe-coding`, `closing-report`, `worktree` |
 | `.claude/hooks/` | Guard that keeps a worktree session inside its own copy |
 | `docs/methodology/` | The working method (PRD, vibe coding, ODD, SDD) and its slides |
-| `docs/prd/muninndb/` | Product PRDs (Spanish authoritative, `*.prd.en.md` translations) |
+| `docs/prd/krummi/` | Product PRDs (Spanish authoritative, `*.prd.en.md` translations) |
 | `docs/worktrees.md` | Guide to working on several changes at once in worktree copies |
 | `scripts/worktree/` | Scripts behind the `worktree` skill, with their tests |
 | `scripts/slides/` | Speaker-notes audio for the methodology slides |
@@ -72,8 +72,8 @@ transactions. The full sweeps reopen a store 65,536 times each and are an accept
 systems. Locally, an antivirus that scans every modified file can make them impractically slow:
 
 ```bash
-cargo test -p muninndb-pager --test pages -- --ignored ac10
-cargo test -p muninndb-tx --test commit -- --ignored ac10
+cargo test -p krummi-pager --test pages -- --ignored ac10
+cargo test -p krummi-tx --test commit -- --ignored ac10
 ```
 
 ## Tests of the tooling

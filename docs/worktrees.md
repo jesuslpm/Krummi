@@ -6,7 +6,7 @@ throwaway base and discarded without leaving a trace in `main`. You ask the agen
 the project's `worktree` skill runs the matching script in `scripts/worktree/`. Windows only.
 
 - Product contract: the worktrees PRD of the chicago-crime repository (`docs/prd/worktrees/worktrees.prd.md`),
-  where this tooling was built. MuninnDB copies have no reference CSV, so its CSV rules do not apply here.
+  where this tooling was built. Krummi copies have no reference CSV, so its CSV rules do not apply here.
 - The Spanish prompts for every operation: [prompts-worktrees.md](methodology/prompts-worktrees.md).
 
 ## Quick path
@@ -33,8 +33,8 @@ Without the agent, each script runs the same way from PowerShell at the root of 
 
 | Session | Folder | `.git` at its root | What it does |
 |---|---|---|---|
-| Main copy | `C:\projects\MuninnDB` | a folder | Creates, lists and removes copies; creates and discards the rehearsal base. It does not work on changes. |
-| A copy | `C:\wt\muninndb-<n>` | a file | Works on one change and merges it into its base. It never touches the main copy or other copies. |
+| Main copy | `C:\projects\Krummi` | a folder | Creates, lists and removes copies; creates and discards the rehearsal base. It does not work on changes. |
+| A copy | `C:\wt\krummi-<n>` | a file | Works on one change and merges it into its base. It never touches the main copy or other copies. |
 
 Open one new agent session per copy, at the copy's root: the editor window that the creation opens is already
 there. A session opened in a subfolder does not load the guard.
@@ -46,11 +46,11 @@ Everything derives from the name `<n>`:
 | Element | Value |
 |---|---|
 | Branch | `feat/<n>`, created from the base |
-| Folder | `C:\wt\muninndb-<n>` |
+| Folder | `C:\wt\krummi-<n>` |
 | Base | `main`, or the base given at creation; recorded in the shared git config as `branch.feat/<n>.worktreebase` |
 | Private files | `.claude/settings.local.json` and `.atl/skill-registry.md`, copied from the main copy when present |
 | Work folder | the `work` folder inside the copy, ignored by git: acceptance runs and generated datasets |
-| Engram project | `muninndb-<n>`, assigned with `engram init` (its `.engram/` folder is ignored by git) |
+| Engram project | `krummi-<n>`, assigned with `engram init` (its `.engram/` folder is ignored by git) |
 | Build output | the copy's own `target` folder |
 | Tag when discarded | `exp/<n>` |
 
@@ -135,7 +135,7 @@ Close the copy's editor window and its agent session first.
 - Removing never forces anything and never closes a process: if a file is in use, the message names it. Close
   what uses it and say the same phrase again; repeating is safe.
 - Only the Claude Code memory folder is deleted, never the session history.
-- A plain removal keeps the Engram project `muninndb-<n>`, so a new copy with the same name is refused while
+- A plain removal keeps the Engram project `krummi-<n>`, so a new copy with the same name is refused while
   that project exists.
 
 ## Rehearse the flow and discard the rehearsal
@@ -239,8 +239,8 @@ Every message the tools show, verbatim. The placeholders (`<n>`, `<base>`, `<car
 
 | Message | Meaning | What to do |
 |---|---|---|
-| `Esto se hace desde la copia principal, y esta sesión está en la copia '<carpeta>'. No se ha cambiado nada.` | Creating, removing or managing the rehearsal was asked from a copy. Nothing changed. | Say the phrase again in the main copy's session (`C:\projects\MuninnDB`). |
-| `La fusión se hace desde la copia del cambio, no desde la copia principal. No se ha cambiado nada.` | The merge was asked from the main copy. Nothing changed. | Say `Fusiona el cambio en la base` in the session of the copy `C:\wt\muninndb-<n>`. |
+| `Esto se hace desde la copia principal, y esta sesión está en la copia '<carpeta>'. No se ha cambiado nada.` | Creating, removing or managing the rehearsal was asked from a copy. Nothing changed. | Say the phrase again in the main copy's session (`C:\projects\Krummi`). |
+| `La fusión se hace desde la copia del cambio, no desde la copia principal. No se ha cambiado nada.` | The merge was asked from the main copy. Nothing changed. | Say `Fusiona el cambio en la base` in the session of the copy `C:\wt\krummi-<n>`. |
 | `Nombre '<n>' no válido: solo minúsculas, dígitos y guiones simples (por ejemplo, startswith-odd). No se ha creado nada.` | The name has characters that are not allowed. Nothing was created. | Choose a name with only lowercase letters, digits and single hyphens. |
 | `El nombre '<n>' tiene <x> caracteres; el máximo es <m> para que ninguna ruta pase de 259. No se ha creado nada.` | The name is too long for the Windows path limit. Nothing was created. | Choose a name of at most `<m>` characters. |
 | `La base '<base>' no existe. Para un ensayo, créala antes con la frase de crear base de ensayo. No se ha creado nada.` | The base does not exist; a base is never created implicitly. Nothing was created. | Check the spelling. For a rehearsal, first say `Crea la base de ensayo <base>`. |
@@ -253,7 +253,7 @@ Every message the tools show, verbatim. The placeholders (`<n>`, `<base>`, `<car
 | `'<base>' avanza hasta 'feat/<n>' (<commit>). La copia y la rama se conservan.` | Exit 0: the base now points at the branch tip, without a merge commit; a copy that had the base checked out is updated. | Nothing. Remove the copy from the main copy when you no longer need it. |
 | `No se elimina '<n>': la rama tiene <x> commit(s) que no están en '<base>'. Para descartarla y conservar su historia en exp/<n>, pide descartar el worktree. No se ha eliminado nada.` | The branch is not merged. Nothing was removed. | Merge it first (`Fusiona el cambio en la base` in the copy), or throw it away with `Descarta el worktree <n>`. |
 | `No se elimina '<n>'. Se perdería: <lista>. No se ha eliminado nada.` | The copy has uncommitted changes, which would be lost (also when discarding). Nothing was removed. | Commit the listed changes in the copy, or discard them yourself, and ask again. |
-| `Esta sesión está dentro de '<carpeta>'. Elimínala desde la copia principal.` | The session runs inside the copy it was asked to remove. | Close that session and ask from the main copy's session, at `C:\projects\MuninnDB`. |
+| `Esta sesión está dentro de '<carpeta>'. Elimínala desde la copia principal.` | The session runs inside the copy it was asked to remove. | Close that session and ask from the main copy's session, at `C:\projects\Krummi`. |
 | `No se pudo borrar '<archivo>': está en uso. Cierra el editor, la aplicación o las pruebas que lo usan y repite. No se ha cerrado ningún proceso.` | A file of the copy is in use; nothing was forced and no process was closed. | Close the editor window, the application or the tests that use it, and say the same phrase again. |
 | `Ya existe la etiqueta exp/<n>. No se ha eliminado nada.` | An earlier discard of a change with this name left its tag. Nothing was removed. | The tools never overwrite it. Check it with `git log exp/<n>`; if you no longer need it, delete it yourself with `git tag -d exp/<n>` and ask again. |
 | `'main' no es una base de ensayo. No se ha cambiado nada.` | `main` cannot be discarded as a rehearsal. Nothing changed. | Use the name of the rehearsal base. |

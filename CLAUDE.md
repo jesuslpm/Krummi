@@ -1,4 +1,4 @@
-# MuninnDB — project instructions
+# Krummi — project instructions
 
 Rust embedded storage engine inspired by Voron, the storage engine of RavenDB. See `README.md` for the layout
 and `docs/methodology/` for the working method, which comes from the chicago-crime repository.
@@ -6,7 +6,7 @@ and `docs/methodology/` for the working method, which comes from the chicago-cri
 ## Workflow
 
 - **PRD first.** Every change to product behavior starts with a PRD written with the `prd` skill, in
-  `docs/prd/muninndb/`. The Spanish PRDs are authoritative; `*.prd.en.md` are translations. A PRD does
+  `docs/prd/krummi/`. The Spanish PRDs are authoritative; `*.prd.en.md` are translations. A PRD does
   not authorize implementation; wait for the user to ask for it.
 - **Execution after the PRD.** ODD by default. Use vibe coding or SDD only when the user asks for it. Bug
   fixes, refactors and tooling with no product change need no PRD.
@@ -89,8 +89,8 @@ Claude ODD assignment table into the global `CLAUDE.md`.
 
 ## Working in a worktree
 
-A worktree copy holds one change at `C:\wt\muninndb-<n>` on branch `feat/<n>`; its `.git` is a file, while
-in the main copy (`C:\projects\MuninnDB`) it is a folder. Create, list, merge and remove copies only with the
+A worktree copy holds one change at `C:\wt\krummi-<n>` on branch `feat/<n>`; its `.git` is a file, while
+in the main copy (`C:\projects\Krummi`) it is a folder. Create, list, merge and remove copies only with the
 `worktree` skill. Guide: `docs/worktrees.md`.
 
 - **Merge into the base, only when asked.** In a copy, the developer decides what is merged and what is
