@@ -131,12 +131,15 @@ fn ac_j8_making_what_is_committed_durable() {
         holder.join().unwrap();
     });
 
-    // A failed flush is an I/O failure, and the store refuses writes.
+    // A failed flush is an I/O failure, and the store refuses writes. The journal's writer is paused so that the
+    // deferred commit is still pending when the fault is injected (otherwise it may already be durable).
+    engine.set_journal_paused(true);
     let mut tx = engine.write(None).unwrap();
     common::put(&mut tx, page, "deferred");
     tx.commit_deferred().unwrap();
     reset();
     inject(Op::Sync, 0, Action::Fail(io::ErrorKind::Other));
+    engine.set_journal_paused(false);
     assert_eq!(engine.make_durable().unwrap_err().kind(), ErrorKind::Io);
     reset();
     assert_eq!(engine.write(None).err().unwrap().kind(), ErrorKind::Io);
