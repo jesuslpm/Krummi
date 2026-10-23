@@ -68,6 +68,19 @@ espacio se recupera al terminar las lecturas.*
   de R2 y R3, y este documento se actualizó con los nombres nuevos (decisiones R1–R13). Los nombres de archivo y
   los números de formato de las anotaciones anteriores se leen según R3 y R5, y el formato vigente es `3`.*
 
+*Anotaciones del 2026-10-23 desde la escritura agrupada y directa del diario
+([journal-group-commit.prd.md](journal-group-commit.prd.md)):*
+
+- *T2, AC-T3 y AC-T5: una escritura ve también las confirmaciones que pasaron su punto sin retorno antes de que
+  obtuviera el turno, aunque no sean durables; una lectura solo ve confirmaciones durables, así que, en modo
+  diferido, la ve cuando su grupo es durable y no al devolver (decisión E3).*
+- *T10 y AC-T19: un pánico después del punto sin retorno no deshace la confirmación; y una confirmación sin cambios
+  en modo durable espera a que sean durables las confirmaciones que vio, y puede ser la operación que encuentra un
+  fallo de entrada y salida (decisiones E2 y E11).*
+- *T12: un fallo al escribir un grupo del diario lo informan también las confirmaciones que esperan a ser durables
+  (decisión E8).*
+- *Todo el documento: la versión de formato vigente pasa a ser `4` (decisión E15).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

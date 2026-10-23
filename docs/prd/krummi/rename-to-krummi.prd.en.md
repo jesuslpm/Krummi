@@ -43,6 +43,10 @@ the affected documents (see [Annotations to other PRDs](#annotations-to-other-pr
 | R12 | **Folder of the main copy**: the main copy moves to `C:\projects\Krummi`, and the project instructions, the guide to the working copies and the methodology name that path. The user moves the folder after closing the run, with the editor closed; until then the documentation already names the new path. |
 | R13 | **Memory project**: the main copy detects the memory project by the address of the remote repository, so after R9 it uses the project `krummi`. With the user's authorization, given at the start of the run, to read `muninndb` and write to `krummi`, the run saves in `krummi` a copy of every memory that `muninndb` has at the time of copying, including those saved during this run, with the same type, title, content, scope and topic key; the copies have a new identifier and date, and the sessions are not copied, although their summaries are, since they are memories. Repeating the copy after a partial failure copies only the missing ones. The closing report gives the number of memories copied. The `muninndb` project stays as it was, as an archive. |
 
+*Annotation of 2026-10-23 from group and direct writes
+([journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)): R5, the current format version becomes `4`; a
+store of format `3` is of an older format (decision E15).*
+
 ### Starting state
 
 Verified on 2026-10-23 on the repository:

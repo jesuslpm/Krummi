@@ -67,6 +67,12 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 - *P8: a lone `muninn.data.new`, which used to be an interrupted creation and was deleted, is no longer deleted:
   it is a foreign entry and the folder is not a store (decision R6).*
 
+*Annotations of 2026-10-23 from group and direct writes
+([journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)):*
+
+- *P5: the current format version becomes `4`; a store of format `3` is of an older format (decision E15).*
+- *P13: not being able to start on open what writes the journal is out of memory (decision E13).*
+
 ### Starting state
 
 Verified on 2026-10-22:

@@ -125,6 +125,11 @@ commit that the journal itself does not record as durable is discarded without e
 finish; and if the last durable commit is damaged with no later commit, it cannot be told apart from one and is
 also discarded (decision J9 of [journal.prd.en.md](journal.prd.en.md)).*
 
+*Annotation of 2026-10-23: with the group write of the journal, the above holds by groups of commits written
+together: if the last group is damaged with none after it, the damaged commit and the following ones are discarded;
+and the current format version becomes `4` (decisions E9 and E15 of
+[journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,
@@ -286,6 +291,10 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 6. **AC6** — Given an open read transaction, when another write one is committed, then the read one keeps seeing
    the previous data and a new read sees the new data; and while there are open readers, the write starts and
    commits without waiting for them (G3).
+
+   *Annotation of 2026-10-23 to AC6: in a store on disk, a new read only sees durable commits; after a deferred
+   commit, it sees it when it is durable, not on return (decision E3 of
+   [journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
 7. **AC7** — Given several threads that ask at the same time for a write transaction, when they are observed,
    then there are never two open at once and, within the waiting limits set by child PRD 2, all end up
    committed (G4).
@@ -303,6 +312,9 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 
     *Annotation of 2026-10-22 to AC10: an alteration in the last commit of the journal may also cause it to be
     discarded without error (decision J9 of [journal.prd.en.md](journal.prd.en.md)).*
+
+    *Annotation of 2026-10-23 to AC10: with the group write, that discard holds for an alteration in the last group
+    of commits written together (decision E9 of [journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
 11. **AC11** — Given a disk with no space, when a write transaction does not fit, then it fails with the
     disk-full error class, applies no change, the store still allows read transactions and, when space is freed,
     a following write commits without reopening (G7).

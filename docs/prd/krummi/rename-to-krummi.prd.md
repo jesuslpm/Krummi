@@ -42,6 +42,10 @@ anotado en los documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-
 | R12 | **Carpeta de la copia principal**: la copia principal pasa a estar en `C:\projects\Krummi`, y las instrucciones del proyecto, la guía de las copias de trabajo y la metodología nombran esa ruta. La carpeta la mueve el usuario después de cerrar la ejecución, con el editor cerrado; hasta entonces la documentación ya nombra la ruta nueva. |
 | R13 | **Proyecto de memoria**: la copia principal detecta el proyecto de memoria por la dirección del repositorio remoto, así que tras R9 pasa a usar el proyecto `krummi`. Con la autorización del usuario dada al arrancar la ejecución para leer `muninndb` y escribir en `krummi`, la ejecución guarda en `krummi` una copia de cada memoria que tenga `muninndb` en el momento de copiar, incluidas las guardadas durante esta ejecución, con el mismo tipo, título, contenido, ámbito y clave de tema; las copias tienen identificador y fecha nuevos, y las sesiones no se copian, aunque sí sus resúmenes, que son memorias. Repetir la copia tras un fallo a medias solo copia las que faltan. El informe de cierre da el número de memorias copiadas. El proyecto `muninndb` queda como estaba, como archivo. |
 
+*Anotación del 2026-10-23 desde la escritura agrupada y directa del diario
+([journal-group-commit.prd.md](journal-group-commit.prd.md)): R5, la versión de formato vigente pasa a ser `4`; un
+almacén de formato `3` es de formato anterior (decisión E15).*
+
 ### Estado de partida
 
 Verificado el 2026-10-23 sobre el repositorio:

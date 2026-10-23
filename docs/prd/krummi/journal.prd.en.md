@@ -53,6 +53,31 @@ from earlier rules is declared in its decisions and annotated in the affected do
   the earlier annotations are read according to R3 and R5, and the current format is `3`.*
 - *J3: the current format version becomes `3`; a store of format `2` is of an older format (decision R5).*
 
+*Annotations of 2026-10-23 from group and direct writes
+([journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)):*
+
+- *J2: the journal files have their final size from the moment they appear (decision E7).*
+- *J3: the current format version becomes `4`; a store of format `3` is of an older format (decision E15).*
+- *J4: the commit yields the turn at its point of no return, before being durable; from there the following writes
+  see it, and reads only when it is durable (decisions E2 and E3).*
+- *J9 and AC-J3: the commits that are written together count as a group; the window in which damage is discarded
+  without error moves from the last commit to the last group, and a journal file without intact commits counts as
+  empty (decisions E7 and E9).*
+- *J10 and AC-J7: a deferred commit becomes durable at the same moment as one in durable mode, can be lost to a
+  process crash until then, and reads do not see it until it is durable; its list of when it becomes durable and
+  the point of Left to the implementation about how long it takes are replaced; it can wait for room in the
+  journal queue or for the reservation of a new file, and the failures when writing the journal are reported in it
+  only before its point of no return (decisions E2, E3, E5 and E8).*
+- *J11: it also waits for the commits that passed their point of no return before it was called (decision E10).*
+- *J12 and AC-J14: the lack of space and of memory are detected before the point of no return, and a later panic
+  does not undo the commit; in AC-J14, the panic is caused before the point of no return. A commit that failed
+  with the input/output class may be there on reopen if the close manages to write it (decisions E2 and E12).*
+- *J13 and AC-J9: a failure when writing a group is reported by its commits that are waiting and by the commit
+  without changes in durable mode of a write that saw it, which no longer always finishes without error
+  (decisions E8 and E11).*
+- *Out of scope: grouping commits from several threads into a single journal write enters with that change
+  (decision E4).*
+
 ### Starting state
 
 Verified on 2026-10-22:

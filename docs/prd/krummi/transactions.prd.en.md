@@ -70,6 +70,19 @@ reads end.*
   R3, and this document was updated with the new names (decisions R1–R13). The file names and format numbers of
   the earlier annotations are read according to R3 and R5, and the current format is `3`.*
 
+*Annotations of 2026-10-23 from group and direct writes
+([journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)):*
+
+- *T2, AC-T3 and AC-T5: a write also sees the commits that passed their point of no return before it got the
+  turn, even if they are not durable; a read only sees durable commits, so, in deferred mode, it sees one when its
+  group is durable and not on return (decision E3).*
+- *T10 and AC-T19: a panic after the point of no return does not undo the commit; and a commit without changes in
+  durable mode waits for the commits it saw to be durable, and can be the operation that finds an input/output
+  failure (decisions E2 and E11).*
+- *T12: a failure when writing a journal group is also reported by the commits waiting to be durable (decision
+  E8).*
+- *Whole document: the current format version becomes `4` (decision E15).*
+
 ### Starting state
 
 Verified on 2026-10-22:

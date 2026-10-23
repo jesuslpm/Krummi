@@ -67,6 +67,13 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 - *P8: un `muninn.data.new` solo, que antes era una creación interrumpida y se borraba, ya no se borra: es una
   entrada ajena y la carpeta no es un almacén (decisión R6).*
 
+*Anotaciones del 2026-10-23 desde la escritura agrupada y directa del diario
+([journal-group-commit.prd.md](journal-group-commit.prd.md)):*
+
+- *P5: la versión de formato vigente pasa a ser `4`; un almacén de formato `3` es de formato anterior (decisión
+  E15).*
+- *P13: no poder poner en marcha al abrir lo que escribe el diario es memoria agotada (decisión E13).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

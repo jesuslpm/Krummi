@@ -54,6 +54,31 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 - *J3: la versión de formato vigente pasa a ser `3`; un almacén de formato `2` es de formato anterior (decisión
   R5).*
 
+*Anotaciones del 2026-10-23 desde la escritura agrupada y directa
+([journal-group-commit.prd.md](journal-group-commit.prd.md)):*
+
+- *J2: los archivos del diario tienen su tamaño final desde que aparecen (decisión E7).*
+- *J3: la versión de formato vigente pasa a ser `4`; un almacén de formato `3` es de formato anterior (decisión
+  E15).*
+- *J4: la confirmación cede el turno en su punto sin retorno, antes de ser durable; desde ahí la ven las escrituras
+  siguientes, y las lecturas solo cuando es durable (decisiones E2 y E3).*
+- *J9 y AC-J3: las confirmaciones que se escriben juntas cuentan como un grupo; la ventana en la que un daño se
+  descarta sin error pasa de la última confirmación al último grupo, y un archivo del diario sin confirmaciones
+  íntegras cuenta como vacío (decisiones E7 y E9).*
+- *J10 y AC-J7: una diferida pasa a ser durable en el mismo momento que una en modo durable, puede perderse ante una
+  caída del proceso hasta entonces y las lecturas no la ven hasta que es durable; su lista de cuándo pasa a ser
+  durable y el punto de Dejado a la implementación sobre cuánto tarda quedan sustituidos; puede esperar sitio en la
+  cola del diario o la reserva de un archivo nuevo, y los fallos al escribir el diario se informan en ella solo antes
+  de su punto sin retorno (decisiones E2, E3, E5 y E8).*
+- *J11: espera también a las confirmaciones que pasaron su punto sin retorno antes de llamarla (decisión E10).*
+- *J12 y AC-J14: la falta de espacio y de memoria se detectan antes del punto sin retorno, y un pánico posterior no
+  deshace la confirmación; en AC-J14, el pánico se provoca antes del punto sin retorno. Una confirmación que falló
+  con la clase de entrada y salida puede estar al reabrir si el cierre consigue escribirla (decisiones E2 y E12).*
+- *J13 y AC-J9: un fallo al escribir un grupo lo informan sus confirmaciones que esperan y la confirmación sin
+  cambios en modo durable de una escritura que lo vio, que ya no termina siempre sin error (decisiones E8 y E11).*
+- *Fuera de alcance: agrupar confirmaciones de varios hilos en una sola escritura del diario entra con ese cambio
+  (decisión E4).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

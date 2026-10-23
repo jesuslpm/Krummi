@@ -124,6 +124,11 @@ o que falta, que no consta como durable en el propio diario, se descarta sin err
 terminó; y si se daña la última confirmación durable sin ninguna posterior, no se distingue de ella y también se
 descarta (decisión J9 de [journal.prd.md](journal.prd.md)).*
 
+*Anotación del 2026-10-23: con la escritura agrupada del diario, lo anterior vale por grupos de confirmaciones
+escritas juntas: si se daña el último grupo sin ninguno posterior, se descartan la confirmación dañada y las
+siguientes; y la versión de formato vigente pasa a ser `4` (decisiones E9 y E15 de
+[journal-group-commit.prd.md](journal-group-commit.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,
@@ -287,6 +292,10 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 6. **AC6** — Dada una transacción de lectura abierta, cuando otra de escritura se confirma, entonces la de
    lectura sigue viendo los datos anteriores y una lectura nueva ve los nuevos; y mientras haya lectores
    abiertos, la escritura empieza y se confirma sin esperarlos (G3).
+
+   *Anotación del 2026-10-23 a AC6: en un almacén en disco, una lectura nueva solo ve confirmaciones durables; tras
+   una confirmación diferida, la ve cuando es durable, no al devolver (decisión E3 de
+   [journal-group-commit.prd.md](journal-group-commit.prd.md)).*
 7. **AC7** — Dados varios hilos que piden a la vez una transacción de escritura, cuando se observan, entonces
    nunca hay dos abiertas a la vez y, dentro de los límites de espera que fije el PRD hijo 2, todas terminan
    confirmadas (G4).
@@ -305,6 +314,9 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 
     *Anotación del 2026-10-22 a AC10: una alteración en la última confirmación del diario también puede producir su
     descarte sin error (decisión J9 de [journal.prd.md](journal.prd.md)).*
+
+    *Anotación del 2026-10-23 a AC10: con la escritura agrupada, ese descarte vale para una alteración en el último
+    grupo de confirmaciones escritas juntas (decisión E9 de [journal-group-commit.prd.md](journal-group-commit.prd.md)).*
 11. **AC11** — Dado un disco sin espacio, cuando una transacción de escritura no cabe, entonces falla con la clase
     de error de disco lleno, no aplica ningún cambio, el almacén sigue permitiendo transacciones de lectura y,
     al liberar espacio, una escritura siguiente se confirma sin reabrir (G7).
