@@ -77,11 +77,15 @@ cargo test -p krummi-tx --test commit -- --ignored ac10
 ```
 
 On Windows, an administrator can exclude one folder from Microsoft Defender while measuring, and point the tests'
-temporary folder at it; remove the exclusion afterwards:
+temporary folder at it. While the exclusion exists, nothing written to that folder is scanned, so remove it as soon
+as the measurement ends. The tests must reach the folder by its long path: `%TEMP%` is often a short (8.3) path, and
+the exclusion did not apply to files opened through it.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/antivirus/Add-DefenderExclusion.ps1     # %TEMP%\krummi-av-bench
-$env:TMP = "$env:TEMP\krummi-av-bench"; cargo test -p krummi-pager --test pages -- --ignored ac10
+$oldTmp = $env:TMP; $env:TMP = "$env:LOCALAPPDATA\Temp\krummi-av-bench"
+cargo test -p krummi-pager --test pages -- --ignored ac10
+$env:TMP = $oldTmp
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/antivirus/Remove-DefenderExclusion.ps1
 ```
 
