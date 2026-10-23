@@ -192,7 +192,7 @@ impl Pager {
                 discard_leftover(folder)?;
             }
             match create(folder, max_size)? {
-                Created::Store(pager) => return Ok(pager),
+                Created::Store(pager) => return Ok(*pager),
                 Created::Retry => continue,
             }
         }
@@ -842,7 +842,7 @@ fn create_error(folder: &Path, source: io::Error) -> Error {
 
 /// What a creation attempt produced.
 enum Created {
-    Store(Pager),
+    Store(Box<Pager>),
     /// The folder changed under this opener (another opener created the store or discarded this opener's
     /// `muninn.data.new`): the caller looks at the folder again.
     Retry,
@@ -905,7 +905,7 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
     }
     sys::sync_dir(folder).map_err(|e| create_error(folder, e))?;
     let map = map_new(&file, &data_path, INITIAL_SIZE, folder)?;
-    Ok(Created::Store(file_pager(
+    Ok(Created::Store(Box::new(file_pager(
         folder,
         file,
         data_path,
@@ -913,7 +913,7 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
         map,
         max_size,
         HeaderState::new(Header::new_store(), 0, Some(Header::new_store())),
-    )))
+    ))))
 }
 
 #[cfg(test)]
