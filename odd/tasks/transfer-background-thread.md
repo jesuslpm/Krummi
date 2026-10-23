@@ -27,7 +27,7 @@ Estimate: 1 h 30 min – 2 h 30 min. Real start: 2026-10-23 18:10:51 +0100.
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1, S2, S3, S4, S5 | inline | done | see Log L7 |
+| T1 | S1, S2, S3, S4, S5 | inline | done | `6709631`, `ae06585`, `ebf0115`, `e3ea257` |
 | T2 | S3, S5 | inline | merged into T1 | — |
 
 Route evidence: one module (`krummi-pager` scratch area and journal) plus test hooks in `krummi-tx`; understood; no
@@ -98,3 +98,11 @@ Writer trigger reason. Risk: item 4 (a new thread, condvar ordering, shutdown): 
   `krummi.data` with no new commit (RED: 1 pass and no retry; GREEN), and it fails without the interval clamp
   (24,965 passes). The wall-clock window stays: a pass count alone cannot tell paced retries from a spin.
   Suite 196 passed in both journal write modes; fmt and clippy clean.
+- **L11** (RDD review, 2026-10-23): commit `e3ea257` against `ebf0115`; lenses resilience, reliability; approved,
+  acknowledged (lineage `review-335f8ae885f136d8`). Findings, all SUGGESTION: R4-001 and R3-wallclock-pacing-bounds
+  (the 2 to 40 bounds of the paced-retry test depend on the scheduler; kept, see the report); R3-refused-branch-
+  keeps-retry (checked: `next_work` tests `failed` before `retry_at`, so a store refusing writes runs no pass).
+
+## Closing
+
+Closing report: [transfer-background-thread-report.md](transfer-background-thread-report.md).

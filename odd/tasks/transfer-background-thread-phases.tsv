@@ -4,3 +4,19 @@
 2026-10-23T19:08:54+01:00	mark	verify	T1
 2026-10-23T19:20:37+01:00	mark	fix	T1-B1
 2026-10-23T19:23:02+01:00	mark	review	T1
+2026-10-23T19:24:07+01:00	bg-start	review	RDD three lenses
+2026-10-23T19:24:07+01:00	bg-end	review	RDD three lenses
+2026-10-23T19:24:26+01:00	bg-start	review	RDD three lenses
+2026-10-23T19:26:07+01:00	bg-end	review	RDD three lenses
+2026-10-23T19:26:53+01:00	mark	fix	T1-R3R4
+2026-10-23T19:27:28+01:00	mark	checks	T1-R3R4
+2026-10-23T19:29:11+01:00	mark	review	T1-R3R4
+2026-10-23T19:29:32+01:00	bg-start	review	RDD last slice
+2026-10-23T19:30:04+01:00	bg-end	review	RDD last slice
+2026-10-23T19:30:27+01:00	mark	fix	T1-R3R4b
+2026-10-23T19:31:18+01:00	mark	checks	T1-R3R4b
+2026-10-23T19:34:53+01:00	mark	review	T1-R3R4b
+2026-10-23T19:35:05+01:00	bg-start	review	RDD final slice
+2026-10-23T19:35:34+01:00	bg-end	review	RDD final slice
+2026-10-23T19:35:55+01:00	end		
+2026-10-23T19:35:56+01:00	mark	close	
