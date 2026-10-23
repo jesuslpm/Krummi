@@ -34,6 +34,10 @@ pub const JOURNAL_PREFIX: &str = "muninn.journal.";
 pub(crate) const ALIGN: u64 = 4096;
 /// Size of a record header.
 pub(crate) const RECORD_HEADER: usize = 64;
+/// Bytes, or commits, written since the last flush beyond which a transfer makes the journal durable first, so
+/// that deferred commits do not wait in the temporary area for a durable one (J5).
+pub(crate) const PENDING_BYTES_LIMIT: u64 = 1 << 20;
+pub(crate) const PENDING_COMMITS_LIMIT: u64 = 256;
 /// Size at which the journal goes on in a new file.
 pub(crate) const DEFAULT_FILE_LIMIT: u64 = 16 << 20;
 const MAGIC: u64 = u64::from_le_bytes(*b"MuninnJ1");
@@ -206,6 +210,8 @@ struct State {
     written_upto: u64,
     /// Last commit known to be durable (J4, J10).
     synced_upto: u64,
+    /// Bytes written since the last flush.
+    pending_bytes: u64,
     /// Files that exist, oldest first, with the last commit each holds (the current one included).
     files: VecDeque<(u64, u64)>,
 }
@@ -229,6 +235,7 @@ impl Journal {
                 next_number,
                 written_upto: last_txid,
                 synced_upto: last_txid,
+                pending_bytes: 0,
                 files: VecDeque::new(),
             }),
             file_limit: AtomicU64::new(DEFAULT_FILE_LIMIT),
@@ -256,6 +263,13 @@ impl Journal {
     /// Last commit known to be durable.
     pub(crate) fn synced_upto(&self) -> u64 {
         self.lock().synced_upto
+    }
+
+    /// Whether so much was written since the last flush that the next transfer should make it durable.
+    pub(crate) fn too_much_pending(&self) -> bool {
+        let state = self.lock();
+        state.pending_bytes >= PENDING_BYTES_LIMIT
+            || state.written_upto - state.synced_upto >= PENDING_COMMITS_LIMIT
     }
 
     /// Appends the record of commit `txid` and, when `durable`, flushes it to the disk (J4); a deferred commit is
@@ -317,8 +331,10 @@ impl Journal {
         guard.current.len = offset + record.len() as u64;
         drop(guard);
         state.written_upto = txid;
+        state.pending_bytes += record.len() as u64;
         if durable {
             state.synced_upto = txid;
+            state.pending_bytes = 0;
         }
         if let Some(last) = state.files.back_mut() {
             last.1 = txid;
@@ -331,6 +347,7 @@ impl Journal {
         if let Some(current) = &state.current {
             sys::sync(&current.file, &current.path).map_err(|e| pager.fail_flush(e))?;
             state.synced_upto = state.written_upto;
+            state.pending_bytes = 0;
         }
         let number = state.next_number;
         let path = self.folder.join(file_name(number));
@@ -375,6 +392,7 @@ impl Journal {
             .expect("unsynced commits are in the current file");
         sys::sync(&current.file, &current.path).map_err(|e| pager.fail_flush(e))?;
         state.synced_upto = state.written_upto;
+        state.pending_bytes = 0;
         Ok(())
     }
 

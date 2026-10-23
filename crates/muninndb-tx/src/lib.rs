@@ -196,6 +196,12 @@ impl Engine {
         self.scratch.checkpoint()
     }
 
+    /// Bytes of committed page versions that are not in `muninn.data` yet (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn scratch_bytes(&self) -> u64 {
+        self.scratch.scratch_bytes()
+    }
+
     /// Sets the size at which the journal goes on in a new file (tests).
     #[cfg(feature = "test-hooks")]
     pub fn set_journal_file_limit(&self, bytes: u64) {

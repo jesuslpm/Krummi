@@ -199,7 +199,8 @@ impl Scratch {
         if let Some(hook) = hook {
             hook();
         }
-        self.flush_locked(&guard, false)
+        let force = self.journal.as_ref().is_some_and(Journal::too_much_pending);
+        self.flush_locked(&guard, force)
     }
 
     /// Sets a function a transfer calls while it holds its lock, or none (tests: AC-J17).

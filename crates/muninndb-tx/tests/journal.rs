@@ -254,3 +254,27 @@ fn closing_a_store_nobody_changed_leaves_it_byte_identical() {
     assert_eq!(fs::read(&data).unwrap(), before);
     assert_eq!(names(tmp.path()), vec!["muninn.data"]);
 }
+
+/// S3 of the journal follow-ups (J5): deferred commits alone, without any durable one, still reach `muninn.data`
+/// once enough of them are pending, so the versions waiting in `muninn.temp` stay bounded.
+#[test]
+fn deferred_commits_alone_do_not_pile_up_in_the_temporary_area() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    let mut most = 0;
+    for _ in 0..400 {
+        let mut tx = engine.write(None).unwrap();
+        let page = tx.allocate().unwrap();
+        for b in tx.page_mut(page).unwrap().iter_mut() {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            *b = x as u8;
+        }
+        tx.commit_deferred().unwrap();
+        most = most.max(engine.scratch_bytes());
+    }
+    assert!(most < 2 << 20, "{most} bytes waited in the temporary area");
+    engine.close().unwrap();
+}
