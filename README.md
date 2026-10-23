@@ -6,7 +6,8 @@ Icelandic nickname for the raven.
 
 Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.md)), module 2, the
 **transactions** ([PRD](docs/prd/krummi/transactions.prd.md)), and module 3, the **journal and recovery**
-([PRD](docs/prd/krummi/journal.prd.md)). An application can create, open, inspect and close stores, on disk or in
+([PRD](docs/prd/krummi/journal.prd.md)), with grouped and direct journal writes
+([PRD](docs/prd/krummi/journal-group-commit.prd.md)). An application can create, open, inspect and close stores, on disk or in
 memory, and open read transactions from any number of threads and one write transaction at a time, which the others
 wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
 crash recovers it. Storing data in transactions arrives with the data structures of the next modules. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
@@ -21,8 +22,8 @@ println!("{:?}", store.info()); // format version, page size, size, pages, maxim
 let read = store.read()?; // a snapshot: sees every write committed before it opened, none after
 let write = store.write_with_timeout(Duration::from_secs(5))?; // or store.write() to wait without limit
 write.commit()?; // durable when it returns, and visible to the reads opened from now on
-store.write()?.commit_deferred()?; // returns before reaching the disk; survives a crash of the process
-store.make_durable()?; // now the deferred commits survive a power cut too
+store.write()?.commit_deferred()?; // returns at once; durable, and visible to reads, a disk write later
+store.make_durable()?; // waits until every commit made so far is durable
 drop(read);
 store.close()?; // moves everything into krummi.data and removes the journal
 ```
@@ -32,8 +33,12 @@ the journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a c
 process can have it open at a time. The `krummi` crate is the public API; `krummi-pager` and `krummi-tx` are internal to the engine, and
 `krummi-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
 
-As in Voron, a write transaction changes copies of its pages and every page keeps its number. A commit is written
-to the write-ahead journal (LZ4-compressed records with checksums) and, in durable mode, flushed before it returns.
+As in Voron, a write transaction changes copies of its pages and every page keeps its number. A commit enters the
+queue of the write-ahead journal (LZ4-compressed records with checksums) and releases the write turn; the journal's
+own thread writes every queued commit in one write, directly to the disk when the file system allows it, so commits
+from several threads share one wait for the disk (group commit). The next writer sees a queued commit at once; reads
+see it once it is durable, which is when a durable commit returns. `cargo run --release -p krummi-tx --example
+commit_rate` measures durable commits per second.
 The committed version lives in a scratch area, in mapped files of `krummi.temp`, until no open read needs the
 version before it; then it is written in its place in `krummi.data` and the header records how far the journal has
 been applied. Opening a store after a crash replays the journal from that point.

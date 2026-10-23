@@ -1031,6 +1031,8 @@ fn ac_e16_damage_is_judged_by_group() {
 /// (J9); never data that was not written.
 fn ac10_journal_sweep(step: usize) {
     let (source, engine) = Run::start();
+    // Journal files are reserved with their final size (E7): a small one keeps the sweep over what was written.
+    engine.set_journal_file_limit(32 * 1024);
     let pages = reserve(&engine, 2, "c0");
     let hold = engine.read().unwrap();
     for i in 1..=3 {
