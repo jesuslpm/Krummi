@@ -19,7 +19,7 @@ fn ac_p1_a_missing_folder_is_created_with_a_new_store() {
     let pager = open(&folder);
     let info = pager.info();
     assert_eq!(info.format_version, FORMAT_VERSION);
-    assert_eq!(info.format_version, 3);
+    assert_eq!(info.format_version, 4);
     assert_eq!(info.page_size, 8192);
     assert!(
         info.size_bytes <= 1_048_576 && info.size_bytes.is_multiple_of(8192),
@@ -220,6 +220,26 @@ fn ac_p8_one_damaged_header_copy_opens_and_two_are_damage() {
         matches!(err, krummi_pager::Error::Damaged { page: None, .. }),
         "{err:?}"
     );
+    assert_eq!(file_bytes(&data), before);
+}
+
+/// AC-E14 (E15 of the grouped journal PRD): format `3`, the one before grouped journal writes, is a previous
+/// format; a new store has format `4`.
+#[test]
+fn ac_e14_format_3_is_a_previous_format_and_new_stores_have_format_4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pager = open(tmp.path());
+    assert_eq!(pager.info().format_version, 4);
+    pager.close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    common::rewrite_format_version(&data, 3);
+    let before = file_bytes(&data);
+    match open_err(tmp.path()) {
+        krummi_pager::Error::DifferentFormat {
+            found, expected, ..
+        } => assert_eq!((found, expected), (3, 4)),
+        other => panic!("expected a different format, got {other:?}"),
+    }
     assert_eq!(file_bytes(&data), before);
 }
 
