@@ -13,7 +13,7 @@ mod sys;
 mod temp;
 
 pub use error::{Error, ErrorKind, Result};
-pub use journal::JOURNAL_PREFIX;
+pub use journal::{JOURNAL_PREFIX, RELEASE_FILE_LIMIT};
 pub use pager::{
     DATA_FILE, INITIAL_SIZE, Info, MAX_GROWTH_STEP, MIN_MAX_SIZE, NEW_DATA_FILE, OpenOptions, Pager,
 };

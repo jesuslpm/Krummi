@@ -1,6 +1,8 @@
 //! Test-only fault injection and operation recording for [`crate::sys`].
 //!
-//! State is per thread, so tests running in parallel do not interfere.
+//! State is per thread, so tests running in parallel do not interfere. A thread the store starts for itself (the
+//! journal's writer) adopts the state of the thread that opened the store, so faults injected and operations
+//! recorded by a test reach it too.
 
 #![cfg_attr(not(test), allow(dead_code))]
 
@@ -8,6 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use super::Op;
 
@@ -43,66 +46,84 @@ struct State {
 }
 
 thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State::default());
+    static STATE: RefCell<Arc<Mutex<State>>> = RefCell::new(Arc::default());
+}
+
+/// Runs `f` on this thread's state.
+fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
+    STATE.with(|s| f(&mut s.borrow().lock().unwrap_or_else(PoisonError::into_inner)))
+}
+
+/// The fault state of a thread, for a thread the store starts to share it (see [`adopt`]).
+#[derive(Clone, Default)]
+pub struct Context(Arc<Mutex<State>>);
+
+/// This thread's fault state.
+pub fn context() -> Context {
+    STATE.with(|s| Context(Arc::clone(&s.borrow())))
+}
+
+/// Makes this thread share the fault state `context`: faults, counters, recordings and skipped flushes.
+pub fn adopt(context: &Context) {
+    STATE.with(|s| *s.borrow_mut() = Arc::clone(&context.0));
 }
 
 /// Makes the `nth` (from 0) future call of `op` on this thread do `action`.
 pub fn inject(op: Op, nth: usize, action: Action) {
-    STATE.with(|s| s.borrow_mut().faults.push((op, nth, action)));
+    with(|s| s.faults.push((op, nth, action)));
 }
 
 /// Number of calls of `op` on this thread since the last [`reset`].
 pub fn count(op: Op) -> usize {
-    STATE.with(|s| s.borrow().counts.get(&op).copied().unwrap_or(0))
+    with(|s| s.counts.get(&op).copied().unwrap_or(0))
 }
 
 /// Makes the flushes to disk of this thread succeed without flushing, for tests that check damage detection and
 /// not durability, such as the AC10 sweeps, which reopen a store tens of thousands of times.
 pub fn skip_syncs(skip: bool) {
-    STATE.with(|s| s.borrow_mut().skip_syncs = skip);
+    with(|s| s.skip_syncs = skip);
 }
 
 /// Whether this thread skips its flushes to disk.
 pub(crate) fn syncs_skipped() -> bool {
-    STATE.with(|s| s.borrow().skip_syncs)
+    with(|s| s.skip_syncs)
 }
 
 /// Kills the process before the operation number `point` (from 0, counting every operation of this thread).
 pub fn abort_at(point: usize) {
-    STATE.with(|s| s.borrow_mut().abort_at_point = Some(point));
+    with(|s| s.abort_at_point = Some(point));
 }
 
 /// Number of operations this thread has gone through since the last [`reset`].
 pub fn points() -> usize {
-    STATE.with(|s| s.borrow().points)
+    with(|s| s.points)
 }
 
-/// Clears faults, counters and recordings of this thread.
+/// Clears faults, counters and recordings of this thread, and of the threads that share its state.
 pub fn reset() {
-    STATE.with(|s| *s.borrow_mut() = State::default());
+    with(|s| *s = State::default());
 }
 
 /// Starts recording the operations of this thread.
 pub fn start_recording() {
-    STATE.with(|s| s.borrow_mut().recording = Some(Vec::new()));
+    with(|s| s.recording = Some(Vec::new()));
 }
 
 /// Number of operations recorded so far, without stopping the recording.
 pub fn recorded_len() -> usize {
-    STATE.with(|s| s.borrow().recording.as_ref().map_or(0, Vec::len))
+    with(|s| s.recording.as_ref().map_or(0, Vec::len))
 }
 
 /// Stops recording and returns what was recorded.
 pub fn take_recording() -> Vec<Recorded> {
-    STATE.with(|s| s.borrow_mut().recording.take().unwrap_or_default())
+    with(|s| s.recording.take().unwrap_or_default())
 }
 
 pub(crate) mod hooks {
     use super::*;
 
     pub(crate) fn before(op: Op, _path: &Path) -> io::Result<()> {
-        let action = STATE.with(|s| {
-            let mut s = s.borrow_mut();
+        let action = with(|s| {
             let point = s.points;
             s.points += 1;
             if s.abort_at_point == Some(point) {
@@ -124,8 +145,8 @@ pub(crate) mod hooks {
     }
 
     pub(crate) fn record(op: Recorded) {
-        STATE.with(|s| {
-            if let Some(ops) = s.borrow_mut().recording.as_mut() {
+        with(|s| {
+            if let Some(ops) = s.recording.as_mut() {
                 ops.push(op);
             }
         });

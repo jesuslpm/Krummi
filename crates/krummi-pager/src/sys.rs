@@ -463,6 +463,128 @@ fn write_zeros(file: &File, old_len: u64, new_len: u64) -> io::Result<()> {
     Ok(())
 }
 
+/// Alignment, in memory and in the file, of what is written to a journal file opened for direct writes: a
+/// multiple of every sector size in use.
+pub(crate) const DIRECT_ALIGN: usize = 4096;
+
+/// Creates the journal file `path` with its final size, `len` bytes, reserved on disk, so that writing into it
+/// never changes its size and a lack of space shows up here (E7 of the grouped journal PRD). With `direct` it is
+/// opened to write directly to the disk when the system allows it (E6); the result says whether it is. The caller
+/// makes the creation and the size durable. On failure no file is left.
+pub(crate) fn create_journal_file(path: &Path, len: u64, direct: bool) -> io::Result<(File, bool)> {
+    before(Op::CreateFile, path)?;
+    let direct = direct && cfg!(any(windows, target_os = "linux"));
+    let (file, direct) = match open_journal(path, direct) {
+        Ok(file) => (file, direct),
+        // The file system does not take direct writes: the journal goes through the system's cache (E6).
+        Err(e) if direct && e.kind() == io::ErrorKind::InvalidInput => {
+            let _ = fs::remove_file(path);
+            (open_journal(path, false)?, false)
+        }
+        Err(e) => return Err(e),
+    };
+    #[cfg(any(test, feature = "test-hooks"))]
+    hooks::record(faults::Recorded::Create(path.to_path_buf()));
+    let reserved = before(Op::Reserve, path).and_then(|()| reserve_space(&file, 0, len));
+    if let Err(e) = reserved {
+        drop(file);
+        let _ = fs::remove_file(path);
+        return Err(e);
+    }
+    #[cfg(any(test, feature = "test-hooks"))]
+    hooks::record(faults::Recorded::SetLen(path.to_path_buf(), len));
+    Ok((file, direct))
+}
+
+/// Opens a new journal file for reading and writing, for direct writes when `direct`. Others can delete it while it
+/// is open: the journal removes files whose last writes may still hold a handle.
+fn open_journal(path: &Path, direct: bool) -> io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+        options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+        if direct {
+            options.custom_flags(FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if direct {
+        use rustix::fs::OFlags;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags((OFlags::DIRECT | OFlags::DSYNC).bits() as i32);
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let _ = direct;
+    options.open(path)
+}
+
+/// Marks the end of a write to a journal file opened for direct writes, which reached the disk before it returned:
+/// it counts as that write's flush (E6), so a test can make it fail and the power-cut simulation sees it.
+pub(crate) fn written_through(path: &Path) -> io::Result<()> {
+    before(Op::Sync, path)?;
+    #[cfg(any(test, feature = "test-hooks"))]
+    hooks::record(faults::Recorded::Sync(path.to_path_buf()));
+    Ok(())
+}
+
+/// Zeroed memory aligned to [`DIRECT_ALIGN`], whose length is a multiple of it, for direct writes.
+pub(crate) struct AlignedBuf {
+    ptr: std::ptr::NonNull<u8>,
+    len: usize,
+}
+
+// SAFETY: an `AlignedBuf` owns its memory exclusively, like a `Box<[u8]>`.
+unsafe impl Send for AlignedBuf {}
+// SAFETY: shared access only reads the memory, through `&[u8]`.
+unsafe impl Sync for AlignedBuf {}
+
+impl AlignedBuf {
+    /// `len` zeroed bytes, rounded up to a multiple of [`DIRECT_ALIGN`], or the out-of-memory error.
+    pub(crate) fn zeroed(len: usize) -> io::Result<AlignedBuf> {
+        let out_of_memory = || io::Error::from(io::ErrorKind::OutOfMemory);
+        let len = len
+            .max(1)
+            .checked_next_multiple_of(DIRECT_ALIGN)
+            .ok_or_else(out_of_memory)?;
+        let layout =
+            std::alloc::Layout::from_size_align(len, DIRECT_ALIGN).map_err(|_| out_of_memory())?;
+        // SAFETY: `layout` has a non-zero size.
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+        let ptr = std::ptr::NonNull::new(ptr).ok_or_else(out_of_memory)?;
+        Ok(AlignedBuf { ptr, len })
+    }
+}
+
+impl std::ops::Deref for AlignedBuf {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        // SAFETY: `ptr` points to `len` initialized (zeroed, then written) bytes owned by `self`.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl std::ops::DerefMut for AlignedBuf {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as in `deref`, and `&mut self` makes this the only access.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl Drop for AlignedBuf {
+    fn drop(&mut self) {
+        let layout = std::alloc::Layout::from_size_align(self.len, DIRECT_ALIGN)
+            .expect("the layout was valid when allocated");
+        // SAFETY: `ptr` was allocated by `alloc_zeroed` with this same layout and is freed only here.
+        unsafe { std::alloc::dealloc(self.ptr.as_ptr(), layout) };
+    }
+}
+
 /// Flushes the file's data and size to the disk.
 pub(crate) fn sync(file: &File, path: &Path) -> io::Result<()> {
     before(Op::Sync, path)?;
@@ -581,6 +703,88 @@ mod rename_info_tests {
                 "ReplaceIfExists is false"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod journal_file_tests {
+    use super::*;
+
+    #[test]
+    fn aligned_buffers_are_zeroed_aligned_and_rounded_up() {
+        for len in [1, DIRECT_ALIGN, DIRECT_ALIGN + 1] {
+            let buf = AlignedBuf::zeroed(len).unwrap();
+            assert_eq!(buf.as_ptr() as usize % DIRECT_ALIGN, 0);
+            assert_eq!(buf.len(), len.next_multiple_of(DIRECT_ALIGN));
+            assert!(buf.iter().all(|b| *b == 0));
+        }
+    }
+
+    /// E6, E7: a journal file has its final size from the start, and writing into it does not change it.
+    #[test]
+    fn a_journal_file_is_created_with_its_size_and_keeps_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        for direct in [true, false] {
+            let path = tmp.path().join(format!("j{direct}"));
+            let (file, is_direct) =
+                create_journal_file(&path, 4 * DIRECT_ALIGN as u64, direct).unwrap();
+            assert!(!is_direct || direct);
+            if cfg!(windows) {
+                assert_eq!(is_direct, direct, "NTFS takes direct writes");
+            }
+            let mut buf = AlignedBuf::zeroed(2 * DIRECT_ALIGN).unwrap();
+            buf.fill(7);
+            write_at(&file, &path, DIRECT_ALIGN as u64, &buf).unwrap();
+            if is_direct {
+                written_through(&path).unwrap();
+            }
+            drop(file);
+            let bytes = fs::read(&path).unwrap();
+            assert_eq!(bytes.len(), 4 * DIRECT_ALIGN);
+            assert!(bytes[..DIRECT_ALIGN].iter().all(|b| *b == 0));
+            assert!(
+                bytes[DIRECT_ALIGN..3 * DIRECT_ALIGN]
+                    .iter()
+                    .all(|b| *b == 7)
+            );
+        }
+    }
+
+    #[test]
+    fn a_journal_file_that_cannot_be_reserved_is_not_left_behind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("j");
+        faults::reset();
+        faults::inject(
+            Op::Reserve,
+            0,
+            faults::Action::Fail(io::ErrorKind::StorageFull),
+        );
+        let error = create_journal_file(&path, DIRECT_ALIGN as u64, true).unwrap_err();
+        faults::reset();
+        assert_eq!(error.kind(), io::ErrorKind::StorageFull);
+        assert!(!path.exists());
+    }
+
+    /// A thread that adopts another's fault state sees its faults and feeds its counters.
+    #[test]
+    fn an_adopted_fault_state_is_shared_between_threads() {
+        faults::reset();
+        faults::inject(
+            Op::Snapshot,
+            0,
+            faults::Action::Fail(io::ErrorKind::OutOfMemory),
+        );
+        let context = faults::context();
+        let failed = std::thread::spawn(move || {
+            faults::adopt(&context);
+            snapshot_point().is_err()
+        })
+        .join()
+        .unwrap();
+        assert!(failed);
+        assert_eq!(faults::count(Op::Snapshot), 1);
+        faults::reset();
     }
 }
 

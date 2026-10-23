@@ -729,6 +729,55 @@ fn ac_j15_incompressible_commits_are_recovered() {
     }
 }
 
+/// AC-E9 (E7 of the grouped journal PRD): a journal file has its final size from its creation, and commits that fit
+/// in it do not change it; a commit larger than a journal file is journaled and recovered after a crash.
+#[test]
+fn ac_e9_journal_files_keep_their_reserved_size() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = open(tmp.path());
+    let pages = reserve(&engine, 1, "c0");
+    let hold = engine.read().unwrap();
+    let files = journal_files(tmp.path());
+    assert_eq!(files.len(), 1);
+    let size = fs::metadata(&files[0]).unwrap().len();
+    assert!(
+        size >= 16 * 4096,
+        "the file is reserved, not one record long: {size}"
+    );
+    for i in 1..=10 {
+        commit_all(&engine, &pages, &format!("c{i}"), true);
+        assert_eq!(journal_files(tmp.path()), files);
+        assert_eq!(fs::metadata(&files[0]).unwrap().len(), size, "commit {i}");
+    }
+    drop(hold);
+    engine.close().unwrap();
+
+    let (source, engine) = Run::start();
+    let mut tx = engine.write(None).unwrap();
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    let mut expected = Vec::new();
+    let pages_needed = size as usize / 8192 + 8;
+    for _ in 0..pages_needed {
+        let page = tx.allocate().unwrap();
+        let payload = tx.page_mut(page).unwrap();
+        for b in payload.iter_mut() {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            *b = x as u8;
+        }
+        expected.push((page, payload.to_vec()));
+    }
+    tx.commit().unwrap();
+    let run = Run::finish(source, vec![]);
+    let folder = run.crash(run.ops.len(), Model::Flushed);
+    let engine = open(folder.path());
+    let read = engine.read().unwrap();
+    for (page, bytes) in expected {
+        assert_eq!(read.page(page).unwrap(), &bytes[..]);
+    }
+}
+
 /// AC10 with the journal: altering any byte of a crashed store, its journal included, gives the damage class,
 /// "not a store" (the mark), no difference, or, only inside the last journal record, the loss of that last commit
 /// (J9); never data that was not written.

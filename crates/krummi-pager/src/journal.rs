@@ -9,9 +9,12 @@
 //! - the payload: the commit's pages as (page number, sealed page) pairs, compressed with LZ4 when that makes it
 //!   smaller (J16).
 //!
-//! Records are appended to the current file. When it reaches [`DEFAULT_FILE_LIMIT`] the journal flushes it and goes
-//! on in a new file, whose name is made durable before any commit in it returns. A write that fails leaves the
-//! write position where it was, so the next record overwrites what it left (J12).
+//! Records are appended to the current file. A file is created when a record needs it, with its final size
+//! ([`DEFAULT_FILE_LIMIT`], or more for a record that does not fit in it) reserved on disk, and its name and size
+//! are made durable before any record is written into it, so writing never changes its size (E7 of the grouped
+//! journal PRD). Files are written directly to the disk when the system allows it, and through the system's cache
+//! otherwise (E6). A write that fails leaves the write position where it was, so the next record overwrites what it
+//! left (J12).
 
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -26,7 +29,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::error::{Error, Result};
 use crate::format::PAGE_SIZE;
 use crate::pager::Pager;
-use crate::sys;
+use crate::sys::{self, AlignedBuf};
 
 /// Prefix of the journal files' names (J2).
 pub const JOURNAL_PREFIX: &str = "krummi.journal.";
@@ -38,8 +41,13 @@ pub(crate) const RECORD_HEADER: usize = 64;
 /// that deferred commits do not wait in the temporary area for a durable one (J5).
 pub(crate) const PENDING_BYTES_LIMIT: u64 = 1 << 20;
 pub(crate) const PENDING_COMMITS_LIMIT: u64 = 256;
-/// Size at which the journal goes on in a new file.
-pub(crate) const DEFAULT_FILE_LIMIT: u64 = 16 << 20;
+/// Size of a journal file (E7). Builds with test hooks use a smaller one, because tests copy and alter whole files.
+#[cfg(not(any(test, feature = "test-hooks")))]
+pub(crate) const DEFAULT_FILE_LIMIT: u64 = RELEASE_FILE_LIMIT;
+#[cfg(any(test, feature = "test-hooks"))]
+pub(crate) const DEFAULT_FILE_LIMIT: u64 = 256 << 10;
+/// Size of a journal file outside builds with test hooks.
+pub const RELEASE_FILE_LIMIT: u64 = 16 << 20;
 const MAGIC: u64 = u64::from_le_bytes(*b"KrummiJ1");
 const FLAG_COMPRESSED: u32 = 1;
 /// Bytes of one page in a raw payload: its number and the sealed page.
@@ -141,12 +149,12 @@ pub(crate) fn decode_payload(header: &RecordHeader, stored: &[u8]) -> Option<Vec
     }
 }
 
-/// Encodes a whole record, padded to [`ALIGN`].
+/// Encodes a whole record, padded to [`ALIGN`], in memory aligned for direct writes.
 fn encode_record(
     txid: u64,
     durable_upto: u64,
     pages: &[(u64, &[u8; PAGE_SIZE])],
-) -> Result<Vec<u8>> {
+) -> Result<AlignedBuf> {
     let raw_len = pages.len() * PAGE_ENTRY;
     let out_of_memory = |requested: usize| Error::OutOfMemory {
         requested: requested as u64,
@@ -182,13 +190,9 @@ fn encode_record(
         payload_checksum: xxh3_64(payload),
     };
     let len = header.record_len() as usize;
-    let mut record = Vec::new();
-    record
-        .try_reserve_exact(len)
-        .map_err(|_| out_of_memory(len))?;
-    record.extend_from_slice(&header.encode());
-    record.extend_from_slice(payload);
-    record.resize(len, 0);
+    let mut record = AlignedBuf::zeroed(len).map_err(|_| out_of_memory(len))?;
+    record[..RECORD_HEADER].copy_from_slice(&header.encode());
+    record[RECORD_HEADER..RECORD_HEADER + payload.len()].copy_from_slice(payload);
     Ok(record)
 }
 
@@ -197,6 +201,8 @@ pub(crate) struct Journal {
     folder: PathBuf,
     state: Mutex<State>,
     file_limit: AtomicU64,
+    /// Whether new files are opened for direct writes (E6).
+    direct: bool,
     /// Called by a durable append between writing its record and flushing it (tests: AC-J13).
     sync_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
@@ -222,6 +228,21 @@ struct Current {
     path: PathBuf,
     /// Where the next record goes.
     len: u64,
+    /// The file's size, reserved when it was created (E7).
+    capacity: u64,
+    /// Whether the file takes direct writes, which are durable once written (E6).
+    direct: bool,
+}
+
+impl Current {
+    /// Makes what was written to the file durable: a direct write already is, so it only counts as the flush (E6).
+    fn flush(&self) -> io::Result<()> {
+        if self.direct {
+            sys::written_through(&self.path)
+        } else {
+            sys::sync(&self.file, &self.path)
+        }
+    }
 }
 
 impl Journal {
@@ -239,6 +260,7 @@ impl Journal {
                 files: VecDeque::new(),
             }),
             file_limit: AtomicU64::new(DEFAULT_FILE_LIMIT),
+            direct: direct_writes(),
             sync_hook: Mutex::new(None),
         }
     }
@@ -286,12 +308,13 @@ impl Journal {
         pager.check_writable()?;
         let mut state = self.lock();
         let mut record = encode_record(txid, state.synced_upto, pages)?;
-        let rolls = state.current.as_ref().is_none_or(|c| {
-            c.len > 0 && c.len + record.len() as u64 > self.file_limit.load(Ordering::Relaxed)
-        });
+        let rolls = state
+            .current
+            .as_ref()
+            .is_none_or(|c| c.len + record.len() as u64 > c.capacity);
         if rolls {
             let synced = state.synced_upto;
-            self.roll(&mut state, pager)?;
+            self.roll(&mut state, pager, record.len() as u64)?;
             if state.synced_upto != synced {
                 // The rollover made earlier commits durable: the record must say so (J9).
                 record = encode_record(txid, state.synced_upto, pages)?;
@@ -320,7 +343,7 @@ impl Journal {
             if let Some(hook) = hook {
                 hook();
             }
-            if let Err(e) = sys::sync(&guard.current.file, &guard.current.path) {
+            if let Err(e) = guard.current.flush() {
                 // Entire or absent after a reopen (J12): the record stays as it is.
                 guard.armed = false;
                 guard.current.len = offset + record.len() as u64;
@@ -342,17 +365,17 @@ impl Journal {
         Ok(())
     }
 
-    /// Flushes the current file and goes on in a new one, whose name is made durable first.
-    fn roll(&self, state: &mut State, pager: &Pager) -> Result<()> {
-        if let Some(current) = &state.current {
-            sys::sync(&current.file, &current.path).map_err(|e| pager.fail_flush(e))?;
-            state.synced_upto = state.written_upto;
-            state.pending_bytes = 0;
-        }
+    /// Makes the current file durable and goes on in a new one for a record of `record_len` bytes, created with its
+    /// final size, both made durable first (E7).
+    fn roll(&self, state: &mut State, pager: &Pager, record_len: u64) -> Result<()> {
+        self.close_current(state, pager)?;
         let number = state.next_number;
         let path = self.folder.join(file_name(number));
-        let file = sys::create_new(&path).map_err(|e| journal_error(pager, e))?;
-        if let Err(e) = sys::sync_dir(&self.folder) {
+        let capacity = self.file_limit.load(Ordering::Relaxed).max(record_len);
+        let (file, direct) = sys::create_journal_file(&path, capacity, self.direct)
+            .map_err(|e| journal_error(pager, e))?;
+        let made_durable = sys::sync(&file, &path).and_then(|()| sys::sync_dir(&self.folder));
+        if let Err(e) = made_durable {
             drop(file);
             let _ = sys::remove(&path);
             return Err(pager.fail_flush(e));
@@ -364,17 +387,31 @@ impl Journal {
             file,
             path,
             len: 0,
+            capacity,
+            direct,
         });
         Ok(())
     }
 
-    /// Goes on in a new file when the current one holds records, so that the old ones can all be removed once
-    /// both header copies record them as applied (tests: AC-J18).
+    /// Makes the records of the current file durable and stops writing into it: the next record goes into a new
+    /// file.
+    fn close_current(&self, state: &mut State, pager: &Pager) -> Result<()> {
+        if let Some(current) = &state.current {
+            current.flush().map_err(|e| pager.fail_flush(e))?;
+            state.synced_upto = state.written_upto;
+            state.pending_bytes = 0;
+        }
+        state.current = None;
+        Ok(())
+    }
+
+    /// Makes the next record go into a new file when the current one holds records, so that the old ones can all
+    /// be removed once both header copies record them as applied (tests: AC-J18).
     pub(crate) fn start_new_file(&self, pager: &Pager) -> Result<()> {
         pager.check_writable()?;
         let mut state = self.lock();
         if state.current.as_ref().is_some_and(|c| c.len > 0) {
-            self.roll(&mut state, pager)?;
+            self.close_current(&mut state, pager)?;
         }
         Ok(())
     }
@@ -390,7 +427,7 @@ impl Journal {
             .current
             .as_ref()
             .expect("unsynced commits are in the current file");
-        sys::sync(&current.file, &current.path).map_err(|e| pager.fail_flush(e))?;
+        current.flush().map_err(|e| pager.fail_flush(e))?;
         state.synced_upto = state.written_upto;
         state.pending_bytes = 0;
         Ok(())
@@ -452,14 +489,29 @@ struct WipeOnFailure<'a> {
 impl Drop for WipeOnFailure<'_> {
     fn drop(&mut self) {
         if self.armed {
-            let zeros = [0u8; RECORD_HEADER];
-            let wiped = sys::write_at(&self.current.file, &self.current.path, self.offset, &zeros)
-                .and_then(|()| sys::sync(&self.current.file, &self.current.path));
+            let current = &*self.current;
+            let wiped = AlignedBuf::zeroed(ALIGN as usize).and_then(|zeros| {
+                sys::write_at(&current.file, &current.path, self.offset, &zeros)?;
+                current.flush()
+            });
             if let Err(e) = wiped {
                 // The record may still be whole: nothing may follow it, so the store refuses writes (G12).
                 let _ = self.pager.fail_flush(e);
             }
         }
+    }
+}
+
+/// Whether new journal files are opened for direct writes (E6). Builds with test hooks write through the system's
+/// cache when `KRUMMI_JOURNAL_BUFFERED` is set, to run the journal's tests with the fallback too.
+fn direct_writes() -> bool {
+    #[cfg(any(test, feature = "test-hooks"))]
+    {
+        std::env::var_os("KRUMMI_JOURNAL_BUFFERED").is_none()
+    }
+    #[cfg(not(any(test, feature = "test-hooks")))]
+    {
+        true
     }
 }
 
@@ -528,7 +580,7 @@ mod tests {
     fn every_byte_of_a_record_header_is_checked() {
         let record = encode_record(5, 4, &[(9, &[1u8; PAGE_SIZE])]).unwrap();
         for byte in 0..RECORD_HEADER {
-            let mut damaged = record.clone();
+            let mut damaged = record.to_vec();
             damaged[byte] ^= 0x10;
             assert!(RecordHeader::decode(&damaged).is_none(), "byte {byte}");
         }
