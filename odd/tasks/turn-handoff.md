@@ -45,3 +45,13 @@ verifier.
   were a symptom of the slow handoff, not a limit of the exclusive turn. Buffered journal writes
   (`KRUMMI_JOURNAL_BUFFERED=1`), 6 rounds, means base / fixed: 352 / 345, 754 / 720, 3,140 / 3,079 (samples
   overlap: within noise).
+- **L4** (independent verifier, `b0e3066` over `8704e27`; asked to wrap up after about 30 min, unfinished items
+  listed): no blockers; S1–S3 met. Code review found no lost wakeup or stuck request (release against timeout,
+  arrival during the handoff hook, refusal while waiters wake, `begin_write` error path, poisoned mutex). Probes on
+  branch and baseline: 12 waiters all fail with the I/O class within 500 ms of a refusal (20 rounds); arrival
+  order with expiring limits (40 iterations, 3 × 8 parallel copies); 24 threads with 0–3 ms limits, no overlap or
+  hang. Queue tests: 30 cargo runs, 10 × 8 and 15 × 40 parallel copies on the branch, 15 × 40 on the baseline, no
+  failure. Suite 198 passed in both modes. `commit_rate` with 16 threads, rounds 2–6, base / branch: 10,145 /
+  47,474; 13,991 / 43,144; 11,142 / 40,266; 13,620 / 47,009; 13,152 / 47,950. The L2 event was not reproduced
+  (about 700 branch and 600 baseline runs). Not done: a probe for a failure inside `begin_write`, a buffered
+  measurement (done in L3), more L2 hunting. Advisory: the new test's limit of 12 wakeups counts spurious ones too.
