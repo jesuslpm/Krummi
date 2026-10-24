@@ -39,3 +39,11 @@ AC-T7 (limits that expire), AC-T18 (handoff order) and `releasing_the_turn_wakes
   copies, all passed; probe of 48 threads with 0–5 ms limits, a 3 ms sleep in the `Handoff` hook on half the
   rounds, 3 runs × 30 rounds on disk and in memory: no hang. Advisory: no committed test makes the `Handoff`-window
   timeout deterministic.
+- **L4** (RDD review, 2026-10-24): commits `14a33dc`, `9b32e4e` against `1d8ebda`; lens reliability; approved,
+  acknowledged (lineage `review-d12f90191e75aa5f`). Finding: R3-timeout-wake-liveness-unpinned (SUGGESTION): no
+  deterministic test times out a waiter during the `Handoff` hook and checks that the first waiter gets the turn;
+  kept as a pending note.
+
+## Closing
+
+Closing report: [turn-timeout-wake-report.md](turn-timeout-wake-report.md).
