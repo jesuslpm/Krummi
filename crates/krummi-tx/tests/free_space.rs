@@ -1105,6 +1105,11 @@ fn random_write(
         if choice < 45 && (!full || hole(&pages, &freed)) {
             let count = if full { 1 } else { length(rng) };
             let first = tx.allocate_run(count).unwrap();
+            // Pages freed by commits that are not durable yet are reusable too (F6): the map serves them.
+            assert!(
+                !full || first < frontier,
+                "{first}: a full store reserves from the map"
+            );
             let last = first + count - 1;
             assert_eq!(
                 first / MODEL_REGION,
@@ -1228,6 +1233,7 @@ fn model_run(operations: usize) {
         drop(engine);
         folder = crashed;
     }
+    testing::reset();
     // The sequence keeps reserving and freeing pages to the end, not only until the store fills.
     assert!(
         done.reserved > operations / 4 && done.freed > operations / 4,
