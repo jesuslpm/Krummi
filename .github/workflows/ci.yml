@@ -58,3 +58,4 @@ jobs:
           cargo test -p krummi-pager --test pages -- --ignored ac10
           cargo test -p krummi-tx --test commit -- --ignored ac10
           cargo test -p krummi-tx --test recovery -- --ignored ac10
+          cargo test -p krummi-tx --test free_space -- --ignored ac10

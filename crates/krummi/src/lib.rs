@@ -4,8 +4,9 @@
 //! read transactions that see a snapshot of the store, from any number of threads, and one write transaction at a
 //! time, which the others wait for in order of arrival. Module 3 adds the journal: a commit that returns survives
 //! a crash of the process or the system and a power cut, and opening a store after a crash recovers it without
-//! any action of the application. Storing data in transactions arrives with the data structures of the next
-//! modules.
+//! any action of the application. Module 4 adds free space: the pages that writes free are reused before the store
+//! grows, and [`StoreInfo`] reports how many pages are free. Storing data in transactions arrives with the data
+//! structures of the next modules.
 //!
 //! ```
 //! use krummi::{Store, StoreOptions};

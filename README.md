@@ -7,7 +7,8 @@ Icelandic nickname for the raven.
 Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.md)), module 2, the
 **transactions** ([PRD](docs/prd/krummi/transactions.prd.md)), and module 3, the **journal and recovery**
 ([PRD](docs/prd/krummi/journal.prd.md)), with grouped and direct journal writes
-([PRD](docs/prd/krummi/journal-group-commit.prd.md)). An application can create, open, inspect and close stores, on disk or in
+([PRD](docs/prd/krummi/journal-group-commit.prd.md)), and module 4, **free space**
+([PRD](docs/prd/krummi/free-space.prd.md)). An application can create, open, inspect and close stores, on disk or in
 memory, and open read transactions from any number of threads and one write transaction at a time, which the others
 wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
 crash recovers it. Storing data in transactions arrives with the data structures of the next modules. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
@@ -18,7 +19,7 @@ use std::time::Duration;
 use krummi::{Store, StoreOptions};
 
 let store = Store::open("data/orders", &StoreOptions::default())?;
-println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary
+println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary, free pages
 let read = store.read()?; // a snapshot: sees every write committed before it opened, none after
 let write = store.write_with_timeout(Duration::from_secs(5))?; // or store.write() to wait without limit
 write.commit()?; // durable when it returns, and visible to the reads opened from now on
@@ -46,13 +47,22 @@ read and the journal making a group durable only wake that thread, which gathers
 written once per pass. It flushes `krummi.data` and records in the header how far the journal has been applied only
 when that releases a journal file. Opening a store after a crash replays the journal from that point.
 
+Free space is a map of bits, one page of it per region of about 65,400 pages (511 MiB), at a fixed place in the
+region, so the map never needs pages reserved through itself. Pages after the frontier were never used; the map
+records the free ones before it. A write reserves single pages or exact ranges of up to a region, from the map
+first and at the frontier otherwise, and frees pages for the writes that follow its commit: the readers that still
+see a freed page keep its earlier version in the scratch area, so a long read never makes `krummi.data` grow. The
+map pages travel through the journal like any other page; the engine reads them only when a reservation needs them,
+and the store information reports the free pages without reading them. `cargo run --release -p krummi-tx --example
+free_space_timing` measures reservations on a store of 1 million pages.
+
 ## Layout
 
 | Path | Contents |
 |---|---|
 | `crates/krummi/` | Public API of the engine |
 | `crates/krummi-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
-| `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API |
+| `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API, free space |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
@@ -76,12 +86,13 @@ GitHub Actions runs these checks on Linux and Windows on every push and pull req
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), plus the full AC10 sweep.
 
 The suite runs a sample of the every-byte damage sweep (AC10), for the Pager's pages and for a store written through
-transactions. The full sweeps reopen a store 65,536 times each and are an acceptance step that CI runs on both
+transactions, with and without free space. The full sweeps reopen a store 65,536 times each and are an acceptance step that CI runs on both
 systems. Locally, an antivirus that scans every modified file can make them impractically slow:
 
 ```bash
 cargo test -p krummi-pager --test pages -- --ignored ac10
 cargo test -p krummi-tx --test commit -- --ignored ac10
+cargo test -p krummi-tx --test free_space -- --ignored ac10
 ```
 
 On Windows, an administrator can exclude one folder from Microsoft Defender while measuring, and point the tests'
