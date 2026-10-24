@@ -11,60 +11,14 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
 
-use common::{put, text};
+use common::{POWER_CUTS, Run, copy_folder, put, text};
 use krummi_pager::format::{HEADER_COPY_OFFSETS, header_copies};
-use krummi_pager::testing::{self, Action, Model, Op, Recorded};
+use krummi_pager::testing::{self, Action, Model, Op};
 use krummi_pager::{DATA_FILE, JOURNAL_PREFIX, TEMP_DIR};
 use krummi_tx::{Engine, ErrorKind, OpenOptions};
 use tempfile::TempDir;
 
 const PAGES_PER_COMMIT: usize = 3;
-const POWER_CUTS: [Model; 3] = [Model::Flushed, Model::TornFirst, Model::SkipFirst];
-
-/// A recorded run: the operations, the folder they were made in, and the number of operations recorded when
-/// each commit had returned.
-struct Run {
-    ops: Vec<Recorded>,
-    source: TempDir,
-    returned: Vec<usize>,
-}
-
-impl Run {
-    fn start() -> (TempDir, Engine) {
-        testing::reset();
-        testing::start_recording();
-        let source = tempfile::tempdir().unwrap();
-        let engine = common::disk(source.path());
-        (source, engine)
-    }
-
-    fn finish(source: TempDir, returned: Vec<usize>) -> Run {
-        let ops = testing::take_recording();
-        testing::reset();
-        Run {
-            ops,
-            source,
-            returned,
-        }
-    }
-
-    /// What survives a crash after the first `cut` operations, in a new folder.
-    fn crash(&self, cut: usize, model: Model) -> TempDir {
-        let target = tempfile::tempdir().unwrap();
-        testing::materialize(&self.ops, cut, self.source.path(), target.path(), model);
-        target
-    }
-
-    /// What survives when the process dies at the end.
-    fn killed(&self) -> TempDir {
-        self.crash(self.ops.len(), Model::Written)
-    }
-
-    /// Commits that had returned at `cut`.
-    fn returned_at(&self, cut: usize) -> usize {
-        self.returned.iter().filter(|&&r| r <= cut).count()
-    }
-}
 
 /// Commits `value` into `pages` (all of them, so a partial commit shows) and returns the recorded count.
 fn commit_all(engine: &Engine, pages: &[u64], value: &str, durable: bool) -> usize {
@@ -259,17 +213,6 @@ fn ac5_an_interrupted_recovery_is_repeated_with_the_same_result() {
             assert_eq!(texts(&engine, &pages), expected, "cut {cut} {model:?}");
         }
     }
-}
-
-fn copy_folder(from: &Path) -> TempDir {
-    let to = tempfile::tempdir().unwrap();
-    for entry in fs::read_dir(from).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_file() {
-            fs::copy(&path, to.path().join(path.file_name().unwrap())).unwrap();
-        }
-    }
-    to
 }
 
 /// AC-J7 (J10, J11): with deferred commits, any crash keeps a prefix of the commits that includes every durable

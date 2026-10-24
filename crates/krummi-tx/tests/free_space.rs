@@ -7,10 +7,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use common::{both, disk, put, text};
+use common::{Run, both, disk, put, text};
 use krummi_pager::DATA_FILE;
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
-use krummi_pager::testing::{self, Action, Op};
+use krummi_pager::testing::{self, Action, Model, Op};
 use krummi_tx::{Engine, ErrorKind, FIRST_PAGE, MAP_PAGE, META_PAGE, REGION_PAGES};
 
 /// Region size for the criteria that need several regions (criteria preamble of the PRD).
@@ -200,7 +200,9 @@ fn ac_f7_a_range_reuses_a_run_or_starts_at_the_frontier() {
 
 /// Pages from `frontier` to the end of a store of `page_count` pages that are not map positions.
 fn pages_after(frontier: u64, page_count: u64, region: u64) -> u64 {
-    (frontier..page_count).filter(|p| p % region != 0).count() as u64
+    (frontier..page_count)
+        .filter(|p| !p.is_multiple_of(region))
+        .count() as u64
 }
 
 /// AC-F8 (F3, F5, F10): a range that does not fit in the frontier's region starts after the next region's map
@@ -389,7 +391,7 @@ fn ac_f14_a_damaged_map_page_fails_only_what_reads_it() {
     let engine = small_disk(tmp.path());
     assert_eq!(free_pages(&engine), before);
     let read = engine.read().unwrap();
-    for page in (FIRST_PAGE..engine.frontier()).filter(|&p| p != SMALL && p % SMALL != 0) {
+    for page in (FIRST_PAGE..engine.frontier()).filter(|&p| !p.is_multiple_of(SMALL)) {
         if !(second + 5..second + 8).contains(&page) {
             read.page(page).unwrap();
         }
@@ -454,4 +456,494 @@ fn ac_f18_a_temporary_store_follows_the_same_rules() {
     tx.allocate_run(SMALL - 10 - engine.frontier()).unwrap();
     assert_eq!(tx.allocate_run(16).unwrap(), SMALL + 1);
     tx.commit().unwrap();
+}
+
+/// Whether `page`, below the frontier and not one of the store's own, is free in the map as the next write sees
+/// it: freeing it is then a misuse.
+fn is_free(engine: &Engine, page: u64) -> bool {
+    let mut tx = engine.write(None).unwrap();
+    let free = tx.free(page, 1).is_err();
+    tx.abort();
+    free
+}
+
+/// AC-F5 (F6, E8): when the group of a commit that frees a page fails, the write that reused the page fails too,
+/// and reopening never brings the reuse without the free.
+#[test]
+fn ac_f5_a_failed_group_never_keeps_a_reuse_without_its_free() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let page = reserve(&engine, 1, "orig")[0];
+    let marker = reserve(&engine, 1, "none")[0];
+    engine.set_journal_paused(true);
+    std::thread::scope(|s| {
+        let engine = &engine;
+        let first = common::queue_on_thread(s, engine, 1, move || {
+            let mut tx = engine.write(None).unwrap();
+            tx.free(page, 1).unwrap();
+            put(&mut tx, marker, "first");
+            tx.commit()
+        });
+        let second = common::queue_on_thread(s, engine, 2, move || {
+            let mut tx = common::next_writer(engine);
+            assert_eq!(tx.allocate().unwrap(), page);
+            put(&mut tx, page, "reused");
+            tx.commit()
+        });
+        testing::reset();
+        testing::inject(Op::Write, 0, Action::Fail(std::io::ErrorKind::Other));
+        engine.set_journal_paused(false);
+        assert_eq!(kind(first.join().unwrap()), ErrorKind::Io);
+        assert_eq!(kind(second.join().unwrap()), ErrorKind::Io);
+    });
+    testing::reset();
+    drop(engine);
+    let engine = disk(tmp.path());
+    let first = common::read_text(&engine, marker) == "first";
+    let second = common::read_text(&engine, page) == "reused";
+    assert!(first || !second, "never the reuse without the free");
+}
+
+/// Checks a store after a crash in [`ac_f6_crashes_keep_frees_and_reuses_consistent`]: the marker says which
+/// commit was the last one kept; the page is free after a free and holds its generation after a reuse. A cut
+/// before the marker was committed has nothing to check.
+fn check_generations(folder: &Path, page: u64, marker: u64, label: &str) {
+    let engine = disk(folder);
+    let Ok(marked) = engine.read().unwrap().page(marker).map(text) else {
+        return;
+    };
+    let step: u64 = marked.parse().unwrap();
+    let freed = step % 2 == 1;
+    assert_eq!(is_free(&engine, page), freed, "{label}: step {step}");
+    if !freed {
+        let expected = format!("g{}", step / 2);
+        assert_eq!(common::read_text(&engine, page), expected, "{label}");
+    }
+    let info = engine.info();
+    assert!(
+        info.page_count >= engine.frontier(),
+        "{label}: the store reaches the frontier"
+    );
+    let after = pages_after(engine.frontier(), info.page_count, REGION_PAGES);
+    assert_eq!(info.free_pages, u64::from(freed) + after, "{label}");
+}
+
+/// AC-F6 (F2, F3, F6, F10, G5): power cuts at every write and flush of commits in both modes that free a page and
+/// reuse it three times, and crashes at every point of the recovery, keep a prefix in which the page and the free
+/// pages agree with the last commit kept.
+#[test]
+fn ac_f6_crashes_keep_frees_and_reuses_consistent() {
+    let (source, engine) = Run::start();
+    let page = reserve(&engine, 1, "g0")[0];
+    let marker = reserve(&engine, 1, "0")[0];
+    let mut returned = Vec::new();
+    for step in 1..=6u64 {
+        let mut tx = engine.write(None).unwrap();
+        if step % 2 == 1 {
+            tx.free(page, 1).unwrap();
+        } else {
+            assert_eq!(tx.allocate().unwrap(), page);
+            put(&mut tx, page, &format!("g{}", step / 2));
+        }
+        put(&mut tx, marker, &step.to_string());
+        if step % 3 == 0 {
+            tx.commit_deferred().unwrap();
+        } else {
+            tx.commit().unwrap();
+        }
+        returned.push(testing::recorded_len());
+    }
+    let run = Run::finish(source, returned);
+    drop(engine);
+    for cut in 0..=run.ops.len() {
+        for model in common::POWER_CUTS {
+            let folder = run.crash(cut, model);
+            if folder.path().join(DATA_FILE).exists() {
+                let label = format!("cut {cut} {model:?}");
+                check_generations(folder.path(), page, marker, &label);
+            }
+        }
+    }
+    let crashed = run.killed();
+    testing::reset();
+    testing::start_recording();
+    let recovering = common::copy_folder(crashed.path());
+    drop(disk(recovering.path()));
+    let recovery = testing::take_recording();
+    testing::reset();
+    for cut in 0..=recovery.len() {
+        let target = common::copy_folder(crashed.path());
+        testing::materialize(
+            &recovery,
+            cut,
+            recovering.path(),
+            target.path(),
+            Model::Written,
+        );
+        check_generations(target.path(), page, marker, &format!("recovery cut {cut}"));
+    }
+}
+
+/// AC-F6, the frontier (F3): a commit that grows the store and frees the last page it reserved still leaves, after
+/// any power cut that keeps it, a store that reaches its frontier.
+#[test]
+fn ac_f6_the_store_reaches_the_frontier_after_power_cuts() {
+    let (source, engine) = Run::start();
+    let marker = reserve(&engine, 1, "before")[0];
+    let mut tx = engine.write(None).unwrap();
+    let first = tx.allocate_run(20).unwrap();
+    tx.free(first + 19, 1).unwrap();
+    put(&mut tx, marker, "after");
+    tx.commit().unwrap();
+    let run = Run::finish(source, vec![]);
+    drop(engine);
+    for cut in 0..=run.ops.len() {
+        for model in common::POWER_CUTS {
+            let folder = run.crash(cut, model);
+            if !folder.path().join(DATA_FILE).exists() {
+                continue;
+            }
+            let engine = disk(folder.path());
+            let committed = engine.read().unwrap().page(marker).map(text).ok();
+            if committed.as_deref() == Some("after") {
+                let label = format!("cut {cut} {model:?}");
+                assert!(engine.info().page_count >= engine.frontier(), "{label}");
+                assert!(is_free(&engine, first + 19), "{label}");
+            }
+        }
+    }
+}
+
+/// Reserves pages until the store holds at least `pages` pages and the frontier is at its end.
+fn fill(engine: &Engine, pages: u64) {
+    loop {
+        let (count, frontier) = (engine.info().page_count, engine.frontier());
+        if count >= pages && frontier == count {
+            return;
+        }
+        let mut tx = engine.write(None).unwrap();
+        tx.allocate_run((count - frontier).max(1)).unwrap();
+        tx.commit().unwrap();
+    }
+}
+
+/// AC-F11 (F5, P10, G7): with no room for `krummi.data` to grow, the free pages are still reserved, while a
+/// reservation that needs to grow fails with the maximum-size or disk-full class and applies nothing.
+#[test]
+fn ac_f11_free_pages_are_reused_when_the_store_cannot_grow() {
+    const FREED: u64 = 4;
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    fill(&engine, 128);
+    let size = engine.info().size_bytes;
+    let pages: Vec<u64> = (FIRST_PAGE..FIRST_PAGE + 2 * FREED).step_by(2).collect();
+    free(&engine, &pages);
+    engine.close().unwrap();
+    // Room for the versions of a write that reserves the free pages, with the meta page and a map page.
+    let options = krummi_tx::OpenOptions {
+        max_size: Some(size + (FREED + 2) * PAGE_SIZE as u64),
+    };
+    let copy = common::copy_folder(tmp.path());
+    let engine = Engine::open(tmp.path(), &options).unwrap();
+    let mut tx = engine.write(None).unwrap();
+    let taken: BTreeSet<u64> = (0..FREED).map(|_| tx.allocate().unwrap()).collect();
+    tx.commit().unwrap();
+    assert_eq!(taken, BTreeSet::from_iter(pages.iter().copied()));
+    drop(engine);
+    let engine = Engine::open(copy.path(), &options).unwrap();
+    let mut tx = engine.write(None).unwrap();
+    for _ in 0..FREED {
+        tx.allocate().unwrap();
+    }
+    assert_eq!(kind(tx.allocate()), ErrorKind::MaxSize);
+    assert_eq!(kind(tx.commit()), ErrorKind::MaxSize);
+    assert!(
+        pages.iter().all(|&p| is_free(&engine, p)),
+        "nothing applied"
+    );
+    assert_eq!(engine.info().size_bytes, size);
+    common::set(&engine, FIRST_PAGE + 1, "still accepts writes");
+    drop(engine);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    fill(&engine, 16);
+    free(&engine, &[FIRST_PAGE, FIRST_PAGE + 2]);
+    testing::reset();
+    testing::inject(
+        Op::Reserve,
+        testing::count(Op::Reserve),
+        Action::Fail(std::io::ErrorKind::StorageFull),
+    );
+    let mut tx = engine.write(None).unwrap();
+    assert_eq!(kind(tx.allocate_run(3)), ErrorKind::DiskFull);
+    assert_eq!(kind(tx.commit()), ErrorKind::DiskFull);
+    testing::reset();
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate().unwrap();
+    tx.allocate().unwrap();
+    tx.commit().unwrap();
+}
+
+/// AC-F12 (F7): a read held open while commits free and reserve the same number of pages does not make
+/// `krummi.data` grow after the second commit.
+#[test]
+fn ac_f12_a_long_read_does_not_make_the_store_grow() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let mut held = reserve(&engine, 8, "v");
+    let read = engine.read().unwrap();
+    let mut size = 0;
+    for i in 0..1000 {
+        let mut tx = engine.write(None).unwrap();
+        for &page in &held {
+            tx.free(page, 1).unwrap();
+        }
+        held = (0..8).map(|_| tx.allocate().unwrap()).collect();
+        tx.commit_deferred().unwrap();
+        let now = engine.info().size_bytes;
+        if i == 1 {
+            size = now;
+        } else if i > 1 {
+            assert_eq!(now, size, "commit {i}");
+        }
+    }
+    drop(read);
+}
+
+/// AC-F19 (F3, F10): a store truncated while closed before its frontier counts no pages after the frontier, and a
+/// map page lost to the truncation is damage.
+#[test]
+fn ac_f19_a_store_truncated_before_its_frontier() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = small_disk(tmp.path());
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate_run(SMALL - FIRST_PAGE).unwrap();
+    let second = tx.allocate_run(SMALL - 1).unwrap();
+    tx.allocate_run(SMALL - 1).unwrap();
+    tx.commit().unwrap();
+    free(&engine, &[second + 5, second + 9, second + 20]);
+    engine.close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let bytes = fs::read(&data).unwrap();
+    fs::write(&data, &bytes[..SMALL as usize * PAGE_SIZE]).unwrap();
+    let engine = small_disk(tmp.path());
+    assert_eq!(free_pages(&engine), 3);
+    let mut tx = engine.write(None).unwrap();
+    match tx.allocate() {
+        Err(krummi_tx::Error::Damaged { page, .. }) => assert_eq!(page, Some(SMALL)),
+        other => panic!("expected damage, got {other:?}"),
+    }
+}
+
+/// AC10 of the root PRD with free space: every altered byte of a store with freed pages and a map page gives the
+/// damage class, "not a store" or no visible difference: reads never return different data and a reservation
+/// never returns a page in use.
+fn ac10_free_space_sweep(step: usize) {
+    testing::skip_syncs(true);
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("source");
+    let engine = disk(&source);
+    let pages: Vec<u64> = (0..6)
+        .map(|i| reserve(&engine, 1, &format!("page {i}"))[0])
+        .collect();
+    free(&engine, &[pages[1], pages[3]]);
+    engine.close().unwrap();
+    let in_use = [0, 2, 4, 5].map(|i| (pages[i], format!("page {i}")));
+    let pristine = fs::read(source.join(DATA_FILE)).unwrap();
+    let copy = tmp.path().join("copy");
+    fs::create_dir(&copy).unwrap();
+    for offset in (0..pristine.len()).step_by(step) {
+        let mut bytes = pristine.clone();
+        bytes[offset] ^= 0xFF;
+        fs::write(copy.join(DATA_FILE), &bytes).unwrap();
+        let engine = match Engine::open(&copy, &common::options()) {
+            Ok(engine) => engine,
+            Err(error) => {
+                let expected = [ErrorKind::Damaged, ErrorKind::NotAStore];
+                assert!(expected.contains(&error.kind()), "byte {offset}: {error}");
+                continue;
+            }
+        };
+        let read = engine.read().unwrap();
+        for (page, written) in &in_use {
+            match read.page(*page) {
+                Ok(payload) => assert_eq!(&text(payload), written, "byte {offset}"),
+                Err(error) => assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}"),
+            }
+        }
+        drop(read);
+        let mut tx = engine.write(None).unwrap();
+        match tx.allocate() {
+            Ok(page) => assert!(
+                in_use.iter().all(|(p, _)| *p != page),
+                "byte {offset}: {page}"
+            ),
+            Err(error) => assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}"),
+        }
+    }
+}
+
+#[test]
+fn ac10_sample_of_altered_bytes_with_free_space() {
+    ac10_free_space_sweep(397);
+}
+
+#[test]
+#[ignore = "acceptance: alters every byte of the store"]
+fn ac10_every_altered_byte_with_free_space() {
+    ac10_free_space_sweep(1);
+}
+
+/// A small reproducible random generator (xorshift64*), so a failing seed can be replayed.
+struct Random(u64);
+
+impl Random {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) % n
+    }
+
+    fn chance(&mut self, percent: u64) -> bool {
+        self.below(100) < percent
+    }
+}
+
+/// The pages in use and their contents, as the model says.
+type Pages = std::collections::BTreeMap<u64, String>;
+
+const MODEL_REGION: u64 = 128;
+const MODEL_REGIONS: u64 = 4;
+
+fn own(page: u64) -> bool {
+    page < FIRST_PAGE || page.is_multiple_of(MODEL_REGION)
+}
+
+/// Checks the free pages of the information against the model: every page of the store that is neither in use
+/// nor one of the store's own is free (pages from the frontier on were never used).
+fn check_free_pages(engine: &Engine, model: &Pages, label: &str) {
+    let info = engine.info();
+    let expected = (FIRST_PAGE..info.page_count)
+        .filter(|p| !own(*p) && !model.contains_key(p))
+        .count() as u64;
+    assert_eq!(info.free_pages, expected, "{label}");
+}
+
+/// One random write: reservations, frees and changes, checked against the model, then committed or aborted.
+/// Returns how many operations it made and whether it committed durably.
+fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mut u64) -> usize {
+    let mut tx = engine.write(None).unwrap();
+    let mut pages = model.clone();
+    let actions = 1 + rng.below(6) as usize;
+    let full = engine.frontier() > (MODEL_REGIONS - 1) * MODEL_REGION;
+    for _ in 0..actions {
+        let choice = rng.below(100);
+        if choice < 45 && !full {
+            let count = if rng.chance(30) { 1 + rng.below(64) } else { 1 };
+            let first = tx.allocate_run(count).unwrap();
+            for page in first..first + count {
+                assert!(!own(page), "{page} is one of the store's own");
+                *stamp += 1;
+                let value = format!("p{page}s{stamp}");
+                assert!(
+                    pages.insert(page, value.clone()).is_none(),
+                    "{page} was in use"
+                );
+                assert!(tx.page(page).unwrap().iter().all(|&b| b == 0));
+                put(&mut tx, page, &value);
+            }
+        } else if choice < 80 && !pages.is_empty() {
+            let index = rng.below(pages.len() as u64) as usize;
+            let first = *pages.keys().nth(index).unwrap();
+            let mut count = 1;
+            while count < 1 + rng.below(8) && pages.contains_key(&(first + count)) {
+                count += 1;
+            }
+            tx.free(first, count).unwrap();
+            for page in first..first + count {
+                pages.remove(&page);
+            }
+        } else if !pages.is_empty() {
+            let index = rng.below(pages.len() as u64) as usize;
+            let page = *pages.keys().nth(index).unwrap();
+            assert_eq!(text(tx.page(page).unwrap()), pages[&page]);
+            *stamp += 1;
+            let value = format!("p{page}s{stamp}");
+            put(&mut tx, page, &value);
+            pages.insert(page, value);
+        }
+    }
+    match rng.below(10) {
+        0 | 1 => tx.abort(),
+        2 | 3 => {
+            tx.commit().unwrap();
+            *model = pages;
+        }
+        _ => {
+            tx.commit_deferred().unwrap();
+            *model = pages;
+        }
+    }
+    actions
+}
+
+/// AC-F16 (F2, F4, F5, F6, F10): a reproducible random sequence of at least 100,000 reservations of single pages
+/// and ranges, frees, changes, commits in both modes and aborts, with reads held across it and simulated crashes,
+/// matches a model of the pages in use: no page in use is ever reserved, no range takes one of the store's own
+/// pages, every read sees its snapshot, and the free pages of the information match the model.
+#[test]
+fn ac_f16_random_operations_match_a_model() {
+    const OPERATIONS: usize = 100_000;
+    const PER_CRASH: usize = 10_000;
+    let mut rng = Random(0x5EED_F4EE_5BAC_E001);
+    let mut model = Pages::new();
+    let mut stamp = 0;
+    let mut done = 0;
+    let mut folder = tempfile::tempdir().unwrap();
+    while done < OPERATIONS {
+        let start = common::copy_folder(folder.path());
+        testing::reset();
+        testing::start_recording();
+        let engine = disk(folder.path());
+        engine.set_region_pages(MODEL_REGION);
+        for (page, value) in &model {
+            assert_eq!(&common::read_text(&engine, *page), value, "after reopening");
+        }
+        check_free_pages(&engine, &model, "after reopening");
+        let mut reads: Vec<(krummi_tx::ReadTransaction<'_>, Pages)> = Vec::new();
+        let mut segment = 0;
+        while segment < PER_CRASH && done + segment < OPERATIONS {
+            segment += random_write(&engine, &mut rng, &mut model, &mut stamp);
+            if rng.chance(5) {
+                engine.make_durable().unwrap();
+                check_free_pages(&engine, &model, &format!("operation {}", done + segment));
+                if reads.len() < 4 {
+                    reads.push((engine.read().unwrap(), model.clone()));
+                }
+                if rng.chance(30) && !reads.is_empty() {
+                    let (read, seen) = reads.remove(rng.below(reads.len() as u64) as usize);
+                    for (page, value) in &seen {
+                        assert_eq!(&text(read.page(*page).unwrap()), value, "a read's snapshot");
+                    }
+                }
+            }
+        }
+        done += segment;
+        engine.make_durable().unwrap();
+        drop(reads);
+        let ops = testing::take_recording();
+        testing::reset();
+        let crashed = common::copy_folder(start.path());
+        testing::materialize(
+            &ops,
+            ops.len(),
+            folder.path(),
+            crashed.path(),
+            Model::Written,
+        );
+        drop(engine);
+        folder = crashed;
+    }
 }

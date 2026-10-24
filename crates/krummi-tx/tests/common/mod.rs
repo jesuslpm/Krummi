@@ -2,10 +2,13 @@
 
 #![allow(dead_code)]
 
+use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use krummi_pager::testing::{self, Model, Recorded};
 use krummi_tx::{Engine, OpenOptions, WriteTransaction};
+use tempfile::TempDir;
 
 pub fn options() -> OpenOptions {
     OpenOptions::default()
@@ -109,4 +112,63 @@ pub fn next_writer(engine: &Engine) -> WriteTransaction<'_> {
             Err(e) => panic!("{e}"),
         }
     }
+}
+
+pub const POWER_CUTS: [Model; 3] = [Model::Flushed, Model::TornFirst, Model::SkipFirst];
+
+/// A recorded run: the operations, the folder they were made in, and the number of operations recorded when
+/// each commit had returned.
+pub struct Run {
+    pub ops: Vec<Recorded>,
+    pub source: TempDir,
+    pub returned: Vec<usize>,
+}
+
+impl Run {
+    pub fn start() -> (TempDir, Engine) {
+        testing::reset();
+        testing::start_recording();
+        let source = tempfile::tempdir().unwrap();
+        let engine = disk(source.path());
+        (source, engine)
+    }
+
+    pub fn finish(source: TempDir, returned: Vec<usize>) -> Run {
+        let ops = testing::take_recording();
+        testing::reset();
+        Run {
+            ops,
+            source,
+            returned,
+        }
+    }
+
+    /// What survives a crash after the first `cut` operations, in a new folder.
+    pub fn crash(&self, cut: usize, model: Model) -> TempDir {
+        let target = tempfile::tempdir().unwrap();
+        testing::materialize(&self.ops, cut, self.source.path(), target.path(), model);
+        target
+    }
+
+    /// What survives when the process dies at the end.
+    pub fn killed(&self) -> TempDir {
+        self.crash(self.ops.len(), Model::Written)
+    }
+
+    /// Commits that had returned at `cut`.
+    pub fn returned_at(&self, cut: usize) -> usize {
+        self.returned.iter().filter(|&&r| r <= cut).count()
+    }
+}
+
+/// Copies the files of a store folder into a new temporary folder.
+pub fn copy_folder(from: &Path) -> TempDir {
+    let to = tempfile::tempdir().unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            fs::copy(&path, to.path().join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    to
 }
