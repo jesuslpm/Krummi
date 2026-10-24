@@ -1067,18 +1067,43 @@ fn check_free_pages(engine: &Engine, model: &Pages, label: &str) {
     assert_eq!(info.free_pages, expected, "{label}");
 }
 
+/// What the random writes did: operations, and pages reserved and freed by the writes that committed.
+#[derive(Default)]
+struct Done {
+    operations: usize,
+    reserved: usize,
+    freed: usize,
+}
+
+/// A random length of pages: one, or up to 64 for a third of them.
+fn length(rng: &mut Random) -> u64 {
+    if rng.chance(30) { 1 + rng.below(64) } else { 1 }
+}
+
 /// One random write: reservations, frees and changes, checked against the model, then committed or aborted.
-/// Returns how many operations it made and whether it committed durably.
-fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mut u64) -> usize {
+/// Once the frontier is past three regions, it only reserves single pages the map can serve (pages before the
+/// frontier that are neither in use, freed by this write nor the store's own), so the store stays within four.
+fn random_write(
+    engine: &Engine,
+    rng: &mut Random,
+    model: &mut Pages,
+    stamp: &mut u64,
+    done: &mut Done,
+) {
     let mut tx = engine.write(None).unwrap();
     let mut pages = model.clone();
     let mut freed = BTreeSet::new();
-    let actions = 1 + rng.below(6) as usize;
-    let full = engine.frontier() > (MODEL_REGIONS - 1) * MODEL_REGION;
+    let (mut reserved, actions) = (0, 1 + rng.below(6) as usize);
+    let frontier = engine.frontier();
+    let full = frontier > (MODEL_REGIONS - 1) * MODEL_REGION;
     for _ in 0..actions {
         let choice = rng.below(100);
-        if choice < 45 && !full {
-            let count = if rng.chance(30) { 1 + rng.below(64) } else { 1 };
+        let hole = |pages: &Pages, freed: &BTreeSet<u64>| {
+            (FIRST_PAGE..frontier)
+                .any(|p| !own(p) && !pages.contains_key(&p) && !freed.contains(&p))
+        };
+        if choice < 45 && (!full || hole(&pages, &freed)) {
+            let count = if full { 1 } else { length(rng) };
             let first = tx.allocate_run(count).unwrap();
             let last = first + count - 1;
             assert_eq!(
@@ -1098,11 +1123,13 @@ fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mu
                 assert!(tx.page(page).unwrap().iter().all(|&b| b == 0));
                 put(&mut tx, page, &value);
             }
+            reserved += count as usize;
         } else if choice < 80 && !pages.is_empty() {
             let index = rng.below(pages.len() as u64) as usize;
             let first = *pages.keys().nth(index).unwrap();
+            let longest = length(rng);
             let mut count = 1;
-            while count < 1 + rng.below(8) && pages.contains_key(&(first + count)) {
+            while count < longest && pages.contains_key(&(first + count)) {
                 count += 1;
             }
             tx.free(first, count).unwrap();
@@ -1120,18 +1147,15 @@ fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mu
             pages.insert(page, value);
         }
     }
-    match rng.below(10) {
-        0 | 1 => tx.abort(),
-        2 | 3 => {
-            tx.commit().unwrap();
-            *model = pages;
-        }
-        _ => {
-            tx.commit_deferred().unwrap();
-            *model = pages;
-        }
+    done.operations += actions;
+    if rng.below(10) < 2 {
+        tx.abort();
+        return;
     }
-    actions
+    commit(tx, rng.below(8) >= 2);
+    *model = pages;
+    done.reserved += reserved;
+    done.freed += freed.len();
 }
 
 /// AC-F16 (F2, F4, F5, F6, F10): a reproducible random sequence of at least 100,000 reservations of single pages
@@ -1139,17 +1163,29 @@ fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mu
 /// matches a model of the pages in use: no page in use is ever reserved, no range takes one of the store's own
 /// pages, every read sees its snapshot, and the free pages of the information match the model.
 #[test]
+fn ac_f16_sample_of_random_operations() {
+    model_run(20_000);
+}
+
+#[test]
+#[ignore = "acceptance: the 100,000 operations of AC-F16"]
 fn ac_f16_random_operations_match_a_model() {
-    const OPERATIONS: usize = 100_000;
+    model_run(100_000);
+}
+
+/// The run of AC-F16 with `operations` operations, a simulated crash every 10,000.
+fn model_run(operations: usize) {
     const PER_CRASH: usize = 10_000;
     let mut rng = Random(0x5EED_F4EE_5BAC_E001);
     let mut model = Pages::new();
     let mut stamp = 0;
-    let mut done = 0;
+    let mut done = Done::default();
     let mut folder = tempfile::tempdir().unwrap();
-    while done < OPERATIONS {
+    while done.operations < operations {
         let start = common::copy_folder(folder.path());
         testing::reset();
+        // The model checks free space, not durability: every crash comes after making everything durable.
+        testing::skip_syncs(true);
         testing::start_recording();
         let engine = disk(folder.path());
         engine.set_region_pages(MODEL_REGION);
@@ -1159,11 +1195,13 @@ fn ac_f16_random_operations_match_a_model() {
         check_free_pages(&engine, &model, "after reopening");
         let mut reads: Vec<(krummi_tx::ReadTransaction<'_>, Pages)> = Vec::new();
         let mut segment = 0;
-        while segment < PER_CRASH && done + segment < OPERATIONS {
-            segment += random_write(&engine, &mut rng, &mut model, &mut stamp);
+        while segment < PER_CRASH && done.operations < operations {
+            let before = done.operations;
+            random_write(&engine, &mut rng, &mut model, &mut stamp, &mut done);
+            segment += done.operations - before;
             if rng.chance(5) {
                 engine.make_durable().unwrap();
-                check_free_pages(&engine, &model, &format!("operation {}", done + segment));
+                check_free_pages(&engine, &model, &format!("operation {}", done.operations));
                 if reads.len() < 4 {
                     reads.push((engine.read().unwrap(), model.clone()));
                 }
@@ -1175,7 +1213,6 @@ fn ac_f16_random_operations_match_a_model() {
                 }
             }
         }
-        done += segment;
         engine.make_durable().unwrap();
         drop(reads);
         let ops = testing::take_recording();
@@ -1191,4 +1228,12 @@ fn ac_f16_random_operations_match_a_model() {
         drop(engine);
         folder = crashed;
     }
+    // The sequence keeps reserving and freeing pages to the end, not only until the store fills.
+    assert!(
+        done.reserved > operations / 4 && done.freed > operations / 4,
+        "reserved {} and freed {} pages in {} operations",
+        done.reserved,
+        done.freed,
+        done.operations
+    );
 }

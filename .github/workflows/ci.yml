@@ -59,3 +59,6 @@ jobs:
           cargo test -p krummi-tx --test commit -- --ignored ac10
           cargo test -p krummi-tx --test recovery -- --ignored ac10
           cargo test -p krummi-tx --test free_space -- --ignored ac10
+      - name: Free-space model with 100,000 operations (AC-F16)
+        timeout-minutes: 30
+        run: cargo test --release -p krummi-tx --test free_space -- --ignored ac_f16
