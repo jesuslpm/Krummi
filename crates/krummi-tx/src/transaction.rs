@@ -173,9 +173,14 @@ impl<'e> WriteTransaction<'e> {
         let txid = self.track(committed)?;
         // The point of no return (E2): the commit is in the journal's queue and the next writer sees it, and the
         // pages it freed (F6).
-        self.engine
-            .space
-            .publish(txid, self.frontier, self.free, &self.gained, meta_written);
+        self.engine.space.publish(
+            txid,
+            self.frontier,
+            self.free,
+            &self.gained,
+            meta_written,
+            self.engine.scratch.visible_txid(),
+        );
         self.engine.hook(Point::CommitQueued);
         // The turn goes to the next writer before waiting for the disk. The transfer thread moves the commit to
         // `krummi.data` once it is durable, without blocking anyone (E2, J5).
@@ -384,6 +389,7 @@ impl<'e> WriteTransaction<'e> {
         }
         let last = self.frontier - 1;
         if self.frontier > self.start_frontier && !self.dirty.contains_key(&last) {
+            self.reserve(1, 0)?;
             self.add_zeroed([last])?;
         }
         Ok(())

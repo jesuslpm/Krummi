@@ -95,45 +95,69 @@ fn ac_f2_a_freed_page_waits_for_the_next_write() {
     });
 }
 
+fn commit(tx: krummi_tx::WriteTransaction<'_>, deferred: bool) {
+    if deferred {
+        tx.commit_deferred().unwrap();
+    } else {
+        tx.commit().unwrap();
+    }
+}
+
+/// Frees and reuses one page three times, both commits deferred or both durable, with a read opened before each
+/// free and all of them held to the end; each read sees its generation and a new read the newest. Returns the page.
+fn three_generations(engine: &Engine, deferred: bool) -> u64 {
+    let page = reserve(engine, 2, "gen0")[0];
+    let mut reads = Vec::new();
+    for generation in 1..=3 {
+        reads.push(engine.read().unwrap());
+        let mut tx = engine.write(None).unwrap();
+        tx.free(page, 1).unwrap();
+        commit(tx, deferred);
+        let mut tx = engine.write(None).unwrap();
+        assert_eq!(tx.allocate().unwrap(), page, "the only free page");
+        put(&mut tx, page, &format!("gen{generation}"));
+        commit(tx, deferred);
+        if deferred {
+            assert_eq!(text(reads[0].page(page).unwrap()), "gen0");
+            engine.make_durable().unwrap();
+        }
+        assert_eq!(common::read_text(engine, page), format!("gen{generation}"));
+    }
+    for (generation, read) in reads.iter().enumerate() {
+        assert_eq!(text(read.page(page).unwrap()), format!("gen{generation}"));
+    }
+    page
+}
+
 /// AC-F3 (F6, T14, E3): reads opened before a page is freed and reused keep seeing its earlier content, through
-/// several generations of the same page number; new reads, and the store after reopening, see the newest.
+/// several generations of the same page number; new reads, and the store after reopening, see the newest. AC-F18:
+/// the same in a temporary store, without the deferred and reopening parts.
 #[test]
 fn ac_f3_old_reads_keep_their_version_of_a_reused_page() {
     for deferred in [false, true] {
         let tmp = tempfile::tempdir().unwrap();
         let engine = disk(tmp.path());
-        let page = reserve(&engine, 2, "gen0")[0];
-        let mut reads = Vec::new();
-        for generation in 1..=3 {
-            reads.push(engine.read().unwrap());
-            free(&engine, &[page]);
-            let mut tx = engine.write(None).unwrap();
-            assert_eq!(tx.allocate().unwrap(), page, "the only free page");
-            put(&mut tx, page, &format!("gen{generation}"));
-            if deferred {
-                tx.commit_deferred().unwrap();
-                engine.make_durable().unwrap();
-            } else {
-                tx.commit().unwrap();
-            }
-            assert_eq!(common::read_text(&engine, page), format!("gen{generation}"));
-        }
-        for (generation, read) in reads.iter().enumerate() {
-            assert_eq!(text(read.page(page).unwrap()), format!("gen{generation}"));
-        }
-        drop(reads);
+        let page = three_generations(&engine, deferred);
         drop(engine);
         assert_eq!(common::read_text(&disk(tmp.path()), page), "gen3");
     }
+    three_generations(&common::temporary(), false);
 }
 
 /// AC-F4 (F6, T10, T11): an aborted write, one dropped without committing, and one whose commit fails for lack of
-/// space apply none of their frees and reservations.
+/// space apply none of their frees and reservations. AC-F18: the same in a temporary store, without the disk-full
+/// part.
 #[test]
 fn ac_f4_an_aborted_or_failed_write_frees_and_reserves_nothing() {
-    for ending in ["abort", "drop", "disk full"] {
+    let endings = [("abort", true), ("drop", true), ("disk full", true)];
+    let temporary = [("abort", false), ("drop", false)];
+    for (ending, on_disk) in endings.into_iter().chain(temporary) {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = disk(tmp.path());
+        let engine = if on_disk {
+            disk(tmp.path())
+        } else {
+            common::temporary()
+        };
         engine.set_journal_file_limit(4096);
         let pages = reserve(&engine, 6, "used");
         free(&engine, &pages[..2]);
@@ -227,15 +251,13 @@ fn ac_f8_a_range_that_does_not_fit_skips_to_the_next_region() {
     assert!((SMALL - 10..SMALL).contains(&page));
 }
 
-/// AC-F9 (F5, F8, T11): each misuse fails with the misuse class and no effect, the write can no longer be
-/// committed, and none of its earlier changes apply; a range as long as the cap is reserved without error.
-#[test]
-fn ac_f9_misuse_fails_and_spoils_the_write() {
-    let tmp = tempfile::tempdir().unwrap();
-    let engine = small_disk(tmp.path());
+/// Runs every misuse of the PRD's validation table in a write that already changed, reserved and freed pages:
+/// each fails with the misuse class, the commit fails with it, and none of the changes apply. Returns the two
+/// pages that write changed and freed, and the free pages after the cases.
+fn misuse_spoils_the_write(engine: &Engine) -> ([u64; 2], u64) {
     // Two free pages: the write's own reservation takes the first, the misuse frees the second.
-    let used = reserve(&engine, 4, "used");
-    free(&engine, &used[2..]);
+    let used = reserve(engine, 4, "used");
+    free(engine, &used[2..]);
     type Misuse = fn(&mut krummi_tx::WriteTransaction<'_>, u64, u64) -> krummi_tx::Result<()>;
     let cases: [(&str, Misuse); 14] = [
         ("a range of 0", |tx, _, _| tx.allocate_run(0).map(drop)),
@@ -272,8 +294,8 @@ fn ac_f9_misuse_fails_and_spoils_the_write() {
             tx.page_mut(SMALL).map(drop)
         }),
     ];
+    let free_before = free_pages(engine);
     for (name, misuse) in cases {
-        let free_before = free_pages(&engine);
         let mut tx = engine.write(None).unwrap();
         put(&mut tx, used[0], "changed");
         let reserved = tx.allocate().unwrap();
@@ -285,11 +307,32 @@ fn ac_f9_misuse_fails_and_spoils_the_write() {
             "{name}"
         );
         assert_eq!(kind(tx.commit()), ErrorKind::Misuse, "{name}");
-        assert_eq!(common::read_text(&engine, used[0]), "used", "{name}");
-        assert_eq!(common::read_text(&engine, used[1]), "used", "{name}");
-        assert_eq!(free_pages(&engine), free_before, "{name}");
+        assert_eq!(common::read_text(engine, used[0]), "used", "{name}");
+        assert_eq!(common::read_text(engine, used[1]), "used", "{name}");
+        assert_eq!(free_pages(engine), free_before, "{name}");
     }
-    common::set(&engine, used[0], "the next write works");
+    ([used[0], used[1]], free_before)
+}
+
+/// AC-F9 (F5, F8, T11): each misuse fails with the misuse class and no effect, the write can no longer be
+/// committed, and none of its earlier changes apply, also after reopening; the next write works. AC-F18: the same
+/// in a temporary store.
+#[test]
+fn ac_f9_misuse_fails_and_spoils_the_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = small_disk(tmp.path());
+    let (pages, free_before) = misuse_spoils_the_write(&engine);
+    drop(engine);
+    let engine = small_disk(tmp.path());
+    for page in pages {
+        assert_eq!(common::read_text(&engine, page), "used", "after reopening");
+    }
+    assert_eq!(free_pages(&engine), free_before, "after reopening");
+    common::set(&engine, pages[0], "the next write works");
+    let engine = common::temporary();
+    engine.set_region_pages(SMALL);
+    let (pages, _) = misuse_spoils_the_write(&engine);
+    common::set(&engine, pages[0], "the next write works");
 }
 
 /// AC-F9, last part (F5): with the product's region size, a range as long as the cap is reserved in a region
@@ -308,12 +351,10 @@ fn ac_f9_a_range_as_long_as_the_cap_is_reserved() {
     tx.abort();
 }
 
-/// AC-F10 (F4, F8): freeing part of a reserved range, a page reserved in the same write and a page changed in it.
-#[test]
-fn ac_f10_freeing_parts_of_ranges_and_changed_pages() {
-    let tmp = tempfile::tempdir().unwrap();
-    let engine = disk(tmp.path());
-    let changed = reserve(&engine, 1, "before")[0];
+/// A write that changes a page, reserves a range of 8 and a single page, and frees 3 pages of the range, the
+/// single page and the changed one. Returns (the changed page, the range, the single page).
+fn free_parts(engine: &Engine) -> (u64, u64, u64) {
+    let changed = reserve(engine, 1, "before")[0];
     let mut tx = engine.write(None).unwrap();
     put(&mut tx, changed, "after");
     let range = tx.allocate_run(8).unwrap();
@@ -322,8 +363,22 @@ fn ac_f10_freeing_parts_of_ranges_and_changed_pages() {
     tx.free(changed, 1).unwrap();
     tx.free(single, 1).unwrap();
     tx.commit().unwrap();
-    drop(engine);
-    let engine = disk(tmp.path());
+    (changed, range, single)
+}
+
+/// AC-F10 (F4, F8): freeing part of a reserved range, a page reserved in the same write and a page changed in it.
+/// AC-F18: the same in a temporary store, without reopening.
+#[test]
+fn ac_f10_freeing_parts_of_ranges_and_changed_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (changed, range, single) = free_parts(&disk(tmp.path()));
+    check_parts(&disk(tmp.path()), changed, range, single);
+    let engine = common::temporary();
+    let (changed, range, single) = free_parts(&engine);
+    check_parts(&engine, changed, range, single);
+}
+
+fn check_parts(engine: &Engine, changed: u64, range: u64, single: u64) {
     let read = engine.read().unwrap();
     for page in [range, range + 1, range + 5, range + 6, range + 7] {
         assert!(
@@ -338,7 +393,7 @@ fn ac_f10_freeing_parts_of_ranges_and_changed_pages() {
     );
     drop(read);
     let expected = BTreeSet::from([range + 2, range + 3, range + 4, changed, single]);
-    assert_eq!(BTreeSet::from_iter(take(&engine, 5)), expected);
+    assert_eq!(BTreeSet::from_iter(take(engine, 5)), expected);
 }
 
 /// AC-F13 (F4, F9): opening reads no map page, and a reservation still finds the free pages of a region far from
@@ -687,11 +742,14 @@ fn ac_f11_free_pages_are_reused_when_the_store_cannot_grow() {
 
 /// AC-F12 (F7): a read held open while commits free and reserve the same number of pages does not make
 /// `krummi.data` grow after the second commit.
+/// AC-F18: the same in a temporary store.
 #[test]
 fn ac_f12_a_long_read_does_not_make_the_store_grow() {
-    let tmp = tempfile::tempdir().unwrap();
-    let engine = disk(tmp.path());
-    let mut held = reserve(&engine, 8, "v");
+    both(long_read);
+}
+
+fn long_read(engine: &Engine) {
+    let mut held = reserve(engine, 8, "v");
     let read = engine.read().unwrap();
     let mut size = 0;
     for i in 0..1000 {
@@ -734,6 +792,184 @@ fn ac_f19_a_store_truncated_before_its_frontier() {
         Err(krummi_tx::Error::Damaged { page, .. }) => assert_eq!(page, Some(SMALL)),
         other => panic!("expected damage, got {other:?}"),
     }
+}
+
+/// F3 (verification probe): when the map page survives the truncation, a free page beyond the end of the file is
+/// reserved and the file grows to hold it.
+#[test]
+fn a_free_page_beyond_a_truncated_end_is_reserved() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = small_disk(tmp.path());
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate_run(SMALL - FIRST_PAGE).unwrap();
+    let second = tx.allocate_run(SMALL - 1).unwrap();
+    tx.allocate_run(SMALL - 1).unwrap();
+    tx.commit().unwrap();
+    free(&engine, &[second + 40, second + 41, second + 42]);
+    engine.close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let bytes = fs::read(&data).unwrap();
+    fs::write(&data, &bytes[..(SMALL as usize + 10) * PAGE_SIZE]).unwrap();
+    let engine = small_disk(tmp.path());
+    assert_eq!(free_pages(&engine), 3, "no pages after the frontier");
+    let page = take(&engine, 1)[0];
+    assert_eq!(page, second + 40);
+    assert!(engine.info().page_count > page);
+}
+
+/// F10 (verification probe): the free pages of the information do not depend on which regions were read.
+#[test]
+fn free_pages_do_not_depend_on_the_regions_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = small_disk(tmp.path());
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate_run(SMALL - FIRST_PAGE).unwrap();
+    let a = tx.allocate_run(SMALL - 1).unwrap();
+    let b = tx.allocate_run(SMALL - 1).unwrap();
+    tx.commit().unwrap();
+    free(&engine, &[a + 3, a + 4, a + 5, a + 6]);
+    free(&engine, &[b + 10, b + 11]);
+    let before = free_pages(&engine);
+    engine.close().unwrap();
+    let engine = small_disk(tmp.path());
+    assert_eq!(engine.regions_read(), 0);
+    assert_eq!(free_pages(&engine), before);
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate_run(5).unwrap();
+    assert!(engine.regions_read() >= 2, "the search read the regions");
+    assert_eq!(free_pages(&engine), before, "an open write");
+    tx.abort();
+    assert_eq!(free_pages(&engine), before);
+}
+
+/// Precedence of the validation table (verification probe): a misuse recognized without the map wins over a
+/// damaged map page; freeing a page of the damaged region reports the damage with the map page's number.
+#[test]
+fn misuse_known_without_the_map_wins_over_damage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = small_disk(tmp.path());
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate_run(SMALL - FIRST_PAGE).unwrap();
+    let second = tx.allocate_run(SMALL - 1).unwrap();
+    tx.commit().unwrap();
+    free(&engine, &[second + 5]);
+    engine.close().unwrap();
+    damage(tmp.path(), SMALL);
+    let engine = small_disk(tmp.path());
+    let mut tx = engine.write(None).unwrap();
+    assert_eq!(kind(tx.free(SMALL, 1)), ErrorKind::Misuse, "an own page");
+    drop(tx);
+    let mut tx = engine.write(None).unwrap();
+    assert_eq!(
+        kind(tx.free(second + 6, 10_000)),
+        ErrorKind::Misuse,
+        "past the frontier"
+    );
+    drop(tx);
+    let mut tx = engine.write(None).unwrap();
+    match tx.free(second + 5, 1) {
+        Err(krummi_tx::Error::Damaged { page, .. }) => assert_eq!(page, Some(SMALL)),
+        other => panic!("expected damage, got {other:?}"),
+    }
+    assert_eq!(kind(tx.commit()), ErrorKind::Damaged);
+}
+
+/// F3 (verification probe): a write that reserves a range and frees all of it still leaves a store that reaches
+/// the frontier, and the range is reused whole.
+#[test]
+fn a_range_freed_by_the_write_that_reserved_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    let mut tx = engine.write(None).unwrap();
+    let first = tx.allocate_run(300).unwrap();
+    tx.free(first, 300).unwrap();
+    tx.commit().unwrap();
+    let frontier = engine.frontier();
+    engine.close().unwrap();
+    let engine = disk(tmp.path());
+    assert!(engine.info().page_count >= frontier);
+    let mut tx = engine.write(None).unwrap();
+    assert_eq!(tx.allocate_run(300).unwrap(), first);
+    tx.commit().unwrap();
+    assert_eq!(engine.frontier(), frontier);
+}
+
+/// F6 and G3 (verification probe): reads on three threads see consistent snapshots while the writer frees and
+/// reuses pages in every commit, durable and deferred, and the store stays small.
+#[test]
+fn concurrent_reads_see_consistent_snapshots_while_pages_are_reused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = disk(tmp.path());
+    // The root page holds a stamp and 8 page numbers; each of those pages holds the same stamp.
+    let root = reserve(&engine, 1, "")[0];
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let field = |payload: &[u8], i: usize| {
+        u64::from_le_bytes(payload[i * 8..i * 8 + 8].try_into().unwrap())
+    };
+    std::thread::scope(|s| {
+        for _ in 0..3 {
+            s.spawn(|| {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let read = engine.read().unwrap();
+                    let payload = read.page(root).unwrap();
+                    let stamp = field(payload, 0);
+                    for i in (stamp > 0).then_some(1..9).into_iter().flatten() {
+                        let page = field(payload, i);
+                        assert_eq!(field(read.page(page).unwrap(), 0), stamp, "page {page}");
+                    }
+                }
+            });
+        }
+        let mut set: Vec<u64> = Vec::new();
+        for stamp in 1..=1500u64 {
+            let mut tx = engine.write(None).unwrap();
+            for &page in &set {
+                tx.free(page, 1).unwrap();
+            }
+            set = (0..8).map(|_| tx.allocate().unwrap()).collect();
+            for &page in &set {
+                tx.page_mut(page).unwrap()[..8].copy_from_slice(&stamp.to_le_bytes());
+            }
+            let payload = tx.page_mut(root).unwrap();
+            payload[..8].copy_from_slice(&stamp.to_le_bytes());
+            for (i, page) in set.iter().enumerate() {
+                payload[8 + i * 8..16 + i * 8].copy_from_slice(&page.to_le_bytes());
+            }
+            commit(tx, stamp % 3 == 0);
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    assert!(engine.info().page_count < 64, "the pages are reused");
+}
+
+/// AC-F11, first part, and AC-F18 (verification probe): in a temporary store whose maximum size leaves room for
+/// the versions of a write but not for growth, the free pages are reserved and one more fails.
+#[test]
+fn ac_f18_the_maximum_size_in_a_temporary_store() {
+    let options = krummi_tx::OpenOptions {
+        max_size: Some((128 + 6) * PAGE_SIZE as u64),
+    };
+    let engine = Engine::open_temporary(&options).unwrap();
+    while engine.info().page_count < 128 || engine.frontier() < engine.info().page_count {
+        let room = engine.info().page_count - engine.frontier();
+        let mut tx = engine.write(None).unwrap();
+        tx.allocate_run(room.clamp(1, 4)).unwrap();
+        tx.commit().unwrap();
+    }
+    let pages: Vec<u64> = (FIRST_PAGE..FIRST_PAGE + 8).step_by(2).collect();
+    free(&engine, &pages);
+    let mut tx = engine.write(None).unwrap();
+    let taken: BTreeSet<u64> = (0..4).map(|_| tx.allocate().unwrap()).collect();
+    assert_eq!(taken, BTreeSet::from_iter(pages.iter().copied()));
+    tx.commit().unwrap();
+    free(&engine, &pages);
+    let mut tx = engine.write(None).unwrap();
+    for _ in 0..4 {
+        tx.allocate().unwrap();
+    }
+    assert_eq!(kind(tx.allocate()), ErrorKind::MaxSize);
+    assert_eq!(kind(tx.commit()), ErrorKind::MaxSize);
+    common::set(&engine, FIRST_PAGE + 1, "still accepts writes");
 }
 
 /// AC10 of the root PRD with free space: every altered byte of a store with freed pages and a map page gives the
@@ -836,6 +1072,7 @@ fn check_free_pages(engine: &Engine, model: &Pages, label: &str) {
 fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mut u64) -> usize {
     let mut tx = engine.write(None).unwrap();
     let mut pages = model.clone();
+    let mut freed = BTreeSet::new();
     let actions = 1 + rng.below(6) as usize;
     let full = engine.frontier() > (MODEL_REGIONS - 1) * MODEL_REGION;
     for _ in 0..actions {
@@ -843,8 +1080,15 @@ fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mu
         if choice < 45 && !full {
             let count = if rng.chance(30) { 1 + rng.below(64) } else { 1 };
             let first = tx.allocate_run(count).unwrap();
+            let last = first + count - 1;
+            assert_eq!(
+                first / MODEL_REGION,
+                last / MODEL_REGION,
+                "a range crosses regions"
+            );
             for page in first..first + count {
                 assert!(!own(page), "{page} is one of the store's own");
+                assert!(!freed.contains(&page), "{page} was freed by this write");
                 *stamp += 1;
                 let value = format!("p{page}s{stamp}");
                 assert!(
@@ -864,6 +1108,7 @@ fn random_write(engine: &Engine, rng: &mut Random, model: &mut Pages, stamp: &mu
             tx.free(first, count).unwrap();
             for page in first..first + count {
                 pages.remove(&page);
+                freed.insert(page);
             }
         } else if !pages.is_empty() {
             let index = rng.below(pages.len() as u64) as usize;

@@ -161,7 +161,8 @@ impl Space {
         regions[index] = Some(longest);
     }
 
-    /// Records commit `txid` at its point of no return: from then on the next writer works from it (F6).
+    /// Records commit `txid` at its point of no return: from then on the next writer works from it (F6). The
+    /// commits before the newest one a read can see (`visible`) are no longer needed for the information.
     pub(crate) fn publish(
         &self,
         txid: u64,
@@ -169,6 +170,7 @@ impl Space {
         free: u64,
         gained: &BTreeSet<u64>,
         meta_written: bool,
+        visible: u64,
     ) {
         self.frontier.store(frontier, Ordering::Release);
         self.free.store(free, Ordering::Release);
@@ -182,14 +184,16 @@ impl Space {
             }
         }
         drop(regions);
-        self.published
+        let mut published = self
+            .published
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push_back(Published {
-                txid,
-                frontier,
-                free,
-            });
+            .unwrap_or_else(PoisonError::into_inner);
+        published.push_back(Published {
+            txid,
+            frontier,
+            free,
+        });
+        forget_unseen(&mut published, visible);
     }
 
     /// Free pages for the store information (F10): the free pages of the map as of the newest commit a read can
@@ -199,11 +203,16 @@ impl Space {
             .published
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        while published.get(1).is_some_and(|p| p.txid <= visible) {
-            published.pop_front();
-        }
+        forget_unseen(&mut published, visible);
         let seen = published[0];
         seen.free + self.layout().pages_after(seen.frontier, page_count)
+    }
+}
+
+/// Drops the commits older than the newest one a read can see (`visible`), which stays first.
+fn forget_unseen(published: &mut VecDeque<Published>, visible: u64) {
+    while published.get(1).is_some_and(|p| p.txid <= visible) {
+        published.pop_front();
     }
 }
 
@@ -241,10 +250,23 @@ mod tests {
     #[test]
     fn the_information_follows_what_reads_see() {
         let space = Space::new(FIRST_PAGE, 0, false);
-        space.publish(5, 20, 3, &BTreeSet::new(), true);
-        space.publish(6, 30, 7, &BTreeSet::new(), true);
+        space.publish(5, 20, 3, &BTreeSet::new(), true, 0);
+        space.publish(6, 30, 7, &BTreeSet::new(), true, 0);
         assert_eq!(space.free_pages(4, 40), 36, "nothing visible yet");
         assert_eq!(space.free_pages(5, 40), 3 + 20);
         assert_eq!(space.free_pages(6, 40), 7 + 10);
+    }
+
+    #[test]
+    fn commits_no_read_needs_any_more_are_dropped() {
+        let space = Space::new(FIRST_PAGE, 0, false);
+        for txid in 1..=1000 {
+            space.publish(txid, 10, 0, &BTreeSet::new(), true, txid - 1);
+        }
+        assert_eq!(
+            space.published.lock().unwrap().len(),
+            2,
+            "without asking for the information"
+        );
     }
 }
