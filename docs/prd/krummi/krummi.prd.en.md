@@ -177,6 +177,11 @@ own errors and messages.
 `krummi.data` grow; what it retains are page versions in `krummi.temp`, which count toward the maximum size
 (decision F7 of [free-space.prd.en.md](free-space.prd.en.md)).*
 
+*Annotation of 2026-10-24 to module 5: it is split into six child PRDs (5.1 to 5.6) under a module PRD with no
+execution of its own, and it counts as closed for objective 2 when all six are; the maximum sizes of a key (2,048
+bytes), a value (256 MiB) and a tree name (1,024 bytes) and their errors are in B4–B8 of
+[trees.prd.en.md](trees.prd.en.md).*
+
 ## Validations and messages
 
 Situations common to the whole product. The library returns the error class of each row (D8); the message column

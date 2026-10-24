@@ -94,6 +94,15 @@ reads end.*
   (decision F14).*
 - *Whole document: the current format version becomes `5` (decision F11).*
 
+*Annotations of 2026-10-24 from B+ trees ([trees.prd.en.md](trees.prd.en.md)):*
+
+- *T8: an operation that can modify the transaction ends the references even if it fails without effect; opening an
+  existing tree does not end them (decision B9).*
+- *T10: a write whose only operations failed with invalid size, different tree type or a handle of a deleted tree is
+  a write without changes (decisions B7 and B9).*
+- *T11: those public validation errors are not among its failures and do not prevent committing; T11 failures and
+  internal misuse still invalidate the transaction (decision B7).*
+
 ### Starting state
 
 Verified on 2026-10-22:

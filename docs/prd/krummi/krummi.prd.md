@@ -176,6 +176,11 @@ errores y mensajes.
 crecer `krummi.data`; lo que retiene son versiones de páginas en `krummi.temp`, que cuentan para el tamaño máximo
 (decisión F7 de [free-space.prd.md](free-space.prd.md)).*
 
+*Anotación del 2026-10-24 al módulo 5: se reparte en seis PRD hijos (5.1 a 5.6) bajo un PRD de módulo sin ejecución
+propia, y cuenta como cerrado para el objetivo 2 cuando lo están los seis; los tamaños máximos de clave (2.048
+bytes), de valor (256 MiB) y de nombre de árbol (1.024 bytes) y sus errores están en B4–B8 de
+[trees.prd.md](trees.prd.md).*
+
 ## Validaciones y mensajes
 
 Situaciones comunes a todo el producto. La biblioteca devuelve la clase de error de cada fila (D8); la columna de

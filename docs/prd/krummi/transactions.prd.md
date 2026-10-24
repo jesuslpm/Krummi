@@ -92,6 +92,15 @@ espacio se recupera al terminar las lecturas.*
   dañada (decisión F14).*
 - *Todo el documento: la versión de formato vigente pasa a ser `5` (decisión F11).*
 
+*Anotaciones del 2026-10-24 desde los árboles B+ ([trees.prd.md](trees.prd.md)):*
+
+- *T8: una operación que puede modificar la transacción termina las referencias aunque falle sin efecto; abrir un
+  árbol existente no las termina (decisión B9).*
+- *T10: una escritura cuyas únicas operaciones fallaron por tamaño no válido, tipo de árbol distinto o una apertura
+  de un árbol borrado es una escritura sin cambios (decisiones B7 y B9).*
+- *T11: esos errores de validación pública no están entre sus fallos y no impiden confirmar; los fallos de T11 y los
+  usos incorrectos internos siguen invalidando la transacción (decisión B7).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:
