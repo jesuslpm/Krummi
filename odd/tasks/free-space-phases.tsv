@@ -1,2 +1,30 @@
 2026-10-24T08:28:08+01:00	start	explore	
 2026-10-24T08:31:49+01:00	mark	implement	T1
+2026-10-24T08:36:06+01:00	mark	implement	T2
+2026-10-24T08:43:54+01:00	bg-start	checks	suite after T2
+2026-10-24T08:46:24+01:00	bg-end	checks	suite after T2
+2026-10-24T08:51:51+01:00	mark	implement	T4
+2026-10-24T08:55:56+01:00	bg-start	acceptance	F13 Windows
+2026-10-24T08:56:04+01:00	mark	docs	T5
+2026-10-24T08:56:26+01:00	bg-end	acceptance	F13 Windows
+2026-10-24T08:56:39+01:00	bg-start	acceptance	Linux suite and F13
+2026-10-24T08:56:39+01:00	bg-end	acceptance	Linux suite and F13
+2026-10-24T08:57:10+01:00	bg-start	acceptance	Linux suite and F13
+2026-10-24T08:57:23+01:00	mark	review	T5
+2026-10-24T08:59:34+01:00	bg-end	acceptance	Linux suite and F13
+2026-10-24T09:25:41+01:00	mark	fix	T5
+2026-10-24T09:28:15+01:00	bg-start	checks	suites after fixes
+2026-10-24T09:28:29+01:00	mark	review	T5
+2026-10-24T09:29:56+01:00	bg-start	review	RDD lenses
+2026-10-24T09:30:45+01:00	bg-end	checks	suites after fixes
+2026-10-24T09:31:56+01:00	bg-end	review	RDD lenses
+2026-10-24T09:32:35+01:00	mark	fix	T5
+2026-10-24T09:39:49+01:00	mark	review	T5
+2026-10-24T09:40:02+01:00	bg-start	review	RDD 2 lenses
+2026-10-24T09:40:34+01:00	bg-end	review	RDD 2 lenses
+2026-10-24T09:41:11+01:00	mark	fix	T5
+2026-10-24T09:41:52+01:00	mark	review	T5
+2026-10-24T09:42:45+01:00	bg-start	checks	final suites
+2026-10-24T09:42:45+01:00	mark	docs	T5
+2026-10-24T09:45:05+01:00	bg-end	checks	final suites
+2026-10-24T09:45:24+01:00	end		

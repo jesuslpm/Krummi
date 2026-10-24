@@ -38,11 +38,11 @@ repite con un almacén pequeño que tiene páginas liberadas y una página del m
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S15, S17 (format, info field) | inline | pending | |
-| T2 | S1–S4, S7–S10, S12–S15, S18 | inline | pending | |
-| T3 | S0, S5, S6, S11, S16, S19 | inline | pending | |
-| T4 | S20 (measurement) | inline | pending | |
-| T5 | docs, checks, verify, report | inline | pending | |
+| T1 | S17 (format 5), info field | inline | done | `ccce542` |
+| T2 | S1–S4, S7–S10, S13–S15, S18 | inline | done | `b303e7c` |
+| T3 | S0, S5, S6, S11, S12, S16, S19 | inline | done | `d342ec0` |
+| T4 | S20 (measurement), performance fix | inline | done | `707800f`, `f31070b` |
+| T5 | docs, CI sweep, checks, verify, RDD, report | inline | done | `0c0df0c`, `7244491`, `885ef69`, `e9192c0` |
 
 Route evidence: one cohesive unit of behavior (the allocator in the transaction layer plus a format bump), no
 independent parallel units, so no writer trigger fires; the parent writes inline. Risk: item 1 (persisted format
@@ -54,3 +54,81 @@ change) → one independent verifier at the feature's end.
   simplicidad y eficiencia y mantenibilidad. Se valora DRY frente a WET."
 - **L2** (2026-10-24 08:28): estimate 2 h – 3 h 30 min confirmed; engineering principles added to `CLAUDE.md`
   first (commit `cf03037`).
+- **L3** T1 (`ccce542`): RED observed for the format tests (expected `5`, got `4`), then GREEN. The first commit of
+  T1 was amended twice: `ac_p14` and two facade tests still asserted format `4` (the commit had been chained without
+  waiting for the test result). AC-E14 of the grouped-journal PRD becomes `ac_f17_...` (format `4` is now older).
+- **L4** T2 (`b303e7c`): code written before its tests, so no RED was observed for S1–S4, S7–S10, S13–S15, S18;
+  13 tests then passed. Design: `map.rs` (bits; one run scan serves the search and the longest run), `space.rs`
+  (layout of regions, frontier, free total, per-region hint, durable history for the information), `transaction.rs`
+  (reserve, free, commit). Test-only region size (`set_region_pages`) per the PRD's criteria preamble. The first
+  allocated page moves from 3 to 4 (the first region's map page is 3); `recovery.rs` tests adjusted.
+- **L5** T3 (`d342ec0`): crash helpers (`Run`, `POWER_CUTS`, `copy_folder`) moved to `tests/common` (DRY). Added
+  `ac_f6_the_store_reaches_the_frontier_after_power_cuts`; a mutation that disables the F3 frontier page made it
+  fail (cut 15, `Flushed`), so it guards F3. AC10 sample step 397 (97 took over 60 s).
+- **L6** T4 (`707800f`, `f31070b`): the first measurement showed 88.7 µs per single-page reservation; a probe showed
+  1–2.5 µs inside a write and ~100 µs for the first reservation of each write: the region summary was recomputed by
+  scanning the whole map on every search, and on every commit. Fix: keep only an upper bound of each region's
+  longest free run, learned from a failed search and forgotten when a commit frees pages there. Result: 1.9 µs.
+- **L7** F13 on Windows (release, 1,179,712 pages, half freed in loose holes; built in 28.9 s):
+
+  | Pages | Free pages | Open (ms) |
+  |---|---|---|
+  | 1179712 | 652332 | 70.28 |
+
+  | Reservation | First (µs) | Next, mean (µs) |
+  |---|---|---|
+  | 1 page | 9.2 | 2.0 |
+  | range of 16 | 2743.5 | 5.0 |
+  | range of 256 | 1971.5 | 74.4 |
+  | range of 4096 | 13746.5 | 3211.3 |
+
+- **L8** T5 (`0c0df0c`): README, crate docs, CI runs the new full AC10 sweep (Risk item 5). Suite after T2 on
+  Windows: all passed. RDD assessment of `cf03037..0c0df0c`: high (escalated item 1, format and persisted pages;
+  process signals in tests and CI).
+- **L9** Linux (WSL 2 Ubuntu, clone `~/muninn-accept`, `wsl -d Ubuntu`) on `0c0df0c`: `cargo test --workspace`
+  all passed. F13 (release, built in 12.9 s):
+
+  | Pages | Free pages | Open (ms) |
+  |---|---|---|
+  | 1179712 | 652332 | 0.24 |
+
+  | Reservation | First (µs) | Next, mean (µs) |
+  |---|---|---|
+  | 1 page | 8.6 | 2.8 |
+  | range of 16 | 3073.5 | 6.3 |
+  | range of 256 | 3288.6 | 97.8 |
+  | range of 4096 | 6097.6 | 3002.4 |
+- **L10** Independent verifier (Sonnet, high) on `0c0df0c`: fmt, clippy and `cargo test --workspace` clean (226
+  passed); S1–S17 and S19 PASS, S18 PARTIAL (temporary-mode repeats of AC-F3, F4, F9, F10, F11, F12 missing; its
+  probes passed), S20 pending (this report). Public API differential against `cf03037`: only `format_version` and
+  `free_pages` differ. Blocker B1 (low): the published-commits queue was drained only by `info()`, ~24 B per
+  commit otherwise. Advisories: AC-F9 never reopened; AC-F3 deferred variant freed durably; the frontier page
+  skipped the maximum-size count; full AC10 sweep over 15 min locally. One correction batch, `7244491`: queue
+  pruned at each commit (unit test), frontier page reserved, AC-F3/F4/F9/F10/F11/F12 repeated in temporary
+  stores, AC-F9 reopens, AC-F3 defers both commits, six probes kept as regression tests. Suites on `7244491`:
+  Windows 233 passed, Linux (WSL) 233 passed.
+- **L11** RDD review 1, `cf03037..7244491`, lenses risk, resilience, reliability, lineage
+  `review-292159d53910b53e`: approved, acknowledged (authority burned). Findings: risk none; resilience none;
+  reliability two WARNING, informational: (1) the AC-F16 model test degenerated once the frontier passed three
+  regions (reservations stopped, most operations were empty writes): fixed in `885ef69` (single reservations
+  from the map when full, frees as long as reservations, a final check that over a quarter of the operations
+  reserved and freed pages; skipped syncs restored after each `testing::reset`; 20,000-operation sample in the
+  suite, the 100,000 of AC-F16 in release as a CI acceptance step, 13 s); (2) crashes only after making
+  everything durable: kept, AC-F6 covers crashes before durability.
+- **L12** RDD review 2, `7244491..885ef69` (assessed high: CI shell step), lenses reliability, resilience, lineage
+  `review-b07c5edfa310785a`: approved, acknowledged. Findings, all non-blocking: R3-001 WARNING (reliability), when
+  the store is full the model may count a page freed by a commit not yet durable as reusable: false premise, F6
+  reuses from the point of no return; an assertion that a full store reserves from the map was added in
+  `e9192c0` and holds. R3-002 SUGGESTION, say that crashes follow `make_durable`: already the case, no change.
+  R4 SUGGESTION (resilience), restore the fault state after the run: the state is per thread; a final
+  `testing::reset` was added anyway in `e9192c0`.
+- **L13** RDD review 3, `885ef69..e9192c0` (assessed under budget; reviewed as the last slice), lens reliability,
+  lineage `review-bb98e2f82312eeec`: approved, acknowledged. Finding: SUGGESTION, a drop guard for the reset if
+  the run panics: not taken, the fault state dies with the test's thread.
+- **L14** Final checks on `e9192c0`: fmt and clippy clean; `cargo test --workspace` 233 passed (5 ignored acceptance
+  tests) on Windows and 233 passed on Linux (WSL). AC-F16 in full (100,000 operations, release): 11.5 s.
+
+## Closing
+
+Closing report: [free-space-report.md](free-space-report.md). Active time 1 h 17 min against an estimate of
+2 h – 3 h 30 min.
