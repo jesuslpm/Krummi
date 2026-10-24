@@ -64,6 +64,9 @@ and R3, and this document was updated with the new names (decisions R1–R13 of
 annotations are read according to R3 and R5, and the current format is `3`. A folder with a MuninnDB store does not
 contain a Krummi store (D10, decision R6).*
 
+*Annotation of 2026-10-24 to D7: with free space, the current format version becomes `5` (decision F11 of
+[free-space.prd.en.md](free-space.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:
@@ -169,6 +172,10 @@ own errors and messages.
 | 14 | **Posting lists** | Sorted, compressed lists of identifiers. | — |
 | 15 | **Compact trees** | Trees with compressed keys. | — |
 | 16 | **Lookups** | Fixed-key dictionaries. | — |
+
+*Annotation of 2026-10-24 to module 4: a long-running read does not prevent reusing freed pages nor make
+`krummi.data` grow; what it retains are page versions in `krummi.temp`, which count toward the maximum size
+(decision F7 of [free-space.prd.en.md](free-space.prd.en.md)).*
 
 ## Validations and messages
 

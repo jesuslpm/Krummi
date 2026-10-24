@@ -83,6 +83,17 @@ reads end.*
   E8).*
 - *Whole document: the current format version becomes `4` (decision E15).*
 
+*Annotations of 2026-10-24 from free space ([free-space.prd.en.md](free-space.prd.en.md)):*
+
+- *T8 and T10: reserving and freeing pages are changes; a write that does so is not a write without changes, and the
+  references to its pages stop being valid as after any other change (decision F8).*
+- *T14: the "until module 4" ends: the pages a write frees are reused from the point of no return of its commit,
+  without waiting for open reads, and a long read does not make `krummi.data` grow (decisions F6 and F7). The store
+  information adds the number of free pages (decision F10).*
+- *T18: the free-space errors carry the same data, and the damage one also the number of the damaged map page
+  (decision F14).*
+- *Whole document: the current format version becomes `5` (decision F11).*
+
 ### Starting state
 
 Verified on 2026-10-22:

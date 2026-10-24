@@ -73,6 +73,15 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 - *P5: the current format version becomes `4`; a store of format `3` is of an older format (decision E15).*
 - *P13: not being able to start on open what writes the journal is out of memory (decision E13).*
 
+*Annotations of 2026-10-24 from free space ([free-space.prd.en.md](free-space.prd.en.md)):*
+
+- *P5: the current format version becomes `5`; a store of format `4` is of an older format (decision F11).*
+- *P12: the store information adds the number of free pages, which combines what is durable in the free-space map
+  with the size of `krummi.data` as it is; the rest of the information still describes only `krummi.data`
+  (decision F10).*
+- *Row of the page that is missing because the file was truncated with the store closed: it also holds for a page of
+  the free-space map (decision F3).*
+
 ### Starting state
 
 Verified on 2026-10-22:

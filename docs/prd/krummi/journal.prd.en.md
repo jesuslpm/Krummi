@@ -78,6 +78,13 @@ from earlier rules is declared in its decisions and annotated in the affected do
 - *Out of scope: grouping commits from several threads into a single journal write enters with that change
   (decision E4).*
 
+*Annotations of 2026-10-24 from free space ([free-space.prd.en.md](free-space.prd.en.md)):*
+
+- *J8: when recovery ends, `krummi.data` reaches at least the frontier of used pages (decision F3).*
+- *J15: the store information adds the number of free pages, which combines what is durable in the free-space map
+  with the size of `krummi.data` (decision F10).*
+- *J3: the current format version becomes `5`; a store of format `4` is of an older format (decision F11).*
+
 ### Starting state
 
 Verified on 2026-10-22:

@@ -74,6 +74,16 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
   E15).*
 - *P13: no poder poner en marcha al abrir lo que escribe el diario es memoria agotada (decisión E13).*
 
+*Anotaciones del 2026-10-24 desde el espacio libre ([free-space.prd.md](free-space.prd.md)):*
+
+- *P5: la versión de formato vigente pasa a ser `5`; un almacén de formato `4` es de formato anterior (decisión
+  F11).*
+- *P12: la información del almacén añade el número de páginas libres, que combina lo durable del mapa de espacio
+  libre con el tamaño de `krummi.data` tal como está; el resto de la información sigue describiendo solo
+  `krummi.data` (decisión F10).*
+- *Fila de la página que falta porque el archivo se recortó con el almacén cerrado: vale también para una página del
+  mapa de espacio libre (decisión F3).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

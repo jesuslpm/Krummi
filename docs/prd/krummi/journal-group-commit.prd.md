@@ -55,6 +55,9 @@ la de T3.
 | E15 | **Formato `4`**: el diario cambia lo que un motor anterior puede leer con seguridad, así que la versión de formato vigente pasa a ser `4` (D7 del padre raíz). Un almacén de formato `3` es de formato anterior aunque se cerrara sin error, y antes de la 1.0 no se migra. Precisa P5, J3 y R5. |
 | E16 | **Medición**: el cambio incluye una medición reproducible de confirmaciones durables por segundo con 1, 4 y 16 hilos que confirman a la vez, con escritura directa y con la alternativa de E6, en Windows y en Linux. No fija ningún umbral (D5 del padre raíz); sus resultados van en el informe de cierre. |
 
+*Anotación del 2026-10-24 desde el espacio libre ([free-space.prd.md](free-space.prd.md)): E15, la versión de
+formato vigente pasa a ser `5`; un almacén de formato `4` es de formato anterior (decisión F11).*
+
 ### Estado de partida
 
 Verificado el 2026-10-23 en el código:

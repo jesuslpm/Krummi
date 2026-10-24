@@ -63,6 +63,9 @@ de R2 y R3, y este documento se actualizó con los nombres nuevos (decisiones R1
 anotaciones anteriores se leen según R3 y R5, y el formato vigente es `3`. Una carpeta con un almacén de MuninnDB
 no contiene un almacén de Krummi (D10, decisión R6).*
 
+*Anotación del 2026-10-24 a D7: con el espacio libre, la versión de formato vigente pasa a ser `5` (decisión F11 de
+[free-space.prd.md](free-space.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
@@ -168,6 +171,10 @@ errores y mensajes.
 | 14 | **Posting lists** | Listas ordenadas y comprimidas de identificadores. | — |
 | 15 | **Compact trees** | Árboles con claves comprimidas. | — |
 | 16 | **Lookups** | Diccionarios de clave fija. | — |
+
+*Anotación del 2026-10-24 al módulo 4: una lectura de larga duración no impide reutilizar páginas liberadas ni hace
+crecer `krummi.data`; lo que retiene son versiones de páginas en `krummi.temp`, que cuentan para el tamaño máximo
+(decisión F7 de [free-space.prd.md](free-space.prd.md)).*
 
 ## Validaciones y mensajes
 

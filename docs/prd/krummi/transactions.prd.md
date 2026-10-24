@@ -81,6 +81,17 @@ espacio se recupera al terminar las lecturas.*
   (decisión E8).*
 - *Todo el documento: la versión de formato vigente pasa a ser `4` (decisión E15).*
 
+*Anotaciones del 2026-10-24 desde el espacio libre ([free-space.prd.md](free-space.prd.md)):*
+
+- *T8 y T10: reservar y liberar páginas son cambios; una escritura que lo hace no es una escritura sin cambios, y
+  las referencias a sus páginas dejan de valer como tras cualquier otro cambio (decisión F8).*
+- *T14: termina el "hasta el módulo 4": las páginas que una escritura libera se reutilizan desde el punto sin
+  retorno de su confirmación, sin esperar a las lecturas abiertas, y una lectura larga no hace crecer
+  `krummi.data` (decisiones F6 y F7). La información del almacén añade el número de páginas libres (decisión F10).*
+- *T18: los errores del espacio libre llevan los mismos datos, y el de daño además el número de la página del mapa
+  dañada (decisión F14).*
+- *Todo el documento: la versión de formato vigente pasa a ser `5` (decisión F11).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

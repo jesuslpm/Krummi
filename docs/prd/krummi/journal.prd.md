@@ -79,6 +79,15 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 - *Fuera de alcance: agrupar confirmaciones de varios hilos en una sola escritura del diario entra con ese cambio
   (decisión E4).*
 
+*Anotaciones del 2026-10-24 desde el espacio libre ([free-space.prd.md](free-space.prd.md)):*
+
+- *J8: al terminar la recuperación, `krummi.data` llega como mínimo hasta la frontera de páginas usadas (decisión
+  F3).*
+- *J15: la información del almacén añade el número de páginas libres, que combina lo durable del mapa de espacio
+  libre con el tamaño de `krummi.data` (decisión F10).*
+- *J3: la versión de formato vigente pasa a ser `5`; un almacén de formato `4` es de formato anterior (decisión
+  F11).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

@@ -54,6 +54,9 @@ one of T3.
 | E15 | **Format `4`**: the journal changes what an earlier engine can read safely, so the current format version becomes `4` (D7 of the root parent). A store of format `3` is of an earlier format even if it was closed without error, and before 1.0 it is not migrated. It refines P5, J3 and R5. |
 | E16 | **Measurement**: the change includes a reproducible measurement of durable commits per second with 1, 4 and 16 threads committing at the same time, with direct write and with the alternative of E6, on Windows and on Linux. It sets no threshold (D5 of the root parent); its results go in the closing report. |
 
+*Annotation of 2026-10-24 from free space ([free-space.prd.en.md](free-space.prd.en.md)): E15, the current format
+version becomes `5`; a store of format `4` is of an older format (decision F11).*
+
 ### Starting state
 
 Verified on 2026-10-23 in the code:
