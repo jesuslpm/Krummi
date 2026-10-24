@@ -51,7 +51,7 @@ se subió nada.
 
 | Commits | Lentes | Resultado | Hallazgos y resolución | Linaje |
 |---|---|---|---|---|
-| `8704e27..6b0a2c3` (`b0e3066`, `6b0a2c3`) | resilience, reliability | aprobada | R3-timeout-handoff-untested (WARNING): ninguna prueba ejercita la rama que pasa el turno cuando una petición se va por su límite. Esa rama no se puede alcanzar (ver Pendiente) y queda como línea defensiva. R4-001 y R3-wakeup-bound-counts-spurious (SUGGESTION): el límite de 12 de la prueba cuenta también despertares espurios; margen de 4, se mantiene | `review-21b8329fa80ad2c4` |
+| `8704e27..6b0a2c3` (`b0e3066`, `6b0a2c3`) | resilience, reliability | aprobada | R3-timeout-handoff-untested (WARNING): ninguna prueba ejercita la rama que pasa el turno cuando una petición se va por su límite. Esa rama nunca hace falta (ver Pendiente) y quedó como línea defensiva. R4-001 y R3-wakeup-bound-counts-spurious (SUGGESTION): el límite de 12 de la prueba cuenta también despertares espurios; margen de 4, se mantiene | `review-21b8329fa80ad2c4` |
 
 ## Tiempo
 
@@ -117,14 +117,16 @@ directa del diario en Windows, 16 hilos pasan de ~13.000 a ~46.000 confirmacione
 ## Decisiones tomadas sin preguntar
 
 - La rama que despierta al siguiente cuando una petición se va por su límite se dejó como línea defensiva, aunque el
-  análisis de la revisión muestra que no se alcanza.
+  análisis de la revisión muestra que nunca hace falta.
 - El hook de pruebas `turn_wakeups` cuenta cada vuelta de una espera, espurias incluidas.
 
 ## Pendiente (no bloquea)
 
-- **Rama inalcanzable:** el `wake_next` tras irse por el límite en `wait_turn`. Bajo el mismo lock, una petición
+- **Rama innecesaria:** el `wake_next` tras irse por el límite en `wait_turn`. Bajo el mismo lock, una petición
   comprueba si puede tomar el turno antes que su plazo, así que solo se va si el turno tiene dueño o si no es la
-  primera. Se puede quitar o dejar comentada como defensiva.
+  primera. Corrección (2026-10-24): este informe la llamaba inalcanzable, pero se ejecuta mientras `release_turn`
+  corre el hook `Handoff` con el turno libre; entonces solo adelanta un despertar que `release_turn` hace igualmente.
+  Se quitó en [turn-timeout-wake](turn-timeout-wake.md).
 - **Fallo sin explicar (L2):** una ejecución de las pruebas de la cola terminó sin mostrar pánico ni línea de
   resultado, lo que apunta a una salida anormal del proceso. No se reprodujo en unas 700 ejecuciones de la rama ni
   en 600 de la base, así que no se sabe si lo causa este cambio.

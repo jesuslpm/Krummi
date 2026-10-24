@@ -57,7 +57,7 @@ verifier.
   measurement (done in L3), more L2 hunting. Advisory: the new test's limit of 12 wakeups counts spurious ones too.
 - **L5** (RDD review, 2026-10-23): commits `b0e3066`, `6b0a2c3` against `8704e27`; lenses resilience, reliability;
   approved, acknowledged (lineage `review-21b8329fa80ad2c4`). Findings: R3-timeout-handoff-untested (WARNING): no
-  test exercises the timeout path that passes the turn on. Analysis: the branch cannot be reached; under the same
+  test exercises the timeout path that passes the turn on. Analysis: the branch is never needed (corrected on 2026-10-24: it can run, see turn-timeout-wake.md); under the same
   lock a waiter checks whether it can take the turn before its deadline, so it leaves only when the turn has an
   owner (whose release wakes the next one) or when it is not first (the first was woken by the release). Kept as
   a defensive line; pending note. R4-001 and R3-wakeup-bound-counts-spurious (SUGGESTION): the test's limit of 12

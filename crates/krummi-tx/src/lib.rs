@@ -403,11 +403,9 @@ impl Engine {
                 Some(deadline) => {
                     let now = Instant::now();
                     if now >= deadline {
+                        // Leaving wakes nobody: had this request been first with the turn free, it would have
+                        // taken the turn above; otherwise the first one is woken by whoever releases the turn.
                         leave(&mut queue, ticket);
-                        // Leaving the front of the queue while the turn is free passes it on.
-                        if queue.owner.is_none() {
-                            queue.wake_next();
-                        }
                         return Err(self.timeout(limit));
                     }
                     wake.wait_timeout(queue, deadline - now)
