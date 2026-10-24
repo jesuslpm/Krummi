@@ -52,6 +52,9 @@ pub struct Info {
     pub max_size: Option<u64>,
     /// Whether the store lives only in memory.
     pub temporary: bool,
+    /// Pages a reservation can use without making the store grow, as of what is committed and durable (F10 of the
+    /// free-space PRD). The Pager alone knows no free space and reports `0`; the transaction layer fills it.
+    pub free_pages: u64,
 }
 
 /// An open store.
@@ -276,6 +279,7 @@ impl Pager {
             page_count: len / PAGE_SIZE_U64,
             max_size: self.max_size,
             temporary: self.folder.is_none(),
+            free_pages: 0,
         }
     }
 

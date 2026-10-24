@@ -397,15 +397,29 @@ impl Scratch {
         self.shared.lock()
     }
 
+    /// The newest commit a read transaction opened now would see: the last durable one, or in a temporary store,
+    /// which has no journal, the last one published (E3, E14). It registers nothing, so it never fails.
+    pub fn visible_txid(&self) -> u64 {
+        self.visible(&self.lock())
+    }
+
+    fn visible(&self, state: &State) -> u64 {
+        match &self.shared.journal {
+            Some(journal) => state.last_committed.min(journal.durable()),
+            None => state.last_committed,
+        }
+    }
+
     /// Registers a read snapshot of what is durable, or the writer's snapshot of everything published (E3).
     fn register(&self, state: &mut State, writer: bool) -> Result<Snapshot<'_>> {
         let out_of_memory = || Error::OutOfMemory {
             requested: size_of::<Live>() as u64,
         };
         sys::snapshot_point().map_err(|_| out_of_memory())?;
-        let txid = match (&self.shared.journal, writer) {
-            (Some(journal), false) => state.last_committed.min(journal.durable()),
-            _ => state.last_committed,
+        let txid = if writer {
+            state.last_committed
+        } else {
+            self.visible(state)
         };
         let live = Live {
             seq: state.next_seq,
