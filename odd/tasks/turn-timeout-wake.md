@@ -33,3 +33,9 @@ AC-T7 (limits that expire), AC-T18 (handoff order) and `releasing_the_turn_wakes
   estimate 20 – 40 min, answered "Sí".
 - **L2** (T1 evidence): fmt and clippy clean; queue tests 5 runs, 9 passed each; suite 198 passed in both journal
   write modes. Report corrected (S2) in `turn-handoff-report.md` and its execution document.
+- **L3** (independent verifier, bounded to about 10 min): S1 and S2 pass, no blockers. No interleaving leaves a
+  waiter asleep with the turn free (timeout in the `Handoff` window, first waiter leaving while owned, woken but not
+  yet running, new arrivals, `begin_write` failing). Suite 198 passed; queue tests 10 runs and 8 × 5 parallel
+  copies, all passed; probe of 48 threads with 0–5 ms limits, a 3 ms sleep in the `Handoff` hook on half the
+  rounds, 3 runs × 30 rounds on disk and in memory: no hang. Advisory: no committed test makes the `Handoff`-window
+  timeout deterministic.
