@@ -5,12 +5,16 @@
 //! modules and tests; applications use the `krummi` crate, which exposes only opening, committing and aborting
 //! transactions (T1).
 
+mod map;
+mod space;
 mod transaction;
 
 use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(feature = "test-hooks")]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
@@ -18,13 +22,18 @@ use std::time::{Duration, Instant};
 use krummi_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
 pub use krummi_pager::{Error, ErrorKind, Info, OpenOptions, Result};
 use krummi_pager::{Pager, Scratch};
+pub use space::REGION_PAGES;
+use space::Space;
 pub use transaction::{ReadTransaction, WriteTransaction};
 
-/// Page that keeps the transaction layer's own data: the number of the next page to reserve. It is an ordinary
-/// data page, not part of the header (T17); a blank one is a store where nothing was committed yet.
+/// Page that keeps the transaction layer's own data: the frontier, the first page never used (F3 of the
+/// free-space PRD), and the number of free pages of the map (F10). It is an ordinary data page, not part of the
+/// header (T17); a blank one is a store where nothing was committed yet.
 pub const META_PAGE: u64 = HEADER_PAGES;
+/// The map page of the first region, after the header and the meta page (F2).
+pub const MAP_PAGE: u64 = META_PAGE + 1;
 /// First page that write transactions reserve.
-pub const FIRST_PAGE: u64 = META_PAGE + 1;
+pub const FIRST_PAGE: u64 = MAP_PAGE + 1;
 /// Bytes of a page that a transaction can use.
 pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
 
@@ -57,10 +66,8 @@ pub struct Engine {
     max_size: Option<u64>,
     /// The write turn, shared with the journal's writer, which wakes the waiting requests when it fails (T12).
     turns: Arc<Turns>,
-    /// Next page to reserve, as of the newest commit.
-    next_page: AtomicU64,
-    /// Whether the meta page was ever committed.
-    meta_written: AtomicBool,
+    /// Free space: the frontier, the free pages and the regions' maps.
+    space: Space,
     #[cfg(feature = "test-hooks")]
     hook: Mutex<Option<Hook>>,
 }
@@ -125,18 +132,20 @@ impl Engine {
         let scratch = Scratch::open(pager)?;
         let pager = scratch.pager();
         let fresh = pager.page_count() <= META_PAGE || pager.page_is_blank(META_PAGE);
-        let next_page = if fresh {
-            FIRST_PAGE
+        let (frontier, free) = if fresh {
+            (FIRST_PAGE, 0)
         } else {
             let meta = pager.page(META_PAGE)?;
-            let next = u64::from_le_bytes(meta[..8].try_into().expect("8 bytes"));
-            if next < FIRST_PAGE {
+            let field =
+                |at: usize| u64::from_le_bytes(meta[at..at + 8].try_into().expect("8 bytes"));
+            let frontier = field(0);
+            if frontier < FIRST_PAGE {
                 return Err(Error::Damaged {
                     folder,
                     page: Some(META_PAGE),
                 });
             }
-            next
+            (frontier, field(8))
         };
         let turns = Arc::new(Turns {
             queue: Mutex::new(Queue {
@@ -156,16 +165,20 @@ impl Engine {
             scratch,
             folder,
             turns,
-            next_page: AtomicU64::new(next_page),
-            meta_written: AtomicBool::new(!fresh),
+            space: Space::new(frontier, free, !fresh),
             #[cfg(feature = "test-hooks")]
             hook: Mutex::new(None),
         })
     }
 
-    /// Information about the store (P12): `krummi.data` as it is (T14).
+    /// Information about the store (P12): `krummi.data` as it is (T14), and its free pages as of what a read
+    /// opened now would see (F10). It reads no page, so it always works.
     pub fn info(&self) -> Info {
-        self.scratch.info()
+        let mut info = self.scratch.info();
+        info.free_pages = self
+            .space
+            .free_pages(self.scratch.visible_txid(), info.page_count);
+        info
     }
 
     /// Opens a read transaction: a snapshot of everything committed so far (T2, T7).
@@ -340,6 +353,25 @@ impl Engine {
         self.scratch.set_transfer_hook(hook);
     }
 
+    /// Sets the pages of a region, smaller than [`REGION_PAGES`] so that tests reach several regions with small
+    /// files. Set it right after opening, before any write, and to the same value on every opening of a store.
+    #[cfg(feature = "test-hooks")]
+    pub fn set_region_pages(&self, pages: u64) {
+        self.space.set_region_pages(pages);
+    }
+
+    /// The frontier as the next writer sees it (tests: F3).
+    #[cfg(feature = "test-hooks")]
+    pub fn frontier(&self) -> u64 {
+        self.space.frontier()
+    }
+
+    /// Regions whose map was read since opening (tests: F9).
+    #[cfg(feature = "test-hooks")]
+    pub fn regions_read(&self) -> usize {
+        self.space.regions_read()
+    }
+
     /// Sets the function called at each [`Point`], or none.
     #[cfg(feature = "test-hooks")]
     pub fn set_hook(&self, hook: Option<Hook>) {
@@ -446,7 +478,7 @@ impl Engine {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn misuse(&self, reason: &'static str) -> Error {
+    pub(crate) fn misuse(&self, reason: &'static str) -> Error {
         Error::Misuse {
             folder: self.folder.clone(),
             reason,

@@ -1171,8 +1171,9 @@ fn ac1_ac3_a_killed_process_keeps_what_it_committed_and_nothing_else() {
     assert!(!status.success(), "the child dies");
     let engine = open(tmp.path());
     let read = engine.read().unwrap();
-    assert_eq!(text(read.page(3).unwrap()), "committed");
-    assert_eq!(text(read.page(4).unwrap()), "committed");
+    for page in [krummi_tx::FIRST_PAGE, krummi_tx::FIRST_PAGE + 1] {
+        assert_eq!(text(read.page(page).unwrap()), "committed");
+    }
 }
 
 /// Body of the child of [`ac1_ac3_a_killed_process_keeps_what_it_committed_and_nothing_else`].
@@ -1184,13 +1185,13 @@ fn child_helper_commit_and_die() {
     let engine = open(Path::new(&folder));
     let mut tx = engine.write(None).unwrap();
     let pages = [tx.allocate().unwrap(), tx.allocate().unwrap()];
-    assert_eq!(pages, [3, 4]);
+    assert_eq!(pages, [krummi_tx::FIRST_PAGE, krummi_tx::FIRST_PAGE + 1]);
     for page in pages {
         put(&mut tx, page, "committed");
     }
     tx.commit().unwrap();
     let mut tx = engine.write(None).unwrap();
-    put(&mut tx, 3, "never committed");
+    put(&mut tx, pages[0], "never committed");
     std::process::abort();
 }
 
