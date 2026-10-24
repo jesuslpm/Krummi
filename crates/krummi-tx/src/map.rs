@@ -1,15 +1,6 @@
 //! The free-space map page of a region (F2 of the free-space PRD): one bit per page of the region, set when the
 //! page is free. Bit `i` is bit `i % 8` of byte `i / 8`, so the payload reads as little-endian 64-bit words.
 
-/// What a region's map says, kept in memory to skip regions that cannot serve a reservation (F9).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Summary {
-    /// Free pages in the region.
-    pub free: u64,
-    /// Longest run of free pages in a row.
-    pub longest: u64,
-}
-
 /// Whether bit `bit` is set (the page is free).
 pub(crate) fn is_free(map: &[u8], bit: u64) -> bool {
     map[(bit / 8) as usize] & (1 << (bit % 8)) != 0
@@ -28,30 +19,18 @@ pub(crate) fn set(map: &mut [u8], first: u64, count: u64, free: bool) {
     }
 }
 
-/// The first bit of the first run of at least `count` free pages, or `None`.
-pub(crate) fn find_run(map: &[u8], count: u64) -> Option<u64> {
-    let mut found = None;
+/// The first bit of the first run of at least `count` free pages, or, when there is none, the longest run of
+/// free pages, which the whole search has seen.
+pub(crate) fn find_run(map: &[u8], count: u64) -> Result<u64, u64> {
+    let (mut found, mut longest) = (None, 0);
     for_each_run(map, |start, len| {
         if len >= count {
             found = Some(start);
         }
+        longest = longest.max(len);
         found.is_some()
     });
-    found
-}
-
-/// Free pages and the longest run of them.
-pub(crate) fn summary(map: &[u8]) -> Summary {
-    let mut summary = Summary {
-        free: 0,
-        longest: 0,
-    };
-    for_each_run(map, |_, len| {
-        summary.free += len;
-        summary.longest = summary.longest.max(len);
-        false
-    });
-    summary
+    found.ok_or(longest)
 }
 
 /// Calls `visit(start, len)` for each maximal run of set bits, in order, until it returns `true`. Whole words
@@ -119,41 +98,27 @@ mod tests {
     #[test]
     fn runs_inside_and_across_words() {
         let map = map_with(&[(1, 2), (60, 10), (200, 300)]);
-        assert_eq!(find_run(&map, 1), Some(1));
-        assert_eq!(find_run(&map, 3), Some(60), "a run across a word boundary");
-        assert_eq!(find_run(&map, 11), Some(200), "whole words in the middle");
-        assert_eq!(find_run(&map, 300), Some(200));
-        assert_eq!(find_run(&map, 301), None);
-        assert_eq!(
-            summary(&map),
-            Summary {
-                free: 312,
-                longest: 300
-            }
-        );
+        assert_eq!(find_run(&map, 1), Ok(1));
+        assert_eq!(find_run(&map, 3), Ok(60), "a run across a word boundary");
+        assert_eq!(find_run(&map, 11), Ok(200), "whole words in the middle");
+        assert_eq!(find_run(&map, 300), Ok(200));
+        assert_eq!(find_run(&map, 301), Err(300), "the longest run seen");
     }
 
     #[test]
     fn a_run_up_to_the_last_bit() {
         let last = BYTES as u64 * 8;
         let map = map_with(&[(last - 70, 70)]);
-        assert_eq!(find_run(&map, 70), Some(last - 70));
-        assert_eq!(summary(&map).longest, 70);
+        assert_eq!(find_run(&map, 70), Ok(last - 70));
+        assert_eq!(find_run(&map, 71), Err(70));
     }
 
     #[test]
     fn an_empty_and_a_full_map() {
-        assert_eq!(find_run(&map_with(&[]), 1), None);
-        assert_eq!(summary(&map_with(&[])).free, 0);
+        assert_eq!(find_run(&map_with(&[]), 1), Err(0));
         let bits = BYTES as u64 * 8;
         let full = map_with(&[(0, bits)]);
-        assert_eq!(find_run(&full, bits), Some(0));
-        assert_eq!(
-            summary(&full),
-            Summary {
-                free: bits,
-                longest: bits
-            }
-        );
+        assert_eq!(find_run(&full, bits), Ok(0));
+        assert_eq!(find_run(&full, bits + 1), Err(bits));
     }
 }

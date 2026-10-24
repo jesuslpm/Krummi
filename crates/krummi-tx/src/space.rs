@@ -1,11 +1,10 @@
 //! Free space (free-space PRD, F1–F14): the regions of the store, the frontier and the total of free pages of the
 //! map as the writer sees them, what each region's map page says, and what is durable for the store information.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use crate::map::Summary;
 use crate::{FIRST_PAGE, MAP_PAGE, PAYLOAD_SIZE};
 
 /// Pages of a region: as many as bits in a map page (F2).
@@ -85,9 +84,10 @@ pub(crate) struct Space {
     free: AtomicU64,
     /// Whether the meta page was ever committed.
     meta_written: AtomicBool,
-    /// What each region's map says, as of the newest commit, for the regions read since opening; `None` for
-    /// the unknown ones, which are never taken for full (F9).
-    regions: Mutex<Vec<Option<Summary>>>,
+    /// For each region, an upper bound of its longest run of free pages, learned from a search that read its map
+    /// and found no run long enough: reservations only shorten runs, and a commit that frees pages in a region
+    /// forgets it. `None` for the regions not known, which are never taken for full (F9).
+    regions: Mutex<Vec<Option<u64>>>,
     /// The commits since the last one a read can see, the oldest first, for the store information (F10).
     published: Mutex<VecDeque<Published>>,
 }
@@ -138,10 +138,11 @@ impl Space {
     /// Whether `region` may hold a run of `count` free pages: unknown regions may.
     pub(crate) fn may_hold(&self, region: u64, count: u64) -> bool {
         let regions = self.regions.lock().unwrap_or_else(PoisonError::into_inner);
-        match regions.get(region as usize) {
-            Some(Some(summary)) => summary.longest >= count,
-            _ => true,
-        }
+        regions
+            .get(region as usize)
+            .copied()
+            .flatten()
+            .is_none_or(|longest| longest >= count)
     }
 
     #[cfg(feature = "test-hooks")]
@@ -150,14 +151,14 @@ impl Space {
         regions.iter().filter(|r| r.is_some()).count()
     }
 
-    /// Records what the map of `region` says as of the newest commit.
-    pub(crate) fn learn(&self, region: u64, summary: Summary) {
+    /// Records the longest run of free pages of the map of `region` as of the newest commit.
+    pub(crate) fn learn(&self, region: u64, longest: u64) {
         let mut regions = self.regions.lock().unwrap_or_else(PoisonError::into_inner);
         let index = region as usize;
         if regions.len() <= index {
             regions.resize(index + 1, None);
         }
-        regions[index] = Some(summary);
+        regions[index] = Some(longest);
     }
 
     /// Records commit `txid` at its point of no return: from then on the next writer works from it (F6).
@@ -166,7 +167,7 @@ impl Space {
         txid: u64,
         frontier: u64,
         free: u64,
-        maps: &[(u64, Summary)],
+        gained: &BTreeSet<u64>,
         meta_written: bool,
     ) {
         self.frontier.store(frontier, Ordering::Release);
@@ -174,9 +175,13 @@ impl Space {
         if meta_written {
             self.meta_written.store(true, Ordering::Release);
         }
-        for &(region, summary) in maps {
-            self.learn(region, summary);
+        let mut regions = self.regions.lock().unwrap_or_else(PoisonError::into_inner);
+        for &region in gained {
+            if let Some(known) = regions.get_mut(region as usize) {
+                *known = None;
+            }
         }
+        drop(regions);
         self.published
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -236,8 +241,8 @@ mod tests {
     #[test]
     fn the_information_follows_what_reads_see() {
         let space = Space::new(FIRST_PAGE, 0, false);
-        space.publish(5, 20, 3, &[], true);
-        space.publish(6, 30, 7, &[], true);
+        space.publish(5, 20, 3, &BTreeSet::new(), true);
+        space.publish(6, 30, 7, &BTreeSet::new(), true);
         assert_eq!(space.free_pages(4, 40), 36, "nothing visible yet");
         assert_eq!(space.free_pages(5, 40), 3 + 20);
         assert_eq!(space.free_pages(6, 40), 7 + 10);

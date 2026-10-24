@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use krummi_pager::format::{PAGE_SIZE_U64, seal_page};
 use krummi_pager::{PayloadBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_sealed};
 
-use crate::map::{self, Summary};
+use crate::map;
 use crate::space::Layout;
 use crate::{Engine, Error, FIRST_PAGE, MAP_PAGE, META_PAGE, Point, Result};
 
@@ -46,6 +46,8 @@ pub struct WriteTransaction<'e> {
     free: u64,
     /// Pages this transaction freed: they are set free in the map at commit (F6, F8).
     freed: BTreeSet<u64>,
+    /// Regions where this transaction made pages free, whose longest free run the engine must forget.
+    gained: BTreeSet<u64>,
     /// The first operation that failed: the transaction can no longer be committed (T11).
     failure: RefCell<Option<Error>>,
 }
@@ -62,6 +64,7 @@ impl<'e> WriteTransaction<'e> {
             writer,
             dirty: BTreeMap::new(),
             freed: BTreeSet::new(),
+            gained: BTreeSet::new(),
             failure: RefCell::new(None),
         }
     }
@@ -161,7 +164,7 @@ impl<'e> WriteTransaction<'e> {
         self.engine.hook(Point::CommitFlush);
         self.engine.hook(Point::CommitSeal);
         let finished = self.finish_space();
-        let maps = self.track(finished)?;
+        self.track(finished)?;
         let meta_written = self.dirty.contains_key(&META_PAGE);
         let sealed = self.seal();
         let pages = self.track(sealed)?;
@@ -172,7 +175,7 @@ impl<'e> WriteTransaction<'e> {
         // pages it freed (F6).
         self.engine
             .space
-            .publish(txid, self.frontier, self.free, &maps, meta_written);
+            .publish(txid, self.frontier, self.free, &self.gained, meta_written);
         self.engine.hook(Point::CommitQueued);
         // The turn goes to the next writer before waiting for the disk. The transfer thread moves the commit to
         // `krummi.data` once it is durable, without blocking anyone (E2, J5).
@@ -271,15 +274,13 @@ impl<'e> WriteTransaction<'e> {
         for region in 0..=self.layout.region(self.frontier - 1) {
             let map_page = self.layout.map_page(region);
             let found = match self.dirty.get(&map_page) {
-                Some(map) => map::find_run(&map[..], count),
+                Some(map) => map::find_run(&map[..], count).ok(),
                 None if !space.may_hold(region, count) => None,
                 None => {
                     let map = self.writer.snapshot().page(map_page)?;
-                    let summary = map::summary(map);
-                    space.learn(region, summary);
-                    (summary.longest >= count)
-                        .then(|| map::find_run(map, count))
-                        .flatten()
+                    map::find_run(map, count)
+                        .inspect_err(|&longest| space.learn(region, longest))
+                        .ok()
                 }
             };
             let Some(bit) = found else { continue };
@@ -317,6 +318,7 @@ impl<'e> WriteTransaction<'e> {
             let skipped = layout.region_pages() - offset;
             map::set(self.ensure_map(region)?, offset, skipped, true);
             self.free += skipped;
+            self.gained.insert(region);
         }
         if let Some(region) = enter {
             self.add_zeroed([layout.map_page(region)])?;
@@ -363,16 +365,17 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// Before sealing: sets this transaction's frees in the map, writes the frontier and the free pages in the
-    /// meta page, makes sure the store reaches the frontier after a recovery (F3), and returns what each changed
-    /// map page now says.
-    fn finish_space(&mut self) -> Result<Vec<(u64, Summary)>> {
+    /// meta page, and makes sure the store reaches the frontier after a recovery (F3).
+    fn finish_space(&mut self) -> Result<()> {
         let layout = self.layout;
         for &page in &self.freed {
+            let region = layout.region(page);
             let map = self
                 .dirty
-                .get_mut(&layout.map_page(layout.region(page)))
+                .get_mut(&layout.map_page(region))
                 .expect("freeing copied the map page");
             map::set(&mut map[..], layout.bit(page), 1, true);
+            self.gained.insert(region);
         }
         self.free += self.freed.len() as u64;
         if let Some(meta) = self.dirty.get_mut(&META_PAGE) {
@@ -383,12 +386,7 @@ impl<'e> WriteTransaction<'e> {
         if self.frontier > self.start_frontier && !self.dirty.contains_key(&last) {
             self.add_zeroed([last])?;
         }
-        Ok(self
-            .dirty
-            .iter()
-            .filter(|(page, _)| layout.is_map(**page))
-            .map(|(&page, map)| (layout.region(page), map::summary(&map[..])))
-            .collect())
+        Ok(())
     }
 
     /// Makes room for `new_pages` more changed pages and for a store of at least `file_pages` pages. With a
