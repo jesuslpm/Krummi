@@ -11,6 +11,23 @@ and `docs/methodology/` for the working method, which comes from the chicago-cri
 - **Execution after the PRD.** ODD by default. Use vibe coding or SDD only when the user asks for it. Bug
   fixes, refactors and tooling with no product change need no PRD.
 
+## Engineering principles
+
+These apply to every flow (ODD, SDD, vibe coding) and to any code change.
+
+- **Simplicity, efficiency, and maintainability.** Strive for the best balance between these three qualities.
+  Prefer straightforward designs that are easy to understand, verify, and maintain, without sacrificing
+  performance unnecessarily.
+- **DRY over WET.** Prefer reusing existing code and consolidating duplicated logic. Before implementing new
+  functionality, look for opportunities to reuse or extend existing components.
+- **Avoid premature abstractions.** Do not introduce abstractions, generic frameworks, or additional layers unless
+  they provide a clear benefit. A small amount of duplication is preferable to unnecessary complexity.
+- **Performance by design, optimization by measurement.** Choose efficient algorithms and data structures from the
+  outset, but introduce additional complexity for performance only when justified by measurements or clear
+  requirements.
+- **Preserve correctness.** Never compromise correctness, safety, or established invariants for simplicity, reuse,
+  or performance.
+
 ## Before starting any execution (ODD, SDD or vibe coding)
 
 1. **Questions first.** Ask every open product question before the run starts. Once it starts, do not stop to
