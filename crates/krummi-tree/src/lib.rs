@@ -1,7 +1,7 @@
 //! B+ trees of Krummi (module 5, D1 and D4 of the trees and key operations execution): ordered maps from keys of
 //! 1 to [`MAX_KEY`] bytes to values of 0 to [`MAX_VALUE`] bytes, stored in slotted node pages through the page API
 //! of `krummi-tx`. A tree is known by its root page; the layers above keep it (the catalog in a meta slot, each
-//! tree in the catalog).
+//! tree in the catalog, see [`catalog`]).
 //!
 //! A changed node keeps its page number, because the transaction copies a page on its first change (T14), so no
 //! path is copied. An insertion that overflows a node splits it by bytes into halves, up to a new root; a removal
@@ -12,6 +12,7 @@
 //! The crate does not validate sizes: the public API does (B7). Its operations panic on a key or a value out of
 //! range, a misuse of the engine.
 
+pub mod catalog;
 mod node;
 #[cfg(test)]
 mod tests;
@@ -20,21 +21,32 @@ use krummi_tx::{PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction};
 use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL};
 pub use node::{MAX_KEY, MAX_VALUE};
 
-/// Read access to pages, shared by read and write transactions.
+/// Read access to pages and meta slots, shared by read and write transactions.
 pub trait PageSource {
     /// The payload of page `page_number` as the transaction sees it, without copying it (D11).
     fn page(&self, page_number: u64) -> Result<&[u8]>;
+
+    /// Meta slot `slot` as the transaction sees it.
+    fn slot(&self, slot: usize) -> Result<u64>;
 }
 
 impl PageSource for ReadTransaction<'_> {
     fn page(&self, page_number: u64) -> Result<&[u8]> {
         ReadTransaction::page(self, page_number)
     }
+
+    fn slot(&self, slot: usize) -> Result<u64> {
+        ReadTransaction::slot(self, slot)
+    }
 }
 
 impl PageSource for WriteTransaction<'_> {
     fn page(&self, page_number: u64) -> Result<&[u8]> {
         WriteTransaction::page(self, page_number)
+    }
+
+    fn slot(&self, slot: usize) -> Result<u64> {
+        WriteTransaction::slot(self, slot)
     }
 }
 
@@ -60,11 +72,26 @@ pub fn get<'t, S: PageSource + ?Sized>(
     root: u64,
     key: &[u8],
 ) -> Result<Option<&'t [u8]>> {
+    let (_, node) = descend(tx, root, key)?;
+    Ok(node::search(node, key).ok().map(|i| node::value(node, i)))
+}
+
+/// The page of the leaf of the tree at `root` where `key` is or would be (tests use it to damage a known page).
+pub fn leaf_of<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Result<u64> {
+    Ok(descend(tx, root, key)?.0)
+}
+
+/// The page number and the payload of the leaf where `key` is or would be.
+fn descend<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    root: u64,
+    key: &[u8],
+) -> Result<(u64, &'t [u8])> {
     let mut page = root;
     loop {
         let node = tx.page(page)?;
         if node::is_leaf(node) {
-            return Ok(node::search(node, key).ok().map(|i| node::value(node, i)));
+            return Ok((page, node));
         }
         page = node::child(node, node::child_index(node, key));
     }

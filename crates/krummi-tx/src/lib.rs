@@ -20,7 +20,7 @@ use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
 use krummi_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
-pub use krummi_pager::{Error, ErrorKind, Info, OpenOptions, Result};
+pub use krummi_pager::{Error, ErrorKind, Info, OpenOptions, Result, TreeKind};
 use krummi_pager::{Pager, Scratch};
 pub use space::REGION_PAGES;
 use space::Space;
@@ -176,6 +176,11 @@ impl Engine {
             #[cfg(feature = "test-hooks")]
             hook: Mutex::new(None),
         })
+    }
+
+    /// The store's folder, or `None` for a temporary store: the data of most errors (T18).
+    pub fn folder(&self) -> Option<&Path> {
+        self.folder.as_deref()
     }
 
     /// Information about the store (P12): `krummi.data` as it is (T14), and its free pages as of what a read
