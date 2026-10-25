@@ -68,6 +68,8 @@ free_space_timing` measures reservations on a store of 1 million pages.
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
 | `.claude/skills/` | Project skills: `prd`, `vibe-coding`, `closing-report`, `worktree` |
 | `.claude/hooks/` | Guard that keeps a worktree session inside its own copy |
+| `AGENTS.md` | Instructions for review-only agents such as Codex: their role and a map of how Claude works here |
+| `.agents/skills/` | Review skills for those agents: `review-prd`, `review-code` |
 | `docs/methodology/` | The working method (PRD, vibe coding, ODD, SDD) and its slides |
 | `docs/prd/krummi/` | Product PRDs (Spanish authoritative, `*.prd.en.md` translations) |
 | `docs/worktrees.md` | Guide to working on several changes at once in worktree copies |
