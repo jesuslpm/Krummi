@@ -1,0 +1,26 @@
+error[E0277]: `*const ()` cannot be sent between threads safely
+ --> tests/ui/trees/write_tree_handle_cannot_be_sent_to_another_thread.rs:9:17
+  |
+9 |         s.spawn(move || drop(tree));
+  |           ----- -------^^^^^^^^^^^
+  |           |     |
+  |           |     `*const ()` cannot be sent between threads safely
+  |           |     within this `{closure@$DIR/tests/ui/trees/write_tree_handle_cannot_be_sent_to_another_thread.rs:9:17: 9:24}`
+  |           required by a bound introduced by this call
+  |
+  = help: within `{closure@$DIR/tests/ui/trees/write_tree_handle_cannot_be_sent_to_another_thread.rs:9:17: 9:24}`, the trait `Send` is not implemented for `*const ()`
+  = note: required because it appears within the type `(&Store, *const ())`
+note: required because it appears within the type `PhantomData<(&Store, *const ())>`
+ --> $RUST/core/src/marker.rs
+note: required because it appears within the type `WriteTree<'_>`
+ --> src/lib.rs
+  |
+  | pub struct WriteTree<'s> {
+  |            ^^^^^^^^^
+note: required because it's used within this closure
+ --> tests/ui/trees/write_tree_handle_cannot_be_sent_to_another_thread.rs:9:17
+  |
+9 |         s.spawn(move || drop(tree));
+  |                 ^^^^^^^
+note: required by a bound in `Scope::<'scope, 'env>::spawn`
+ --> $RUST/std/src/thread/scoped.rs

@@ -1,0 +1,12 @@
+error[E0505]: cannot move out of `read` because it is borrowed
+  --> tests/ui/trees/reference_cannot_outlive_its_transaction.rs:9:10
+   |
+ 6 |     let read = store.read().unwrap();
+   |         ---- binding `read` declared here
+ 7 |     let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+ 8 |     let value = read.get(&tree, b"k").unwrap();
+   |                 ---- borrow of `read` occurs here
+ 9 |     drop(read);
+   |          ^^^^ move out of `read` occurs here
+10 |     println!("{value:?}");
+   |                ----- borrow later used here

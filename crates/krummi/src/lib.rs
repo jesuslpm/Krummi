@@ -20,10 +20,12 @@
 //! # Ok::<(), krummi::Error>(())
 //! ```
 
+use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result};
+pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result, SizeSubject, TreeKind};
 
 /// Options for opening a store.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -66,6 +68,7 @@ impl Store {
     pub fn read(&self) -> Result<ReadTransaction<'_>> {
         Ok(ReadTransaction {
             _inner: self.engine.read()?,
+            serial: next_serial(),
         })
     }
 
@@ -103,6 +106,7 @@ impl Store {
     fn open_write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
         Ok(WriteTransaction {
             inner: self.engine.write(limit)?,
+            serial: next_serial(),
         })
     }
 }
@@ -111,12 +115,165 @@ impl Store {
 /// shared between them, which see the same snapshot. It ends when it is dropped.
 pub struct ReadTransaction<'s> {
     _inner: krummi_tx::ReadTransaction<'s>,
+    #[expect(dead_code, reason = "T3 compares serials (S0)")]
+    serial: u64,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing
 /// aborts it.
 pub struct WriteTransaction<'s> {
     inner: krummi_tx::WriteTransaction<'s>,
+    #[expect(dead_code, reason = "T3 compares serials (S0)")]
+    serial: u64,
+}
+
+/// How [`WriteTransaction::open_tree_with`] opens a tree; [`WriteTransaction::open_tree`] only opens. Opening an
+/// existing tree of another kind fails with [`ErrorKind::DifferentTreeType`] in every mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OpenMode {
+    /// Creates an empty tree; fails with [`ErrorKind::TreeAlreadyExists`] if it exists.
+    CreateNew,
+    /// Opens the tree if it exists, otherwise creates it empty.
+    OpenOrCreate,
+    /// Creates the tree empty if it does not exist, otherwise removes all its entries.
+    CreateOrEmpty,
+    /// Removes all the entries of the tree; fails with [`ErrorKind::TreeNotFound`] if it does not exist.
+    Empty,
+}
+
+/// A tree opened in a read transaction: it sees the transaction's snapshot. It can be sent to other threads and
+/// shared between them, like the transaction, and cannot outlive its store. Using it in another transaction
+/// fails with [`ErrorKind::Misuse`] without effect.
+pub struct ReadTree<'s> {
+    #[expect(dead_code, reason = "T3 compares serials (S0)")]
+    serial: u64,
+    _store: PhantomData<&'s Store>,
+}
+
+/// A tree opened in a write transaction. Every handle of the same tree in that transaction sees the same state,
+/// with the changes made through any of them. It stays on the thread that opened it, like the transaction, and
+/// cannot outlive its store. Using it in another transaction fails with [`ErrorKind::Misuse`] without effect,
+/// and using it after its tree was deleted fails with [`ErrorKind::TreeNotFound`].
+pub struct WriteTree<'s> {
+    #[expect(dead_code, reason = "T3 compares serials (S0)")]
+    serial: u64,
+    /// The raw pointer keeps the handle on its thread: it is neither `Send` nor `Sync`.
+    _store: PhantomData<(&'s Store, *const ())>,
+}
+
+impl<'s> ReadTransaction<'s> {
+    /// Opens the tree `name` of kind `kind`. Fails with [`ErrorKind::TreeNotFound`] if the snapshot does not have
+    /// it, and with [`ErrorKind::InvalidSize`] if the name is empty or longer than 1,024 bytes.
+    pub fn open_tree(&self, name: &str, kind: TreeKind) -> Result<ReadTree<'s>> {
+        let _ = (name, kind);
+        todo!("T3")
+    }
+
+    /// Whether the snapshot has a tree named `name`.
+    pub fn tree_exists(&self, name: &str) -> Result<bool> {
+        let _ = name;
+        todo!("T3")
+    }
+
+    /// The name and kind of every tree in the snapshot, in byte order of the names. The list is a copy.
+    pub fn list_trees(&self) -> Result<Vec<(String, TreeKind)>> {
+        todo!("T3")
+    }
+
+    /// The value of `key` in `tree`, or `None` if the key is not there. The reference points into the engine's
+    /// memory, not to a copy, and lives as long as the transaction.
+    pub fn get(&self, tree: &ReadTree<'_>, key: &[u8]) -> Result<Option<&[u8]>> {
+        let _ = (tree, key);
+        todo!("T3")
+    }
+
+    /// The number of entries of `tree` in the snapshot, counted without walking the tree.
+    pub fn len(&self, tree: &ReadTree<'_>) -> Result<u64> {
+        let _ = tree;
+        todo!("T3")
+    }
+}
+
+/// The operations on trees of a write transaction. The ones that take `&self` do not modify the transaction and
+/// keep the references read before; the ones that take `&mut self` may modify it, so the compiler ends those
+/// references, even when the operation fails or changes nothing.
+impl<'s> WriteTransaction<'s> {
+    /// Opens the tree `name` of kind `kind`. Fails with [`ErrorKind::TreeNotFound`] if it does not exist.
+    pub fn open_tree(&self, name: &str, kind: TreeKind) -> Result<WriteTree<'s>> {
+        let _ = (name, kind);
+        todo!("T3")
+    }
+
+    /// Opens the tree `name` of kind `kind` in `mode`.
+    pub fn open_tree_with(
+        &mut self,
+        name: &str,
+        kind: TreeKind,
+        mode: OpenMode,
+    ) -> Result<WriteTree<'s>> {
+        let _ = (name, kind, mode);
+        todo!("T3")
+    }
+
+    /// Whether this transaction sees a tree named `name`, with its own changes.
+    pub fn tree_exists(&self, name: &str) -> Result<bool> {
+        let _ = name;
+        todo!("T3")
+    }
+
+    /// The name and kind of every tree this transaction sees, with its own changes, in byte order of the names.
+    /// The list is a copy.
+    pub fn list_trees(&self) -> Result<Vec<(String, TreeKind)>> {
+        todo!("T3")
+    }
+
+    /// Deletes the tree `name` with all its entries and frees its pages; a missing tree is not an error. The
+    /// tree's handles then fail with [`ErrorKind::TreeNotFound`].
+    pub fn delete_tree(&mut self, name: &str) -> Result<()> {
+        let _ = name;
+        todo!("T3")
+    }
+
+    /// Renames the tree `from` to `to`; it keeps its kind, its entries and its handles. Fails with
+    /// [`ErrorKind::TreeNotFound`] if `from` does not exist, and with [`ErrorKind::TreeAlreadyExists`] if `to`
+    /// exists, unless `overwrite` is set: then `to` is deleted first. Renaming a tree to its own name does
+    /// nothing.
+    pub fn rename_tree(&mut self, from: &str, to: &str, overwrite: bool) -> Result<()> {
+        let _ = (from, to, overwrite);
+        todo!("T3")
+    }
+
+    /// The value of `key` in `tree`, with this transaction's changes, or `None` if the key is not there. The
+    /// reference lives until the next operation that may modify the transaction.
+    pub fn get(&self, tree: &WriteTree<'_>, key: &[u8]) -> Result<Option<&[u8]>> {
+        let _ = (tree, key);
+        todo!("T3")
+    }
+
+    /// The number of entries of `tree`, with this transaction's changes, counted without walking the tree.
+    pub fn len(&self, tree: &WriteTree<'_>) -> Result<u64> {
+        let _ = tree;
+        todo!("T3")
+    }
+
+    /// Stores `value` under `key` in `tree`, replacing the value if the key is there.
+    pub fn set(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<()> {
+        let _ = (tree, key, value);
+        todo!("T3")
+    }
+
+    /// Stores `value` under `key` in `tree` only if the key is not there, and returns whether it did. The sizes
+    /// are checked first, also when the key is there.
+    pub fn try_add(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<bool> {
+        let _ = (tree, key, value);
+        todo!("T3")
+    }
+
+    /// Removes `key` from `tree`, and returns whether it was there.
+    pub fn remove(&mut self, tree: &WriteTree<'_>, key: &[u8]) -> Result<bool> {
+        let _ = (tree, key);
+        todo!("T3")
+    }
 }
 
 impl WriteTransaction<'_> {
@@ -146,6 +303,13 @@ impl WriteTransaction<'_> {
     pub fn abort(self) {
         self.inner.abort();
     }
+}
+
+/// A serial number for a new transaction, unique in the process, so that a tree handle can tell whether it is
+/// used in the transaction that opened it, also across stores.
+fn next_serial() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 fn engine_options(options: &StoreOptions) -> krummi_tx::OpenOptions {

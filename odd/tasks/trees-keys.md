@@ -14,7 +14,7 @@ provisional maximum, AC-B4 and AC-B6 in their 5.1 parts, AC-B14 in its same-type
 2026-10-25 annotation. The PRD's *Validaciones y mensajes*, *Fuera de alcance* and *Dejado a la implementación* bound
 every task. The parent's "Antes de implementar 5.1" gate (A14) is task T1.
 
-- **S0** — **Annotation (B1 exception)** — una operación a través de una apertura de otra transacción, también de una ya terminada o de una lectura usada en una escritura, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás. Lo comprueba este criterio: dada una apertura de una escritura ya confirmada y una de una lectura, cuando se usan en una escritura nueva del mismo almacén para leer, guardar y consultar el número de entradas, entonces cada operación falla con la clase de uso incorrecto sin efecto y la escritura nueva se confirma con sus demás cambios.
+- **S0** — **Annotation (B1 exception)** — una operación a través de una apertura de otra transacción de la misma clase, también de una ya terminada, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás. Lo comprueba este criterio: dada una apertura de una escritura ya confirmada, cuando se usa en una escritura nueva del mismo almacén para leer, guardar y consultar el número de entradas, y una apertura de una lectura, cuando se usa en otra lectura para leer y consultar el número de entradas, entonces cada operación falla con la clase de uso incorrecto sin efecto y la escritura nueva se confirma con sus demás cambios. Usar en una escritura una apertura de una lectura, o al revés, no compila.
 - **S1** — **AC-A1** — Dada una escritura, cuando abre en modo Abrir un árbol que no existe, entonces falla con la clase de árbol no encontrado con su nombre; en modo Crear nuevo, lo crea vacío, y otra vez en ese modo falla con árbol ya existente con su nombre; en modo Abrir o crear, lo crea si no existe y, si existe, lo abre con sus entradas; y dada una lectura, cuando abre un árbol que no existe, entonces falla con árbol no encontrado (A1, A6).
 - **S2** — **AC-A2** — Dado un árbol con entradas, cuando se abre en modo Crear o vaciar o Vaciar, entonces queda sin entradas, con número de entradas `0`, y una apertura anterior del mismo árbol lo ve vacío y sigue funcionando; dado un árbol que no existe, Crear o vaciar lo crea y Vaciar falla con árbol no encontrado; y dado un árbol creado y llenado en la misma escritura, Vaciar lo deja vacío y la confirmación lo guarda vacío (A1, A2).
 - **S3** — **AC-A3** — Dada una transacción de lectura, cuando abre un árbol, comprueba si existe, lista, lee entradas y consulta el número de entradas, entonces funciona; y abrirlo en cualquier otro modo, borrarlo, renombrarlo o guardar, añadir o quitar entradas no compila (A1, A3, A4).
@@ -97,7 +97,7 @@ Log.
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T0 | B1 annotation (S0), execution document | inline | done | (this commit) |
-| T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | pending | |
+| T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
 | T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | pending | |
 | T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | pending | |
 | T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35 | delegated (context backstop) | pending | |
@@ -127,3 +127,13 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   únicamente si requiere una nueva decisión de producto." Done: `trees.prd.md` B1 annotation lists the static and
   run-time guarantees and annotates AC-B11; the 5.1 annotation (and S0) gains a criterion for a handle of another
   transaction. The final verifier gets this focus explicitly.
+- **L5** T1 (ODD Worker): the A14 gate passes with no `unsafe`. RED: every trybuild case failed with E0432/E0599
+  (API missing); GREEN: 10 must-not-compile cases (`tests/ui/trees/`) and 3 compile-only pass cases
+  (`tests/ui/trees_pass/`), run by `tests/trees_compile.rs`. Deviations accepted by the parent: handle types are
+  strict (`ReadTree` only in reads, `WriteTree` only in writes), so a read handle in a write does not compile, which
+  narrows the S0 run-time exception to handles of another transaction of the same class (annotation and S0 updated,
+  no new product decision: the exception covered only what the compiler cannot prevent); `TreeKind` and the new
+  `SizeSubject` live in `krummi-pager` (errors carry them) and are re-exported; transaction serials are unique in
+  the process (a static counter). Bodies are `todo!("T3")`; the `serial` fields carry `#[expect(dead_code)]` that
+  T3 removes. Checks reported by the worker: fmt, clippy, `cargo test -p krummi`, `-p krummi-pager` pass; parent spot
+  check `cargo test -p krummi --test trees_compile`: 1 passed.

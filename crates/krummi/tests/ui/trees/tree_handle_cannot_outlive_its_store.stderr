@@ -1,0 +1,12 @@
+error[E0505]: cannot move out of `store` because it is borrowed
+  --> tests/ui/trees/tree_handle_cannot_outlive_its_store.rs:10:5
+   |
+ 6 |     let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+   |         ----- binding `store` declared here
+ 7 |     let read = store.read().unwrap();
+   |                ----- borrow of `store` occurs here
+...
+10 |     store.close().unwrap();
+   |     ^^^^^ move out of `store` occurs here
+11 |     drop(tree);
+   |          ---- borrow later used here

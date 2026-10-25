@@ -38,6 +38,35 @@ pub enum ErrorKind {
     /// The engine was called in an order or with values it does not accept, such as a second write transaction
     /// on the same thread (T5). Distinct from [`ErrorKind::InvalidOptions`], which is about opening a store.
     Misuse,
+    /// A tree name, a key or a value is outside its allowed sizes (B4–B6 of the trees PRD).
+    InvalidSize,
+    /// A tree exists with a kind other than the one requested (B3 of the trees PRD).
+    DifferentTreeType,
+    /// The tree does not exist, or a handle refers to a tree its write transaction deleted (A1, A6).
+    TreeNotFound,
+    /// A tree with that name already exists (A1, A3).
+    TreeAlreadyExists,
+}
+
+/// The kind of a tree (B2 of the trees PRD). Opening an existing tree with another kind fails with
+/// [`ErrorKind::DifferentTreeType`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum TreeKind {
+    /// A tree of unique keys, each with one value.
+    Normal,
+}
+
+/// What an [`Error::InvalidSize`] is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SizeSubject {
+    /// A tree name, measured in bytes of UTF-8.
+    TreeName,
+    /// A key of a tree.
+    Key,
+    /// A value of a tree.
+    Value,
 }
 
 /// An engine error.
@@ -81,6 +110,33 @@ pub enum Error {
         folder: Option<PathBuf>,
         reason: &'static str,
     },
+    /// See [`ErrorKind::InvalidSize`]. `folder` is `None` for a temporary store; sizes are in bytes and `min` and
+    /// `max` are inclusive.
+    InvalidSize {
+        folder: Option<PathBuf>,
+        what: SizeSubject,
+        received: u64,
+        min: u64,
+        max: u64,
+    },
+    /// See [`ErrorKind::DifferentTreeType`]. `folder` is `None` for a temporary store.
+    DifferentTreeType {
+        folder: Option<PathBuf>,
+        name: String,
+        found: TreeKind,
+        requested: TreeKind,
+    },
+    /// See [`ErrorKind::TreeNotFound`]. `folder` is `None` for a temporary store; `name` is the name requested
+    /// or, for a handle of a deleted tree, the last name the tree had (A6).
+    TreeNotFound {
+        folder: Option<PathBuf>,
+        name: String,
+    },
+    /// See [`ErrorKind::TreeAlreadyExists`]. `folder` is `None` for a temporary store.
+    TreeAlreadyExists {
+        folder: Option<PathBuf>,
+        name: String,
+    },
 }
 
 impl Error {
@@ -99,6 +155,10 @@ impl Error {
             Error::OutOfMemory { .. } => ErrorKind::OutOfMemory,
             Error::Timeout { .. } => ErrorKind::Timeout,
             Error::Misuse { .. } => ErrorKind::Misuse,
+            Error::InvalidSize { .. } => ErrorKind::InvalidSize,
+            Error::DifferentTreeType { .. } => ErrorKind::DifferentTreeType,
+            Error::TreeNotFound { .. } => ErrorKind::TreeNotFound,
+            Error::TreeAlreadyExists { .. } => ErrorKind::TreeAlreadyExists,
         }
     }
 
@@ -152,6 +212,38 @@ impl Error {
             Error::Misuse { folder, reason } => Error::Misuse {
                 folder: folder.clone(),
                 reason,
+            },
+            Error::InvalidSize {
+                folder,
+                what,
+                received,
+                min,
+                max,
+            } => Error::InvalidSize {
+                folder: folder.clone(),
+                what: *what,
+                received: *received,
+                min: *min,
+                max: *max,
+            },
+            Error::DifferentTreeType {
+                folder,
+                name,
+                found,
+                requested,
+            } => Error::DifferentTreeType {
+                folder: folder.clone(),
+                name: name.clone(),
+                found: *found,
+                requested: *requested,
+            },
+            Error::TreeNotFound { folder, name } => Error::TreeNotFound {
+                folder: folder.clone(),
+                name: name.clone(),
+            },
+            Error::TreeAlreadyExists { folder, name } => Error::TreeAlreadyExists {
+                folder: folder.clone(),
+                name: name.clone(),
             },
         }
     }
@@ -226,7 +318,52 @@ impl fmt::Display for Error {
             Error::Misuse { folder, reason } => {
                 write!(f, "misuse of {}: {reason}", store_name(folder))
             }
+            Error::InvalidSize {
+                folder,
+                what,
+                received,
+                min,
+                max,
+            } => write!(
+                f,
+                "invalid {what} size in {}: {received} bytes, but it must have {min} to {max}",
+                store_name(folder)
+            ),
+            Error::DifferentTreeType {
+                folder,
+                name,
+                found,
+                requested,
+            } => write!(
+                f,
+                "tree {name:?} of {} is a {found} tree, not a {requested} tree",
+                store_name(folder)
+            ),
+            Error::TreeNotFound { folder, name } => {
+                write!(f, "tree {name:?} not found in {}", store_name(folder))
+            }
+            Error::TreeAlreadyExists { folder, name } => {
+                write!(f, "tree {name:?} already exists in {}", store_name(folder))
+            }
         }
+    }
+}
+
+impl fmt::Display for TreeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TreeKind::Normal => "normal",
+        })
+    }
+}
+
+impl fmt::Display for SizeSubject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            SizeSubject::TreeName => "tree name",
+            SizeSubject::Key => "key",
+            SizeSubject::Value => "value",
+        })
     }
 }
 

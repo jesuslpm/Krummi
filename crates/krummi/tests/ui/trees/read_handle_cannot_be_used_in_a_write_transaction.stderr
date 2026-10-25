@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+  --> tests/ui/trees/read_handle_cannot_be_used_in_a_write_transaction.rs:10:15
+   |
+10 |     write.set(&tree, b"k", b"v").unwrap();
+   |           --- ^^^^^ expected `&WriteTree<'_>`, found `&ReadTree<'_>`
+   |           |
+   |           arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteTree<'_>`
+              found reference `&ReadTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn set(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<()> {
+   |            ^^^

@@ -1,0 +1,47 @@
+error[E0599]: no method named `open_tree_with` found for struct `ReadTransaction<'s>` in the current scope
+ --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:9:18
+  |
+9 |     let _ = read.open_tree_with("t", TreeKind::Normal, OpenMode::OpenOrCreate);
+  |                  ^^^^^^^^^^^^^^
+  |
+help: there is a method `open_tree` with a similar name, but with different arguments
+ --> src/lib.rs
+  |
+  |     pub fn open_tree(&self, name: &str, kind: TreeKind) -> Result<ReadTree<'s>> {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `delete_tree` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:10:18
+   |
+10 |     let _ = read.delete_tree("t");
+   |                  ^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `rename_tree` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:11:18
+   |
+11 |     let _ = read.rename_tree("t", "u", false);
+   |                  ^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `set` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:12:18
+   |
+12 |     let _ = read.set(&tree, b"k", b"v");
+   |                  ^^^
+   |
+help: there is a method `get` with a similar name, but with different arguments
+  --> src/lib.rs
+   |
+   |     pub fn get(&self, tree: &ReadTree<'_>, key: &[u8]) -> Result<Option<&[u8]>> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `try_add` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:13:18
+   |
+13 |     let _ = read.try_add(&tree, b"k", b"v");
+   |                  ^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:14:18
+   |
+14 |     let _ = read.remove(&tree, b"k");
+   |                  ^^^^^^ method not found in `ReadTransaction<'_>`
