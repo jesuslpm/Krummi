@@ -217,3 +217,20 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
 - **L14** A15 on Windows (release, 1,000,000 entries, durable, writes of 1,000): store in key order 3.52 s (3.52 µs
   per entry), at random 26.79 s (26.79 µs), read at random 3.69 s (3.69 µs), remove at random 26.82 s (26.82 µs);
   the store's size after each load, 268,435,456 bytes (the file grows by doubling, P11).
+- **L15** Linux (WSL 2 Ubuntu, ext4, copy of `1138169`, before the `free_subtree` fix `4ab9216`): `cargo test
+  --workspace` 283 passed, 0 failed, 9 ignored; A15 (release, 1,000,000 entries): store in key order 13.11 s (13.11
+  µs per entry), at random 37.50 s (37.50 µs), read at random 3.61 s (3.61 µs), remove at random 36.68 s (36.68 µs);
+  store size after each load 268,435,456 bytes.
+- **L16** Independent verifier (Sonnet, HEAD `4ab9216`): **no blockers, no memory-safety finding**. Every spec
+  covered and passing except S19 (report pending, done at closing), S30's compatible half and S31's name-before-key
+  half (not applicable in 5.1), and S35's full sweep (ignored by default; L12). Static guarantees confirmed with 16
+  compile-fail probes (references end at every `&mut` operation, also failing or no-op ones; a read reference does
+  not outlive its transaction; reads cannot modify; write handles stay on their thread; handles do not outlive the
+  store; read and write handles are not interchangeable; no use after commit); run-time ones (another transaction →
+  misuse, deleted tree → not found) affect only error classes: handles hold integers and every page access goes
+  through the safe page API, `unsafe` only in `krummi-pager` (none added). Probes: references held by reads across
+  removals, merges, frees, growth, tree deletion and page reuse stay equal to their copies (also with 4 reader
+  threads); stale and cross-transaction and cross-store handles; byte-identical files for rejected-only writes; a
+  `BTreeMap` model with random multi-handle operations over 6 seeds; a real format-5 store built at `2702406`
+  rejected and unchanged. Checks: fmt, clippy, `cargo test --workspace` 284 passed, 0 failed, 9 ignored. Scratch
+  removed.
