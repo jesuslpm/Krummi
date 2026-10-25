@@ -181,6 +181,11 @@ impl<'e> WriteTransaction<'e> {
         Ok(())
     }
 
+    /// Whether an operation of this transaction failed, so that it can no longer be committed (T11).
+    pub fn has_failed(&self) -> bool {
+        self.failure.borrow().is_some()
+    }
+
     /// Commits the transaction durably (J4 of the Journal PRD): once nothing can make it fail without the store
     /// refusing writes, the commit enters the journal's queue and releases the turn, its point of no return (E2 of
     /// the grouped journal PRD); the next writer sees it at once, and it returns once it survives a crash, visible

@@ -99,7 +99,7 @@ Log.
 | T0 | B1 annotation (S0), execution document | inline | done | (this commit) |
 | T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
 | T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
-| T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | pending | |
+| T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | done | catalog and public API commits |
 | T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf | delegated (context backstop) | pending | |
 | T5 | Measurement (A15): S19 | inline | pending | |
 | T6 | Docs, checks, verify, RDD, report | inline | pending | |
@@ -156,3 +156,20 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   public tree methods are `todo!()` → T3 implements them; R3-empty-nonroot-leaf a remove can leave an empty non-root
   leaf under a zero-key branch (data unaffected, breaks the internal invariant) → fix in T4. Reviewed boundary:
   `862cff7`.
+- **L8** T3 (ODD Worker), two commits: the catalog (`krummi-tree/src/catalog.rs`: a B+ tree keyed by name, 25-byte
+  entries with identity, kind, root and count; meta slot 0 = catalog root, created with the first tree; slot 1 = next
+  identity) and the public API (per-transaction `RefCell` table of tree states keyed by identity; structural catalog
+  changes written at once so Exists and List see them, root and count of key operations written at commit only
+  when dirty and only if the write has not failed; validation order size → other transaction (misuse) → deleted
+  handle → catalog reads → type → not found → already exists → tree pages). 25 public tests in
+  `crates/krummi/tests/trees.rs` cover S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 (disk and temporary, damage and
+  reopen parts on disk), plus `src/tests.rs` for the T12 part of S24 (needs test hooks). RED: all 25 panicked at
+  `todo!`; GREEN after implementation and three test fixes (AC20 pins a version with an older read; damaged pages
+  found through `krummi_tree::leaf_of`; AC-A10 with 2,048-byte keys reaches height 5 in about 1 s). Accepted
+  deviations: structural catalog changes written at once; `ReadTree` and `WriteTree` carry only what they use.
+  S31's "name before key" has no 5.1 operation that takes both (keys go through handles); its key-before-value part
+  is tested. Panics to turn into damage in T4 (with R1-001): unknown kind byte in a catalog entry, inconsistent
+  catalog pages. Worker checks: fmt, clippy, `cargo test -p krummi` pass; full workspace: 272 passed, 1 failed
+  (`krummi-tx` `ac12_ac_t20_...` in one run, `ac_f18_the_maximum_size_in_a_temporary_store` in another), both pass
+  alone. Parent spot check: `cargo test -p krummi --test trees` 25 passed; `ac_f18` fails in its full binary run, 6/6
+  alone; baseline check on `main` in progress.

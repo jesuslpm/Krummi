@@ -80,6 +80,7 @@ name = "krummi"
 version = "0.1.0"
 dependencies = [
  "krummi-pager",
+ "krummi-tree",
  "krummi-tx",
  "tempfile",
  "trybuild",

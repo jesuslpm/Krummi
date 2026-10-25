@@ -36,7 +36,8 @@ pub enum ErrorKind {
     /// A request for a write transaction waited for its whole limit without getting its turn (T4).
     Timeout,
     /// The engine was called in an order or with values it does not accept, such as a second write transaction
-    /// on the same thread (T5). Distinct from [`ErrorKind::InvalidOptions`], which is about opening a store.
+    /// on the same thread (T5) or a tree handle used in a transaction other than its own (B1 of the trees PRD).
+    /// Distinct from [`ErrorKind::InvalidOptions`], which is about opening a store.
     Misuse,
     /// A tree name, a key or a value is outside its allowed sizes (B4–B6 of the trees PRD).
     InvalidSize,
