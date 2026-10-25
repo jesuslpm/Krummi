@@ -11,6 +11,14 @@ and `docs/methodology/` for the working method, which comes from the chicago-cri
 - **Execution after the PRD.** ODD by default. Use vibe coding or SDD only when the user asks for it. Bug
   fixes, refactors and tooling with no product change need no PRD.
 
+## External review reports
+
+Codex saves consolidated PRD and code reviews under `docs/reviews/<feature>/`, using the *Review reports*
+protocol in `AGENTS.md`. Preserve those reports. When addressing a finding, record its ID, disposition,
+evidence and fix commit or artifact version in the report's separate `*-resolutions.md` file, with dated,
+append-only updates. Link the report and resolutions from the execution log or closing report when relevant.
+A claimed fix remains unverified until a follow-up review confirms it; do not rewrite the reviewer's verdict.
+
 ## Engineering principles
 
 These apply to every flow (ODD, SDD, vibe coding) and to any code change.

@@ -5,20 +5,44 @@ description: "Trigger: review a PRD, revisa el PRD, revisión del PRD, check a P
 
 # Review a PRD
 
-Read-only review of a PRD in `docs/prd/krummi/`. You return findings. You never edit the PRD and never decide
-product rules: the user does.
+Read-only review of a PRD in `docs/prd/krummi/`. You return findings. Only the coordinator saves the report
+under *Review reports* in `AGENTS.md`; delegated reviewers never author files. Never deliberately modify
+reviewed or tracked files or decide product rules: the user does. Necessary checks follow *Verification
+side effects* in `AGENTS.md`.
+
+## Delegation
+
+The coordinator follows *Review delegation* in `AGENTS.md` before the full review and consolidates the
+reviewer's evidence into the output below. A task marked `Delegated reviewer` executes this skill directly
+and never delegates again. If delegation is unavailable or the user requests an inline review, apply the
+same rubric inline and report the limitation when applicable.
 
 ## Before reviewing
 
-1. Read `AGENTS.md` and `CLAUDE.md`.
-2. Read `.claude/skills/prd/SKILL.md`. It is how Claude writes the PRD. Its *Subagents* section defines the
-   **Reviewer** role and the **Gap sweep**, and that is the rubric you apply. Ignore its `model` and `effort`
-   columns.
-3. Read `.claude/skills/prd/assets/prd-template.md`. It is the required sections and what belongs in each.
-4. Read the PRD and every PRD of its ancestry, following **Parent document** up to `krummi.prd.md`. Review the
-   Spanish file: it is authoritative.
-5. Read the project docs the PRD relies on (its *References*). When the PRD claims something about the code, for
-   example in *Starting state* or *Reuse*, check it against the code.
+Read `AGENTS.md` and `CLAUDE.md`. Apply the *Codex model and reasoning effort* policy in `AGENTS.md`:
+routine PRD reviews use `gpt-6.1-sol` / `high`; requirements affecting critical storage invariants use
+`gpt-6-astra` / `xhigh`. Apply these settings to the delegated reviewer, not to the coordinator's running session.
+
+## Two stages, one review
+
+### 1. Independent analysis
+
+Read the Spanish PRD (authoritative) and every PRD of its ancestry, following **Parent document** up to
+`krummi.prd.md`. Examine its references, dependencies and existing code, checking claims such as *Starting
+state* and *Reuse* against source. Identify contradictions, omissions, untestable criteria and decisions
+with different observable interpretations. Form your own preliminary findings before consulting Claude's
+reviewer conclusions or its PRD-production skills and template. If earlier conclusions are already in the
+supplied context, treat them as unverified claims, not as the starting rubric or evidence.
+
+### 2. Methodological check
+
+Read `.claude/skills/prd/SKILL.md`, including the **Reviewer** role and **Gap sweep** in *Subagents*, and
+`.claude/skills/prd/assets/prd-template.md`. Ignore the skill's `model` and `effort` columns. Check conformity
+with those artifact requirements and the project rules using the rubric below. Any Claude reviewer
+conclusions consulted at this stage must be checked independently against requirements and source.
+
+Both stages belong to the same reviewer and produce one consolidated set of findings. Reuse evidence,
+merge duplicates and perform only the additional checks needed; do not launch a second review for stage 2.
 
 ## What to check
 
@@ -48,3 +72,7 @@ List the findings, most severe first. Each one has:
 
 End with the open product questions for the user and a one-line verdict: whether the PRD is ready for
 implementation.
+
+The coordinator saves this output with the metadata and stable finding IDs required by *Review reports*
+in `AGENTS.md`, then links the report in chat. Follow-up reviews reference the original finding IDs and
+verify the supplied fixes without modifying earlier reports.
