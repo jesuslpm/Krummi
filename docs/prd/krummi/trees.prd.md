@@ -61,7 +61,14 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B1 (excepción, decidida antes de ejecutar 5.1): mientras las transacciones se obtienen como valores (T1) y una
   escritura tiene varias aperturas a la vez (B9), el compilador no puede impedir que una apertura se use en otra
   transacción del mismo almacén, también después de terminar la suya. Esa operación falla sin efecto con la clase de
-  uso incorrecto y la transacción sigue utilizable. Que una apertura viva más que su almacén sigue sin compilar.*
+  uso incorrecto y la transacción sigue utilizable. Siguen comprobándose al compilar: que una apertura no viva más
+  que su almacén, que una referencia leída deje de valer en la siguiente operación que puede modificar la
+  transacción (B9), que una transacción de lectura no modifique, que una apertura de una escritura no pase a otro
+  hilo y que una transacción no se use después de confirmarla o abortarla (T8). Se comprueban al ejecutar: la
+  apertura de otra transacción (uso incorrecto) y la de un árbol borrado (B9). La seguridad de memoria de las
+  lecturas sin copia no depende de esas comprobaciones: la dan las reglas que se comprueban al compilar.*
+- *AC-B11: "usa un árbol después de terminar su transacción" no compila a través de esa misma transacción; en otra
+  transacción del mismo almacén, la operación falla con uso incorrecto sin efecto (excepción a B1, arriba).*
 - *B9: abrir un árbol en modo Abrir o crear termina las referencias aunque el árbol exista, porque el compilador no
   sabe si lo creará (decisión A10).*
 - *AC-B18: la parte de fallos durante un cambio de estructura simula un fallo de T11 en cada punto en que la

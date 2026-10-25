@@ -60,7 +60,13 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B1 (exception, decided before executing 5.1): while transactions are obtained as values (T1) and a write has
   several handles at once (B9), the compiler cannot prevent a handle from being used in another transaction of the
   same store, also after its own has ended. That operation fails without effect with the misuse class and the
-  transaction stays usable. A handle outliving its store still does not compile.*
+  transaction stays usable. Still checked at compile time: a handle does not outlive its store, a reference read
+  stops being valid at the next operation that can modify the transaction (B9), a read transaction does not modify,
+  a write handle does not move to another thread, and a transaction is not used after committing or aborting it
+  (T8). Checked at run time: the handle of another transaction (misuse) and that of a deleted tree (B9). The memory
+  safety of zero-copy reads does not depend on those checks: the compile-time rules give it.*
+- *AC-B11: "uses a tree after its transaction ended" does not compile through that same transaction; in another
+  transaction of the same store, the operation fails without effect with misuse (exception to B1, above).*
 - *B9: opening a tree in Open or create mode ends the references even if the tree exists, because the compiler does
   not know whether it will create it (decision A10).*
 - *AC-B18: the part about failures during a structure change simulates a T11 failure at each point where the

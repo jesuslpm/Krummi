@@ -14,7 +14,7 @@ provisional maximum, AC-B4 and AC-B6 in their 5.1 parts, AC-B14 in its same-type
 2026-10-25 annotation. The PRD's *Validaciones y mensajes*, *Fuera de alcance* and *Dejado a la implementación* bound
 every task. The parent's "Antes de implementar 5.1" gate (A14) is task T1.
 
-- **S0** — **Annotation (B1 exception)** — una operación a través de una apertura de otra transacción, también de una ya terminada o de una lectura usada en una escritura, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás.
+- **S0** — **Annotation (B1 exception)** — una operación a través de una apertura de otra transacción, también de una ya terminada o de una lectura usada en una escritura, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás. Lo comprueba este criterio: dada una apertura de una escritura ya confirmada y una de una lectura, cuando se usan en una escritura nueva del mismo almacén para leer, guardar y consultar el número de entradas, entonces cada operación falla con la clase de uso incorrecto sin efecto y la escritura nueva se confirma con sus demás cambios.
 - **S1** — **AC-A1** — Dada una escritura, cuando abre en modo Abrir un árbol que no existe, entonces falla con la clase de árbol no encontrado con su nombre; en modo Crear nuevo, lo crea vacío, y otra vez en ese modo falla con árbol ya existente con su nombre; en modo Abrir o crear, lo crea si no existe y, si existe, lo abre con sus entradas; y dada una lectura, cuando abre un árbol que no existe, entonces falla con árbol no encontrado (A1, A6).
 - **S2** — **AC-A2** — Dado un árbol con entradas, cuando se abre en modo Crear o vaciar o Vaciar, entonces queda sin entradas, con número de entradas `0`, y una apertura anterior del mismo árbol lo ve vacío y sigue funcionando; dado un árbol que no existe, Crear o vaciar lo crea y Vaciar falla con árbol no encontrado; y dado un árbol creado y llenado en la misma escritura, Vaciar lo deja vacío y la confirmación lo guarda vacío (A1, A2).
 - **S3** — **AC-A3** — Dada una transacción de lectura, cuando abre un árbol, comprueba si existe, lista, lee entradas y consulta el número de entradas, entonces funciona; y abrirlo en cualquier otro modo, borrarlo, renombrarlo o guardar, añadir o quitar entradas no compila (A1, A3, A4).
@@ -116,3 +116,14 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   handle expiry) is resolved by "Comprobarlo al ejecutar": a handle used in another transaction fails with misuse
   without effect (S0), annotated in `trees.prd.md` and `trees-keys.prd.md`.
 - **L3** (06:31:17): estimate 3 h – 5 h confirmed; branch `feat/trees-keys`.
+- **L4** (2026-10-25, user, during T1): "continúa con la ejecución ODD según lo acordado. No es necesario detenerla
+  ni reconsiderar la decisión de utilizar comprobaciones en ejecución. Solo quiero que durante la verificación
+  independiente se preste especial atención a la interacción entre las referencias zero-copy y las modificaciones de
+  páginas. La comprobación dinámica debe preservar la seguridad de memoria, incluso cuando existen múltiples
+  aperturas del mismo árbol, se producen splits o merges, o se borran y reutilizan páginas. Distingue las garantías
+  que siguen siendo estáticas de las que ahora se comprueban en ejecución. Asegúrate de que los PRD y los criterios
+  de aceptación reflejan la decisión ya tomada. No introduzcas cambios arquitectónicos preventivos ni complejidad
+  adicional. Si encuentras un defecto real de seguridad, trátalo conforme al procedimiento ODD habitual y escálalo
+  únicamente si requiere una nueva decisión de producto." Done: `trees.prd.md` B1 annotation lists the static and
+  run-time guarantees and annotates AC-B11; the 5.1 annotation (and S0) gains a criterion for a handle of another
+  transaction. The final verifier gets this focus explicitly.
