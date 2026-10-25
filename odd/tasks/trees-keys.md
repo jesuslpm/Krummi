@@ -100,7 +100,7 @@ Log.
 | T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
 | T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
 | T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | pending | |
-| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35 | delegated (context backstop) | pending | |
+| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf | delegated (context backstop) | pending | |
 | T5 | Measurement (A15): S19 | inline | pending | |
 | T6 | Docs, checks, verify, RDD, report | inline | pending | |
 
@@ -149,3 +149,10 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   are one unit (dead code otherwise). Worker checks: fmt, clippy, `cargo test --workspace` (exit 0, 190 s); parent
   spot check `cargo test -p krummi-tree`: 7 passed. For T3: only call `set_slot` and rewrite catalog entries when
   something changed (AC-A9); README and facade docs still to mention the crate (T6).
+- **L7** RDD review 1 (`2702406..862cff7`, T0–T2; escalated to high, item 1: persisted format), lenses risk and
+  reliability, lineage `review-3cec8f5748714163`: **approved**, acknowledged. Findings, all WARNING: R1-001 node
+  accessors trust the page header and cell offsets, so an inconsistent layout with a valid checksum panics instead of
+  failing with damage (memory stays safe, no `unsafe`) → fix in T4 with AC10; R1-002 and R3-todo-public-api the
+  public tree methods are `todo!()` → T3 implements them; R3-empty-nonroot-leaf a remove can leave an empty non-root
+  leaf under a zero-key branch (data unaffected, breaks the internal invariant) → fix in T4. Reviewed boundary:
+  `862cff7`.
