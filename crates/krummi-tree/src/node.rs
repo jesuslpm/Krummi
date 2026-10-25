@@ -60,7 +60,7 @@ pub(crate) fn init(node: &mut [u8], level: u8, leftmost: u64) {
     node[0] = if level == 0 { LEAF } else { BRANCH };
     node[1] = level;
     put_u16(node, 4, PAYLOAD_SIZE);
-    node[8..16].copy_from_slice(&leftmost.to_le_bytes());
+    set_leftmost(node, leftmost);
 }
 
 /// Makes `node` a node of `level` holding `cells`, in order.
@@ -69,6 +69,55 @@ pub(crate) fn fill(node: &mut [u8], level: u8, leftmost: u64, cells: &[&[u8]]) {
     for (index, cell) in cells.iter().enumerate() {
         insert(node, index, cell);
     }
+}
+
+/// Whether `node`, the payload of a page whose checksum is valid, has a consistent layout: a known kind, a leaf at
+/// level `0` and a branch above it, the offsets within the header's count, and cells within their maximum sizes
+/// that fill the end of the payload exactly, without gaps or overlaps. The accessors and the algorithms of this
+/// crate stay within the page for such a node, so the tree code checks every node it reads (G6, A9).
+pub(crate) fn is_valid(node: &[u8]) -> bool {
+    let leaf = match (node[0], node[1]) {
+        (LEAF, 0) => true,
+        (BRANCH, 1..=254) => false,
+        _ => return false,
+    };
+    let (count, top) = (count(node), top(node));
+    if HEADER + 2 * count > top || top > PAYLOAD_SIZE {
+        return false;
+    }
+    let (lengths, max) = if leaf {
+        (4, MAX_LEAF_CELL)
+    } else {
+        (2, MAX_BRANCH_CELL)
+    };
+    // Bit `at` is set when a cell starts at byte `at`.
+    let mut starts = [0u64; PAYLOAD_SIZE.div_ceil(64)];
+    for index in 0..count {
+        let at = offset(node, index);
+        if at < top || at + lengths > PAYLOAD_SIZE {
+            return false;
+        }
+        let len = cell_len_at(node, at);
+        let key = u16_at(node, at);
+        if at + len > PAYLOAD_SIZE
+            || key > MAX_KEY
+            || len > max
+            || starts[at / 64] & (1 << (at % 64)) != 0
+        {
+            return false;
+        }
+        starts[at / 64] |= 1 << (at % 64);
+    }
+    // The cells, followed from the first byte after the free space, end exactly at the end of the payload.
+    let (mut at, mut seen) = (top, 0);
+    while at < PAYLOAD_SIZE {
+        if starts[at / 64] & (1 << (at % 64)) == 0 {
+            return false;
+        }
+        at += cell_len_at(node, at);
+        seen += 1;
+    }
+    seen == count
 }
 
 pub(crate) fn is_leaf(node: &[u8]) -> bool {
@@ -89,6 +138,10 @@ fn top(node: &[u8]) -> usize {
 
 pub(crate) fn leftmost(node: &[u8]) -> u64 {
     u64_at(node, 8)
+}
+
+pub(crate) fn set_leftmost(node: &mut [u8], child: u64) {
+    node[8..16].copy_from_slice(&child.to_le_bytes());
 }
 
 fn offset(node: &[u8], index: usize) -> usize {

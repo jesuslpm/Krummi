@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use krummi_pager::format::{PAGE_SIZE_U64, seal_page};
 use krummi_pager::{PayloadBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_sealed};
@@ -44,6 +45,27 @@ impl<'e> ReadTransaction<'e> {
             // nothing was committed before it: no transfer writes the page while this snapshot is open.
             Err(_) if meta_is_blank(self.snapshot.scratch().pager()) => Ok(0),
             Err(error) => Err(error),
+        }
+    }
+
+    /// Whether page `page_number` may hold data of the layers above: a page after the store's first own pages. A
+    /// layer that reads a page number from a page checks it before reading it, so that a damaged number is damage
+    /// (G6) and not a misuse.
+    pub fn may_hold_data(&self, page_number: u64) -> bool {
+        page_number >= FIRST_PAGE
+    }
+
+    /// The damage error of page `page_number`, for a layer above that finds the page inconsistent although its
+    /// checksum is valid (G6).
+    pub fn damaged(&self, page_number: u64) -> Error {
+        Error::Damaged {
+            folder: self
+                .snapshot
+                .scratch()
+                .pager()
+                .folder()
+                .map(Path::to_path_buf),
+            page: Some(page_number),
         }
     }
 }
@@ -96,6 +118,7 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If the page was never reserved.
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
+        self.track(self.engine.injected_fault())?;
         self.check_reserved(page_number);
         if self.freed.contains(&page_number) {
             return self.track(Err(self
@@ -117,7 +140,10 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If the page was never reserved.
     pub fn page_mut(&mut self, page_number: u64) -> Result<&mut [u8]> {
-        let result = self.writable(page_number);
+        let result = self
+            .engine
+            .injected_fault()
+            .and_then(|()| self.writable(page_number));
         self.track(result)?;
         Ok(&mut self.dirty.get_mut(&page_number).expect("copied above")[..])
     }
@@ -132,7 +158,10 @@ impl<'e> WriteTransaction<'e> {
     /// there is one, otherwise at the frontier, in the next region when they do not fit in the frontier's (F5).
     /// Asking for none, or for more than a region holds, fails with the misuse class.
     pub fn allocate_run(&mut self, count: u64) -> Result<u64> {
-        let result = self.reserve_run(count);
+        let result = self
+            .engine
+            .injected_fault()
+            .and_then(|()| self.reserve_run(count));
         self.track(result)
     }
 
@@ -141,7 +170,10 @@ impl<'e> WriteTransaction<'e> {
     /// (F6, F8). Freeing the store's own pages, pages from the frontier on, pages already free, or a page twice
     /// fails with the misuse class (T11).
     pub fn free(&mut self, first: u64, count: u64) -> Result<()> {
-        let result = self.release(first, count);
+        let result = self
+            .engine
+            .injected_fault()
+            .and_then(|()| self.release(first, count));
         self.track(result)
     }
 
@@ -179,6 +211,24 @@ impl<'e> WriteTransaction<'e> {
         let meta = self.dirty.get_mut(&META_PAGE).expect("ensured above");
         meta[at..at + 8].copy_from_slice(&value.to_le_bytes());
         Ok(())
+    }
+
+    /// Whether page `page_number` may hold data of the layers above as this transaction sees it: a page it may
+    /// read, reserved and not freed by it. A layer that reads a page number from a page checks it before reading
+    /// it, so that a damaged number is damage (G6) and not a misuse.
+    pub fn may_hold_data(&self, page_number: u64) -> bool {
+        (FIRST_PAGE..self.frontier).contains(&page_number) && !self.freed.contains(&page_number)
+    }
+
+    /// The damage error of page `page_number`, for a layer above that finds the page inconsistent although its
+    /// checksum is valid (G6). It becomes the transaction's failure, as any damage it meets (T11).
+    pub fn damaged(&self, page_number: u64) -> Error {
+        let error = Error::Damaged {
+            folder: self.engine.folder.clone(),
+            page: Some(page_number),
+        };
+        let _ = self.track::<()>(Err(error.duplicate()));
+        error
     }
 
     /// Whether an operation of this transaction failed, so that it can no longer be committed (T11).

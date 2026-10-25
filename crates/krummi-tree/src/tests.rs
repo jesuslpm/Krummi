@@ -366,3 +366,245 @@ fn an_older_read_keeps_its_snapshot_across_splits_and_merges() {
         "a new read",
     );
 }
+
+/// A tree of three levels or more whose keys are `key(i)` for `i` below `count`, in a new temporary store.
+fn long_key(i: usize) -> Vec<u8> {
+    let mut key = format!("{i:05}").into_bytes();
+    key.resize(MAX_KEY, b'.');
+    key
+}
+
+fn committed_tree(engine: &Engine, count: usize) -> u64 {
+    let mut tx = engine.write(None).unwrap();
+    let mut root = create(&mut tx).unwrap();
+    for i in 0..count {
+        root = set(&mut tx, root, &long_key(i), b"value").unwrap().root;
+    }
+    assert!(height(&tx, root) >= 3);
+    tx.commit().unwrap();
+    root
+}
+
+#[track_caller]
+fn damaged_page<T: std::fmt::Debug>(result: Result<T>) -> u64 {
+    match result {
+        Err(krummi_tx::Error::Damaged {
+            page: Some(page), ..
+        }) => page,
+        other => panic!("expected damage with a page, got {other:?}"),
+    }
+}
+
+/// Writes `value` as the little-endian `u16` at byte `at` of a node.
+fn put16(node: &mut [u8], at: usize, value: usize) {
+    node[at..at + 2].copy_from_slice(&(value as u16).to_le_bytes());
+}
+
+fn get16(node: &[u8], at: usize) -> usize {
+    usize::from(u16::from_le_bytes([node[at], node[at + 1]]))
+}
+
+/// R1-001 of the first review (G6, A9): a node whose page has a valid checksum but an inconsistent layout makes
+/// every operation that reads it fail with the damage class and a page number, again on each repetition, without
+/// panicking; a write that met it can no longer be committed (T11). The page is the inconsistent one, or the page
+/// number a branch names when that number cannot be a page of a tree.
+#[test]
+fn an_inconsistent_node_layout_is_damage_and_not_a_panic() {
+    /// Corrupts the node of a page and returns the page the damage names.
+    type Corrupt = fn(&mut [u8], u64) -> u64;
+    fn set_leftmost(node: &mut [u8], child: u64) -> u64 {
+        node[8..16].copy_from_slice(&child.to_le_bytes());
+        child
+    }
+    let leaf: &[(&str, Corrupt)] = &[
+        ("an unknown kind", |n, page| {
+            n[0] = 7;
+            page
+        }),
+        ("a leaf above level 0", |n, page| {
+            n[1] = 3;
+            page
+        }),
+        ("more cells than fit", |n, page| {
+            put16(n, 2, 0xffff);
+            page
+        }),
+        ("cells past the end", |n, page| {
+            put16(n, 4, PAYLOAD_SIZE + 1);
+            page
+        }),
+        ("cells over the offsets", |n, page| {
+            put16(n, 4, node::HEADER);
+            page
+        }),
+        ("an offset past the end", |n, page| {
+            put16(n, node::HEADER, PAYLOAD_SIZE - 1);
+            page
+        }),
+        ("a cell longer than the page", |n, page| {
+            let at = get16(n, node::HEADER);
+            put16(n, at, 0xffff);
+            page
+        }),
+        ("a key longer than the maximum", |n, page| {
+            let at = get16(n, node::HEADER);
+            let value = get16(n, at + 2);
+            put16(n, at, MAX_KEY + 1);
+            put16(n, at + 2, value - 1);
+            page
+        }),
+        ("two offsets of one cell", |n, page| {
+            let first = get16(n, node::HEADER);
+            put16(n, node::HEADER + 2, first);
+            page
+        }),
+        ("a gap before the cells", |n, page| {
+            let top = get16(n, 4);
+            put16(n, 4, top - 1);
+            page
+        }),
+    ];
+    let branch: &[(&str, Corrupt)] = &[
+        ("a branch at level 0", |n, page| {
+            n[1] = 0;
+            page
+        }),
+        ("a child among the store's own pages", |n, _| {
+            set_leftmost(n, 1)
+        }),
+        ("a child past the last page", |n, _| {
+            set_leftmost(n, 1 << 40)
+        }),
+        ("a child that is the branch itself", |n, page| {
+            set_leftmost(n, page)
+        }),
+    ];
+    for (cases, on_leaf) in [(leaf, true), (branch, false)] {
+        // The branch cases change the root's leftmost child, which the first key goes through.
+        let key = long_key(if on_leaf { 30 } else { 0 });
+        for (label, corrupt) in cases {
+            let engine = temporary();
+            let root = committed_tree(&engine, 60);
+            let read = engine.read().unwrap();
+            let page = if on_leaf {
+                leaf_of(&read, root, &key).unwrap()
+            } else {
+                root
+            };
+            drop(read);
+            let mut tx = engine.write(None).unwrap();
+            let named = corrupt(tx.page_mut(page).unwrap(), page);
+            tx.commit().unwrap();
+
+            let read = engine.read().unwrap();
+            for _ in 0..2 {
+                assert_eq!(damaged_page(get(&read, root, &key)), named, "{label}");
+            }
+            assert_eq!(
+                damaged_page(for_each(&read, root, &mut |_, _| {})),
+                named,
+                "{label}"
+            );
+            drop(read);
+            for op in 0..3 {
+                let mut tx = engine.write(None).unwrap();
+                let result = match op {
+                    0 => set(&mut tx, root, &key, b"new").map(|_| ()),
+                    1 => remove(&mut tx, root, &key).map(|_| ()),
+                    _ if on_leaf => continue,
+                    _ => free_all(&mut tx, root),
+                };
+                assert_eq!(damaged_page(result), named, "{label}: operation {op}");
+                assert_eq!(damaged_page(tx.commit()), named, "{label}: T11");
+            }
+        }
+    }
+}
+
+/// R1-002 of the second review (G6, A9): a catalog entry of an unknown kind or of the wrong length in a page whose
+/// checksum is valid is damage of that page, when looking a tree up and when listing, and follows T11 in a write.
+#[test]
+fn an_inconsistent_catalog_entry_is_damage_and_not_a_panic() {
+    let normal = catalog::Entry {
+        id: 0,
+        kind: krummi_tx::TreeKind::Normal,
+        root: 0,
+        count: 0,
+    };
+    let mut wrong_kind = [0u8; 25];
+    wrong_kind[8] = 99;
+    for bad in [&wrong_kind[..], &[1u8; 24][..], &[1u8; 26][..]] {
+        let engine = temporary();
+        let mut tx = engine.write(None).unwrap();
+        catalog::put(&mut tx, "t", &normal).unwrap();
+        let root = tx.slot(catalog::ROOT_SLOT).unwrap();
+        set(&mut tx, root, b"t", bad).unwrap();
+        tx.commit().unwrap();
+        let read = engine.read().unwrap();
+        for _ in 0..2 {
+            assert_eq!(damaged_page(catalog::lookup(&read, "t")), root);
+            assert_eq!(damaged_page(catalog::list(&read)), root);
+        }
+        assert_eq!(catalog::lookup(&read, "u").unwrap(), None);
+        drop(read);
+        let tx = engine.write(None).unwrap();
+        assert_eq!(damaged_page(catalog::lookup(&tx, "t")), root);
+        assert_eq!(damaged_page(tx.commit()), root, "T11");
+    }
+}
+
+/// Whether `key` is the only entry of its leaf and the leaf's parent is a branch without keys, which D4's merges
+/// leave when a branch cannot merge with its sibling: removing the key empties a leaf that has no sibling.
+fn alone_under_a_branch_without_keys<S: PageSource>(tx: &S, root: u64, key: &[u8]) -> bool {
+    let (mut page, mut parent) = (root, None);
+    loop {
+        let node = tx.page(page).unwrap();
+        if node::is_leaf(node) {
+            let alone = node::count(node) == 1 && node::search(node, key).is_ok();
+            return alone && parent.is_some_and(|p| node::count(p) == 0);
+        }
+        parent = Some(node);
+        page = node::child(node, node::child_index(node, key));
+    }
+}
+
+/// R3-empty-nonroot-leaf of the first review: with keys of 2,048 bytes a branch holds three keys at most, so a
+/// branch left with one child often cannot merge with its sibling and stays without keys (D4). Removing the last
+/// entry of that child frees the leaf and the branch instead of leaving an empty leaf that is not the root; the
+/// structure is checked after every operation, and the test reaches that case many times.
+#[test]
+fn removing_the_last_entry_under_a_branch_without_keys_leaves_no_empty_leaf() {
+    let engine = temporary();
+    let mut rng = Rng(0x0e3b_7a1d);
+    let mut model = Model::new();
+    let mut root = new_tree(&engine);
+    let mut reached = 0;
+    let key = |rng: &mut Rng| {
+        let mut key = format!("{:03}", rng.below(400)).into_bytes();
+        key.resize(MAX_KEY, b'.');
+        key
+    };
+    for round in 0..8 {
+        let mut tx = engine.write(None).unwrap();
+        while model.len() < 150 {
+            let (k, value) = (key(&mut rng), vec![round; rng.below(9) as usize]);
+            root = set(&mut tx, root, &k, &value).unwrap().root;
+            model.insert(k, value);
+            validate(&tx, root, None, None, true);
+        }
+        while !model.is_empty() {
+            let index = rng.below(model.len() as u64) as usize;
+            let k = model.keys().nth(index).unwrap().clone();
+            reached += usize::from(alone_under_a_branch_without_keys(&tx, root, &k));
+            let update = remove(&mut tx, root, &k).unwrap();
+            assert!(update.count_changed);
+            root = update.root;
+            model.remove(&k);
+            validate(&tx, root, None, None, true);
+        }
+        assert_eq!(height(&tx, root), 1);
+        tx.commit().unwrap();
+        check(&engine.read().unwrap(), root, &model, &mut rng, "emptied");
+    }
+    assert!(reached >= 10, "the case was reached {reached} times");
+}

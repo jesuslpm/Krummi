@@ -5,10 +5,12 @@
 //! Its root lives in the meta slot [`ROOT_SLOT`], `0` while no tree was ever created: the catalog takes no page
 //! until then (A12). The meta slot [`IDENTITIES_SLOT`] counts the identities handed out, so an identity is never
 //! reused (A8). Callers only write what really changes, so that a write that changes nothing writes nothing (T10).
+//! An entry of an unknown kind or of the wrong length, in a page whose checksum is valid, is damage of that page
+//! (G6).
 
 use krummi_tx::{Result, TreeKind, WriteTransaction};
 
-use crate::PageSource;
+use crate::{PageSource, node};
 
 /// Meta slot with the catalog's root page, `0` before the first tree.
 pub const ROOT_SLOT: usize = 0;
@@ -39,31 +41,35 @@ impl Entry {
         bytes[..8].copy_from_slice(&self.id.to_le_bytes());
         bytes[8] = match self.kind {
             TreeKind::Normal => NORMAL,
-            kind => unimplemented!("the catalog keeps {kind} trees from module 5.4 on"),
+            // `TreeKind` is non-exhaustive, but its only kind is the normal one until module 5.4 adds the others.
+            kind => unreachable!("module 5.1 has no {kind} trees"),
         };
         bytes[9..17].copy_from_slice(&self.root.to_le_bytes());
         bytes[17..].copy_from_slice(&self.count.to_le_bytes());
         bytes
     }
 
-    /// Decodes an entry. Like the node accessors, it trusts a page whose checksum is valid.
-    fn decode(bytes: &[u8]) -> Entry {
+    /// Decodes an entry, or `None` if it is not one: of another length or of an unknown kind.
+    fn decode(bytes: &[u8]) -> Option<Entry> {
+        if bytes.len() != ENTRY_SIZE {
+            return None;
+        }
         let field = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8 bytes"));
-        assert_eq!(
-            bytes.len(),
-            ENTRY_SIZE,
-            "a catalog entry has {ENTRY_SIZE} bytes"
-        );
         let kind = match bytes[8] {
             NORMAL => TreeKind::Normal,
-            other => panic!("unknown tree kind {other} in the catalog"),
+            _ => return None,
         };
-        Entry {
+        Some(Entry {
             id: field(0),
             kind,
             root: field(9),
             count: field(17),
-        }
+        })
+    }
+
+    /// Decodes an entry of the catalog's leaf `page`, failing with damage of that page if it is not one.
+    fn decode_in<S: PageSource + ?Sized>(tx: &S, page: u64, bytes: &[u8]) -> Result<Entry> {
+        Entry::decode(bytes).ok_or_else(|| tx.damaged(page))
     }
 }
 
@@ -73,7 +79,11 @@ pub fn lookup<S: PageSource + ?Sized>(tx: &S, name: &str) -> Result<Option<Entry
     if root == 0 {
         return Ok(None);
     }
-    Ok(crate::get(tx, root, name.as_bytes())?.map(Entry::decode))
+    let (page, leaf) = crate::descend(tx, root, name.as_bytes())?;
+    match node::search(leaf, name.as_bytes()) {
+        Ok(index) => Entry::decode_in(tx, page, node::value(leaf, index)).map(Some),
+        Err(_) => Ok(None),
+    }
 }
 
 /// The name and kind of every tree, in byte order of the names: an owned copy (A3).
@@ -81,9 +91,13 @@ pub fn list<S: PageSource + ?Sized>(tx: &S) -> Result<Vec<(String, TreeKind)>> {
     let root = tx.slot(ROOT_SLOT)?;
     let mut trees = Vec::new();
     if root != 0 {
-        crate::for_each(tx, root, &mut |name, entry| {
-            let name = String::from_utf8_lossy(name).into_owned();
-            trees.push((name, Entry::decode(entry).kind));
+        crate::leaves(tx, root, None, &mut |page, leaf| {
+            for index in 0..node::count(leaf) {
+                let name = String::from_utf8_lossy(node::key(leaf, index)).into_owned();
+                let entry = Entry::decode_in(tx, page, node::value(leaf, index))?;
+                trees.push((name, entry.kind));
+            }
+            Ok(())
         })?;
     }
     Ok(trees)

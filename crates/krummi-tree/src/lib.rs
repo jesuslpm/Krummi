@@ -6,8 +6,15 @@
 //! A changed node keeps its page number, because the transaction copies a page on its first change (T14), so no
 //! path is copied. An insertion that overflows a node splits it by bytes into halves, up to a new root; a removal
 //! or an overwrite that leaves a node under a quarter full merges it with a sibling when both fit in one page, and
-//! a branch root left with one child is replaced by it. Operations that end up changing nothing (adding a key that
-//! is there, removing one that is not) touch no page, so they are not changes for the commit (T10).
+//! a branch root left with one child is replaced by it. A node left without entries (a leaf, or a branch whose only
+//! child went away) is freed and leaves its parent, so no leaf but the root is ever empty. Operations that end up
+//! changing nothing (adding a key that is there, removing one that is not) touch no page, so they are not changes
+//! for the commit (T10).
+//!
+//! Every node is checked when the tree code reads it: a page whose checksum is valid but whose layout is not
+//! consistent, or a child that is not a data page or not one level below its parent, fails with the damage class
+//! and the page number (G6, A9), and in a write it is the transaction's failure (T11). The node accessors then stay
+//! within the page without checking again.
 //!
 //! The crate does not validate sizes: the public API does (B7). Its operations panic on a key or a value out of
 //! range, a misuse of the engine.
@@ -17,7 +24,7 @@ mod node;
 #[cfg(test)]
 mod tests;
 
-use krummi_tx::{PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction};
+use krummi_tx::{Error, PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction};
 use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL};
 pub use node::{MAX_KEY, MAX_VALUE};
 
@@ -28,6 +35,13 @@ pub trait PageSource {
 
     /// Meta slot `slot` as the transaction sees it.
     fn slot(&self, slot: usize) -> Result<u64>;
+
+    /// Whether page `page_number` may hold a tree's data, checked before following a page number read from a page.
+    fn may_hold_data(&self, page_number: u64) -> bool;
+
+    /// The damage error of page `page_number`, inconsistent although its checksum is valid; in a write it is the
+    /// transaction's failure (T11).
+    fn damaged(&self, page_number: u64) -> Error;
 }
 
 impl PageSource for ReadTransaction<'_> {
@@ -37,6 +51,14 @@ impl PageSource for ReadTransaction<'_> {
 
     fn slot(&self, slot: usize) -> Result<u64> {
         ReadTransaction::slot(self, slot)
+    }
+
+    fn may_hold_data(&self, page_number: u64) -> bool {
+        ReadTransaction::may_hold_data(self, page_number)
+    }
+
+    fn damaged(&self, page_number: u64) -> Error {
+        ReadTransaction::damaged(self, page_number)
     }
 }
 
@@ -48,6 +70,34 @@ impl PageSource for WriteTransaction<'_> {
     fn slot(&self, slot: usize) -> Result<u64> {
         WriteTransaction::slot(self, slot)
     }
+
+    fn may_hold_data(&self, page_number: u64) -> bool {
+        WriteTransaction::may_hold_data(self, page_number)
+    }
+
+    fn damaged(&self, page_number: u64) -> Error {
+        WriteTransaction::damaged(self, page_number)
+    }
+}
+
+/// The payload of node `page`, checked: a data page with a consistent layout (see [`node::is_valid`]) and, when
+/// `level` is given, at that level. A child is read one level below its parent, so no path loops. Otherwise it
+/// fails with the damage class and the number of the page it was asked for, as when its checksum fails (G6).
+fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Result<&[u8]> {
+    if !tx.may_hold_data(page) {
+        return Err(tx.damaged(page));
+    }
+    let node = tx.page(page)?;
+    if node::is_valid(node) && level.is_none_or(|level| node::level(node) == level) {
+        Ok(node)
+    } else {
+        Err(tx.damaged(page))
+    }
+}
+
+/// The level of the children of a checked branch.
+fn child_level(branch: &[u8]) -> Option<u8> {
+    Some(node::level(branch) - 1)
 }
 
 /// What an operation that may change a tree did.
@@ -82,17 +132,18 @@ pub fn leaf_of<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Result<
 }
 
 /// The page number and the payload of the leaf where `key` is or would be.
-fn descend<'t, S: PageSource + ?Sized>(
+pub(crate) fn descend<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     root: u64,
     key: &[u8],
 ) -> Result<(u64, &'t [u8])> {
-    let mut page = root;
+    let (mut page, mut level) = (root, None);
     loop {
-        let node = tx.page(page)?;
+        let node = node_at(tx, page, level)?;
         if node::is_leaf(node) {
             return Ok((page, node));
         }
+        level = child_level(node);
         page = node::child(node, node::child_index(node, key));
     }
 }
@@ -103,15 +154,28 @@ pub fn for_each<S: PageSource + ?Sized>(
     root: u64,
     visit: &mut impl FnMut(&[u8], &[u8]),
 ) -> Result<()> {
-    let node = tx.page(root)?;
-    if node::is_leaf(node) {
-        for index in 0..node::count(node) {
-            visit(node::key(node, index), node::value(node, index));
+    leaves(tx, root, None, &mut |_, leaf| {
+        for index in 0..node::count(leaf) {
+            visit(node::key(leaf, index), node::value(leaf, index));
         }
-        return Ok(());
+        Ok(())
+    })
+}
+
+/// Calls `visit` with the page number and the payload of every leaf of the subtree at `page`, a node of `level`
+/// when given, in key order.
+pub(crate) fn leaves<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    page: u64,
+    level: Option<u8>,
+    visit: &mut impl FnMut(u64, &'t [u8]) -> Result<()>,
+) -> Result<()> {
+    let node = node_at(tx, page, level)?;
+    if node::is_leaf(node) {
+        return visit(page, node);
     }
     for index in 0..=node::count(node) {
-        for_each(tx, node::child(node, index), visit)?;
+        leaves(tx, node::child(node, index), child_level(node), visit)?;
     }
     Ok(())
 }
@@ -150,21 +214,27 @@ pub fn remove(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8]) -> Result<Up
 
 /// Frees every page of the tree at `root`, reading only its branch pages and the root (D4).
 pub fn free_all(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
-    let node = tx.page(root)?;
+    free_subtree(tx, root, None)
+}
+
+fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> Result<()> {
+    let node = node_at(&*tx, page, level)?;
     if !node::is_leaf(node) {
-        let leaves = node::level(node) == 1;
+        let below = child_level(node);
         let children: Vec<u64> = (0..=node::count(node))
             .map(|i| node::child(node, i))
             .collect();
         for child in children {
-            if leaves {
+            if below != Some(0) {
+                free_subtree(tx, child, below)?;
+            } else if tx.may_hold_data(child) {
                 tx.free(child, 1)?;
             } else {
-                free_all(tx, child)?;
+                return Err(tx.damaged(child));
             }
         }
     }
-    tx.free(root, 1)
+    tx.free(page, 1)
 }
 
 #[derive(Clone, Copy)]
@@ -184,6 +254,8 @@ enum Outcome {
     },
     /// The node is under a quarter full.
     Underfull,
+    /// The node has no entries left: a leaf, or a branch whose only child went away. Its parent frees it.
+    Empty,
 }
 
 fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> Result<Update> {
@@ -199,27 +271,37 @@ fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> R
     }
     let mut count_changed = false;
     let mut root = root;
-    match change(tx, root, key, op, &mut count_changed)? {
+    // `change` checked the root, which no other node points to.
+    match change(tx, root, None, key, op, &mut count_changed)? {
         Outcome::Done => {}
         Outcome::Split { key, right } => {
-            let level = node::level(tx.page(root)?)
-                .checked_add(1)
-                .expect("a tree has fewer than 256 levels");
+            // A checked branch is below level 255.
+            let level = node::level(tx.page(root)?) + 1;
             let new_root = tx.allocate()?;
             let mut buf = [0; MAX_BRANCH_CELL];
             let len = node::encode_branch(&mut buf, &key, right);
             node::fill(tx.page_mut(new_root)?, level, root, &[&buf[..len]]);
             root = new_root;
         }
-        Outcome::Underfull => loop {
-            let node = tx.page(root)?;
-            if node::is_leaf(node) || node::count(node) > 0 {
-                break;
+        Outcome::Underfull => {
+            let mut level = None;
+            loop {
+                let node = node_at(&*tx, root, level)?;
+                if node::is_leaf(node) || node::count(node) > 0 {
+                    break;
+                }
+                level = child_level(node);
+                let child = node::leftmost(node);
+                tx.free(root, 1)?;
+                root = child;
             }
-            let child = node::leftmost(node);
-            tx.free(root, 1)?;
-            root = child;
-        },
+        }
+        // The root keeps its page: an empty leaf stays, and a branch whose only child went away becomes one.
+        Outcome::Empty => {
+            if !node::is_leaf(tx.page(root)?) {
+                node::init(tx.page_mut(root)?, 0, 0);
+            }
+        }
     }
     Ok(Update {
         root,
@@ -227,21 +309,23 @@ fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> R
     })
 }
 
-/// Applies `op` to the subtree at `page`; `count_changed` reports whether the number of entries changed.
+/// Applies `op` to the subtree at `page`, a node of `level` when given; `count_changed` reports whether the number
+/// of entries changed. It checks `page`, which the functions it calls for it read again without checking.
 fn change(
     tx: &mut WriteTransaction<'_>,
     page: u64,
+    level: Option<u8>,
     key: &[u8],
     op: Op<'_>,
     count_changed: &mut bool,
 ) -> Result<Outcome> {
-    let node = tx.page(page)?;
+    let node = node_at(&*tx, page, level)?;
     if node::is_leaf(node) {
         return change_leaf(tx, page, key, op, count_changed);
     }
     let index = node::child_index(node, key);
     let child = node::child(node, index);
-    match change(tx, child, key, op, count_changed)? {
+    match change(tx, child, child_level(node), key, op, count_changed)? {
         Outcome::Done => Ok(Outcome::Done),
         Outcome::Split { key, right } => {
             let mut buf = [0; MAX_BRANCH_CELL];
@@ -249,6 +333,7 @@ fn change(
             insert_cell(tx, page, index, &buf[..len])
         }
         Outcome::Underfull => merge_child(tx, page, index),
+        Outcome::Empty => drop_child(tx, page, index),
     }
 }
 
@@ -267,6 +352,9 @@ fn change_leaf(
             *count_changed = true;
             let node = tx.page_mut(page)?;
             node::remove(node, index);
+            if node::count(node) == 0 {
+                return Ok(Outcome::Empty);
+            }
             return Ok(underfull_or_done(node));
         }
         (Op::Set(value) | Op::Add(value), _) => value,
@@ -369,8 +457,10 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
     // The pair is children `pair` and `pair + 1`, separated by cell `pair`.
     let pair = index.min(count - 1);
     let (left, right) = (node::child(parent, pair), node::child(parent, pair + 1));
+    let below = child_level(parent);
+    node_at(&*tx, left, below)?;
     let mut separator = [0; MAX_BRANCH_CELL];
-    let right_node = tx.page(right)?;
+    let right_node = node_at(&*tx, right, below)?;
     let leaf = node::is_leaf(right_node);
     let extra = if leaf {
         0
@@ -398,5 +488,24 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
     tx.free(right, 1)?;
     let parent = tx.page_mut(page)?;
     node::remove(parent, pair);
+    Ok(underfull_or_done(parent))
+}
+
+/// Frees child `index` of the branch at `page`, which has no entries left, and removes it with its separator; the
+/// branch is then empty itself when that was its only child.
+fn drop_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result<Outcome> {
+    let parent = tx.page(page)?;
+    let count = node::count(parent);
+    tx.free(node::child(parent, index), 1)?;
+    if count == 0 {
+        return Ok(Outcome::Empty);
+    }
+    let parent = tx.page_mut(page)?;
+    if index == 0 {
+        node::set_leftmost(parent, node::child(parent, 1));
+        node::remove(parent, 0);
+    } else {
+        node::remove(parent, index - 1);
+    }
     Ok(underfull_or_done(parent))
 }

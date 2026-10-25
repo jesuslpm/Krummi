@@ -79,6 +79,9 @@ pub struct Engine {
     space: Space,
     #[cfg(feature = "test-hooks")]
     hook: Mutex<Option<Hook>>,
+    /// The page operation of write transactions that fails next, counting down, with the failure it gets (tests).
+    #[cfg(feature = "test-hooks")]
+    page_fault: Mutex<Option<(u64, Error)>>,
 }
 
 struct Turns {
@@ -175,6 +178,8 @@ impl Engine {
             space: Space::new(frontier, free, !fresh),
             #[cfg(feature = "test-hooks")]
             hook: Mutex::new(None),
+            #[cfg(feature = "test-hooks")]
+            page_fault: Mutex::new(None),
         })
     }
 
@@ -388,6 +393,43 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn set_hook(&self, hook: Option<Hook>) {
         *self.hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Makes operation number `nth` (from 0, from now on) on the pages of write transactions fail with `error`,
+    /// without effect, as a failure of T11 would: reading a page (`page`), changing it (`page_mut`), reserving pages
+    /// (`allocate`, `allocate_run`) or freeing them (`free`). `None` cancels it (tests: AC-B18).
+    #[cfg(feature = "test-hooks")]
+    pub fn set_page_fault(&self, fault: Option<(u64, Error)>) {
+        *self
+            .page_fault
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = fault;
+    }
+
+    /// Whether the fault of [`Engine::set_page_fault`] is still waiting for its operation (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn page_fault_pending(&self) -> bool {
+        self.page_fault
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    }
+
+    /// The failure of [`Engine::set_page_fault`] when its operation comes, once.
+    fn injected_fault(&self) -> Result<()> {
+        #[cfg(feature = "test-hooks")]
+        {
+            let mut fault = self
+                .page_fault
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            match fault.as_mut() {
+                Some((0, _)) => return Err(fault.take().expect("matched above").1),
+                Some((nth, _)) => *nth -= 1,
+                None => {}
+            }
+        }
+        Ok(())
     }
 
     /// Times a request waiting for the write turn woke up (tests).
