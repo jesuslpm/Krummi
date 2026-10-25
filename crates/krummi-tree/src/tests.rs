@@ -521,6 +521,38 @@ fn an_inconsistent_node_layout_is_damage_and_not_a_panic() {
     }
 }
 
+/// R3-001 of the third review (G6, A9): freeing a tree whose lowest branch names itself or an ancestor as a leaf
+/// child is damage of that page, never a second free.
+#[test]
+fn freeing_a_tree_whose_branch_names_itself_or_an_ancestor_is_damage() {
+    for ancestor in [false, true] {
+        let engine = temporary();
+        let root = committed_tree(&engine, 60);
+        let read = engine.read().unwrap();
+        let mut page = root;
+        while node::level(read.page(page).unwrap()) > 1 {
+            page = node::child(read.page(page).unwrap(), 0);
+        }
+        drop(read);
+        assert_ne!(page, root, "the tree has three levels or more");
+        let target = if ancestor { root } else { page };
+        let mut tx = engine.write(None).unwrap();
+        node::set_leftmost(tx.page_mut(page).unwrap(), target);
+        tx.commit().unwrap();
+        let mut tx = engine.write(None).unwrap();
+        assert_eq!(
+            damaged_page(free_all(&mut tx, root)),
+            target,
+            "ancestor: {ancestor}"
+        );
+        assert_eq!(
+            damaged_page(tx.commit()),
+            target,
+            "T11, ancestor: {ancestor}"
+        );
+    }
+}
+
 /// R1-002 of the second review (G6, A9): a catalog entry of an unknown kind or of the wrong length in a page whose
 /// checksum is valid is damage of that page, when looking a tree up and when listing, and follows T11 in a write.
 #[test]

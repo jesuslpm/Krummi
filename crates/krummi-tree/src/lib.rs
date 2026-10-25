@@ -219,22 +219,27 @@ pub fn free_all(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
 
 fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> Result<()> {
     let node = node_at(&*tx, page, level)?;
-    if !node::is_leaf(node) {
-        let below = child_level(node);
-        let children: Vec<u64> = (0..=node::count(node))
+    let (below, children): (Option<u8>, Vec<u64>) = if node::is_leaf(node) {
+        (None, Vec::new())
+    } else {
+        let children = (0..=node::count(node))
             .map(|i| node::child(node, i))
             .collect();
-        for child in children {
-            if below != Some(0) {
-                free_subtree(tx, child, below)?;
-            } else if tx.may_hold_data(child) {
-                tx.free(child, 1)?;
-            } else {
-                return Err(tx.damaged(child));
-            }
+        (child_level(node), children)
+    };
+    // A node is freed before its children, so a child that names the node itself, an ancestor or a page freed
+    // before it no longer may hold data and is reported as damage instead of being freed twice.
+    tx.free(page, 1)?;
+    for child in children {
+        if below != Some(0) {
+            free_subtree(tx, child, below)?;
+        } else if tx.may_hold_data(child) {
+            tx.free(child, 1)?;
+        } else {
+            return Err(tx.damaged(child));
         }
     }
-    tx.free(page, 1)
+    Ok(())
 }
 
 #[derive(Clone, Copy)]

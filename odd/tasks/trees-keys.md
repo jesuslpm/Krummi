@@ -203,3 +203,17 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   the close, 32.3 s; a failure at every page operation, 25.8 s. Worker checks: fmt, clippy, `cargo test --workspace`
   283 passed, 0 failed, 9 ignored (3 min 19 s). Parent spot check `cargo test -p krummi-tree`: 10 passed. T6: README
   describes trees; CI gets a step for the tree sweeps (60 min limit).
+- **L13** RDD review 3 (`9e3ad1b..32d4d04`, T4 plus the docs and measurement commits; escalated to high, item 1:
+  reading persisted pages), lenses risk and reliability, lineage `review-52ac120ffe927c92`: **approved**,
+  acknowledged. R3-001 (WARNING): freeing a tree whose level-1 branch names itself or an ancestor as a leaf child freed
+  that page twice (misuse instead of damage) → fixed: a node is freed before its children, so such a child no longer
+  may hold data and is damage; RED (misuse) then GREEN in `freeing_a_tree_whose_branch_names_itself_or_an_ancestor_is_damage`.
+  A leaf child pointing into another tree's pages cannot be detected without reading the leaves (D4); it needs a
+  checksum-valid forged page and is left to the verification tool (module 12). R3-002 (SUGGESTION): the cost of the
+  node validation was not measured before and after; the report gives the absolute A15 times. Reviewed boundary:
+  `32d4d04`. The first version of the fix computed the child level before checking for a leaf and broke 9 public
+  tests; it was committed because the chained command did not stop on the failing test, then corrected and amended
+  (28 public and 11 tree tests pass).
+- **L14** A15 on Windows (release, 1,000,000 entries, durable, writes of 1,000): store in key order 3.52 s (3.52 µs
+  per entry), at random 26.79 s (26.79 µs), read at random 3.69 s (3.69 µs), remove at random 26.82 s (26.82 µs);
+  the store's size after each load, 268,435,456 bytes (the file grows by doubling, P11).
