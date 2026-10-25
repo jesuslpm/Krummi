@@ -49,6 +49,8 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 | A14 | **Prior compilation test**: the one the parent requires before implementing 5.1 applies ([split](trees.prd.en.md#split-into-child-prds)). |
 | A15 | **Measurement** (B12): the change includes a reproducible measurement, on Windows and on Linux, on a store on disk with durable commit. With 1 million random keys of 16 bytes, the same for all loads through a fixed seed, and values of 100 bytes, it measures: storing them in key order in one store and, in another, at random, in write transactions of 1,000 entries; in the store loaded at random, after closing and reopening it, reading them all at random in a single read transaction and then removing them all at random in write transactions of 1,000; and the size of the store in bytes that its information gives (P12) after each of the two loads. The report includes the operating system, the processor and the disk. Its results go in the closing report. |
 
+*Annotation of 2026-10-25, before executing this PRD: an operation through a handle of another transaction, also of one that has ended or of a read transaction used in a write, fails without effect with the misuse class and the transaction stays usable (exception to B1, annotated in the parent). Its precedence is that of a handle of a deleted tree (A7): after invalid size, it wins over everything else.*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:

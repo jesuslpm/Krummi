@@ -58,6 +58,10 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B9: el error de una apertura de un árbol borrado es árbol no encontrado, con el último nombre que tuvo el
   árbol (decisión A6).*
 - *B10: Listar los árboles devuelve una copia propia de la aplicación, no referencias (decisión A3).*
+- *B1 (excepción, decidida antes de ejecutar 5.1): mientras las transacciones se obtienen como valores (T1) y una
+  escritura tiene varias aperturas a la vez (B9), el compilador no puede impedir que una apertura se use en otra
+  transacción del mismo almacén, también después de terminar la suya. Esa operación falla sin efecto con la clase de
+  uso incorrecto y la transacción sigue utilizable. Que una apertura viva más que su almacén sigue sin compilar.*
 - *B9: abrir un árbol en modo Abrir o crear termina las referencias aunque el árbol exista, porque el compilador no
   sabe si lo creará (decisión A10).*
 - *AC-B18: la parte de fallos durante un cambio de estructura simula un fallo de T11 en cada punto en que la

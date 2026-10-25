@@ -49,6 +49,8 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 | A14 | **Prueba de compilación previa**: vale la que exige el padre antes de implementar 5.1 ([reparto](trees.prd.md#reparto-en-prd-hijos)). |
 | A15 | **Medición** (B12): el cambio incluye una medición reproducible, en Windows y en Linux, en un almacén en disco con confirmación durable. Con 1 millón de claves aleatorias de 16 bytes, las mismas para todas las cargas por una semilla fija, y valores de 100 bytes, mide: guardarlas en orden de clave en un almacén y, en otro, al azar, en escrituras de 1.000 entradas; en el almacén cargado al azar, tras cerrarlo y reabrirlo, leerlas todas al azar en una sola transacción de lectura y después quitarlas todas al azar en escrituras de 1.000; y el tamaño del almacén en bytes que da su información (P12) tras cada una de las dos cargas. El informe incluye el sistema operativo, el procesador y el disco. Sus resultados van en el informe de cierre. |
 
+*Anotación del 2026-10-25, antes de ejecutar este PRD: una operación a través de una apertura de otra transacción, también de una ya terminada o de una lectura usada en una escritura, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás.*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

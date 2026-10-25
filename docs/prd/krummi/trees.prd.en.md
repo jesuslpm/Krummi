@@ -57,6 +57,10 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B9: the error of a handle of a deleted tree is tree not found, with the last name the tree had (decision
   A6).*
 - *B10: listing the trees returns a copy owned by the application, not references (decision A3).*
+- *B1 (exception, decided before executing 5.1): while transactions are obtained as values (T1) and a write has
+  several handles at once (B9), the compiler cannot prevent a handle from being used in another transaction of the
+  same store, also after its own has ended. That operation fails without effect with the misuse class and the
+  transaction stays usable. A handle outliving its store still does not compile.*
 - *B9: opening a tree in Open or create mode ends the references even if the tree exists, because the compiler does
   not know whether it will create it (decision A10).*
 - *AC-B18: the part about failures during a structure change simulates a T11 failure at each point where the
