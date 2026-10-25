@@ -22,8 +22,9 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 pub const PAGE_SIZE: usize = 8192;
 /// [`PAGE_SIZE`] as a `u64`, for file offsets.
 pub const PAGE_SIZE_U64: u64 = PAGE_SIZE as u64;
-/// Format version written by this version of the engine (P5; `5` since the free-space map, F11).
-pub const FORMAT_VERSION: u32 = 5;
+/// Format version written by this version of the engine (P5; `5` since the free-space map, F11; `6` since the catalog
+/// and the trees, A13 of the trees and key operations PRD).
+pub const FORMAT_VERSION: u32 = 6;
 /// Identification mark at the start of `krummi.data` (P4). The `\r\n`, `\x1a` and `\n` bytes detect text-mode
 /// transfers that would corrupt the file, as in the PNG signature.
 pub const MARK: [u8; 16] = *b"\x89Krummi\r\n\x1a\n\0\0\0\0\0";
@@ -244,7 +245,7 @@ mod tests {
             read_header_pages(&pages),
             HeaderRead::Found(Header::new_store())
         );
-        assert_eq!(Header::new_store().format_version, 5);
+        assert_eq!(Header::new_store().format_version, 6);
     }
 
     #[test]

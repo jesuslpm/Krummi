@@ -6,7 +6,7 @@ use std::fs;
 use std::sync::{Arc, Barrier};
 
 use common::{child_open_and_hold, damage_byte, file_bytes, folder_snapshot, open, open_err};
-use krummi_pager::format::{FORMAT_VERSION, MARK, PAGE_SIZE};
+use krummi_pager::format::{FORMAT_VERSION, HEADER_PAGES, MARK, PAGE_SIZE};
 use krummi_pager::{DATA_FILE, ErrorKind, NEW_DATA_FILE, OpenOptions, Pager};
 
 const HEADER_A: usize = 64;
@@ -19,7 +19,7 @@ fn ac_p1_a_missing_folder_is_created_with_a_new_store() {
     let pager = open(&folder);
     let info = pager.info();
     assert_eq!(info.format_version, FORMAT_VERSION);
-    assert_eq!(info.format_version, 5);
+    assert_eq!(info.format_version, 6);
     assert_eq!(info.page_size, 8192);
     assert!(
         info.size_bytes <= 1_048_576 && info.size_bytes.is_multiple_of(8192),
@@ -224,12 +224,13 @@ fn ac_p8_one_damaged_header_copy_opens_and_two_are_damage() {
 }
 
 /// AC-F17 (F11 of the free-space PRD; earlier AC-E14): format `4`, the one before the free-space map, is a
-/// previous format; a new store has format `5`.
+/// previous format; a new store has the current format, `6` since the trees (A13 of the trees and key operations
+/// PRD).
 #[test]
-fn ac_f17_format_4_is_a_previous_format_and_new_stores_have_format_5() {
+fn ac_f17_format_4_is_a_previous_format_and_new_stores_have_the_current_format() {
     let tmp = tempfile::tempdir().unwrap();
     let pager = open(tmp.path());
-    assert_eq!(pager.info().format_version, 5);
+    assert_eq!(pager.info().format_version, 6);
     pager.close().unwrap();
     let data = tmp.path().join(DATA_FILE);
     common::rewrite_format_version(&data, 4);
@@ -237,10 +238,36 @@ fn ac_f17_format_4_is_a_previous_format_and_new_stores_have_format_5() {
     match open_err(tmp.path()) {
         krummi_pager::Error::DifferentFormat {
             found, expected, ..
-        } => assert_eq!((found, expected), (4, 5)),
+        } => assert_eq!((found, expected), (4, 6)),
         other => panic!("expected a different format, got {other:?}"),
     }
     assert_eq!(file_bytes(&data), before);
+}
+
+/// AC-A18 (A13 of the trees and key operations PRD, AC-B12): a store of format `5`, the one before the catalog and
+/// the trees, is of a previous format, empty or not, and trying to open it leaves it byte-identical.
+#[test]
+fn ac_a18_format_5_is_a_previous_format_even_when_empty() {
+    for written in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut pager = open(tmp.path());
+        if written {
+            pager
+                .write_page(HEADER_PAGES, b"a page of format 5")
+                .unwrap();
+        }
+        pager.close().unwrap();
+        let data = tmp.path().join(DATA_FILE);
+        common::rewrite_format_version(&data, 5);
+        let before = file_bytes(&data);
+        match open_err(tmp.path()) {
+            krummi_pager::Error::DifferentFormat {
+                found, expected, ..
+            } => assert_eq!((found, expected), (5, 6), "written {written}"),
+            other => panic!("written {written}: expected a different format, got {other:?}"),
+        }
+        assert_eq!(file_bytes(&data), before, "written {written}");
+    }
 }
 
 #[test]
@@ -248,7 +275,7 @@ fn ac9_other_format_versions_are_refused_without_touching_the_store() {
     let tmp = tempfile::tempdir().unwrap();
     open(tmp.path()).close().unwrap();
     let data = tmp.path().join(DATA_FILE);
-    for version in [0, 2, 4, FORMAT_VERSION + 1] {
+    for version in [0, 2, 4, 5, FORMAT_VERSION + 1] {
         common::rewrite_format_version(&data, version);
         let before = file_bytes(&data);
         match open_err(tmp.path()) {

@@ -10,7 +10,7 @@ fn a_store_is_created_inspected_closed_and_reopened() {
     let info = store.info();
     assert_eq!(
         (info.format_version, info.page_size, info.temporary),
-        (5, 8192, false)
+        (6, 8192, false)
     );
     assert_eq!(info.page_count * 8192, info.size_bytes);
     assert_eq!(
@@ -36,7 +36,7 @@ fn a_temporary_store_reports_itself_as_temporary() {
     assert!(info.temporary);
     assert_eq!(
         (info.format_version, info.page_size, info.max_size),
-        (5, 8192, Some(2 << 20))
+        (6, 8192, Some(2 << 20))
     );
     store.close().unwrap();
 }
