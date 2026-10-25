@@ -100,7 +100,7 @@ Log.
 | T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
 | T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
 | T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | done | catalog and public API commits |
-| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf; RDD 2 fixes R1-002, R2-002, R2-003 and the `encode` branch | delegated (context backstop) | pending | |
+| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf; RDD 2 fixes R1-002, R2-002, R2-003 and the `encode` branch | delegated (context backstop) | done | `4735a47`, `32d4d04` |
 | T5 | Measurement (A15): S19 | inline | pending | |
 | T6 | Docs, checks, verify, RDD, report | inline | pending | |
 
@@ -188,3 +188,18 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   (WARNING) → answered by L9: the failure reproduces on `main`. Reviewed boundary: `9e3ad1b`.
 - **L11** (2026-10-25, user, during T4): "Una cosa no fusiones con main automáticamente, voy a hacer una revisión
   independiente con Codex." The closing leaves `feat/trees-keys` unmerged, with the report, for the user's review.
+- **L12** T4 (ODD Worker), two commits: `4735a47` fixes (every node read through a validation of kind, level,
+  cell count, offsets, lengths and tiling, plus a child-level guard that stops loops → damage with the page number,
+  RDD 1 R1-001; catalog entries decoded as `Option` → damage, RDD 2 R1-002; `encode` branch `unreachable!`; an
+  emptied leaf is freed with its separator and an empty parent reports upward, RDD 1 R3-empty-nonroot-leaf; R2-002 and
+  R2-003 comments) and `32d4d04` tests (S12 `ac_a12_a_damaged_page_of_a_tree`, S15
+  `ac_a15_deleting_or_emptying_a_tree_gives_its_pages_back`, S16 `ac_a16_crashes_during_a_commit_of_catalog_and_key_operations`,
+  S33 `ac_b17_a_read_keeps_its_snapshot_while_a_write_changes_the_height`, S34
+  `ac_b18_crashes_during_a_commit_with_splits_and_merges` and `ac_b18_a_failure_at_a_sample_of_page_operations_...`
+  with a test-only page fault hook, S35 `ac10_sample_of_altered_bytes_with_trees`, step 397). RED observed for every
+  fix (13 corrupt layouts panicked or returned wrong data; unknown kind byte panicked; an empty non-root leaf
+  reached); the acceptance tests passed at once (no defect found). Acceptance runs, once each: AC10 every byte of a
+  128 KiB store with trees, 6,477.5 s on Windows (opening a just-written file costs ~35 ms here); crashes through
+  the close, 32.3 s; a failure at every page operation, 25.8 s. Worker checks: fmt, clippy, `cargo test --workspace`
+  283 passed, 0 failed, 9 ignored (3 min 19 s). Parent spot check `cargo test -p krummi-tree`: 10 passed. T6: README
+  describes trees; CI gets a step for the tree sweeps (60 min limit).

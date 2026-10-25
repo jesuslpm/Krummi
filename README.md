@@ -7,16 +7,17 @@ Icelandic nickname for the raven.
 Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.md)), module 2, the
 **transactions** ([PRD](docs/prd/krummi/transactions.prd.md)), and module 3, the **journal and recovery**
 ([PRD](docs/prd/krummi/journal.prd.md)), with grouped and direct journal writes
-([PRD](docs/prd/krummi/journal-group-commit.prd.md)), and module 4, **free space**
-([PRD](docs/prd/krummi/free-space.prd.md)). An application can create, open, inspect and close stores, on disk or in
+([PRD](docs/prd/krummi/journal-group-commit.prd.md)), module 4, **free space**
+([PRD](docs/prd/krummi/free-space.prd.md)), and the first part of module 5, **trees and key operations**
+([module PRD](docs/prd/krummi/trees.prd.md), [PRD](docs/prd/krummi/trees-keys.prd.md)). An application can create, open, inspect and close stores, on disk or in
 memory, and open read transactions from any number of threads and one write transaction at a time, which the others
 wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
-crash recovers it. Storing data in transactions arrives with the data structures of the next modules. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
+crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
 Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
 
 ```rust
 use std::time::Duration;
-use krummi::{Store, StoreOptions};
+use krummi::{OpenMode, Store, StoreOptions, TreeKind};
 
 let store = Store::open("data/orders", &StoreOptions::default())?;
 println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary, free pages
@@ -25,13 +26,17 @@ let write = store.write_with_timeout(Duration::from_secs(5))?; // or store.write
 write.commit()?; // durable when it returns, and visible to the reads opened from now on
 store.write()?.commit_deferred()?; // returns at once; durable, and visible to reads, a disk write later
 store.make_durable()?; // waits until every commit made so far is durable
+let mut write = store.write()?;
+let tree = write.open_tree_with("orders", TreeKind::Normal, OpenMode::OpenOrCreate)?; // like .NET's FileMode
+write.set(&tree, b"order-1", b"two ravens")?; // like a Dictionary: set, try_add, get, remove, len
+write.commit()?;
 drop(read);
 store.close()?; // moves everything into krummi.data and removes the journal
 ```
 
 A store is a folder with one file, `krummi.data`, made of 8 KiB pages. While it is open, the folder may also hold
 the journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a clean close removes them. Only one
-process can have it open at a time. The `krummi` crate is the public API; `krummi-pager` and `krummi-tx` are internal to the engine, and
+process can have it open at a time. The `krummi` crate is the public API; `krummi-pager`, `krummi-tx` and `krummi-tree` are internal to the engine, and
 `krummi-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
 
 As in Voron, a write transaction changes copies of its pages and every page keeps its number. A commit enters the
@@ -56,6 +61,14 @@ map pages travel through the journal like any other page; the engine reads them 
 and the store information reports the free pages without reading them. `cargo run --release -p krummi-tx --example
 free_space_timing` measures reservations on a store of 1 million pages.
 
+Trees are B+ trees of slotted 8 KiB pages, with keys of 1 to 2,048 bytes in byte order and, for now, values of up
+to 1,024 bytes. A catalog, itself a B+ tree, maps each tree's name to its identity, kind, root page and number of
+entries; it takes no page until the first tree is created. A changed node keeps its page number, so a write needs no
+path copying, and reads return values without copying them. Opening and creating follow .NET's `FileMode` (open,
+create new, open or create, create or empty, empty), and the key operations follow a .NET `Dictionary`. A page whose
+layout is inconsistent is reported as damage, never trusted. `cargo run --release -p krummi --example tree_timing`
+measures storing, reading and removing 1 million entries.
+
 ## Layout
 
 | Path | Contents |
@@ -63,6 +76,7 @@ free_space_timing` measures reservations on a store of 1 million pages.
 | `crates/krummi/` | Public API of the engine |
 | `crates/krummi-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
 | `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API, free space |
+| `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, and the catalog of named trees |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
@@ -88,13 +102,14 @@ GitHub Actions runs these checks on Linux and Windows on every push and pull req
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), plus the full AC10 sweep.
 
 The suite runs a sample of the every-byte damage sweep (AC10), for the Pager's pages and for a store written through
-transactions, with and without free space. The full sweeps reopen a store 65,536 times each and are an acceptance step that CI runs on both
+transactions, with and without free space, and for a store with trees. The full sweeps reopen a store 65,536 times each and are an acceptance step that CI runs on both
 systems. Locally, an antivirus that scans every modified file can make them impractically slow:
 
 ```bash
 cargo test -p krummi-pager --test pages -- --ignored ac10
 cargo test -p krummi-tx --test commit -- --ignored ac10
 cargo test -p krummi-tx --test free_space -- --ignored ac10
+cargo test -p krummi --test tree_integrity -- --ignored ac10
 ```
 
 On Windows, an administrator can exclude one folder from Microsoft Defender while measuring, and point the tests'
