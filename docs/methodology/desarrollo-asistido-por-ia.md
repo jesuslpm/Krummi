@@ -589,8 +589,9 @@ El tamaño de la tarea o el número de archivos, por sí solos, nunca justifican
 - Aceptación sobre datos reales cuando el PRD la define.
 - **Línea de riesgo** de todo cambio de código: `Riesgo: ítem N (motivo)` o `Riesgo: ninguno`.
 - **Informe de cierre** en el repositorio (sección 3).
-- **Merge** a `main` después de la verificación completa. El push, los PR y el merge siguen siendo decisiones
-  del usuario según la política del repositorio.
+- **Sin merge automático**: la ejecución termina en su rama, verificada y con su informe, sin fusionar; el
+  usuario la revisa primero (por ejemplo, con una revisión independiente) y pide el merge a `main`. El push, los
+  PR y el merge siguen siendo decisiones del usuario según la política del repositorio.
 
 ---
 

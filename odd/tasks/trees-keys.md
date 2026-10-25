@@ -186,3 +186,5 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   RDD 1's R1-001). R2-002 (SUGGESTION) the tests repeat the size limits → T4 adds a comment that they pin the spec.
   R2-003 (SUGGESTION) the fault loop's 8 writes need a reason → T4 comment. R3-unresolved-workspace-test-failures
   (WARNING) → answered by L9: the failure reproduces on `main`. Reviewed boundary: `9e3ad1b`.
+- **L11** (2026-10-25, user, during T4): "Una cosa no fusiones con main automáticamente, voy a hacer una revisión
+  independiente con Codex." The closing leaves `feat/trees-keys` unmerged, with the report, for the user's review.

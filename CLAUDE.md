@@ -109,8 +109,9 @@ Claude ODD assignment table into the global `CLAUDE.md`.
 
 - Write the closing report with the `closing-report` skill and save it in the repository next to the
   execution document (for ODD, `odd/tasks/<feature>-report.md`).
-- Merge the feature branch into `main` after full verification (in a worktree copy, see *Working in a
-  worktree*). Do not push until the user asks.
+- **Never merge automatically.** Close the run on its feature branch, fully verified and with its report, and
+  leave it unmerged: the user reviews it first (for example with an independent review). Merge into `main` only
+  when the user asks (in a worktree copy, see *Working in a worktree*). Do not push until the user asks.
 
 ## Working in a worktree
 
@@ -119,8 +120,8 @@ in the main copy (`C:\projects\Krummi`) it is a folder. Create, list, merge and 
 `worktree` skill. Guide: `docs/worktrees.md`.
 
 - **Merge into the base, only when asked.** In a copy, the developer decides what is merged and what is
-  discarded, so every rule that says "merge into `main`" (the Closing section above, the `vibe-coding` skill)
-  becomes: close the run without merging, and merge into the copy's base only when the developer says
+  discarded, so the run closes without merging, as in the main copy (Closing section above), and merges into
+  the copy's base only when the developer says
   `Fusiona el cambio en la base`, through the worktree merge (`worktree` skill), never with git by hand.
   Nothing is pushed.
 - **Acceptance work folder.** Acceptance runs and generated datasets use the copy's `work` folder (ignored by

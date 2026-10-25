@@ -112,7 +112,8 @@ vibe coding instead of a lightweight SDD.
 15. Write the closing report with the `closing-report` skill, including the acceptance criteria coverage
     table, the reuse map outcome (reused, extended, extracted, new), the RDD reviews and their findings (or
     why there were none), the defaults chosen without asking and the pending items. Commit it.
-16. Merge only if the repository rules say so (in this project: into `main` after full verification).
+16. Merge only if the repository rules say so (in this project: never automatically; the branch stays
+    unmerged until the user asks).
 
 ## Output Contract
 
