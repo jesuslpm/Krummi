@@ -67,6 +67,10 @@ contain a Krummi store (D10, decision R6).*
 *Annotation of 2026-10-24 to D7: with free space, the current format version becomes `5` (decision F11 of
 [free-space.prd.en.md](free-space.prd.en.md)).*
 
+*Annotation of 2026-10-25 to D7: with the tree catalog, the current format version becomes `6` (decision A13 of [trees-keys.prd.en.md](trees-keys.prd.en.md)).*
+
+*Annotation of 2026-10-25 to D11: listing the trees returns a copy owned by the application, not references to engine memory (decision A3 of [trees-keys.prd.en.md](trees-keys.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

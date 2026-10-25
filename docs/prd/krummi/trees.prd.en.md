@@ -50,6 +50,22 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 | B11 | **Limits**: Krummi imposes no artificial limits on the number of trees or entries. That does not remove the physical limits, the maximum size of the store (P10), memory (P13) and disk (G7), nor the representation limits of the numbers with which the format counts pages and entries, which the format chooses so that they are not reached before the physical ones; if an operation reached one, it would fail without effect with the maximum size class and would follow T11. An operation with valid sizes that does not fit in the physical limits fails with its class and follows T11. The store information (P12) adds no data in this module. |
 | B12 | **Format and measurement**: the format version goes up by exactly 1 with each incompatible change of the format (D7 of the parent), not for adding persistent data. A change is incompatible when an engine of the previous version could misread, modify without respecting, or damage a store with the new format, or when the new engine cannot safely open one of the previous version; when in doubt, it is treated as incompatible. Each child PRD that changes what is stored on disk declares whether its change is incompatible and why; if it is, a store of the previous version, even if empty, is of an earlier format, as in F11. Each child PRD decides whether its change includes a reproducible measurement, like F13, with no threshold (D5 of the parent). |
 
+*Annotations of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)):*
+
+- *B7: the public validation errors of the module also include tree not found and tree already exists, with
+  the precedence of A7 (decisions A6 and A7).*
+- *B9: the error of a handle of a deleted tree is tree not found, with the last name the tree had (decision
+  A6).*
+- *B10: listing the trees returns a copy owned by the application, not references (decision A3).*
+- *B9: opening a tree in Open or create mode ends the references even if the tree exists, because the compiler does
+  not know whether it will create it (decision A10).*
+- *AC-B18: the part about failures during a structure change simulates a T11 failure at each point where the
+  operation reserves, reads or frees a page, also after several pages have been modified, in splits and merges that
+  propagate through several levels. Committing then fails with the class of the first failure and applies nothing,
+  and after aborting, or after that failed commit, the tree, the catalog and the number of entries are as before and
+  a new write reads and modifies them without error. The tests use knowledge of the implementation to reach each
+  point.*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

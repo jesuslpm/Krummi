@@ -103,6 +103,12 @@ reads end.*
 - *T11: those public validation errors are not among its failures and do not prevent committing; T11 failures and
   internal misuse still invalidate the transaction (decision B7).*
 
+*Annotations of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)):*
+
+- *T10 and T11: operations that fail with tree not found or tree already exists are not changes and do not
+  prevent committing (decisions A6 and A10).*
+- *Whole document: the current format version becomes `6` (decision A13).*
+
 ### Starting state
 
 Verified on 2026-10-22:

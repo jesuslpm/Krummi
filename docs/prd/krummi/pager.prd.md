@@ -84,6 +84,8 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 - *Fila de la página que falta porque el archivo se recortó con el almacén cerrado: vale también para una página del
   mapa de espacio libre (decisión F3).*
 
+*Anotación del 2026-10-25 desde los árboles y operaciones por clave ([trees-keys.prd.md](trees-keys.prd.md)): P5, la versión de formato vigente pasa a ser `6`; un almacén de formato `5` es de formato anterior (decisión A13).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

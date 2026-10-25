@@ -57,6 +57,8 @@ one of T3.
 *Annotation of 2026-10-24 from free space ([free-space.prd.en.md](free-space.prd.en.md)): E15, the current format
 version becomes `5`; a store of format `4` is of an older format (decision F11).*
 
+*Annotation of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)): E15, the current format version becomes `6`; a store of format `5` is of an older format (decision A13).*
+
 ### Starting state
 
 Verified on 2026-10-23 in the code:

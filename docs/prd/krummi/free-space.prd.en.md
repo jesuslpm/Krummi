@@ -50,6 +50,8 @@ has ever been used; and the **store-owned pages** are those of the header, the m
 | F13 | **Measurement**: the change includes a reproducible measurement, on Windows and on Linux, of the time to reserve a page and a range of 16, 256 and 4,096 pages in a store of at least 1 million pages with half of them freed in loose gaps, and of the time to open that store. It sets no threshold (D5 of the parent); its results go in the closing report. |
 | F14 | **Error data** (D8 of the parent, T18): the errors of this module carry the same data as those of T18, the store folder or that it is temporary; the damage one also carries the number of the damaged map page. |
 
+*Annotation of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)): F11, the current format version becomes `6`; a store of format `5` is of an older format (decision A13).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the public code of Voron v6.0:

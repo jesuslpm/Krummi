@@ -58,6 +58,8 @@ la de T3.
 *Anotación del 2026-10-24 desde el espacio libre ([free-space.prd.md](free-space.prd.md)): E15, la versión de
 formato vigente pasa a ser `5`; un almacén de formato `4` es de formato anterior (decisión F11).*
 
+*Anotación del 2026-10-25 desde los árboles y operaciones por clave ([trees-keys.prd.md](trees-keys.prd.md)): E15, la versión de formato vigente pasa a ser `6`; un almacén de formato `5` es de formato anterior (decisión A13).*
+
 ### Estado de partida
 
 Verificado el 2026-10-23 en el código:

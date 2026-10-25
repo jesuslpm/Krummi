@@ -85,6 +85,8 @@ from earlier rules is declared in its decisions and annotated in the affected do
   with the size of `krummi.data` (decision F10).*
 - *J3: the current format version becomes `5`; a store of format `4` is of an older format (decision F11).*
 
+*Annotation of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)): J3, the current format version becomes `6`; a store of format `5` is of an older format (decision A13).*
+
 ### Starting state
 
 Verified on 2026-10-22:

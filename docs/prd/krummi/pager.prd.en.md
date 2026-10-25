@@ -82,6 +82,8 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 - *Row of the page that is missing because the file was truncated with the store closed: it also holds for a page of
   the free-space map (decision F3).*
 
+*Annotation of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)): P5, the current format version becomes `6`; a store of format `5` is of an older format (decision A13).*
+
 ### Starting state
 
 Verified on 2026-10-22:

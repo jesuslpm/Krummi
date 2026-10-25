@@ -101,6 +101,12 @@ espacio se recupera al terminar las lecturas.*
 - *T11: esos errores de validación pública no están entre sus fallos y no impiden confirmar; los fallos de T11 y los
   usos incorrectos internos siguen invalidando la transacción (decisión B7).*
 
+*Anotaciones del 2026-10-25 desde los árboles y operaciones por clave ([trees-keys.prd.md](trees-keys.prd.md)):*
+
+- *T10 y T11: las operaciones que fallan con árbol no encontrado o árbol ya existente no son cambios y no
+  impiden confirmar (decisiones A6 y A10).*
+- *Todo el documento: la versión de formato vigente pasa a ser `6` (decisión A13).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

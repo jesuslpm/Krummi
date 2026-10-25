@@ -51,6 +51,8 @@ encabezado, la de metadatos y las del mapa.
 | F13 | **Medición**: el cambio incluye una medición reproducible, en Windows y en Linux, del tiempo de reservar una página y un rango de 16, 256 y 4.096 páginas en un almacén de al menos 1 millón de páginas con la mitad de ellas liberadas en huecos sueltos, y del tiempo de abrir ese almacén. No fija ningún umbral (D5 del padre); sus resultados van en el informe de cierre. |
 | F14 | **Datos de los errores** (D8 del padre, T18): los errores de este módulo llevan los mismos datos que los de T18, la carpeta del almacén o que es temporal; el de daño lleva además el número de la página del mapa dañada. |
 
+*Anotación del 2026-10-25 desde los árboles y operaciones por clave ([trees-keys.prd.md](trees-keys.prd.md)): F11, la versión de formato vigente pasa a ser `6`; un almacén de formato `5` es de formato anterior (decisión A13).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en el código público de Voron v6.0:

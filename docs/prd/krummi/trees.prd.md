@@ -51,6 +51,22 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 | B11 | **Límites**: Krummi no impone límites artificiales al número de árboles ni de entradas. Eso no elimina los límites físicos, el tamaño máximo del almacén (P10), la memoria (P13) y el disco (G7), ni los de representación de los números con que el formato cuenta páginas y entradas, que el formato elige para que no se alcancen antes que los físicos; si una operación llegara a uno, fallaría sin efecto con la clase de tamaño máximo y seguiría T11. Una operación con tamaños válidos que no cabe en los límites físicos falla con su clase y sigue T11. La información del almacén (P12) no añade datos en este módulo. |
 | B12 | **Formato y medición**: la versión de formato sube exactamente 1 con cada cambio incompatible del formato (D7 del padre), no por añadir datos persistentes. Un cambio es incompatible cuando un motor de la versión anterior podría leer mal, modificar sin respetar o dañar un almacén con el formato nuevo, o cuando el motor nuevo no puede abrir sin riesgo uno de la versión anterior; ante la duda, se trata como incompatible. Cada PRD hijo que cambia lo que se guarda en disco declara si su cambio es incompatible y por qué; si lo es, un almacén de la versión anterior, aunque esté vacío, es de formato anterior, como en F11. Cada PRD hijo decide si su cambio incluye una medición reproducible, como F13, sin umbral (D5 del padre). |
 
+*Anotaciones del 2026-10-25 desde los árboles y operaciones por clave ([trees-keys.prd.md](trees-keys.prd.md)):*
+
+- *B7: los errores de validación pública del módulo incluyen también árbol no encontrado y árbol ya existente,
+  con la precedencia de A7 (decisiones A6 y A7).*
+- *B9: el error de una apertura de un árbol borrado es árbol no encontrado, con el último nombre que tuvo el
+  árbol (decisión A6).*
+- *B10: Listar los árboles devuelve una copia propia de la aplicación, no referencias (decisión A3).*
+- *B9: abrir un árbol en modo Abrir o crear termina las referencias aunque el árbol exista, porque el compilador no
+  sabe si lo creará (decisión A10).*
+- *AC-B18: la parte de fallos durante un cambio de estructura simula un fallo de T11 en cada punto en que la
+  operación reserva, lee o libera una página, también después de haber modificado varias, en divisiones y fusiones
+  que se propagan por varios niveles. Confirmar falla entonces con la clase del primer fallo y no aplica nada, y tras
+  abortar, o tras esa confirmación fallida, el árbol, el catálogo y el número de entradas están como antes y una
+  escritura nueva los lee y modifica sin error. Las pruebas usan el conocimiento de la implementación para alcanzar
+  cada punto.*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

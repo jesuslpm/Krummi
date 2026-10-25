@@ -66,6 +66,10 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 *Anotación del 2026-10-24 a D7: con el espacio libre, la versión de formato vigente pasa a ser `5` (decisión F11 de
 [free-space.prd.md](free-space.prd.md)).*
 
+*Anotación del 2026-10-25 a D7: con el catálogo de árboles, la versión de formato vigente pasa a ser `6` (decisión A13 de [trees-keys.prd.md](trees-keys.prd.md)).*
+
+*Anotación del 2026-10-25 a D11: Listar los árboles devuelve una copia propia de la aplicación, no referencias a memoria del motor (decisión A3 de [trees-keys.prd.md](trees-keys.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
