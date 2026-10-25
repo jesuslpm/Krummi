@@ -101,8 +101,8 @@ Log.
 | T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
 | T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | done | catalog and public API commits |
 | T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf; RDD 2 fixes R1-002, R2-002, R2-003 and the `encode` branch | delegated (context backstop) | done | `4735a47`, `32d4d04` |
-| T5 | Measurement (A15): S19 | inline | pending | |
-| T6 | Docs, checks, verify, RDD, report | inline | pending | |
+| T5 | Measurement (A15): S19 | inline | done | `5c0ea31` |
+| T6 | Docs, checks, verify, RDD, report | inline | done | `1138169`, report |
 
 Route evidence: no parallel units (each task builds on the previous one); the writer trigger that fires is the
 long-session backstop (the parent context already holds both PRD sessions), so each task goes to one bounded ODD
@@ -234,3 +234,6 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   `BTreeMap` model with random multi-handle operations over 6 seeds; a real format-5 store built at `2702406`
   rejected and unchanged. Checks: fmt, clippy, `cargo test --workspace` 284 passed, 0 failed, 9 ignored. Scratch
   removed.
+- **L17** Closing: last-slice RDD review (`32d4d04..5ffa33a`) approved, one SUGGESTION left pending; final checks
+  fmt, clippy and `cargo test --workspace` (284 passed, 0 failed, 9 ignored); report
+  [trees-keys-report.md](trees-keys-report.md). Not merged (L11).
