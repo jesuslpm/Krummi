@@ -1,6 +1,6 @@
 //! Trees and key operations through the public API (Trees and key operations PRD: A1–A12, the 2026-10-25
-//! annotation; AC-A1–AC-A11, AC-A13, AC-A14, AC-A17; Trees PRD: AC-B1–AC-B6, AC-B9, AC-B10, AC-B13, AC-B14; root
-//! PRD: AC20).
+//! annotation; AC-A1–AC-A15, AC-A17; Trees PRD: AC-B1–AC-B6, AC-B9, AC-B10, AC-B13, AC-B14, AC-B17; root PRD:
+//! AC20). Crashes, power cuts and altered bytes are in `tree_integrity.rs`.
 //!
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the
 //! store's files, which run on disk only. What must not compile is in `trees_compile.rs`.
@@ -14,11 +14,13 @@ use krummi_tree::catalog;
 use krummi_tx::{Engine, OpenOptions as EngineOptions};
 
 use krummi::{
-    Error, ErrorKind, OpenMode, SizeSubject, Store, StoreOptions, TreeKind, WriteTransaction,
-    WriteTree,
+    Error, ErrorKind, OpenMode, ReadTransaction, ReadTree, SizeSubject, Store, StoreOptions,
+    TreeKind, WriteTransaction, WriteTree,
 };
 
 const NORMAL: TreeKind = TreeKind::Normal;
+// The size limits are written out on purpose instead of taken from the engine: they pin the PRDs' limits (B4, B5,
+// A11), so a change in the engine's constants fails these tests.
 const MAX_NAME: usize = 1024;
 const MAX_KEY: usize = 2048;
 const MAX_VALUE: usize = 1024;
@@ -154,20 +156,34 @@ fn files_change(folder: &Path, change: impl FnOnce(&Store)) -> bool {
     files(folder) != before
 }
 
-/// The page of the leaf where `key` is or would be in the closed store: in the tree `tree`, or in the catalog when
-/// `tree` is `None` (then `key` is a tree name). It looks through the engine's internals, which opening and
-/// closing without changes leave as they were.
-fn leaf_page(folder: &Path, tree: Option<&str>, key: &[u8]) -> u64 {
+/// Runs `look` on a read of the closed store through the engine's internals, which opening and closing without
+/// changes leave as they were.
+fn inspect<T>(folder: &Path, look: impl FnOnce(&krummi_tx::ReadTransaction<'_>) -> T) -> T {
     let engine = Engine::open(folder, &EngineOptions::default()).unwrap();
     let read = engine.read().unwrap();
-    let root = match tree {
-        Some(name) => catalog::lookup(&read, name).unwrap().unwrap().root,
-        None => read.slot(catalog::ROOT_SLOT).unwrap(),
-    };
-    let page = krummi_tree::leaf_of(&read, root, key).unwrap();
+    let seen = look(&read);
     drop(read);
     engine.close().unwrap();
-    page
+    seen
+}
+
+/// The page of the leaf where `key` is or would be in the closed store: in the tree `tree`, or in the catalog when
+/// `tree` is `None` (then `key` is a tree name).
+fn leaf_page(folder: &Path, tree: Option<&str>, key: &[u8]) -> u64 {
+    inspect(folder, |read| {
+        let root = match tree {
+            Some(name) => catalog::lookup(read, name).unwrap().unwrap().root,
+            None => read.slot(catalog::ROOT_SLOT).unwrap(),
+        };
+        krummi_tree::leaf_of(read, root, key).unwrap()
+    })
+}
+
+/// The root page of the tree `tree` in the closed store.
+fn root_page(folder: &Path, tree: &str) -> u64 {
+    inspect(folder, |read| {
+        catalog::lookup(read, tree).unwrap().unwrap().root
+    })
 }
 
 /// Flips a byte of `page` in the closed store's data file, so that its checksum fails.
@@ -716,6 +732,132 @@ fn ac_a11_ten_alternating_replacements() {
     });
 }
 
+/// AC-A12 (A9, T11): with a damaged page of a tree, opening it, asking whether it exists, listing and renaming it
+/// without overwriting do not fail; reading an entry of that page fails with the damage class and the page number,
+/// again when repeated; and a write that deletes it, empties it, overwrites it with Renombrar or stores in that page
+/// and fails with damage cannot be committed: its commit fails with damage and applies nothing. A damaged leaf
+/// shows reading and storing; a damaged root, which deleting, emptying and overwriting read (D4), the rest.
+#[test]
+fn ac_a12_a_damaged_page_of_a_tree() {
+    let key = |i: usize| long_key(i, 1000);
+    // A closed store with a tree of several levels whose page `page_of` gives is damaged, and that page.
+    let damaged_store = |page_of: &dyn Fn(&Path) -> u64| {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = open(tmp.path());
+        let mut write = store.write().unwrap();
+        let tree = create(&mut write, "t");
+        for i in 0..60 {
+            write.set(&tree, &key(i), b"value").unwrap();
+        }
+        let other = create(&mut write, "other");
+        write.set(&other, b"k", b"v").unwrap();
+        write.commit().unwrap();
+        store.close().unwrap();
+        let page = page_of(tmp.path());
+        damage(tmp.path(), page);
+        (tmp, page)
+    };
+    // Opening, Existe, Listar and the count do not fail, and nothing changed.
+    let unchanged = |store: &Store, name: &str| {
+        let read = store.read().unwrap();
+        let mut list: Vec<String> = read
+            .list_trees()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.0)
+            .collect();
+        list.sort();
+        assert_eq!(list, ["other", name]);
+        assert!(read.tree_exists(name).unwrap());
+        let tree = read.open_tree(name, NORMAL).unwrap();
+        assert_eq!(read.len(&tree).unwrap(), 60);
+        let other = read.open_tree("other", NORMAL).unwrap();
+        assert_eq!(read.len(&other).unwrap(), 1);
+        assert_eq!(read.get(&other, b"changed").unwrap(), None);
+    };
+
+    // A damaged leaf: reading or storing in it fails, also in a write, which then cannot be committed.
+    let (tmp, page) = damaged_store(&|folder| leaf_page(folder, Some("t"), &key(30)));
+    let store = open(tmp.path());
+    unchanged(&store, "t");
+    let read = store.read().unwrap();
+    let tree = read.open_tree("t", NORMAL).unwrap();
+    for _ in 0..2 {
+        assert_eq!(damaged_page(read.get(&tree, &key(30)).unwrap_err()), page);
+    }
+    assert_eq!(
+        read.get(&tree, &key(0)).unwrap(),
+        Some(&b"value"[..]),
+        "another leaf"
+    );
+    drop(read);
+    let mut write = store.write().unwrap();
+    let other = write.open_tree("other", NORMAL).unwrap();
+    write.set(&other, b"changed", b"x").unwrap();
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    assert!(write.tree_exists("t").unwrap());
+    assert_eq!(write.list_trees().unwrap().len(), 2);
+    assert_eq!(write.len(&tree).unwrap(), 60);
+    for _ in 0..2 {
+        assert_eq!(damaged_page(write.get(&tree, &key(30)).unwrap_err()), page);
+    }
+    let error = write.set(&tree, &key(30), b"new").unwrap_err();
+    assert_eq!(damaged_page(error), page);
+    assert_eq!(damaged_page(write.commit().unwrap_err()), page, "T11");
+    unchanged(&store, "t");
+    let mut write = store.write().unwrap();
+    write.rename_tree("t", "t", false).unwrap();
+    write.rename_tree("t", "renamed", false).unwrap();
+    write.commit().unwrap();
+    unchanged(&store, "renamed");
+    let read = store.read().unwrap();
+    let tree = read.open_tree("renamed", NORMAL).unwrap();
+    assert_eq!(damaged_page(read.get(&tree, &key(30)).unwrap_err()), page);
+    drop(read);
+    store.close().unwrap();
+
+    // A damaged root: deleting, emptying and overwriting the tree fail, and the write cannot be committed.
+    let (tmp, page) = damaged_store(&|folder| root_page(folder, "t"));
+    let store = open(tmp.path());
+    unchanged(&store, "t");
+    let read = store.read().unwrap();
+    let tree = read.open_tree("t", NORMAL).unwrap();
+    for _ in 0..2 {
+        assert_eq!(damaged_page(read.get(&tree, &key(0)).unwrap_err()), page);
+    }
+    drop(read);
+    for operation in [
+        "delete",
+        "create or empty",
+        "empty",
+        "overwrite with rename",
+    ] {
+        let mut write = store.write().unwrap();
+        let other = write.open_tree("other", NORMAL).unwrap();
+        write.set(&other, b"changed", b"x").unwrap();
+        let error = match operation {
+            "delete" => write.delete_tree("t").unwrap_err(),
+            "create or empty" => write
+                .open_tree_with("t", NORMAL, OpenMode::CreateOrEmpty)
+                .err()
+                .unwrap(),
+            "empty" => write
+                .open_tree_with("t", NORMAL, OpenMode::Empty)
+                .err()
+                .unwrap(),
+            _ => write.rename_tree("other", "t", true).unwrap_err(),
+        };
+        assert_eq!(damaged_page(error), page, "{operation}");
+        let error = write.commit().unwrap_err();
+        assert_eq!(damaged_page(error), page, "{operation}: T11");
+        unchanged(&store, "t");
+    }
+    let mut write = store.write().unwrap();
+    write.rename_tree("t", "renamed", false).unwrap();
+    write.commit().unwrap();
+    unchanged(&store, "renamed");
+}
+
 #[test]
 fn ac_a13_precedence() {
     stores(|store, folder| {
@@ -817,6 +959,55 @@ fn ac_a14_a_new_store_takes_no_page_for_the_catalog() {
         assert!(!write.tree_exists("t").unwrap());
         write.commit().unwrap();
         assert_eq!(store.info(), info, "looking at the catalog takes no page");
+    });
+}
+
+/// The pages in use: the pages of the store minus its free pages, as its information gives them.
+fn in_use(store: &Store) -> u64 {
+    let info = store.info();
+    info.page_count - info.free_pages
+}
+
+/// AC-A15 (A2, A3, F10, F12): in a store with a tree, within one region of free space, creating, filling over
+/// several pages and levels, committing, deleting and committing a tree twice leaves the same pages in use after
+/// both deletions, and those of before the first cycle, since the catalog keeps its only page (its entries are
+/// small); and a tree filled the same way and emptied takes as many pages as when it was created empty. A commit
+/// is durable when it returns, and a temporary store has its pages then.
+#[test]
+fn ac_a15_deleting_or_emptying_a_tree_gives_its_pages_back() {
+    let fill = |write: &mut WriteTransaction<'_>, tree: &WriteTree<'_>| {
+        for i in 0..60 {
+            write.set(tree, &long_key(i, MAX_KEY), &[7; 100]).unwrap();
+        }
+    };
+    stores(|store, _| {
+        commit_tree(store, "a", &[(b"k", b"v")]);
+        let before = in_use(store);
+        let mut after_deleting = Vec::new();
+        for _ in 0..2 {
+            let mut write = store.write().unwrap();
+            let tree = create(&mut write, "x");
+            fill(&mut write, &tree);
+            write.commit().unwrap();
+            assert!(in_use(store) > before + 40, "several pages and levels");
+            let mut write = store.write().unwrap();
+            write.delete_tree("x").unwrap();
+            write.commit().unwrap();
+            after_deleting.push(in_use(store));
+        }
+        assert_eq!(after_deleting, [before, before]);
+
+        commit_tree(store, "e", EMPTY);
+        let empty = in_use(store);
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("e", NORMAL).unwrap();
+        fill(&mut write, &tree);
+        write.commit().unwrap();
+        assert!(in_use(store) > empty + 40);
+        let mut write = store.write().unwrap();
+        write.open_tree_with("e", NORMAL, OpenMode::Empty).unwrap();
+        write.commit().unwrap();
+        assert_eq!(in_use(store), empty);
     });
 }
 
@@ -1166,6 +1357,75 @@ fn ac_b14_handles_of_a_deleted_tree_never_reach_a_new_one() {
         let after = store.read().unwrap();
         let tree = after.open_tree("t", NORMAL).unwrap();
         assert_eq!(after.get(&tree, b"k").unwrap(), Some(&b"newest"[..]));
+    });
+}
+
+/// Every key of `keys` with what `read` finds for it in `tree`, and the tree's count.
+fn snapshot_of(
+    read: &ReadTransaction<'_>,
+    tree: &ReadTree<'_>,
+    keys: &[Vec<u8>],
+) -> (u64, Vec<Option<Vec<u8>>>) {
+    let values = keys
+        .iter()
+        .map(|key| read.get(tree, key).unwrap().map(<[u8]>::to_vec))
+        .collect();
+    (read.len(tree).unwrap(), values)
+}
+
+/// AC-B17 (G3, T14): a read opened before a write whose insertions and removals split and merge pages of a tree
+/// until its height changes sees exactly the entries of its snapshot, before and after the commit, and a new read
+/// sees the write's. With keys of 2,048 bytes, three to a leaf and to a branch, 6 entries make two levels, 90 at
+/// least four, and the 10 left at the end fewer.
+#[test]
+fn ac_b17_a_read_keeps_its_snapshot_while_a_write_changes_the_height() {
+    let key = |i: usize| long_key(i, MAX_KEY);
+    let keys: Vec<Vec<u8>> = (0..90).map(key).collect();
+    stores(|store, _| {
+        let first: Vec<(Vec<u8>, &[u8])> = (0..6).map(|i| (key(i), &b"first"[..])).collect();
+        commit_tree(store, "t", &first);
+        let read = store.read().unwrap();
+        let tree = read.open_tree("t", NORMAL).unwrap();
+        let snapshot = snapshot_of(&read, &tree, &keys);
+        assert_eq!(snapshot.0, 6);
+
+        let mut write = store.write().unwrap();
+        let written = write.open_tree("t", NORMAL).unwrap();
+        for i in 6..90 {
+            write.set(&written, &key(i), b"grown").unwrap();
+        }
+        assert!(
+            snapshot_of(&read, &tree, &keys) == snapshot,
+            "while the tree grows"
+        );
+        for i in (0..90).filter(|i| i % 9 != 0) {
+            assert!(write.remove(&written, &key(i)).unwrap());
+        }
+        write.set(&written, &key(0), b"changed").unwrap();
+        assert!(
+            snapshot_of(&read, &tree, &keys) == snapshot,
+            "before the commit"
+        );
+        write.commit().unwrap();
+        assert!(
+            snapshot_of(&read, &tree, &keys) == snapshot,
+            "after the commit"
+        );
+
+        let new = store.read().unwrap();
+        let tree = new.open_tree("t", NORMAL).unwrap();
+        let expected: Vec<Option<Vec<u8>>> = (0..90)
+            .map(|i| match i {
+                0 => Some(b"changed".to_vec()),
+                _ if i % 9 != 0 => None,
+                _ if i < 6 => Some(b"first".to_vec()),
+                _ => Some(b"grown".to_vec()),
+            })
+            .collect();
+        assert!(
+            snapshot_of(&new, &tree, &keys) == (10, expected),
+            "a new read"
+        );
     });
 }
 

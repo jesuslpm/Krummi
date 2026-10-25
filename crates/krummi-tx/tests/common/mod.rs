@@ -126,11 +126,17 @@ pub struct Run {
 
 impl Run {
     pub fn start() -> (TempDir, Engine) {
-        testing::reset();
-        testing::start_recording();
-        let source = tempfile::tempdir().unwrap();
+        let source = Run::begin();
         let engine = disk(source.path());
         (source, engine)
+    }
+
+    /// Starts recording this thread's operations and returns a new folder for the store of the run (the facade's
+    /// tests open a `Store` there; this crate's, an `Engine`).
+    pub fn begin() -> TempDir {
+        testing::reset();
+        testing::start_recording();
+        tempfile::tempdir().unwrap()
     }
 
     pub fn finish(source: TempDir, returned: Vec<usize>) -> Run {
