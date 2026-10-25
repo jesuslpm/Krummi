@@ -1,0 +1,17 @@
+[package]
+name = "krummi-tree"
+version = "0.1.0"
+description = "B+ trees of Krummi: slotted node pages over the transactions' page API"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+krummi-tx = { version = "0.1.0", path = "../krummi-tx" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

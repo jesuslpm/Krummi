@@ -98,7 +98,7 @@ Log.
 |---|---|---|---|---|
 | T0 | B1 annotation (S0), execution document | inline | done | (this commit) |
 | T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
-| T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | pending | |
+| T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
 | T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | pending | |
 | T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35 | delegated (context backstop) | pending | |
 | T5 | Measurement (A15): S19 | inline | pending | |
@@ -137,3 +137,15 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   the process (a static counter). Bodies are `todo!("T3")`; the `serial` fields carry `#[expect(dead_code)]` that
   T3 removes. Checks reported by the worker: fmt, clippy, `cargo test -p krummi`, `-p krummi-pager` pass; parent spot
   check `cargo test -p krummi --test trees_compile`: 1 passed.
+- **L6** T2 (ODD Worker), three commits: format `6` (S18 `ac_a18_format_5_is_a_previous_format_even_when_empty`,
+  S30 with the `ac9` and AC-F17 updates), meta slots (`META_SLOTS = 4`, `slot`/`set_slot`, `tests/slots.rs`: snapshot,
+  abort, no-op set is not a change, reopen, every crash cut), and the `krummi-tree` crate (`create`, `get`,
+  `for_each`, `set`, `try_add`, `remove` returning `Update { root, count_changed }`, `free_all`; model test against
+  `BTreeMap` reaching 3+ levels and back to one leaf, extreme sizes, free-all returns pages in use, snapshot across
+  splits and merges). RED observed for each (format 5 vs 6; missing slot API; stubbed operations), then GREEN.
+  Deviations accepted: merges only (a non-root branch under a quarter may stay with zero keys and one child when
+  it cannot merge; valid, root collapse loops), merges also after shrinking overwrites, a level byte in the node
+  header, full-key separators. The tree commit is ~1,080 lines, over the 400 heuristic: node layout and algorithms
+  are one unit (dead code otherwise). Worker checks: fmt, clippy, `cargo test --workspace` (exit 0, 190 s); parent
+  spot check `cargo test -p krummi-tree`: 7 passed. For T3: only call `set_slot` and rewrite catalog entries when
+  something changed (AC-A9); README and facade docs still to mention the crate (T6).

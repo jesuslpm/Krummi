@@ -100,6 +100,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "krummi-tree"
+version = "0.1.0"
+dependencies = [
+ "krummi-tx",
+ "tempfile",
+]
+
+[[package]]
 name = "krummi-tx"
 version = "0.1.0"
 dependencies = [

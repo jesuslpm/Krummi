@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/krummi-pager", "crates/krummi-tx", "crates/krummi"]
+members = ["crates/krummi-pager", "crates/krummi-tx", "crates/krummi-tree", "crates/krummi"]
 
 [workspace.package]
 edition = "2024"

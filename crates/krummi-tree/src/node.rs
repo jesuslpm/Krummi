@@ -1,0 +1,321 @@
+//! The slotted page of a tree node (D4). A node fills a page's payload:
+//!
+//! | Bytes | Content |
+//! |---|---|
+//! | 0 | kind: `1` leaf, `2` branch |
+//! | 1 | level: `0` for a leaf, one more than its children's for a branch |
+//! | 2–3 | number of cells |
+//! | 4–5 | start of the cells: they fill the end of the payload, from here to its end |
+//! | 6–7 | zero |
+//! | 8–15 | a branch's leftmost child; zero in a leaf |
+//! | 16… | the offsets of the cells, 2 bytes each, in key order |
+//!
+//! The cells stay packed against the end of the payload, so the free space is the gap between the offsets and the
+//! cells. A leaf cell is the key length (2 bytes), the value length (2 bytes), the key and the value. A branch cell
+//! is the key length (2 bytes), the key and the child page (8 bytes): that child holds the keys from its key up to
+//! the next cell's key, and the leftmost child the keys before the first cell's. Integers are little-endian; keys
+//! compare byte by byte as unsigned numbers, a prefix before its extensions (B5).
+
+use std::cmp::Ordering;
+
+use krummi_tx::PAYLOAD_SIZE;
+
+/// Bytes of the node header.
+pub(crate) const HEADER: usize = 16;
+/// Longest key a tree holds (A11, B5).
+pub const MAX_KEY: usize = 2048;
+/// Longest value a tree holds (A11).
+pub const MAX_VALUE: usize = 1024;
+/// Longest leaf cell.
+pub(crate) const MAX_LEAF_CELL: usize = 4 + MAX_KEY + MAX_VALUE;
+/// Longest branch cell.
+pub(crate) const MAX_BRANCH_CELL: usize = 2 + MAX_KEY + 8;
+/// Bytes a node uses under which it is merged with a sibling when they fit in one page (a quarter).
+pub(crate) const UNDERFULL: usize = PAYLOAD_SIZE / 4;
+
+const LEAF: u8 = 1;
+const BRANCH: u8 = 2;
+
+// The extremes of A11 fit with at least two entries per leaf and three keys per branch (D4).
+const _: () = assert!(HEADER + 2 * (MAX_LEAF_CELL + 2) <= PAYLOAD_SIZE);
+const _: () = assert!(HEADER + 3 * (MAX_BRANCH_CELL + 2) <= PAYLOAD_SIZE);
+const _: () = assert!(PAYLOAD_SIZE <= u16::MAX as usize);
+
+fn u16_at(node: &[u8], at: usize) -> usize {
+    usize::from(u16::from_le_bytes([node[at], node[at + 1]]))
+}
+
+fn put_u16(node: &mut [u8], at: usize, value: usize) {
+    let value = u16::try_from(value).expect("offsets fit in a page");
+    node[at..at + 2].copy_from_slice(&value.to_le_bytes());
+}
+
+fn u64_at(node: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes(node[at..at + 8].try_into().expect("8 bytes"))
+}
+
+/// Makes `node` an empty node of `level`, a leaf at level `0`, with `leftmost` as a branch's first child.
+pub(crate) fn init(node: &mut [u8], level: u8, leftmost: u64) {
+    node[..HEADER].fill(0);
+    node[0] = if level == 0 { LEAF } else { BRANCH };
+    node[1] = level;
+    put_u16(node, 4, PAYLOAD_SIZE);
+    node[8..16].copy_from_slice(&leftmost.to_le_bytes());
+}
+
+/// Makes `node` a node of `level` holding `cells`, in order.
+pub(crate) fn fill(node: &mut [u8], level: u8, leftmost: u64, cells: &[&[u8]]) {
+    init(node, level, leftmost);
+    for (index, cell) in cells.iter().enumerate() {
+        insert(node, index, cell);
+    }
+}
+
+pub(crate) fn is_leaf(node: &[u8]) -> bool {
+    node[0] == LEAF
+}
+
+pub(crate) fn level(node: &[u8]) -> u8 {
+    node[1]
+}
+
+pub(crate) fn count(node: &[u8]) -> usize {
+    u16_at(node, 2)
+}
+
+fn top(node: &[u8]) -> usize {
+    u16_at(node, 4)
+}
+
+pub(crate) fn leftmost(node: &[u8]) -> u64 {
+    u64_at(node, 8)
+}
+
+fn offset(node: &[u8], index: usize) -> usize {
+    u16_at(node, HEADER + 2 * index)
+}
+
+/// Bytes free for new cells and their offsets.
+pub(crate) fn free_space(node: &[u8]) -> usize {
+    top(node) - HEADER - 2 * count(node)
+}
+
+/// Bytes in use, header included.
+pub(crate) fn used(node: &[u8]) -> usize {
+    PAYLOAD_SIZE - free_space(node)
+}
+
+/// Length of the cell at byte `at`.
+fn cell_len_at(node: &[u8], at: usize) -> usize {
+    let key = u16_at(node, at);
+    if is_leaf(node) {
+        4 + key + u16_at(node, at + 2)
+    } else {
+        2 + key + 8
+    }
+}
+
+/// The bytes of cell `index`.
+pub(crate) fn cell(node: &[u8], index: usize) -> &[u8] {
+    let at = offset(node, index);
+    &node[at..at + cell_len_at(node, at)]
+}
+
+/// The key of cell `index`.
+pub(crate) fn key(node: &[u8], index: usize) -> &[u8] {
+    let at = offset(node, index);
+    let start = at + if is_leaf(node) { 4 } else { 2 };
+    &node[start..start + u16_at(node, at)]
+}
+
+/// The value of entry `index` of a leaf.
+pub(crate) fn value(node: &[u8], index: usize) -> &[u8] {
+    let at = offset(node, index);
+    let start = at + 4 + u16_at(node, at);
+    &node[start..start + u16_at(node, at + 2)]
+}
+
+/// The value of entry `index` of a leaf, to change it in place.
+pub(crate) fn value_mut(node: &mut [u8], index: usize) -> &mut [u8] {
+    let at = offset(node, index);
+    let start = at + 4 + u16_at(node, at);
+    let len = u16_at(node, at + 2);
+    &mut node[start..start + len]
+}
+
+/// Child `index` of a branch, from `0` (the leftmost) to its number of cells.
+pub(crate) fn child(node: &[u8], index: usize) -> u64 {
+    if index == 0 {
+        return leftmost(node);
+    }
+    let at = offset(node, index - 1);
+    u64_at(node, at + 2 + u16_at(node, at))
+}
+
+/// The key of a leaf cell (`leaf`) or of a branch cell, from its bytes.
+pub(crate) fn cell_key(cell: &[u8], leaf: bool) -> &[u8] {
+    let start = if leaf { 4 } else { 2 };
+    &cell[start..start + u16_at(cell, 0)]
+}
+
+/// The child of a branch cell, from its bytes.
+pub(crate) fn cell_child(cell: &[u8]) -> u64 {
+    u64_at(cell, cell.len() - 8)
+}
+
+/// The index of the cell with `key`, or where it would go.
+pub(crate) fn search(node: &[u8], key: &[u8]) -> Result<usize, usize> {
+    let (mut low, mut high) = (0, count(node));
+    while low < high {
+        let mid = low + (high - low) / 2;
+        match self::key(node, mid).cmp(key) {
+            Ordering::Less => low = mid + 1,
+            Ordering::Greater => high = mid,
+            Ordering::Equal => return Ok(mid),
+        }
+    }
+    Err(low)
+}
+
+/// The child of a branch that holds `key`.
+pub(crate) fn child_index(node: &[u8], key: &[u8]) -> usize {
+    match search(node, key) {
+        Ok(index) => index + 1,
+        Err(index) => index,
+    }
+}
+
+/// Writes a leaf cell into `buf` and returns its length.
+pub(crate) fn encode_leaf(buf: &mut [u8], key: &[u8], value: &[u8]) -> usize {
+    put_u16(buf, 0, key.len());
+    put_u16(buf, 2, value.len());
+    buf[4..4 + key.len()].copy_from_slice(key);
+    let end = 4 + key.len() + value.len();
+    buf[4 + key.len()..end].copy_from_slice(value);
+    end
+}
+
+/// Writes a branch cell into `buf` and returns its length.
+pub(crate) fn encode_branch(buf: &mut [u8], key: &[u8], child: u64) -> usize {
+    put_u16(buf, 0, key.len());
+    buf[2..2 + key.len()].copy_from_slice(key);
+    let end = 2 + key.len() + 8;
+    buf[2 + key.len()..end].copy_from_slice(&child.to_le_bytes());
+    end
+}
+
+/// Inserts `cell` as cell `index`.
+///
+/// # Panics
+///
+/// If it does not fit.
+pub(crate) fn insert(node: &mut [u8], index: usize, cell: &[u8]) {
+    assert!(free_space(node) >= cell.len() + 2, "the cell fits");
+    let count = count(node);
+    let top = top(node) - cell.len();
+    node[top..top + cell.len()].copy_from_slice(cell);
+    let slot = HEADER + 2 * index;
+    node.copy_within(slot..HEADER + 2 * count, slot + 2);
+    put_u16(node, slot, top);
+    put_u16(node, 2, count + 1);
+    put_u16(node, 4, top);
+}
+
+/// Removes cell `index`, moving the cells below it to keep them packed.
+pub(crate) fn remove(node: &mut [u8], index: usize) {
+    let count = count(node);
+    let at = offset(node, index);
+    let len = cell_len_at(node, at);
+    let top = top(node);
+    node.copy_within(top..at, top + len);
+    for other in 0..count {
+        let slot = HEADER + 2 * other;
+        let moved = u16_at(node, slot);
+        if moved < at {
+            put_u16(node, slot, moved + len);
+        }
+    }
+    let slot = HEADER + 2 * index;
+    node.copy_within(slot + 2..HEADER + 2 * count, slot);
+    put_u16(node, 2, count - 1);
+    put_u16(node, 4, top + len);
+}
+
+/// Where to split `cells`, whose sizes with their offsets add up to more than a page, into two nodes with as
+/// equal a number of bytes as possible: a leaf keeps the cells before the index and its new sibling the rest; a
+/// branch also sends the cell at the index up to its parent, with its child as the sibling's leftmost.
+pub(crate) fn split_point(cells: &[&[u8]], leaf: bool) -> usize {
+    let total: usize = cells.iter().map(|c| c.len() + 2).sum();
+    let (range, up) = if leaf {
+        (1..cells.len(), false)
+    } else {
+        (1..cells.len() - 1, true)
+    };
+    let mut best = (usize::MAX, 0);
+    let mut before: usize = cells[..range.start].iter().map(|c| c.len() + 2).sum();
+    for index in range {
+        let moved = if up { cells[index].len() + 2 } else { 0 };
+        let larger = before.max(total - before - moved);
+        if larger < best.0 {
+            best = (larger, index);
+        }
+        before += cells[index].len() + 2;
+    }
+    assert!(best.0 <= PAYLOAD_SIZE - HEADER, "both halves fit");
+    best.1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leaf_with(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
+        let mut node = vec![0; PAYLOAD_SIZE];
+        init(&mut node, 0, 0);
+        let mut buf = [0; MAX_LEAF_CELL];
+        for (index, (key, value)) in entries.iter().enumerate() {
+            let len = encode_leaf(&mut buf, key, value);
+            insert(&mut node, index, &buf[..len]);
+        }
+        node
+    }
+
+    #[test]
+    fn cells_are_found_in_key_order_and_removal_keeps_them_packed() {
+        let mut node = leaf_with(&[(b"a", b"1"), (b"ab", b""), (b"b", b"333")]);
+        assert_eq!(search(&node, b"ab"), Ok(1));
+        assert_eq!(search(&node, b"aa"), Err(1));
+        assert_eq!(search(&node, b"c"), Err(3));
+        assert_eq!((value(&node, 0), value(&node, 1)), (&b"1"[..], &b""[..]));
+        let used_before = used(&node);
+        remove(&mut node, 0);
+        assert_eq!(used(&node), used_before - (4 + 1 + 1) - 2);
+        assert_eq!((key(&node, 0), key(&node, 1)), (&b"ab"[..], &b"b"[..]));
+        assert_eq!(value(&node, 1), b"333");
+        assert_eq!(top(&node), PAYLOAD_SIZE - (4 + 2) - (4 + 1 + 3));
+    }
+
+    #[test]
+    fn branch_children_follow_their_keys() {
+        let mut node = vec![0; PAYLOAD_SIZE];
+        init(&mut node, 1, 10);
+        let mut buf = [0; MAX_BRANCH_CELL];
+        let len = encode_branch(&mut buf, b"m", 20);
+        insert(&mut node, 0, &buf[..len]);
+        assert_eq!(
+            [b"a", b"m", b"z"].map(|k| child(&node, child_index(&node, k))),
+            [10, 20, 20]
+        );
+        assert_eq!(cell_child(cell(&node, 0)), 20);
+        assert_eq!(cell_key(cell(&node, 0), false), b"m");
+    }
+
+    #[test]
+    fn split_points_balance_bytes() {
+        let small = [1u8; 10];
+        let big = [1u8; 3000];
+        let cells: Vec<&[u8]> = vec![&small, &small, &big, &small];
+        assert_eq!(split_point(&cells, true), 2);
+        assert_eq!(split_point(&cells, false), 2);
+    }
+}
