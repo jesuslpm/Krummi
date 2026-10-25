@@ -9,7 +9,10 @@ use krummi_pager::{PayloadBuf, ScratchWriter, SealedPage, Snapshot, alloc_payloa
 
 use crate::map;
 use crate::space::Layout;
-use crate::{Engine, Error, FIRST_PAGE, MAP_PAGE, META_PAGE, Point, Result};
+use crate::{
+    Engine, Error, FIRST_PAGE, MAP_PAGE, META_PAGE, Point, Result, meta_field, meta_is_blank,
+    slot_offset,
+};
 
 /// A read transaction: a snapshot of the store as it was when it opened (T2). It can be sent to and shared
 /// between threads (T6); it ends when it is dropped.
@@ -26,6 +29,22 @@ impl<'e> ReadTransaction<'e> {
     /// reference lives as long as the transaction (T8).
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
         self.snapshot.page(page_number)
+    }
+
+    /// Slot `slot` of the meta page as this transaction sees it; `0` if it was never set.
+    ///
+    /// # Panics
+    ///
+    /// If `slot` is not below [`META_SLOTS`](crate::META_SLOTS).
+    pub fn slot(&self, slot: usize) -> Result<u64> {
+        let at = slot_offset(slot);
+        match self.snapshot.page(META_PAGE) {
+            Ok(meta) => Ok(meta_field(meta, at)),
+            // Without a version in the scratch area that this snapshot sees, a blank meta page in the store means
+            // nothing was committed before it: no transfer writes the page while this snapshot is open.
+            Err(_) if meta_is_blank(self.snapshot.scratch().pager()) => Ok(0),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -124,6 +143,42 @@ impl<'e> WriteTransaction<'e> {
     pub fn free(&mut self, first: u64, count: u64) -> Result<()> {
         let result = self.release(first, count);
         self.track(result)
+    }
+
+    /// Slot `slot` of the meta page as this transaction sees it, with its own changes; `0` if it was never set.
+    /// A failure follows T11, like [`page`](Self::page).
+    ///
+    /// # Panics
+    ///
+    /// If `slot` is not below [`META_SLOTS`](crate::META_SLOTS).
+    pub fn slot(&self, slot: usize) -> Result<u64> {
+        let at = slot_offset(slot);
+        if let Some(meta) = self.dirty.get(&META_PAGE) {
+            return Ok(meta_field(&meta[..], at));
+        }
+        if !self.engine.space.meta_written() {
+            return Ok(0);
+        }
+        let meta = self.writer.snapshot().page(META_PAGE);
+        Ok(meta_field(self.track(meta)?, at))
+    }
+
+    /// Sets slot `slot` of the meta page; the commit carries it. Setting a slot to the value it has changes nothing
+    /// (T10).
+    ///
+    /// # Panics
+    ///
+    /// If `slot` is not below [`META_SLOTS`](crate::META_SLOTS).
+    pub fn set_slot(&mut self, slot: usize, value: u64) -> Result<()> {
+        let at = slot_offset(slot);
+        if self.slot(slot)? == value {
+            return Ok(());
+        }
+        let ensured = self.ensure_meta();
+        self.track(ensured)?;
+        let meta = self.dirty.get_mut(&META_PAGE).expect("ensured above");
+        meta[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        Ok(())
     }
 
     /// Commits the transaction durably (J4 of the Journal PRD): once nothing can make it fail without the store

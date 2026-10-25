@@ -1,9 +1,9 @@
 //! Transactions of Krummi (module 2): read transactions that see a snapshot, one write transaction at a time and
 //! the queue of those waiting for it (Transactions PRD, T1–T18).
 //!
-//! The crate is internal to the engine. Its page API (`page`, `page_mut`, `allocate`) is for the engine's own
-//! modules and tests; applications use the `krummi` crate, which exposes only opening, committing and aborting
-//! transactions (T1).
+//! The crate is internal to the engine. Its page API (`page`, `page_mut`, `allocate`, `free`) and the meta page's
+//! slots (`slot`, `set_slot`) are for the engine's own modules and tests; applications use the `krummi` crate, which
+//! exposes only opening, committing and aborting transactions (T1).
 
 mod map;
 mod space;
@@ -29,7 +29,16 @@ pub use transaction::{ReadTransaction, WriteTransaction};
 /// Page that keeps the transaction layer's own data: the frontier, the first page never used (F3 of the
 /// free-space PRD), and the number of free pages of the map (F10). It is an ordinary data page, not part of the
 /// header (T17); a blank one is a store where nothing was committed yet.
+///
+/// Layout of its payload, little-endian: bytes 0–7 the frontier, 8–15 the free pages of the map, and from byte 16
+/// the [`META_SLOTS`] slots of the layers above, 8 bytes each; the rest is zero.
 pub const META_PAGE: u64 = HEADER_PAGES;
+/// Number of `u64` slots the meta page keeps for the layers above (the trees keep their catalog's root and the
+/// next tree identity there). A slot never set reads `0`; read transactions see the slots of their snapshot, and
+/// a write's changes travel with its commit (T2, T10).
+pub const META_SLOTS: usize = 4;
+/// Offset of the first slot in the meta page's payload.
+const SLOTS_OFFSET: usize = 16;
 /// The map page of the first region, after the header and the meta page (F2).
 pub const MAP_PAGE: u64 = META_PAGE + 1;
 /// First page that write transactions reserve.
@@ -131,21 +140,19 @@ impl Engine {
     fn new(pager: Pager, folder: Option<PathBuf>) -> Result<Engine> {
         let scratch = Scratch::open(pager)?;
         let pager = scratch.pager();
-        let fresh = pager.page_count() <= META_PAGE || pager.page_is_blank(META_PAGE);
+        let fresh = meta_is_blank(pager);
         let (frontier, free) = if fresh {
             (FIRST_PAGE, 0)
         } else {
             let meta = pager.page(META_PAGE)?;
-            let field =
-                |at: usize| u64::from_le_bytes(meta[at..at + 8].try_into().expect("8 bytes"));
-            let frontier = field(0);
+            let frontier = meta_field(meta, 0);
             if frontier < FIRST_PAGE {
                 return Err(Error::Damaged {
                     folder,
                     page: Some(META_PAGE),
                 });
             }
-            (frontier, field(8))
+            (frontier, meta_field(meta, 8))
         };
         let turns = Arc::new(Turns {
             queue: Mutex::new(Queue {
@@ -498,6 +505,27 @@ impl Engine {
             source: io::Error::other("writes are refused after a failed write; reopen the store"),
         }
     }
+}
+
+/// Whether `krummi.data` has no meta page yet: nothing was ever written to it. A store whose meta page lives only
+/// in the scratch area is not blank for its readers, which find that version first.
+fn meta_is_blank(pager: &Pager) -> bool {
+    pager.page_count() <= META_PAGE || pager.page_is_blank(META_PAGE)
+}
+
+/// The `u64` at byte `at` of the meta page's payload.
+fn meta_field(meta: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes(meta[at..at + 8].try_into().expect("8 bytes"))
+}
+
+/// Byte offset of `slot` in the meta page's payload.
+///
+/// # Panics
+///
+/// If `slot` is not below [`META_SLOTS`].
+fn slot_offset(slot: usize) -> usize {
+    assert!(slot < META_SLOTS, "the meta page has {META_SLOTS} slots");
+    SLOTS_OFFSET + slot * 8
 }
 
 fn leave(queue: &mut Queue, ticket: u64) {
