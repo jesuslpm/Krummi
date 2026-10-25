@@ -100,7 +100,7 @@ Log.
 | T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
 | T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
 | T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | done | catalog and public API commits |
-| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf | delegated (context backstop) | pending | |
+| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf; RDD 2 fixes R1-002, R2-002, R2-003 and the `encode` branch | delegated (context backstop) | pending | |
 | T5 | Measurement (A15): S19 | inline | pending | |
 | T6 | Docs, checks, verify, RDD, report | inline | pending | |
 
@@ -173,3 +173,16 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   (`krummi-tx` `ac12_ac_t20_...` in one run, `ac_f18_the_maximum_size_in_a_temporary_store` in another), both pass
   alone. Parent spot check: `cargo test -p krummi --test trees` 25 passed; `ac_f18` fails in its full binary run, 6/6
   alone; baseline check on `main` in progress.
+- **L9** Baseline check: `ac_f18_the_maximum_size_in_a_temporary_store` also fails on `main` (`2702406`), 1 of 3 runs
+  of the `free_space` binary (MaxSize at `allocate_run` while versions wait in temporary memory under parallel
+  tests), so it is a pre-existing intermittent failure, not caused by this branch; left as a follow-up outside 5.1.
+  `ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it` failed once in a full workspace run and passes
+  alone; same treatment.
+- **L10** RDD review 2 (`862cff7..9e3ad1b`, T3; escalated to high, item 1: catalog format), lenses risk,
+  readability and reliability: **approved**, acknowledged. Findings: R1-001, R2-001 and R3-encode-nonnormal-kind-panics
+  (WARNING) `Entry::encode` has `unimplemented!` for kinds other than normal — not reachable in 5.1, since `TreeKind`
+  has only `Normal` and is `#[non_exhaustive]` (verified); T4 makes it `unreachable!` with its reason. R1-002
+  (WARNING) `Entry::decode` panics on an unknown kind byte in a page with a valid checksum → T4 returns damage (with
+  RDD 1's R1-001). R2-002 (SUGGESTION) the tests repeat the size limits → T4 adds a comment that they pin the spec.
+  R2-003 (SUGGESTION) the fault loop's 8 writes need a reason → T4 comment. R3-unresolved-workspace-test-failures
+  (WARNING) → answered by L9: the failure reproduces on `main`. Reviewed boundary: `9e3ad1b`.
