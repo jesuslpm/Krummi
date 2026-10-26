@@ -11,3 +11,5 @@
 2026-10-26T10:14:20+00:00	mark	implement	T4
 2026-10-26T10:17:04+00:00	mark	implement	T5
 2026-10-26T10:18:39+00:00	mark	docs	T6
+2026-10-26T12:23:18+00:00	bg-end	acceptance	full sweeps: tree_integrity --ignored, lib ac_ --ignored
+2026-10-26T12:24:30+00:00	mark	fix	ac_r12 full sweep

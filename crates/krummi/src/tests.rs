@@ -131,9 +131,9 @@ fn range_removals(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
     results
 }
 
-/// Scans `tree` whole, alternating ends, and checks that its keys are in order and, when given, that it holds
-/// `count` entries (after an earlier failure what the write sees is left to the implementation); after a failure
-/// the scan returns nothing more from either end.
+/// Scans `tree` whole, alternating ends, and, when `count` is given, checks that it holds `count` entries in key
+/// order; it is not given after an earlier failure of the write, because what the write's tree then holds is left to
+/// the implementation (the write cannot commit). After a failure the scan returns nothing more from either end.
 fn scan_whole(
     write: &WriteTransaction<'_>,
     tree: &WriteTree<'_>,
@@ -163,11 +163,11 @@ fn scan_whole(
     front.extend(back);
     if let Some(count) = count {
         assert_eq!(front.len(), count);
+        assert!(
+            front.windows(2).all(|pair| pair[0] < pair[1]),
+            "in key order"
+        );
     }
-    assert!(
-        front.windows(2).all(|pair| pair[0] < pair[1]),
-        "in key order"
-    );
     Ok(())
 }
 

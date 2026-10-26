@@ -145,3 +145,12 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   5.2 code (`HEAD`, exported the same way) removed `[190, 180, 10]` entries from a copy of the fixture, leaving 20;
   the 5.1 `check` then printed "20 keys before, 153 after storing 400 and removing 267 with the 5.1 engine": it read
   the list, every key, its value and the count, split and merged pages, committed and reopened without error.
+- **L9** (acceptance, 10:22–12:23, background): `cargo test -p krummi --test tree_integrity -- --ignored` passed (4
+  tests, 7,640 s: the every-byte AC10 sweep, now with scans, and the crash sweeps through the close, run without a
+  Defender exclusion, which the README warns makes them slow locally). `cargo test -p krummi --lib -- --ignored ac_`:
+  `ac_b18` every point passed; `ac_r12` every point failed with "in key order" in the test's `scan_whole`, at a
+  point the every-13th sample skips: after an injected failure earlier in the same write, a scan of that write's
+  tree saw keys out of order. What a write sees after a T11 failure is left to the implementation (it cannot
+  commit), so the test now checks the count and the order only when no earlier operation failed. Rerun: passed at
+  every point (77.6 s). The wait for the sweep, from the docs commit to its end, was agent time spent waiting for
+  a background run, not work.
