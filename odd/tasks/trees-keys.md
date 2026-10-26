@@ -242,3 +242,11 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   major findings, no blocker. R2 (A15 report lacked processor and disk) → fixed in the closing report with the
   equipment of both environments. R1 (`list_trees` aborts on an allocation failure instead of OutOfMemory, P13/T11)
   → accepted with a wider scope (every tree allocation on an operation path), fix delegated to an ODD Worker.
+- **L19** (2026-10-26) R1 fixed in `06ec986` (ODD Worker): fallible `try_reserve` through the pager's `Op::Alloc`
+  point for every tree allocation on an operation path; facade table as a sorted `Vec`; `WriteTransaction::fail`
+  records upper-layer failures (T11); `tests/tree_memory.rs` 9 sweeps (RED for 7). RDD review 5 (`5ffa33a..06ec986`,
+  resilience and reliability, lineage `review-99c3098713ed944a`): approved, acknowledged; R3-damaged-return-changed
+  and R3-global-fault-injection refuted by the code (`track()` returns its input; faults are `thread_local!`);
+  R3-weak-sweep-thresholds and R4-001 (O(N²) table insert) left pending. Final checks: fmt, clippy, `cargo test
+  --workspace --no-fail-fast` 293 passed, 0 failed, 9 ignored (an earlier run hit the known `ac_f18` flake, which
+  passes alone). Report and resolutions updated.

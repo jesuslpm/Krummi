@@ -5,13 +5,14 @@ Fuente de producto: [trees-keys.prd.md](../../docs/prd/krummi/trees-keys.prd.md)
 [trees.prd.md](../../docs/prd/krummi/trees.prd.md)). Documento de ejecución: [trees-keys.md](trees-keys.md).
 
 Rama `feat/trees-keys`, sin fusionar en `main` por indicación del usuario (L11), que la revisará con Codex. Nada se ha
-subido. Último commit de código: `4ab9216`.
+subido. Último commit de código: `06ec986` (corrección de la revisión de Codex).
 
 ## Resultado
 
 - **Especificación:** las 37 especificaciones S0–S36 tienen prueba y pasan, salvo las partes que no aplican en 5.1
   (la mitad «compatible» de S30 y la mitad «nombre antes que clave» de S31) y S19, que se cumple con este informe.
-  `cargo test --workspace`: 284 pasan, 0 fallan, 9 ignoradas (Windows, HEAD); en Linux (WSL 2 Ubuntu, copia de
+  `cargo test --workspace`: 293 pasan, 0 fallan, 9 ignoradas (Windows, HEAD, con la corrección R1; la intermitencia
+  conocida de `ac_f18` apareció en una corrida y pasa aislada); en Linux (WSL 2 Ubuntu, copia de
   `1138169`), 283 pasan, 0 fallan, 9 ignoradas.
 - **Aceptación:** barrido de cada byte de un almacén de 128 KiB con árboles (AC10), 6.477,5 s en Windows, sin
   fallos; caídas en cada punto de la confirmación y del cierre (AC-A16, AC-B18), 32,3 s; un fallo en cada operación
@@ -20,9 +21,16 @@ subido. Último commit de código: `4ab9216`.
   sin bloqueantes ni hallazgos de seguridad de memoria (L16), con 16 casos de compilación, sondas de referencias
   retenidas mientras otras escrituras dividen, fusionan, liberan y reutilizan páginas, y una comprobación diferencial
   con un almacén de formato `5` construido con `main`.
+- **Revisión externa (Codex):** [2026-10-25-code.md](../../docs/reviews/trees-keys/2026-10-25-code.md), dos
+  hallazgos major sin bloqueantes, resueltos según
+  [2026-10-25-code-resolutions.md](../../docs/reviews/trees-keys/2026-10-25-code-resolutions.md) y pendientes de una
+  revisión de seguimiento: R1 (memoria agotada, `06ec986`) y R2 (datos del equipo, `62b1813`).
 - **Hallazgos corregidos por el camino:** una página con checksum válido pero estructura incoherente hacía entrar en
   pánico en lugar de dar daño (nodos y entradas del catálogo, `4735a47`); una hoja vacía no raíz podía quedar en el
-  árbol (`4735a47`); un nodo que se nombra a sí mismo o a un antecesor como hija se liberaba dos veces (`4ab9216`).
+  árbol (`4735a47`); un nodo que se nombra a sí mismo o a un antecesor como hija se liberaba dos veces (`4ab9216`);
+  una asignación de memoria fallida en las operaciones de árboles abortaba el proceso en lugar de dar
+  `OutOfMemory` (Codex R1, `06ec986`: todas pasan por un helper falible con el punto de fallo `Op::Alloc` del Pager,
+  con 9 pruebas que barren cada reserva).
 
 ## Cobertura de los criterios
 
@@ -52,6 +60,7 @@ verificador (L16). Resumen:
 | `862cff7..9e3ad1b` (T3) | risk, readability, reliability | aprobada | WARNING R1-001, R2-001 y R3: `unimplemented!` en `encode` para otros tipos → inalcanzable en 5.1 (solo `Normal`), pasa a `unreachable!` en `4735a47`. WARNING R1-002: tipo desconocido en el catálogo → daño en `4735a47`. SUGGESTION R2-002 y R2-003 → comentarios en `4735a47`. WARNING R3-unresolved-workspace-test-failures → la intermitencia se reproduce en `main` (L9) | `review-c3a949b0f2248dff` |
 | `9e3ad1b..32d4d04` (T4, medición, documentación y los dos commits de Codex del usuario) | risk, reliability | aprobada | WARNING R3-001: doble liberación ante un hijo que se nombra a sí mismo → `4ab9216`. SUGGESTION R3-002: el costo de la validación de nodos no se midió antes y después → pendiente | `review-52ac120ffe927c92` |
 | `32d4d04..5ffa33a` (último tramo) | risk, reliability | aprobada | SUGGESTION R3-ci-filter-zero-match: el paso de CI que filtra por `ac_b18` pasaría si la prueba cambiara de nombre → pendiente | `review-74e5af866c16bc0b` |
+| `5ffa33a..06ec986` (informe, revisión de Codex, R2 y R1) | resilience, reliability | aprobada | WARNING R3-damaged-return-changed → refutado: `track()` devuelve el mismo resultado, así que `fail()` devuelve el mismo error. SUGGESTION R3-global-fault-injection → refutado: el registro de fallos es `thread_local!`. WARNING R3-weak-sweep-thresholds: umbrales mínimos débiles en algunos barridos de memoria → pendiente. SUGGESTION R4-001: la tabla ordenada de árboles cuesta O(N²) al abrir miles de árboles en una escritura → pendiente | `review-99c3098713ed944a` |
 
 Las evaluaciones de `2702406..af8e299` y `2702406..862cff7` dieron riesgo medio y `under_budget`; las cuatro
 revisiones se elevaron a riesgo alto con el ítem 1 (formato persistente o lectura de páginas persistidas).
@@ -80,8 +89,10 @@ Equipo (los dos entornos en la misma máquina; consultado el 2026-10-26 con `Get
 
 ## Tiempo
 
-- Estimación: 3 h – 5 h. Arranque real: 2026-10-25 06:31:17 +0000. Fin: 2026-10-25 10:58:15 +0000.
-- **Duración activa desde el arranque: 4 h 26 min**, dentro de la estimación. El 89 % fue código y pruebas, y una
+- Estimación: 3 h – 5 h. Arranque real: 2026-10-25 06:31:17 +0000. Fin: 2026-10-26 04:53:54 +0000 (pausa entre
+  sesiones de 17 h 21 min, fuera del activo).
+- **Duración activa desde el arranque: 5 h 01 min**, dentro de la estimación: 4 h 26 min de la ejecución y 35 min de
+  las correcciones de la revisión de Codex, en una segunda sesión (2026-10-26). El 89 % fue código y pruebas, y una
   parte grande de T4 fue la carrera de aceptación de AC10 de cada byte dentro del worker (6.477,5 s, unos 1 h 48 min):
   abrir un archivo recién escrito cuesta unos 35 ms en esta máquina.
 - Esperas por el usuario: ninguna. Los mensajes del usuario durante la ejecución (L4, L11 y el cambio de la regla de
@@ -92,16 +103,19 @@ Equipo (los dos entornos en la misma máquina; consultado el 2026-10-26 con `Get
 | Fase | Duración | % del activo | Tramos |
 |---|---|---|---|
 | Plan (documento de ejecución) | 3 min 09 s | 1 % | 1 |
-| Código y tests | 3 h 56 min | 89 % | 4 |
-| Checks (fmt, clippy, suite de tests) | 3 min 16 s | 1 % | 1 |
-| Verificación independiente | 10 min 26 s | 4 % | 1 |
-| Revisión RDD | 12 min 58 s | 5 % | 4 |
-| Cierre (informe y merge) | 0 min 01 s | 0 % | 1 |
-| **Total activo** | **4 h 26 min** | **100 %** | **12** |
+| Código y tests | 3 h 56 min | 79 % | 4 |
+| Checks (fmt, clippy, suite de tests) | 12 min 40 s | 4 % | 2 |
+| Verificación independiente | 10 min 26 s | 3 % | 1 |
+| Revisión RDD | 15 min 15 s | 5 % | 5 |
+| Correcciones de hallazgos | 22 min 44 s | 8 % | 1 |
+| Cierre (informe y merge) | 0 min 01 s | 0 % | 2 |
+| **Total activo** | **5 h 01 min** | **100 %** | **16** |
 
-- Inicio: 2026-10-25 06:31:36 +00:00. Fin: 2026-10-25 10:58:15 +00:00.
-- Arranque confirmado: 06:31:36. Activo desde el arranque: **4 h 26 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
+- Inicio: 2026-10-25 06:31:36 +00:00. Fin: 2026-10-26 04:53:54 +00:00.
+- Arranque confirmado: 06:31:36. Activo desde el arranque: **5 h 01 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
 - Esperas por el usuario: ninguna.
+- Pausas entre sesiones (fuera del activo): 17 h 21 min.
+  - 2026-10-25 10:58:15 +00:00 – 2026-10-26 04:19:29 +00:00 (17 h 21 min)
 
 En segundo plano (se solapa con las fases de arriba; no suma al activo):
 
@@ -114,8 +128,9 @@ En segundo plano (se solapa con las fases de arriba; no suma al activo):
 | Revisión RDD | RDD review 3 lenses | 10:38:25 | 10:40:20 | 1 min 55 s |
 | Aceptación | A15 measurement and suite Linux | 10:40:29 | 10:44:43 | 4 min 14 s |
 | Revisión RDD | RDD review 4 lenses | 10:54:15 | 10:54:39 | 0 min 24 s |
+| Revisión RDD | RDD review 5 lenses | 04:42:33 | 04:43:44 | 1 min 11 s |
 | **Aceptación (total)** | | | | **5 min 32 s** |
-| **Revisión RDD (total)** | | | | **4 min 54 s** |
+| **Revisión RDD (total)** | | | | **6 min 05 s** |
 
 Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan):
 
@@ -140,8 +155,12 @@ Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan
 | `1138169` | docs: describe trees in the README and sweep them in CI | T4 | 1 min 53 s | Código y tests 0 min 17 s, Revisión RDD 1 min 36 s |
 | `4ab9216` | fix(tree): free a node before its children so a looping child is damage | T4 | 3 min 32 s | Revisión RDD 3 min 32 s |
 | `5ffa33a` | docs: record the Linux run and the independent verification of 5.1 | T4, T6 | 10 min 50 s | Verificación independiente 10 min 26 s, Revisión RDD 0 min 24 s |
-| — | después del último commit | T6 | 4 min 15 s | Checks (fmt, clippy, suite de tests) 3 min 16 s, Revisión RDD 0 min 58 s, Cierre (informe y merge) 0 min 01 s |
-| **Total** | | | **4 h 26 min** | |
+| `af4116c` | docs: add the trees and key operations closing report | T6 | 4 min 15 s | Checks (fmt, clippy, suite de tests) 3 min 16 s, Revisión RDD 0 min 58 s, Cierre (informe y merge) 0 min 01 s |
+| `4786f5a` | docs: add the Codex code review of the trees branch |  | 0 min 00 s |  |
+| `62b1813` | docs: record the measuring equipment of A15 (Codex review R2) | R1 | 1 min 36 s | Correcciones de hallazgos 1 min 36 s |
+| `06ec986` | fix(tree): reserve tree memory fallibly so running out of it fails with OutOfMemory | R1 | 20 min 54 s | Correcciones de hallazgos 20 min 54 s |
+| — | después del último commit | R1 | 11 min 55 s | Checks (fmt, clippy, suite de tests) 9 min 24 s, Revisión RDD 2 min 17 s, Correcciones de hallazgos 0 min 14 s |
+| **Total** | | | **5 h 01 min** | |
 
 Las tareas T1–T4 fueron a ODD Workers en secuencia (el respaldo de contexto largo); su tiempo cuenta como código y
 pruebas. Los 56 min y 24 min atribuidos a `78007fa` y `f1bc05c` son tiempo de T4 en curso: esos commits los hizo el
@@ -151,28 +170,29 @@ usuario en la rama mientras el worker de T4 trabajaba.
 
 | Área | + | − | Código + | Comentarios + | Archivos |
 |---|---|---|---|---|---|
-| `crates/krummi` | 3.097 | 16 | 2.444 | 266 | 32 |
-| `crates/krummi-tree` | 1.681 | 0 | 1.358 | 195 | 5 |
-| `crates/krummi-tx` | 350 | 18 | 263 | 62 | 5 |
-| `odd` | 246 | 0 | — | — | 2 |
+| `crates/krummi` | 3.471 | 16 | 2.745 | 314 | 33 |
+| `crates/krummi-tree` | 1.724 | 0 | 1.382 | 208 | 5 |
+| `odd` | 495 | 0 | — | — | 3 |
+| `crates/krummi-tx` | 354 | 18 | 264 | 64 | 5 |
+| `crates/krummi-pager` | 197 | 14 | 161 | 29 | 7 |
 | `AGENTS.md` | 200 | 0 | — | — | 1 |
-| `crates/krummi-pager` | 179 | 13 | 149 | 25 | 5 |
+| `docs` | 196 | 2 | — | — | 7 |
 | `.agents` | 160 | 0 | — | — | 2 |
-| `docs` | 28 | 2 | — | — | 5 |
 | `README.md` | 23 | 6 | — | — | 1 |
 | `.codex` | 27 | 0 | 25 | 2 | 3 |
 | `CLAUDE.md` | 13 | 4 | — | — | 1 |
 | `.github` | 7 | 0 | 5 | 2 | 1 |
 | `.claude` | 2 | 1 | — | — | 1 |
 | `Cargo.toml` | 1 | 1 | 1 | 0 | 1 |
-| **Total** | **6.014** | **61** | **4.245** | **552** | **65** |
+| **Total** | **6.870** | **62** | **4.583** | **619** | **71** |
 
 Código + y Comentarios + desglosan las líneas añadidas en archivos de código (Rust, Python, PowerShell, JavaScript/TypeScript, TOML, YAML y shell); las líneas en blanco no cuentan en ninguna de las dos.
 
 Aparte (lockfiles, generados o binarios): `Cargo.lock` (+9 −0)
 
 `AGENTS.md`, `.agents`, `.codex`, 8 líneas de `CLAUDE.md` y 2 de `README.md` vienen de los commits del usuario
-`78007fa` y `f1bc05c` (configuración de revisión con Codex, +418 −21), fuera del alcance de 5.1.
+`78007fa` y `f1bc05c` (configuración de revisión con Codex, +418 −21), fuera del alcance de 5.1; `docs/reviews/` es
+el informe de Codex y sus resoluciones.
 
 ## Resumen
 
@@ -214,6 +234,12 @@ estructura incoherente se informa como daño.
 - La medición en Linux se tomó sobre `1138169`, antes del arreglo de `free_subtree` (`4ab9216`), que no afecta a
   las operaciones medidas.
 - Las instantáneas `.stderr` de trybuild dependen de la versión del compilador, como las de módulos anteriores.
+- Algunos barridos de memoria agotada tienen umbrales mínimos débiles, y la división no puede mostrar el rojo con la
+  inyección, porque el Pager reserva antes su página (RDD 5, R3-weak-sweep-thresholds).
+- La tabla de árboles de cada escritura es un `Vec` ordenado (no hay inserción falible en `BTreeMap`): abrir miles de
+  árboles distintos en una escritura cuesta O(N²) (RDD 5, R4-001).
+- Las inserciones en `BTreeMap`/`BTreeSet` de páginas modificadas y liberadas de `krummi-tx`, anteriores a esta rama,
+  siguen siendo infalibles; fuera del alcance de R1.
 
 **Riesgo:** ítem 1 (formato persistente `6`: huecos de metadatos, páginas de árbol y catálogo) e ítem 3 (API pública
 y clases de error nuevas); cubiertos por las revisiones RDD y el verificador independiente.
