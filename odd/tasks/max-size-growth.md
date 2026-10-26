@@ -1,0 +1,47 @@
+# Growth within the maximum size without pending versions — ODD execution document
+
+Objective: fix the intermittent `ac_f18_the_maximum_size_in_a_temporary_store` (`krummi-tx`), a bug fix with no
+product change (no PRD): rule J7 of `docs/prd/krummi/journal.prd.md` ("una escritura nunca falla por tamaño máximo a
+causa de versiones que ninguna lectura necesita: antes se trasladan") and T14 of the transactions PRD.
+Branch: `fix/max-size-growth` (from `main` `990689b`). Test runner: `cargo test --workspace`. Estimate: 1 h – 1 h 45
+min. Real start: 2026-10-26 18:57:10 +0000.
+
+## Specs
+
+- **S1** — J7: "una escritura nunca falla por tamaño máximo a causa de versiones que ninguna lectura necesita:
+  antes se trasladan". The store's growth must not depend on whether versions no read needs were still waiting
+  for the background transfer when it grew.
+- **S2** — `ac_f18_the_maximum_size_in_a_temporary_store` (AC-F11 first part, AC-F18) passes under load, every
+  time: "in a temporary store whose maximum size leaves room for the versions of a write but not for growth, the
+  free pages are reserved and one more fails".
+
+## Design
+
+- **D1** — Diagnosis (explorer, spot-checked): `WriteTransaction::reserve` (`crates/krummi-tx/src/transaction.rs`)
+  caps a growth at `max_size - memory`, and `memory` includes `scratch_bytes()`, the versions waiting for the
+  background transfer at that moment. With some pending, the store grows to less than doubling allows and stops
+  short of its full room (for example 129 pages instead of 128 + room); it never shrinks, so later writes need one
+  page more than the maximum, and the flush before failing has nothing left to move.
+- **D2** — Fix: before a growth, when the scratch area holds versions, transfer the ones no read needs (the same
+  synchronous flush the J7 path uses), then size the growth. At most one flush per reservation.
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit |
+|---|---|---|---|---|
+| T1 | S1, S2 | inline | done | T1COMMIT |
+| T2 | checks, verification, RDD and Codex reviews, closing report | inline | pending | — |
+
+Route evidence: one understood change in one function, inline. Risk item 4 (async ordering with the transfer
+thread): independent verifier at the end.
+
+## Log
+
+- **L1** (2026-10-26, user): "Cuando termines arregla esto: Windows: 1 falla: ac_f18_the_maximum_size_in_a_temporary_store, de krummi-tx. Esta rama no toca ese código y la prueba falla igual en la base (3 de 5 corridas en las dos). Es la intermitencia que ya anotó el informe de 5.1, así que conviene arreglarla aparte." Then "Cuando tengas el diagnóstico arranca la ejecución sin preguntar".
+- **L2** (exploration, before the start): reproduced under load (four binaries at once): `MaxSize { max_size: 1097728, needed: 1105920 }` at `free_space.rs:956` and `:962`; no failure in four runs alone. Explorer diagnosis D1.
+- **L3** (T1): RED, deterministic: `growth_within_the_maximum_size_ignores_versions_no_read_needs` (transfer paused,
+  so every commit leaves its versions waiting while the store grows) failed with "the store took its full room",
+  left 129, right 128. Fix D2 in `WriteTransaction::reserve`. GREEN: the `free_space` binary 28 passed; under load
+  (four binaries at once, three rounds) 0 failures of 12, where the same load had failed 3 of 8 before. `cargo fmt
+  --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace
+  --no-fail-fast`: 326 passed, 0 failed, 11 ignored.

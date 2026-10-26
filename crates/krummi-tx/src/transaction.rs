@@ -510,9 +510,9 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// Makes room for `new_pages` more changed pages and for a store of at least `file_pages` pages. With a
-    /// maximum size, the file, the scratch area and this transaction's changes count together (T14); when they
-    /// do not fit, the versions no read needs any more are written in place first, and only then the operation
-    /// fails with the maximum-size class.
+    /// maximum size, the file, the scratch area and this transaction's changes count together (T14); before the
+    /// store grows, and when they do not fit, the versions no read needs any more are written in place first, and
+    /// only then the operation fails with the maximum-size class (J7).
     fn reserve(&mut self, new_pages: u64, file_pages: u64) -> Result<()> {
         let pager = self.engine.scratch.pager();
         let Some(max_size) = self.engine.max_size else {
@@ -522,6 +522,12 @@ impl<'e> WriteTransaction<'e> {
             return Ok(());
         };
         let mut flushed = false;
+        // A growth is capped by what the scratch area holds at that moment; the versions no read needs are written
+        // in place first, so the store's size does not depend on when the background transfer last ran (J7).
+        if file_pages > pager.page_count() && self.engine.scratch.scratch_bytes() > 0 {
+            self.writer.flush()?;
+            flushed = true;
+        }
         loop {
             let file = pager.info().size_bytes.max(file_pages * PAGE_SIZE_U64);
             let memory = self.engine.scratch.scratch_bytes()

@@ -972,6 +972,38 @@ fn ac_f18_the_maximum_size_in_a_temporary_store() {
     common::set(&engine, FIRST_PAGE + 1, "still accepts writes");
 }
 
+/// J7 with AC-F11 and AC-F18 (the intermittent `ac_f18` above): the growth of a store with a maximum size does not
+/// depend on whether versions no read needs were still waiting for the background transfer. With the transfer
+/// paused, every commit leaves its versions waiting; growing must transfer them first, so the store reaches its
+/// full room (128 pages) and a write of the free pages that fills the rest still fits.
+#[test]
+fn growth_within_the_maximum_size_ignores_versions_no_read_needs() {
+    let options = krummi_tx::OpenOptions {
+        max_size: Some((128 + 6) * PAGE_SIZE as u64),
+    };
+    let engine = Engine::open_temporary(&options).unwrap();
+    engine.set_transfer_paused(true);
+    while engine.info().page_count < 128 || engine.frontier() < engine.info().page_count {
+        let room = engine.info().page_count - engine.frontier();
+        let mut tx = engine.write(None).unwrap();
+        tx.allocate_run(room.clamp(1, 4)).unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        engine.info().page_count,
+        128,
+        "the store took its full room"
+    );
+    let pages: Vec<u64> = (FIRST_PAGE..FIRST_PAGE + 8).step_by(2).collect();
+    free(&engine, &pages);
+    let mut tx = engine.write(None).unwrap();
+    for _ in 0..4 {
+        tx.allocate().unwrap();
+    }
+    tx.commit().unwrap();
+    engine.set_transfer_paused(false);
+}
+
 /// AC10 of the root PRD with free space: every altered byte of a store with freed pages and a map page gives the
 /// damage class, "not a store" or no visible difference: reads never return different data and a reservation
 /// never returns a page in use.
