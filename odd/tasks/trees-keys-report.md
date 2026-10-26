@@ -68,8 +68,15 @@ escrituras de 1.000 entradas; `cargo run --release -p krummi --example tree_timi
 | Leer al azar (tras reabrir, una lectura) | 3,69 | 3,69 | 3,61 | 3,61 |
 | Quitar al azar | 26,82 | 26,82 | 36,68 | 36,68 |
 
-Tamaño del almacén tras cada carga, en los dos sistemas: 268.435.456 bytes (el archivo crece doblando, P11). Equipo:
-Windows 11 Pro 10.0.26200 x64 y WSL 2 Ubuntu en la misma máquina; procesador y disco no medidos por el ejemplo.
+Tamaño del almacén tras cada carga, en los dos sistemas: 268.435.456 bytes (el archivo crece doblando, P11).
+
+Equipo (los dos entornos en la misma máquina; consultado el 2026-10-26 con `Get-CimInstance`, `Get-PhysicalDisk`,
+`lscpu` y `df`, tras la revisión de Codex, R2):
+
+| Entorno | Sistema operativo | Procesador | Disco |
+|---|---|---|---|
+| Windows | Windows 11 Pro 10.0.26200, x64 | 13th Gen Intel Core i9-13980HX, 24 núcleos, 32 hilos | NVMe Samsung MZVL22T0HBLB-00B00 (SSD, 2 TB), NTFS |
+| Linux | WSL 2 Ubuntu, ext4 | el mismo (`lscpu`: 32 CPU) | disco virtual ext4 de WSL 2 (`/dev/sde`, 1.007 GB), guardado como `.vhdx` en el mismo NVMe |
 
 ## Tiempo
 

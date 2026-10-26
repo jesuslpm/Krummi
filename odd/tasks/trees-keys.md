@@ -237,3 +237,8 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
 - **L17** Closing: last-slice RDD review (`32d4d04..5ffa33a`) approved, one SUGGESTION left pending; final checks
   fmt, clippy and `cargo test --workspace` (284 passed, 0 failed, 9 ignored); report
   [trees-keys-report.md](trees-keys-report.md). Not merged (L11).
+- **L18** (2026-10-26) Codex code review [2026-10-25-code.md](../../docs/reviews/trees-keys/2026-10-25-code.md),
+  resolutions in [2026-10-25-code-resolutions.md](../../docs/reviews/trees-keys/2026-10-25-code-resolutions.md): two
+  major findings, no blocker. R2 (A15 report lacked processor and disk) → fixed in the closing report with the
+  equipment of both environments. R1 (`list_trees` aborts on an allocation failure instead of OutOfMemory, P13/T11)
+  → accepted with a wider scope (every tree allocation on an operation path), fix delegated to an ODD Worker.
