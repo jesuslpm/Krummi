@@ -6,8 +6,8 @@
 
 .DESCRIPTION
     Before the run it checks the Codex version, that Codex loads this repository's .codex/config.toml (it only does
-    in trusted paths), and records a fingerprint of the repository (HEAD, refs, index and every non-ignored changed
-    or untracked file). Codex then runs `codex exec` in the workspace-write sandbox, so it can run cargo checks and
+    in trusted paths), and records a fingerprint of the repository (HEAD, refs, index, every non-ignored changed
+    or untracked file, and the ignored .claude/settings.local.json and .atl/ that Claude reads). Codex then runs `codex exec` in the workspace-write sandbox, so it can run cargo checks and
     save its report at the path this script fixes. Afterwards the only change allowed is that new report; anything
     else is reported as a violation and left in place.
 
@@ -77,7 +77,14 @@ function Get-Prop($Object, [string]$Name) {
     if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null }
 }
 
-# Fingerprint of everything a reviewer must not change. Ignored files (target/, test temporaries) are not part of it.
+function Get-PathHash([string]$Path) {
+    $full = Join-Path $Repo $Path
+    if (Test-Path -LiteralPath $full -PathType Leaf) { (Get-FileHash -LiteralPath $full).Hash } else { 'missing' }
+}
+
+# Fingerprint of everything a reviewer must not change. Ignored files (target/, test temporaries) are not part of it,
+# except the two Claude reads outside Codex's sandbox: its local permissions and hooks, and the skill registry.
+# Codex's sandbox already keeps .git, .codex and .agents read-only.
 function Get-RepoState {
     $state = [ordered]@{}
     $state['HEAD'] = (Invoke-Git rev-parse HEAD) -join ''
@@ -90,10 +97,11 @@ function Get-RepoState {
         $code = $token.Substring(0, 2)
         $path = $token.Substring(3)
         if ($code[0] -in 'R', 'C') { $i++ }
-        $full = Join-Path $Repo $path
-        $hash = if (Test-Path -LiteralPath $full -PathType Leaf) { (Get-FileHash -LiteralPath $full).Hash } else { 'missing' }
-        $state["path:$path"] = "$code $hash"
+        $state["path:$path"] = "$code $(Get-PathHash $path)"
     }
+    $registry = @(Get-ChildItem -LiteralPath (Join-Path $Repo '.atl') -Recurse -File -ErrorAction SilentlyContinue |
+            ForEach-Object { [IO.Path]::GetRelativePath($Repo, $_.FullName) -replace '\\', '/' })
+    foreach ($path in @('.claude/settings.local.json') + $registry) { $state["path:$path"] = Get-PathHash $path }
     $state
 }
 

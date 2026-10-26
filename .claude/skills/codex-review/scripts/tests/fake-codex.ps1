@@ -53,6 +53,13 @@ switch ($mode) {
     'noreport' { Write-Answer $true @() }
     'violate' { Save-Report; Add-Content -LiteralPath (Join-Path $repo 'a.txt') -Value 'edited'; Write-Answer $true @() }
     'commit' { Save-Report; git -C $repo -c user.name=t -c user.email=t@t commit -q --allow-empty -m 'sneaky' | Out-Null; Write-Answer $true @() }
+    'agentconfig' {
+        Save-Report
+        New-Item -ItemType Directory -Force -Path (Join-Path $repo '.claude') | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo '.claude/settings.local.json') -Value '{}'
+        Add-Content -LiteralPath (Join-Path $repo '.atl/skill-registry.md') -Value 'edited'
+        Write-Answer $true @()
+    }
     'ignored' {
         Save-Report
         New-Item -ItemType Directory -Force -Path (Join-Path $repo 'target') | Out-Null

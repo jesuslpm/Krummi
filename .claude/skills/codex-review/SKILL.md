@@ -78,6 +78,17 @@ Stop and report as **Needs your decision**:
 
 Never edit a report or Codex's verdict, change a product requirement without the user, merge or push.
 
+## Limits
+
+- **Ignored files.** The guard checks tracked and untracked files, plus the two ignored paths Claude reads
+  outside Codex's sandbox: `.claude/settings.local.json` (permissions and hooks) and `.atl/` (skill registry).
+  Codex's sandbox keeps `.git`, `.codex` and `.agents` read-only. Other ignored files (`target/`, `__pycache__/`,
+  `work/`, test temporaries) are not checked, because Codex's builds and tests write there legitimately. A change
+  there would go unnoticed.
+- **Result against report.** The wrapper checks the shape of Codex's final result, not that it matches the report's
+  free-text verdict; the review skills set no fixed verdict wording. Claude reads the report when it records the
+  round, quoting its verdict and per-ID outcomes in the resolutions.
+
 ## Traceability
 
 All rounds of a chain share the original report's `<report-stem>-resolutions.md`, append-only, in the format of

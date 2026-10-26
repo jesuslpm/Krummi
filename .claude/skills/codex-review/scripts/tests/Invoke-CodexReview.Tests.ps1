@@ -7,7 +7,9 @@ function New-TestRepo {
     $root = Join-Path ([IO.Path]::GetTempPath()) ("codex-review-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Path $root, "$root/.codex", "$root/docs/prd", "$root/docs/reviews/feat" | Out-Null
     Set-Content "$root/.codex/config.toml" 'model = "m1"'
-    Set-Content "$root/.gitignore" '/target/'
+    Set-Content "$root/.gitignore" "/target/`n.claude/settings.local.json`n.atl/"
+    New-Item -ItemType Directory -Path "$root/.atl" | Out-Null
+    Set-Content "$root/.atl/skill-registry.md" 'registry'
     Set-Content "$root/a.txt" 'base'
     Set-Content "$root/docs/prd/x.prd.md" '# PRD'
     git -C $root init -q -b main
@@ -126,6 +128,12 @@ Describe 'Invoke-CodexReview' {
         $r = Invoke-Review 'commit' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)
         $r.Result.status | Should Be 'violation'
         ($r.Result.unexpectedChanges -join ',') | Should Match 'HEAD'
+    }
+
+    It 'reports ignored files that configure Claude as a violation' {
+        $r = Invoke-Review 'agentconfig' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)
+        $r.Result.status | Should Be 'violation'
+        ($r.Result.unexpectedChanges -join ',') | Should Be '.atl/skill-registry.md,.claude/settings.local.json'
     }
 
     It 'allows ignored build artifacts and keeps changes that were there before' {
