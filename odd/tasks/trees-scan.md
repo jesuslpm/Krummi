@@ -73,7 +73,7 @@ Decisions within *Dejado a la implementación*:
 | T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | done | `f67d59b` |
 | T4 | S14 | inline | done | `d6f2263` |
 | T5 | S15 | inline | done | `b120a64` |
-| T6 | docs, checks, verification, RDD review, closing report | inline | pending | — |
+| T6 | docs, checks, verification, RDD review, closing report | inline | done | `8160de4`, `64eaebd`, `1a69262`, `dcf70fa`, report |
 
 Route evidence: every task is one behavior of one crate pair (krummi-tree and krummi) built on the previous one, so
 there are no independent parallel units and no writer trigger; the parent writes inline following this document.
@@ -93,7 +93,7 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   sized types), so the API takes `RangeBounds<&[u8]>` (D1 updated). Tree test helpers moved to
   `tests/support/mod.rs` (the 28 tests of `trees.rs` unchanged and passing). The S13 out-of-memory and I/O part
   moves to T3, where the failure injection lives.
-- **L4** (RDD review 1, 09:57–10:08): commit `51be749` (base `0e204da`), assessed `high` (`process_boundary`
+- **L4** (RDD review 1, background 09:57:05–09:59:11 by the phase log): commit `51be749` (base `0e204da`), assessed `high` (`process_boundary`
   on `tests/support/mod.rs`); lenses resilience, readability, reliability; lineage `review-b3f0715ef79299e4`;
   **approved**, acknowledged, authority burned. Advisory findings, all non-blocking:
   - R4-eager-next-leaf-read (WARNING): a bounded scan read the neighbour leaf before seeing that the bound ended
@@ -114,7 +114,7 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   every key), and 2 more compile-fail cases. The root fix after a change moved into `fix_root`, shared by key
   operations and range removal; freeing a subtree can count its entries (`free_subtree(.., count)`). Every test of
   `krummi` and `krummi-tree` passes, so the 5.1 behavior that shares that code holds.
-- **L6** (RDD review 2, 10:12–10:30): commits `b07f248` and `1ddd9ca` (base `51be749`), assessed `medium`
+- **L6** (RDD review 2, started 10:07:37 by the phase log; its end was not logged): commits `b07f248` and `1ddd9ca` (base `51be749`), assessed `medium`
   (`under_budget`) and raised to `high` with `--escalate-item 1` (range removal deletes stored entries); the
   assessment always covers the range up to `HEAD`, so the fix commit was reviewed with T2 instead of alone. Lenses
   risk, reliability, resilience; lineage `review-7dbcd8773193aef6`; **approved**, acknowledged, authority burned.
@@ -137,7 +137,7 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   read's scan, and when a scan copies its bounds. Crash sweep of a write with range removals that lowers the tree
   (`ac_r12_crashes_during_a_commit_with_range_removals`), and root AC10 now scans every tree from both ends. AC-R7
   checks the height drop with a new test helper `krummi_tree::height`.
-- **L8** (T4, 10:15–10:22): the 5.1 code (`0e204da`) exported with `git archive` to the scratch folder, with an
+- **L8** (T4): the 5.1 code (`0e204da`) exported with `git archive` to the scratch folder, with an
   example `compat` (`make`, `check`), built in release. `make` created the fixture `tests/data/store-5.1/krummi.data`
   (512 KiB: tree `t` with keys 0–399 of 300 bytes, tree `small`), committed with `*.data binary` in
   `.gitattributes`. Committed test `ac_r14_a_store_of_5_1_scans_and_keeps_its_format_after_range_removals`: format
@@ -145,7 +145,7 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   5.2 code (`HEAD`, exported the same way) removed `[190, 180, 10]` entries from a copy of the fixture, leaving 20;
   the 5.1 `check` then printed "20 keys before, 153 after storing 400 and removing 267 with the 5.1 engine": it read
   the list, every key, its value and the count, split and merged pages, committed and reopened without error.
-- **L9** (acceptance, 10:22–12:23, background): `cargo test -p krummi --test tree_integrity -- --ignored` passed (4
+- **L9** (acceptance, background 10:13:47–12:23:18 by the phase log): `cargo test -p krummi --test tree_integrity -- --ignored` passed (4
   tests, 7,640 s: the every-byte AC10 sweep, now with scans, and the crash sweeps through the close, run without a
   Defender exclusion, which the README warns makes them slow locally). `cargo test -p krummi --lib -- --ignored ac_`:
   `ac_b18` every point passed; `ac_r12` every point failed with "in key order" in the test's `scan_whole`, at a
@@ -187,3 +187,23 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   - R2-003 (SUGGESTION): the key length was a bare 16. Fixed: `timing::KEY`.
   - R3-scan-whole-order-check-weakened (SUGGESTION): after an injected failure the sweep checks only that the scan
     stops and that nothing applies, which is what the PRD specifies. No change.
+- **L13** (independent verifier, Sonnet high, on `1a69262`): **no blockers**. A randomized differential probe
+  against `BTreeMap` (keys of 1–400 bytes with shared prefixes and 0x00/0xFF bytes, random included, excluded,
+  open and inverted bounds, empty, matching, missing and 0xFF-ending prefixes; scans from the front, the back and
+  alternating; `remove_range` and `remove_range_prefix` with interleaved `set`/`remove`; two handles; a half-read
+  snapshot scan across the write; commit, abort and reopen) passed for seeds 1–3 (40 rounds) and 11–14 (24 rounds,
+  up to 85,000 entries removed per seed). Spec probes: T10 byte-identical files after a write of empty and missing
+  intervals and invalid sizes, with a single removal as positive control; size errors, their order and data;
+  tree not found and misuse with their precedence. 5.1 suites (`krummi-tree`, `trees`, `--lib`) pass. Verdicts:
+  pass S1–S7, S9, S11 (probed parts), S16, S17; not verified (covered by the writer's suites and logs, outside the
+  short budget) S8, S10, S12–S15, S18–S20. Advisories: none needing a change. Its scratch folder was removed.
+- **L14** (final checks on `dcf70fa`, Windows): `cargo fmt --all --check` and `cargo clippy --workspace --all-targets
+  -- -D warnings` pass; `cargo test --workspace --no-fail-fast`: 323 passed, 1 failed, 11 ignored. The failure is
+  `ac_f18_the_maximum_size_in_a_temporary_store` (`crates/krummi-tx/tests/free_space.rs:956`, an `allocate_run` in
+  a temporary store at its maximum size), in code this branch does not touch: its `free_space` binary failed 3 of 5
+  runs on the branch and 3 of 5 on the baseline `0e204da` exported, and 0 of 15 alone. Pre-existing and
+  load-dependent; left for a separate fix. On Linux (WSL) the whole workspace passed (L11).
+
+## Closing
+
+Closing report: [trees-scan-report.md](trees-scan-report.md).
