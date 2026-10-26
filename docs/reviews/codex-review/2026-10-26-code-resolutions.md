@@ -39,3 +39,24 @@ Checks after the fixes: Pester 17 passed, 0 failed.
 Not a finding of the report. The wrapper accepted `"approved": "false"` as an approval. Since that contradicts S3
 ("Un error de ejecución de Codex no equivale a una aprobación"), `e670fb4` treats a non-boolean `approved` as an
 invalid result (`error`). New test; RED observed before the fix (status `approved`).
+
+## 2026-10-26 (verification)
+
+Review record: follow-up report [2026-10-26-code-02.md](2026-10-26-code-02.md), wrapper status `findings`, thread
+`01a1773a-2e99-7431-a089-058a89b4aca3`. Executed settings from the session files: coordinator `gpt-6.1-sol` /
+`high`; one `krummi-review` reviewer `gpt-6.1-sol` / `high`.
+
+- Verdict: "Changes requested — R1 remains open (minor); R2 verified resolved."
+- R2: verified resolved. The boolean `approved` hardening was checked for regressions; none found.
+- R1: "partially corrected, still open", severity reduced to minor: the allocator writes `-100` and above
+  (`D2` is a minimum width), and the follow-up accepted only two digits.
+
+## 2026-10-26 (round 2)
+
+### R1 — minor: Follow-up still rejects originals numbered 100 and above
+
+- Disposition: fixed (`2499228`).
+- Fix: the follow-up accepts any numeric suffix of two or more digits, `(-\d{2,})?`, which covers every name
+  the allocator produces. New test with `<date>-prd-100.md` and its resolutions; RED observed before the fix
+  (status `error`). Pester 18 passed, 0 failed.
+- Status: claimed fixed, unverified until a follow-up review.

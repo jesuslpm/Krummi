@@ -100,3 +100,7 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   R2 major (`taskkill` denied in Codex's sandbox left the post-timeout wait unbounded) → fixed `7afccd2`; the
   report's unproven observation on a string `approved` → hardened `e670fb4`. Pester 17/17. Resolutions:
   [2026-10-26-code-resolutions.md](../../docs/reviews/codex-review/2026-10-26-code-resolutions.md).
+- **L10** (2026-10-26, Codex round 2): follow-up run 08:00:59–08:04:24 on fixes `f46e9d7..ae51675`, status
+  `findings`, report [2026-10-26-code-02.md](../../docs/reviews/codex-review/2026-10-26-code-02.md), thread
+  `01a1773a-2e99-7431-a089-058a89b4aca3`, executed `gpt-6.1-sol`/`high` (coordinator and one `krummi-review`).
+  R2 verified resolved; R1 still open as minor (three-digit originals such as `-100`) → fixed `2499228`, Pester 18/18.
