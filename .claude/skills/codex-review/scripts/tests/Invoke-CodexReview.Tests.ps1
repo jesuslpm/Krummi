@@ -136,7 +136,7 @@ Describe 'Invoke-CodexReview' {
         ($r.Result.unexpectedChanges -join ',') | Should Be '.atl/skill-registry.md,.claude/settings.local.json'
     }
 
-    It 'allows ignored build artifacts and keeps changes that were there before' {
+    It 'allows ignored build artifacts and the skill registry cache, and keeps changes that were there before' {
         Set-Content (Join-Path $script:Repo 'a.txt') 'dirty before the review'
         Set-Content (Join-Path $script:Repo 'notes.txt') 'untracked before the review'
         $r = Invoke-Review 'ignored' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)

@@ -64,7 +64,9 @@ their time as agent time.
 5. Review the draft with the user; iterate until no product question is open. Ask about each gap on its own,
    with the options the reviewer saw; the answer goes into the PRD as a fixed rule or as a line in
    `Left to the implementation`. Relaunch the reviewer when the answers changed the draft.
-6. When the PRD is final, launch the translator (*Subagents*) for each translation the project keeps (for
+6. Run the Codex cross review of the PRD with the `codex-review` skill, without waiting to be asked (project
+   rule in `CLAUDE.md`), and follow its loop; a finding that needs a product decision goes back to step 5.
+   When the PRD is final, launch the translator (*Subagents*) for each translation the project keeps (for
    example `*.prd.en.md`). Check that the translation has the same headings, criterion IDs and messages as
    the original; the original stays authoritative.
 7. As the last step of the session, once the PRD and its translations are final, record the elaboration time

@@ -7,7 +7,8 @@
 .DESCRIPTION
     Before the run it checks the Codex version, that Codex loads this repository's .codex/config.toml (it only does
     in trusted paths), and records a fingerprint of the repository (HEAD, refs, index, every non-ignored changed
-    or untracked file, and the ignored .claude/settings.local.json and .atl/ that Claude reads). Codex then runs `codex exec` in the workspace-write sandbox, so it can run cargo checks and
+    or untracked file, and the ignored .claude/settings.local.json and .atl/ that Claude reads, except the registry's
+    fingerprint cache). Codex then runs `codex exec` in the workspace-write sandbox, so it can run cargo checks and
     save its report at the path this script fixes. Afterwards the only change allowed is that new report; anything
     else is reported as a violation and left in place.
 
@@ -99,8 +100,11 @@ function Get-RepoState {
         if ($code[0] -in 'R', 'C') { $i++ }
         $state["path:$path"] = "$code $(Get-PathHash $path)"
     }
+    # The registry's cache holds only a fingerprint of the skills, which tools rewrite whenever the skills change
+    # (for example after switching branches); it carries no instructions, so it is left out.
     $registry = @(Get-ChildItem -LiteralPath (Join-Path $Repo '.atl') -Recurse -File -ErrorAction SilentlyContinue |
-            ForEach-Object { [IO.Path]::GetRelativePath($Repo, $_.FullName) -replace '\\', '/' })
+            ForEach-Object { [IO.Path]::GetRelativePath($Repo, $_.FullName) -replace '\\', '/' } |
+            Where-Object { $_ -ne '.atl/.skill-registry.cache.json' })
     foreach ($path in @('.claude/settings.local.json') + $registry) { $state["path:$path"] = Get-PathHash $path }
     $state
 }

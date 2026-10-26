@@ -14,8 +14,9 @@ is `AGENTS.md` and `.agents/skills/review-*`; this skill does not restate or cha
 through `scripts/Invoke-CodexReview.ps1`, which checks the setup, runs `codex exec`, verifies that Codex changed
 nothing but its new report, and prints a JSON result.
 
-Use it when the user asks for a Codex review: of a PRD once it is written, or of a change once its checks pass
-(before the closing report). It adds to RDD; it does not replace it.
+Use it without waiting to be asked (project rule in `CLAUDE.md`): on every PRD once it is agreed with the user
+(before its translations), and on every implementation run once its checks pass (before the closing report). The
+user may also ask for it at any other time. It adds to RDD; it does not replace it.
 
 ## Run one review
 
@@ -81,7 +82,8 @@ Never edit a report or Codex's verdict, change a product requirement without the
 ## Limits
 
 - **Ignored files.** The guard checks tracked and untracked files, plus the two ignored paths Claude reads
-  outside Codex's sandbox: `.claude/settings.local.json` (permissions and hooks) and `.atl/` (skill registry).
+  outside Codex's sandbox: `.claude/settings.local.json` (permissions and hooks) and `.atl/` (skill registry), except
+  `.atl/.skill-registry.cache.json`, a fingerprint of the skills that tools rewrite when the skills change.
   Codex's sandbox keeps `.git`, `.codex` and `.agents` read-only. Other ignored files (`target/`, `__pycache__/`,
   `work/`, test temporaries) are not checked, because Codex's builds and tests write there legitimately. A change
   there would go unnoticed.

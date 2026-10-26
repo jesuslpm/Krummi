@@ -18,8 +18,16 @@ protocol in `AGENTS.md`. Preserve those reports. When addressing a finding, reco
 evidence and fix commit or artifact version in the report's separate `*-resolutions.md` file, with dated,
 append-only updates. Link the report and resolutions from the execution log or closing report when relevant.
 A claimed fix remains unverified until a follow-up review confirms it; do not rewrite the reviewer's verdict.
-To run Codex from Claude (review, fix or dismiss with evidence, verify, up to three rounds), use the
-`codex-review` skill.
+**Codex cross review, always.** Run it with the `codex-review` skill (review, fix or dismiss with evidence,
+verify, up to three rounds) without waiting to be asked, as RDD runs:
+
+- **PRD:** once the draft is agreed with the user and no product question is open, before its translations and
+  its elaboration time.
+- **Code:** at the end of every implementation run (ODD, SDD, vibe coding), once its checks pass and after the RDD
+  review of the last slice, over the run's whole range, before the closing report. The closing report links its
+  reports and resolutions.
+
+Product questions it raises are asked after the loop, one at a time.
 
 ## Engineering principles
 
@@ -48,8 +56,8 @@ These apply to every flow (ODD, SDD, vibe coding) and to any code change.
    record the estimate and the real start time from `date`, and mark it in the phase log with `--start`. Past runs finished in about half the estimated
    time; calibrate with the earlier closing reports in `odd/tasks/*-report.md` (until this repository has its
    own, use those of `C:\rust\chicago-crime\odd\tasks`).
-3. **Always verify.** Never ask whether to run tests, verifiers or reviews: run them. Automated review
-   consent is always granted.
+3. **Always verify.** Never ask whether to run tests, verifiers or reviews (RDD and Codex): run them. Automated
+   review consent is always granted.
 
 ## Vibe coding from a PRD
 

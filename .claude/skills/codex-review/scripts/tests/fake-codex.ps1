@@ -64,6 +64,8 @@ switch ($mode) {
         Save-Report
         New-Item -ItemType Directory -Force -Path (Join-Path $repo 'target') | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'target/build.bin') -Value 'artifact'
+        # The skill registry's cache: a fingerprint of the skills that tools rewrite when the skills change.
+        Set-Content -LiteralPath (Join-Path $repo '.atl/.skill-registry.cache.json') -Value '{"fingerprint":"new"}'
         Write-Answer $true @()
     }
 }
