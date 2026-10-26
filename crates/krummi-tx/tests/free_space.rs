@@ -983,6 +983,7 @@ fn growth_within_the_maximum_size_ignores_versions_no_read_needs() {
     };
     let engine = Engine::open_temporary(&options).unwrap();
     engine.set_transfer_paused(true);
+    let passes = engine.transfer_passes();
     while engine.info().page_count < 128 || engine.frontier() < engine.info().page_count {
         let room = engine.info().page_count - engine.frontier();
         let mut tx = engine.write(None).unwrap();
@@ -994,6 +995,8 @@ fn growth_within_the_maximum_size_ignores_versions_no_read_needs() {
         128,
         "the store took its full room"
     );
+    // No background pass ran: the writer's own transfer before each growth made the room.
+    assert_eq!(engine.transfer_passes(), passes);
     let pages: Vec<u64> = (FIRST_PAGE..FIRST_PAGE + 8).step_by(2).collect();
     free(&engine, &pages);
     let mut tx = engine.write(None).unwrap();
@@ -1001,6 +1004,58 @@ fn growth_within_the_maximum_size_ignores_versions_no_read_needs() {
         tx.allocate().unwrap();
     }
     tx.commit().unwrap();
+    engine.set_transfer_paused(false);
+}
+
+/// J7 and T14 with a read open while the store grows: the versions it needs still count, so a reservation that
+/// does not fit fails with the maximum-size class and the store and those versions stay within the maximum; once
+/// the read ends, the rest of the room is reserved.
+#[test]
+fn growth_within_the_maximum_size_counts_versions_a_read_needs() {
+    let options = krummi_tx::OpenOptions {
+        max_size: Some((128 + 6) * PAGE_SIZE as u64),
+    };
+    let max = options.max_size.unwrap();
+    let engine = Engine::open_temporary(&options).unwrap();
+    engine.set_transfer_paused(true);
+    let fill = |engine: &Engine| -> Result<(), krummi_tx::Error> {
+        while engine.info().page_count < 128 || engine.frontier() < engine.info().page_count {
+            let room = engine.info().page_count - engine.frontier();
+            let mut tx = engine.write(None).unwrap();
+            tx.allocate_run(room.clamp(1, 4))?;
+            tx.commit().unwrap();
+        }
+        Ok(())
+    };
+    // Grow to 64 pages, then keep the versions of three pages for a read.
+    while engine.frontier() < 64 {
+        let mut tx = engine.write(None).unwrap();
+        tx.allocate_run(4).unwrap();
+        tx.commit().unwrap();
+    }
+    let read = engine.read().unwrap();
+    let mut tx = engine.write(None).unwrap();
+    for page in FIRST_PAGE..FIRST_PAGE + 3 {
+        common::put(&mut tx, page, "changed");
+    }
+    tx.commit().unwrap();
+    let error = fill(&engine).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::MaxSize, "{error}");
+    assert!(
+        engine.info().size_bytes + engine.scratch_bytes() <= max,
+        "the store and the versions it keeps stay within the maximum"
+    );
+    assert!(
+        engine.frontier() < engine.info().page_count,
+        "the read's versions took the room of the last pages"
+    );
+    drop(read);
+    fill(&engine).unwrap();
+    assert_eq!(
+        engine.info().page_count,
+        128,
+        "the store took its full room"
+    );
     engine.set_transfer_paused(false);
 }
 

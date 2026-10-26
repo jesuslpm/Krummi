@@ -29,7 +29,7 @@ min. Real start: 2026-10-26 18:57:10 +0000.
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1, S2 | inline | done | T1COMMIT |
+| T1 | S1, S2 | inline | done | `fa77b47` |
 | T2 | checks, verification, RDD and Codex reviews, closing report | inline | pending | — |
 
 Route evidence: one understood change in one function, inline. Risk item 4 (async ordering with the transfer
@@ -45,3 +45,17 @@ thread): independent verifier at the end.
   (four binaries at once, three rounds) 0 failures of 12, where the same load had failed 3 of 8 before. `cargo fmt
   --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace
   --no-fail-fast`: 326 passed, 0 failed, 11 ignored.
+- **L4** (RDD review, `fa77b47`, base `990689b`): assessed `medium` (`under_budget`), raised to `high` with
+  `--escalate-item 4` (the writer now waits for the transfer thread before growing); lenses resilience,
+  reliability; lineage `review-e01b32b2e0986d01`; **approved**, acknowledged, authority burned. Advisory findings:
+  - R4-sync-flush-before-growth (WARNING): growing a store with a maximum size now waits for a synchronous
+    transfer, and a failure of that transfer fails the reservation. Accepted: growth doubles, so it is rare; stores
+    without a maximum size are untouched; the transfer's failures follow T11 as the existing flush before failing
+    does.
+  - R3-reader-pinned-growth-untested (SUGGESTION): added
+    `growth_within_the_maximum_size_counts_versions_a_read_needs` (a read keeps three versions while the store
+    grows: the reservation fails with the maximum-size class within the maximum, and after the read ends the rest
+    of the room is reserved). It also fails with the code before `fa77b47` (`MaxSize`, needed 1,122,304, after the
+    read ends).
+  - R3-paused-flush-assumption (SUGGESTION): the first test now asserts that no background pass ran
+    (`transfer_passes` unchanged), so the room came from the writer's own transfer.
