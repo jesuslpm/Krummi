@@ -189,7 +189,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         Ok(range)
     }
 
-    /// Ends both ends: after a failure, nothing more comes out.
+    /// Ends both ends: after a failure, or once either end is exhausted, nothing more comes out.
     fn stop(&mut self) {
         self.front.finished = true;
         self.back.finished = true;
@@ -360,11 +360,9 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         match step {
             Ok(Some(entry)) => Some(Ok(entry)),
             Ok(None) => {
-                if front {
-                    self.front.finished = true;
-                } else {
-                    self.back.finished = true;
-                }
+                // An end stops only when no entry is left between it and the other end's last one, or the bound:
+                // the other end has nothing left either, so it must not read or reserve anything more (Codex R1).
+                self.stop();
                 None
             }
             Err(error) => {

@@ -457,3 +457,36 @@ fn ac_r13_a_read_scan_out_of_memory_stops_and_the_read_stays_usable() {
     assert_eq!(read.range(&tree, ..).unwrap().count() as u64, ENTRIES);
     assert!(read.get(&tree, &key(0)).unwrap().is_some());
 }
+
+/// Codex review R1 (`docs/reviews/trees-scan/2026-10-26-code-02.md#R1`), AC-R1: once one end of a scan returns
+/// nothing more, the other end returns nothing either, without reading or reserving anything, so it cannot fail
+/// and the write still commits; from either end first.
+#[test]
+fn r1_an_exhausted_scan_ends_at_both_ends_without_reserving() {
+    for front_first in [true, false] {
+        let store = temporary();
+        let mut write = store.write().unwrap();
+        let tree = write
+            .open_tree_with("pending", NORMAL, OpenMode::CreateNew)
+            .unwrap();
+        write.set(&tree, b"a", b"pending").unwrap();
+        let mut scan = write.range(&tree, ..).unwrap();
+        let (first, then) = if front_first {
+            (scan.next(), scan.next())
+        } else {
+            (scan.next_back(), scan.next_back())
+        };
+        assert!(first.unwrap().is_ok() && then.is_none());
+        fail_alloc(0);
+        let other = if front_first {
+            scan.next_back()
+        } else {
+            scan.next()
+        };
+        testing::reset();
+        assert!(other.is_none(), "front first: {front_first}");
+        drop(scan);
+        write.commit().unwrap();
+        assert!(store.read().unwrap().tree_exists("pending").unwrap());
+    }
+}
