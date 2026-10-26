@@ -53,7 +53,7 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
 | T0 | S10 | inline | done | npm `@openai/codex` 0.138.0 → 0.164.0 |
 | T1 | S1–S5 | inline | done | see Log L6 |
 | T2 | S6–S9 | inline | done | see Log L7 |
-| T3 | S10 | inline | in progress | |
+| T3 | S10 | inline | done | `c47b0be`, `7afccd2`, `e670fb4`, `2499228`, `0f6e5c9`; Log L9–L12 |
 
 ## Log
 
@@ -110,3 +110,15 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   chain closed within the three-round limit. The guard saw only the new report in all three rounds. Not exercised
   live: a `violation`, a `dismissed with evidence` (no finding was wrong) and a PRD review; they are covered by
   the Pester tests (violation) or follow the same wrapper path (PRD, dismissal through the follow-up prompt).
+- **L12** (2026-10-26, RDD review of the slice `c6fa485..d364887`, lineage `review-f83911e0a6f71a43`): lenses risk,
+  resilience, reliability. One finding: `R3-fixrange-ignored-prd`, CRITICAL, deterministic, introduced (reliability):
+  a PRD follow-up silently ignored `-FixRange`, never validated nor passed to Codex. Correction plan 30 lines;
+  fixed `0f6e5c9` (`-FixRange` optional on PRD follow-ups but validated and passed when given; skill table
+  updated; new test, RED observed). Targeted validation approved; acknowledged, authority burned. The first
+  capture attempt failed before starting (`invalid value "0" for flag -order`: argument files written with CRLF
+  by me; `mutation_outcome: not_started`); bound STATUS reoffered the same slots and the relaunch succeeded.
+  `0f6e5c9` postdates Codex's round 3 approval: it is covered by RDD, not by the Codex chain.
+- **L13** (2026-10-26, final checks): `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets -- -D
+  warnings` OK; `cargo test --workspace`: first run failed `krummi-tx` `ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it`
+  (`left: "b"`, `right: "c"`), the intermittent test already recorded in `trees-keys`; this branch changes nothing
+  under `crates/` or Cargo; 5/5 isolated reruns passed and a second full run exited 0 (0 failures). Pester 19/19.
