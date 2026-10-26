@@ -174,6 +174,14 @@ Describe 'Invoke-CodexReview' {
         Get-FakeLog | Should Match 'Revisión de seguimiento de docs/reviews/feat/2026-10-01-prd-02\.md'
     }
 
+    It 'accepts every numbered original the allocator produces, including three digits' {
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd-100.md") 'chain 100'
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd-100-resolutions.md") 'resolutions'
+        $r = Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-prd-100.md', '-Repo', $script:Repo)
+        $r.Result.status | Should Be 'approved'
+        $r.Result.resolutions | Should Be 'docs/reviews/feat/2026-10-01-prd-100-resolutions.md'
+    }
+
     It 'refuses a follow-up without resolutions, without fix range, or of a follow-up report' {
         Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-code.md") 'report'
         (Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-code.md', '-FixRange', 'HEAD..HEAD', '-Repo', $script:Repo)).Result.message |

@@ -204,7 +204,7 @@ try {
         'FollowUp' {
             $originalRel = Get-RepoRelative $FollowUp
             $leaf = Split-Path $originalRel -Leaf
-            if ($leaf -notmatch '^\d{4}-\d{2}-\d{2}-(prd|code)(-\d{2})?\.md$') {
+            if ($leaf -notmatch '^\d{4}-\d{2}-\d{2}-(prd|code)(-\d{2,})?\.md$') {
                 throw "FollowUp must name a review report (<date>-<prd|code>[-NN].md), not '$leaf'."
             }
             $kind = $Matches[1]
