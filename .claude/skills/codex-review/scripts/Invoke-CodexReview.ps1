@@ -194,14 +194,14 @@ try {
         'FollowUp' {
             $originalRel = Get-RepoRelative $FollowUp
             $leaf = Split-Path $originalRel -Leaf
-            if ($leaf -notmatch '^\d{4}-\d{2}-\d{2}-(prd|code)\.md$') {
-                throw "FollowUp must name the original report of the chain (<date>-prd.md or <date>-code.md), not '$leaf'."
+            if ($leaf -notmatch '^\d{4}-\d{2}-\d{2}-(prd|code)(-\d{2})?\.md$') {
+                throw "FollowUp must name a review report (<date>-<prd|code>[-NN].md), not '$leaf'."
             }
             $kind = $Matches[1]
             $Feature = Split-Path (Split-Path $originalRel -Parent) -Leaf
             $resolutionsRel = $originalRel -replace '\.md$', '-resolutions.md'
             if (-not (Test-Path -LiteralPath (Join-Path $Repo $resolutionsRel))) {
-                throw "No resolutions to verify: $resolutionsRel does not exist."
+                throw "No resolutions to verify: $resolutionsRel does not exist. Pass the chain's original report; follow-up reports share its resolutions."
             }
             $result.resolutions = $resolutionsRel
             $request = "Claude lo ha corregido: $resolutionsRel. Revisión de seguimiento de ${originalRel}: verifica solo " +

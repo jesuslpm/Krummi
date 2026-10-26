@@ -154,6 +154,17 @@ Describe 'Invoke-CodexReview' {
         $log | Should Match 'Correcciones en HEAD\.\.HEAD'
     }
 
+    It 'accepts a numbered original report that has its own resolutions' {
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd.md") 'first chain'
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd-02.md") 'second chain'
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd-02-resolutions.md") 'resolutions'
+        $r = Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-prd-02.md', '-Repo', $script:Repo)
+        $r.Result.status | Should Be 'approved'
+        $r.Result.kind | Should Be 'prd'
+        $r.Result.resolutions | Should Be 'docs/reviews/feat/2026-10-01-prd-02-resolutions.md'
+        Get-FakeLog | Should Match 'Revisión de seguimiento de docs/reviews/feat/2026-10-01-prd-02\.md'
+    }
+
     It 'refuses a follow-up without resolutions, without fix range, or of a follow-up report' {
         Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-code.md") 'report'
         (Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-code.md', '-FixRange', 'HEAD..HEAD', '-Repo', $script:Repo)).Result.message |
@@ -163,7 +174,7 @@ Describe 'Invoke-CodexReview' {
             Should Match 'needs -FixRange'
         Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-code-02.md") 'follow-up'
         (Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-code-02.md', '-Repo', $script:Repo)).Result.message |
-            Should Match 'original report of the chain'
+            Should Match 'No resolutions to verify'
         Get-FakeLog | Should Be ''
     }
 }
