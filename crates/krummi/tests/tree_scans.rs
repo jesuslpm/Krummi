@@ -709,6 +709,10 @@ fn ac_r13_scans_and_damaged_pages() {
 #[test]
 fn ac20_scans_return_references_into_the_engine_s_memory() {
     stores(|store, _| {
+        commit_tree(store, "t", EMPTY);
+        // An older read keeps the next version out of `krummi.data`, so the reads below see it in one place (the
+        // background transfer may otherwise move it there between two reads, as in 5.1's AC20 test).
+        let oldest = store.read().unwrap();
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let read = store.read().unwrap();
         let tree = tree_t(&read);
@@ -729,6 +733,7 @@ fn ac20_scans_return_references_into_the_engine_s_memory() {
         assert_eq!(key.as_ptr(), again.as_ptr());
         // The references outlive the scan that returned them, within the read.
         assert_eq!(key, b"ab");
+        drop(oldest);
     });
 }
 

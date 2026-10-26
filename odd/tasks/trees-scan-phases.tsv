@@ -13,3 +13,5 @@
 2026-10-26T10:18:39+00:00	mark	docs	T6
 2026-10-26T12:23:18+00:00	bg-end	acceptance	full sweeps: tree_integrity --ignored, lib ac_ --ignored
 2026-10-26T12:24:30+00:00	mark	fix	ac_r12 full sweep
+2026-10-26T12:26:21+00:00	mark	acceptance	R11 measurement Windows
+2026-10-26T12:28:11+00:00	mark	checks	Linux tests and measurement (WSL)

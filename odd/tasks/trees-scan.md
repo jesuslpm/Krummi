@@ -72,7 +72,7 @@ Decisions within *Dejado a la implementación*:
 | T2 | S1 (removes), S4, S6 (remove part), S8 (removal cases), S9, S10, S11 (remove part), S13 (removes) | inline | done | `1ddd9ca` |
 | T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | done | `f67d59b` |
 | T4 | S14 | inline | done | `d6f2263` |
-| T5 | S15 | inline | code done, runs pending | `b120a64` |
+| T5 | S15 | inline | done | `b120a64` |
 | T6 | docs, checks, verification, RDD review, closing report | inline | pending | — |
 
 Route evidence: every task is one behavior of one crate pair (krummi-tree and krummi) built on the previous one, so
@@ -154,3 +154,25 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   commit), so the test now checks the count and the order only when no earlier operation failed. Rerun: passed at
   every point (77.6 s). The wait for the sweep, from the docs commit to its end, was agent time spent waiting for
   a background run, not work.
+- **L10** (R11 measurement, release, 1,000,000 keys; `cargo run --release -p krummi --example scan_timing`):
+
+  | Operation | Windows (s) | Linux, WSL 2 ext4 (s) |
+  |---|---|---|
+  | store at random (the load, 5.1 code) | 84.89 | 35.97 |
+  | scan forward (1,000,000 entries) | 0.38 | 0.05 |
+  | scan backward (1,000,000 entries) | 0.28 | 0.05 |
+  | 10,000 scans of 100 from random keys (999,830 entries) | 0.56 | 0.09 |
+  | remove with 1,000 intervals, one durable write each | 1.94 | 8.29 |
+
+  Store size after the load and after the removals, both systems: 268,435,456 bytes. Machine: Windows 11 Pro
+  10.0.26200, 13th Gen Intel Core i9-13980HX (32 threads), NVMe Samsung MZVL22T0HBLB-00B00; Linux: WSL 2 Ubuntu,
+  kernel 5.15.133.1-microsoft-standard-WSL2, ext4 on `/dev/sde` (1,007 GB virtual disk on the same NVMe). The
+  Windows load took 3x the 26.79 s of 5.1's report; run back to back on the same machine, `tree_timing` gave 90.40 s
+  with this branch and 94.44 s with the 5.1 code (`0e204da`, exported), so the slowdown is the machine's state that
+  day, not a regression.
+- **L11** (Linux checks, WSL 2 Ubuntu, `~/krummi-scan` from `git archive`): `cargo test --workspace --no-fail-fast`
+  failed once in `ac20_scans_return_references_into_the_engine_s_memory` (pointer of a key from two scans) and
+  passed on the rerun. Cause: the background transfer can move the committed version into `krummi.data` between two
+  reads, so the same key is served from another place of the engine's memory; 5.1's AC20 test keeps an older read
+  open to prevent it. Fixed the same way. Old test: 10 failures in 60 runs on WSL; fixed: 0 in 60. The rest of the
+  workspace passed on Linux.
