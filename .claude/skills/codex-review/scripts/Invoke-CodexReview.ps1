@@ -143,9 +143,19 @@ function Invoke-Codex([string[]]$CodexArgs, [string]$Stdin, [double]$Minutes) {
     if ($Stdin) { $process.StandardInput.Write($Stdin) }
     $process.StandardInput.Close()
     $timedOut = -not $process.WaitForExit([int]($Minutes * 60000))
-    if ($timedOut) { & taskkill /PID $process.Id /T /F *> $null }
-    $process.WaitForExit()
-    [pscustomobject]@{ ExitCode = $process.ExitCode; Stdout = $stdout.Result; Stderr = $stderr.Result; TimedOut = $timedOut }
+    $stopped = $true
+    if ($timedOut) {
+        try { $process.Kill($true) } catch { }
+        $stopped = $process.WaitForExit(10000)
+    }
+    # Only bounded waits: a process that cannot be stopped must not hold back the error result.
+    $drained = $stopped -and [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdout, $stderr), 30000)
+    [pscustomobject]@{
+        ExitCode = if ($stopped) { $process.ExitCode } else { $null }
+        Stdout = if ($drained) { $stdout.Result } else { '' }
+        Stderr = if ($drained) { $stderr.Result } else { '' }
+        TimedOut = $timedOut; Stopped = $stopped; ProcessId = $process.Id
+    }
 }
 
 function Read-ThreadSettings([IO.FileInfo]$File) {
@@ -288,7 +298,10 @@ Automated invocation through .claude/skills/codex-review/scripts/Invoke-CodexRev
     try { $result.telemetry = Get-Telemetry $result.threadId $started } catch { $result.telemetry = "unavailable: $($_.Exception.Message)" }
 
     $problem = $null
-    if ($run.TimedOut) { $problem = "Codex timed out after $TimeoutMinutes min." }
+    if ($run.TimedOut) {
+        $problem = "Codex timed out after $TimeoutMinutes min."
+        if (-not $run.Stopped) { $problem += " Process $($run.ProcessId) could not be stopped and may still change files; end it by hand." }
+    }
     elseif ($run.ExitCode -ne 0 -or $failures -or -not $completed) {
         $problem = "Codex failed (exit $($run.ExitCode)): $(($failures | Where-Object { $_ }) -join ' | ')"
     }

@@ -99,11 +99,15 @@ Describe 'Invoke-CodexReview' {
         $r.Result.message | Should Match 'did not save the report'
     }
 
-    It 'treats a timeout as an error' {
+    It 'treats a timeout as an error and returns without waiting for the hung process' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
         $r = Invoke-Review 'hang' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo, '-TimeoutMinutes', '0.05')
+        $clock.Stop()
         $r.Result.status | Should Be 'error'
         $r.Result.message | Should Match 'timed out'
+        $clock.Elapsed.TotalSeconds | Should BeLessThan 20
     }
+
 
     It 'reports a change to a tracked file as a violation and leaves it in place' {
         $r = Invoke-Review 'violate' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)
