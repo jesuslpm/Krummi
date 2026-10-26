@@ -4,7 +4,7 @@ Informe de cierre de `codex-review` (2026-10-26). Enfoque de ejecución: ODD.
 Fuente de producto: ninguna (herramienta sin cambio de producto, sin PRD). Documento de ejecución:
 [codex-review.md](codex-review.md).
 
-Rama `feat/codex-review` sobre `c6fa485`, último commit del cambio `4453c58` más este informe. Sin merge ni push.
+Rama `feat/codex-review` sobre `c6fa485`, último commit del cambio `a63e2ca` más este informe. Sin merge ni push.
 
 ## Resultado
 
@@ -47,14 +47,32 @@ Rama `feat/codex-review` sobre `c6fa485`, último commit del cambio `4453c58` m�
 | Commits | Lentes | Resultado | Hallazgos y resolución | Linaje |
 |---|---|---|---|---|
 | `c6fa485..d364887` | risk, resilience, reliability | corregido y luego aprobado | `R3-fixrange-ignored-prd`, CRITICAL, determinista: un seguimiento de PRD ignoraba `-FixRange` sin avisar → `0f6e5c9`, validación dirigida aprobada | `review-f83911e0a6f71a43` |
+| `0f6e5c9..a63e2ca` | risk, reliability | aprobado | ninguno | `review-7ca83fd38fbc9883` |
 
 Evaluaciones sin revisión: después de T1 (`eb64eef`), de T2 (`e088636`) y de la ronda 3 (`d364887`), riesgo medio,
 `under_budget`.
 
+## Auditoría adicional antes del merge
+
+El usuario pidió evaluar dos observaciones de una auditoría independiente (log L14):
+
+- **Archivos ignorados por Git.** El sandbox de Codex deja escribir en el repositorio, pero mantiene `.git`,
+  `.codex` y `.agents` en solo lectura (política del hilo de la ronda 3). De los ignorados, dos cambian lo que hace
+  Claude fuera de ese sandbox: `.claude/settings.local.json` (permisos y *hooks*; hoy no existe) y `.atl/`
+  (registro de skills). Riesgo real, arreglo mínimo `a63e2ca`: la huella también los incluye. Prueba nueva con
+  rojo observado; Pester 20/20. `target/`, `__pycache__/`, `work/` y los temporales siguen sin vigilarse, como
+  pidió el usuario; está documentado en *Limits* de la skill.
+- **Coherencia entre el JSON y el informe.** Las skills de revisión piden un veredicto de una línea en texto libre,
+  sin redacción fija, y los informes reales lo confirman. No hay comprobación simple que ate `approved` al informe
+  sin interpretar ese texto; sin cambios, documentado en *Limits*. Claude ya lee el informe al registrar cada
+  ronda, porque las resoluciones citan su veredicto y el resultado de cada ID.
+
 ## Tiempo
 
 - Estimación: 1 h – 1 h 45 min. Arranque real: 2026-10-26 07:32:56 +00:00. Fin: 08:26:44 +00:00.
-- **Duración activa desde el arranque: 53 min 48 s**, por debajo del mínimo estimado. Lo que más pesó fueron las
+- **Duración activa desde el arranque: 53 min 48 s** hasta el primer cierre, por debajo del mínimo estimado. La
+  evaluación de la auditoría añadió 14 min en una segunda sesión (total activo 1 h 08 min, pausa de 24 min 27 s
+  entre sesiones fuera del activo); las tablas de abajo son las del primer cierre. Lo que más pesó fueron las
   correcciones de hallazgos (14 min) y el código con sus tests (15 min). La exploración y la propuesta previas al
   arranque no están en la bitácora.
 - Esperas por el usuario: ninguna dentro de la ejecución.
@@ -151,6 +169,12 @@ ejecutados de los archivos de sesión de Codex, así que las resoluciones dejan 
 - `0f6e5c9` es posterior a la aprobación de Codex en la ronda 3. Lo cubre RDD, no la cadena de Codex.
 - El test intermitente `krummi-tx` `ac12_ac_t20_…` falló una vez en los checks finales; ya estaba registrado en
   `trees-keys`, esta rama no toca Rust y la repetición pasó.
+- **Nuevo intermitente del motor:** `krummi-tx` `recovery.rs`
+  `b2_damage_in_a_commit_made_durable_by_a_rollover_is_reported` falló una vez en la suite completa ("opening …
+  should fail"). Pasó 5/5 aislado, 5/5 con todo `recovery` y en la siguiente suite completa. No bloquea esta rama,
+  que no toca Rust, pero conviene investigarlo aparte: es un test de recuperación.
+- Vigilancia de ignorados limitada a `.claude/settings.local.json` y `.atl/` (ver *Auditoría adicional*).
+- No se comprueba que el `approved` del JSON coincida con el veredicto en texto libre del informe.
 - Las pruebas se escribieron después del script, no en rojo primero (L6); las correcciones posteriores sí
   observaron el rojo, salvo R2, que solo se reproduce dentro del sandbox de Codex.
 
@@ -159,7 +183,7 @@ detecta cualquier escritura indebida, aunque no la impide (L5).
 
 ## Limpieza manual
 
-- `%TEMP%\codex-review` (479 KB): prompts, eventos y mensajes finales de cada ejecución, útiles para auditar.
+- `%TEMP%\codex-review` (unos 480 KB): prompts, eventos y mensajes finales de cada ejecución, útiles para auditar.
 - `%TEMP%\krummi-review-focused-5ec07471bb6a4cc5ae603099ec232854` (101 KB) y
   `%TEMP%\krummi-followup-r1-b0920ae8e3e042f593028492d2855bfb` (226 KB): reproducciones que dejó Codex en las
   rondas 1 y 2.

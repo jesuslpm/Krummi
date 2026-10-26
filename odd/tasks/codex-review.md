@@ -54,6 +54,7 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
 | T1 | S1–S5 | inline | done | see Log L6 |
 | T2 | S6–S9 | inline | done | see Log L7 |
 | T3 | S10 | inline | done | `c47b0be`, `7afccd2`, `e670fb4`, `2499228`, `0f6e5c9`; Log L9–L12 |
+| T4 | S2, S5 | inline | done | `a63e2ca`; Log L14–L15 |
 
 ## Log
 
@@ -115,10 +116,28 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   a PRD follow-up silently ignored `-FixRange`, never validated nor passed to Codex. Correction plan 30 lines;
   fixed `0f6e5c9` (`-FixRange` optional on PRD follow-ups but validated and passed when given; skill table
   updated; new test, RED observed). Targeted validation approved; acknowledged, authority burned. The first
-  capture attempt failed before starting (`invalid value "0" for flag -order`: argument files written with CRLF
+  capture attempt failed before starting (`invalid value "0
+" for flag -order`: argument files written with CRLF
   by me; `mutation_outcome: not_started`); bound STATUS reoffered the same slots and the relaunch succeeded.
   `0f6e5c9` postdates Codex's round 3 approval: it is covered by RDD, not by the Codex chain.
 - **L13** (2026-10-26, final checks): `cargo fmt --all --check` OK; `cargo clippy --workspace --all-targets -- -D
   warnings` OK; `cargo test --workspace`: first run failed `krummi-tx` `ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it`
   (`left: "b"`, `right: "c"`), the intermittent test already recorded in `trees-keys`; this branch changes nothing
   under `crates/` or Cargo; 5/5 isolated reruns passed and a second full run exited 0 (0 failures). Pester 19/19.
+- **L14** (2026-10-26 08:51, user, after an additional independent audit): evaluate two observations before the
+  merge, "1. Archivos ignorados por Git" and "2. Coherencia entre el JSON y el informe", with "Si identificas un
+  riesgo real, propón la solución mínima. Si no, documenta la limitación y no cambies nada." Findings:
+  (1) the last Codex thread's `file_system_sandbox_policy` gives write access to the repository but keeps `.git`,
+  `.codex` and `.agents` read-only; the ignored files present are `target/`, `__pycache__/` `.pyc`, `.atl/`
+  and generated slides. Two ignored paths change how Claude acts outside Codex's sandbox:
+  `.claude/settings.local.json` (permissions and hooks, absent today, writable by Codex) and `.atl/` (skill
+  registry). Real risk, minimal fix `a63e2ca`: the fingerprint also hashes those two paths; new test, RED observed
+  (status `approved` with both files changed), Pester 20/20. `target/` and the rest stay unwatched, documented in
+  the skill's *Limits*. (2) The review skills ask for a free-text one-line verdict with no fixed wording (verdicts
+  in `docs/reviews/` range from "Changes requested — …" to "**The product contract is ready …"), so no simple check
+  can tie `approved` to the report; documented in *Limits*, no change.
+- **L15** (2026-10-26): RDD review of the last slice `0f6e5c9..a63e2ca`, lineage `review-7ca83fd38fbc9883`, lenses
+  risk and reliability: approved with no findings, acknowledged. Final checks: fmt and clippy OK; `cargo test
+  --workspace` first run failed `krummi-tx` `recovery.rs` `b2_damage_in_a_commit_made_durable_by_a_rollover_is_reported`
+  ("opening … should fail"), not recorded before as intermittent; nothing under `crates/` changes on this branch;
+  5/5 isolated runs and 5/5 runs of the whole `recovery` file passed, and a second full run exited 0. Pester 20/20.
