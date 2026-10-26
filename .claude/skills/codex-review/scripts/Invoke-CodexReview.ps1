@@ -309,7 +309,8 @@ Automated invocation through .claude/skills/codex-review/scripts/Invoke-CodexRev
     if (-not $problem) {
         try { $answer = Get-Content -LiteralPath $lastMessagePath -Raw | ConvertFrom-Json } catch { }
         $fields = 'report_path', 'approved', 'verdict', 'open_findings', 'open_questions'
-        if (-not $answer -or @($fields | Where-Object { -not $answer.PSObject.Properties[$_] })) {
+        if (-not $answer -or @($fields | Where-Object { -not $answer.PSObject.Properties[$_] }) -or
+            $answer.approved -isnot [bool]) {
             $problem = 'Codex gave no valid final result (see last-message.json).'
         }
         elseif (($answer.report_path -replace '\\', '/') -ne $reportRel) {

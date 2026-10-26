@@ -109,6 +109,12 @@ Describe 'Invoke-CodexReview' {
     }
 
 
+    It 'treats a final message with a non-boolean approved as an error, never an approval' {
+        $r = Invoke-Review 'stringapproved' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)
+        $r.Result.status | Should Be 'error'
+        $r.Result.message | Should Match 'no valid final result'
+    }
+
     It 'reports a change to a tracked file as a violation and leaves it in place' {
         $r = Invoke-Review 'violate' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)
         $r.Exit | Should Be 2

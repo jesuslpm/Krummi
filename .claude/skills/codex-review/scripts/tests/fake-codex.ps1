@@ -44,6 +44,11 @@ Write-Rollouts
 switch ($mode) {
     'approved' { Save-Report; Write-Answer $true @() }
     'findings' { Save-Report; Write-Answer $false @(@{ id = 'R1'; severity = 'major'; title = 'Broken' }) }
+    'stringapproved' {
+        Save-Report
+        @{ report_path = $report; approved = 'false'; verdict = 'v'; open_findings = @(); open_questions = @() } |
+            ConvertTo-Json | Set-Content -LiteralPath $lastMessage -Encoding utf8NoBOM
+    }
     'nojson' { Save-Report; Set-Content -LiteralPath $lastMessage -Value 'not json' }
     'noreport' { Write-Answer $true @() }
     'violate' { Save-Report; Add-Content -LiteralPath (Join-Path $repo 'a.txt') -Value 'edited'; Write-Answer $true @() }
