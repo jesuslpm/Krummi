@@ -30,7 +30,7 @@ min. Real start: 2026-10-26 18:57:10 +0000.
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1, S2 | inline | done | `fa77b47` |
-| T2 | checks, verification, RDD and Codex reviews, closing report | inline | pending | — |
+| T2 | checks, verification, RDD and Codex reviews, closing report | inline | done (Codex pending) | `5db200f`, report |
 
 Route evidence: one understood change in one function, inline. Risk item 4 (async ordering with the transfer
 thread): independent verifier at the end.
@@ -59,3 +59,19 @@ thread): independent verifier at the end.
     read ends).
   - R3-paused-flush-assumption (SUGGESTION): the first test now asserts that no background pass ran
     (`transfer_passes` unchanged), so the room came from the writer's own transfer.
+- **L5** (independent verifier, Sonnet high, on `5db200f`): **no blockers**; S1 pass, S2 pass. Code: `reserve` is the
+  only place that grows a bounded store (`ensure_pages_within` has no other production caller; recovery grows
+  unbounded); the writer waits for the flush holding only its turn, which the transfer thread never needs, and
+  queued demands are served before the paused flag is checked. Journal rules J5, J10 and E5 allow a deferred commit
+  to become durable earlier. Probes (60 runs per mode, 12 processes in parallel): the `ac_f18` scenario on
+  temporary and disk stores, with deferred commits and fast pacing; a read holding three versions across growth;
+  free/allocate churn with and without reader threads: all pass, the file never exceeds the maximum, and
+  `MaxSize` appears only while a read keeps versions. The same probes against `990689b` fail
+  (`page_count != 128`, `MaxSize` needed 1,105,920 or 1,122,304). Six copies of the `free_space` binary in parallel:
+  29 passed each. Advisories: a growth now waits for a transfer (accepted in the RDD review); a test that pauses the
+  journal and grows a bounded store would now block (none does; test-only). Its scratch folder was removed.
+- **L6** (Codex review): not run; Codex's usage limit runs until 10:53 PM (see the trees-scan run, L17). Pending.
+
+## Closing
+
+Closing report: [max-size-growth-report.md](max-size-growth-report.md).

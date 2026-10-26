@@ -2,3 +2,6 @@
 2026-10-26T19:01:23+00:00	mark	checks	T1
 2026-10-26T19:05:09+00:00	mark	review	RDD review
 2026-10-26T19:06:56+00:00	mark	fix	RDD advisories
+2026-10-26T19:10:44+00:00	mark	verify	independent verifier
+2026-10-26T19:15:44+00:00	mark	close	closing report
+2026-10-26T19:15:44+00:00	end		
