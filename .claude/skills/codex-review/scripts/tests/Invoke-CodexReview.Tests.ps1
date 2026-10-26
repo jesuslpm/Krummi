@@ -108,7 +108,6 @@ Describe 'Invoke-CodexReview' {
         $clock.Elapsed.TotalSeconds | Should BeLessThan 20
     }
 
-
     It 'treats a final message with a non-boolean approved as an error, never an approval' {
         $r = Invoke-Review 'stringapproved' @('-Prd', 'docs/prd/x.prd.md', '-Feature', 'feat', '-Repo', $script:Repo)
         $r.Result.status | Should Be 'error'

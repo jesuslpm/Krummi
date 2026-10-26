@@ -85,7 +85,7 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   RED-first; the first run failed 8 cases, all test-harness defects (fake `CODEX_HOME` inside the test repo, which
   the guard flagged; console encoding in the fake; fake rollout lines joined), plus one wrapper bug: settings read
   from a dictionary through `Get-Prop` lost the reviewers' model. Silent telemetry failures now surface in the result.
-- **L7** (2026-10-26 07:50): T2 skill `.claude/skills/codex-review/SKILL.md` (run table, status table, loop with
+- **L7** (2026-10-26 07:48): T2 skill `.claude/skills/codex-review/SKILL.md` (run table, status table, loop with
   fix / dismiss with evidence / pending, stop conditions, traceability) and one line in `CLAUDE.md` *External review
   reports*. No change to `AGENTS.md`, `.codex/` or `.agents/skills/`: the wrapper's prompt is the plain request plus
   a mechanical contract (report path, output schema), which `AGENTS.md` already accommodates.
@@ -93,3 +93,10 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   the project config here (model '' …)"), so no review ran and nothing was approved. Cause: in the real
   `codex doctor --json` the key is literally `"config.load"`; the wrapper and the fake read `config` → `load`. Both
   now follow the real output; 15/15 green.
+- **L9** (2026-10-26, Codex round 1): run 07:49:44–07:56:39 on `c6fa485..f46e9d7`, status `findings`, report
+  [2026-10-26-code.md](../../docs/reviews/codex-review/2026-10-26-code.md), thread
+  `01a1772f-da2c-7f32-85a4-c1e0777075bc`, executed `gpt-6.1-sol`/`high` (coordinator and one `krummi-review`).
+  The guard saw only the new report. R1 major (follow-up refused a numbered original report) → fixed `c47b0be`;
+  R2 major (`taskkill` denied in Codex's sandbox left the post-timeout wait unbounded) → fixed `7afccd2`; the
+  report's unproven observation on a string `approved` → hardened `e670fb4`. Pester 17/17. Resolutions:
+  [2026-10-26-code-resolutions.md](../../docs/reviews/codex-review/2026-10-26-code-resolutions.md).
