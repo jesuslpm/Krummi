@@ -47,3 +47,8 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
   passed before, because the pager reserves its page first. `cargo test --workspace`: 293 passed, 0 failed, 9 ignored.
   RDD review `review-99c3098713ed944a` (resilience, reliability) approved; its open items are in the closing report.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-26 (follow-up review)
+
+- The follow-up review [2026-10-26-code.md](2026-10-26-code.md) states "Original R1 and R2 verified resolved". It
+  found a new regression of the R1 fix, R3, handled in [2026-10-26-code-resolutions.md](2026-10-26-code-resolutions.md).

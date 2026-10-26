@@ -5,14 +5,14 @@ Fuente de producto: [trees-keys.prd.md](../../docs/prd/krummi/trees-keys.prd.md)
 [trees.prd.md](../../docs/prd/krummi/trees.prd.md)). Documento de ejecución: [trees-keys.md](trees-keys.md).
 
 Rama `feat/trees-keys`, sin fusionar en `main` por indicación del usuario (L11), que la revisará con Codex. Nada se ha
-subido. Último commit de código: `06ec986` (corrección de la revisión de Codex).
+subido. Último commit de código: `c70bbf1` (corrección de la revisión de seguimiento de Codex).
 
 ## Resultado
 
 - **Especificación:** las 37 especificaciones S0–S36 tienen prueba y pasan, salvo las partes que no aplican en 5.1
   (la mitad «compatible» de S30 y la mitad «nombre antes que clave» de S31) y S19, que se cumple con este informe.
-  `cargo test --workspace`: 293 pasan, 0 fallan, 9 ignoradas (Windows, HEAD, con la corrección R1; la intermitencia
-  conocida de `ac_f18` apareció en una corrida y pasa aislada); en Linux (WSL 2 Ubuntu, copia de
+  `cargo test --workspace`: 294 pasan, 0 fallan, 9 ignoradas (Windows, HEAD, con las correcciones R1 y R3; la
+  intermitencia conocida de `ac_f18` apareció en una corrida anterior y pasa aislada); en Linux (WSL 2 Ubuntu, copia de
   `1138169`), 283 pasan, 0 fallan, 9 ignoradas.
 - **Aceptación:** barrido de cada byte de un almacén de 128 KiB con árboles (AC10), 6.477,5 s en Windows, sin
   fallos; caídas en cada punto de la confirmación y del cierre (AC-A16, AC-B18), 32,3 s; un fallo en cada operación
@@ -24,13 +24,18 @@ subido. Último commit de código: `06ec986` (corrección de la revisión de Cod
 - **Revisión externa (Codex):** [2026-10-25-code.md](../../docs/reviews/trees-keys/2026-10-25-code.md), dos
   hallazgos major sin bloqueantes, resueltos según
   [2026-10-25-code-resolutions.md](../../docs/reviews/trees-keys/2026-10-25-code-resolutions.md) y pendientes de una
-  revisión de seguimiento: R1 (memoria agotada, `06ec986`) y R2 (datos del equipo, `62b1813`).
+  revisión de seguimiento: R1 (memoria agotada, `06ec986`) y R2 (datos del equipo, `62b1813`). La revisión de
+  seguimiento [2026-10-26-code.md](../../docs/reviews/trees-keys/2026-10-26-code.md) los dio por verificados y
+  encontró R3, una regresión de la corrección de R1, corregida en `c70bbf1`
+  ([resoluciones](../../docs/reviews/trees-keys/2026-10-26-code-resolutions.md)), pendiente de verificación.
 - **Hallazgos corregidos por el camino:** una página con checksum válido pero estructura incoherente hacía entrar en
   pánico en lugar de dar daño (nodos y entradas del catálogo, `4735a47`); una hoja vacía no raíz podía quedar en el
   árbol (`4735a47`); un nodo que se nombra a sí mismo o a un antecesor como hija se liberaba dos veces (`4ab9216`);
   una asignación de memoria fallida en las operaciones de árboles abortaba el proceso en lugar de dar
   `OutOfMemory` (Codex R1, `06ec986`: todas pasan por un helper falible con el punto de fallo `Op::Alloc` del Pager,
-  con 9 pruebas que barren cada reserva).
+  con 9 pruebas que barren cada reserva); y al corregirlo, renombrar hacia un árbol existente reservaba memoria
+  antes de rechazarlo, así que un fallo de memoria invalidaba la escritura en lugar de dar `TreeAlreadyExists`
+  (Codex R3, `c70bbf1`: el destino se rechaza antes de reservar).
 
 ## Cobertura de los criterios
 
@@ -61,6 +66,7 @@ verificador (L16). Resumen:
 | `9e3ad1b..32d4d04` (T4, medición, documentación y los dos commits de Codex del usuario) | risk, reliability | aprobada | WARNING R3-001: doble liberación ante un hijo que se nombra a sí mismo → `4ab9216`. SUGGESTION R3-002: el costo de la validación de nodos no se midió antes y después → pendiente | `review-52ac120ffe927c92` |
 | `32d4d04..5ffa33a` (último tramo) | risk, reliability | aprobada | SUGGESTION R3-ci-filter-zero-match: el paso de CI que filtra por `ac_b18` pasaría si la prueba cambiara de nombre → pendiente | `review-74e5af866c16bc0b` |
 | `5ffa33a..06ec986` (informe, revisión de Codex, R2 y R1) | resilience, reliability | aprobada | WARNING R3-damaged-return-changed → refutado: `track()` devuelve el mismo resultado, así que `fail()` devuelve el mismo error. SUGGESTION R3-global-fault-injection → refutado: el registro de fallos es `thread_local!`. WARNING R3-weak-sweep-thresholds: umbrales mínimos débiles en algunos barridos de memoria → pendiente. SUGGESTION R4-001: la tabla ordenada de árboles cuesta O(N²) al abrir miles de árboles en una escritura → pendiente | `review-99c3098713ed944a` |
+| `06ec986..c70bbf1` (R3) | resilience, reliability | aprobada | SUGGESTION R3-docs-r3-fix-unrecorded: registrar R3 en las resoluciones y en el informe → hecho en este informe y en `2026-10-26-code-resolutions.md` | `review-4519b6fb261a6f7c` |
 
 Las evaluaciones de `2702406..af8e299` y `2702406..862cff7` dieron riesgo medio y `under_budget`; las cuatro
 revisiones se elevaron a riesgo alto con el ítem 1 (formato persistente o lectura de páginas persistidas).
@@ -89,10 +95,11 @@ Equipo (los dos entornos en la misma máquina; consultado el 2026-10-26 con `Get
 
 ## Tiempo
 
-- Estimación: 3 h – 5 h. Arranque real: 2026-10-25 06:31:17 +0000. Fin: 2026-10-26 04:53:54 +0000 (pausa entre
-  sesiones de 17 h 21 min, fuera del activo).
-- **Duración activa desde el arranque: 5 h 01 min**, dentro de la estimación: 4 h 26 min de la ejecución y 35 min de
-  las correcciones de la revisión de Codex, en una segunda sesión (2026-10-26). El 89 % fue código y pruebas, y una
+- Estimación: 3 h – 5 h. Arranque real: 2026-10-25 06:31:17 +0000. Fin: 2026-10-26 05:13:09 +0000 (pausas entre
+  sesiones de 17 h 35 min en total, fuera del activo).
+- **Duración activa desde el arranque: 5 h 06 min**, algo por encima del máximo de la estimación: 4 h 26 min de la
+  ejecución y 40 min de las correcciones de las dos revisiones de Codex (R1, R2 y R3), el 2026-10-26. La mayor parte
+  fue código y pruebas, y una
   parte grande de T4 fue la carrera de aceptación de AC10 de cada byte dentro del worker (6.477,5 s, unos 1 h 48 min):
   abrir un archivo recién escrito cuesta unos 35 ms en esta máquina.
 - Esperas por el usuario: ninguna. Los mensajes del usuario durante la ejecución (L4, L11 y el cambio de la regla de
@@ -103,19 +110,20 @@ Equipo (los dos entornos en la misma máquina; consultado el 2026-10-26 con `Get
 | Fase | Duración | % del activo | Tramos |
 |---|---|---|---|
 | Plan (documento de ejecución) | 3 min 09 s | 1 % | 1 |
-| Código y tests | 3 h 56 min | 79 % | 4 |
+| Código y tests | 3 h 56 min | 77 % | 4 |
 | Checks (fmt, clippy, suite de tests) | 12 min 40 s | 4 % | 2 |
 | Verificación independiente | 10 min 26 s | 3 % | 1 |
-| Revisión RDD | 15 min 15 s | 5 % | 5 |
-| Correcciones de hallazgos | 22 min 44 s | 8 % | 1 |
-| Cierre (informe y merge) | 0 min 01 s | 0 % | 2 |
-| **Total activo** | **5 h 01 min** | **100 %** | **16** |
+| Revisión RDD | 16 min 52 s | 6 % | 6 |
+| Correcciones de hallazgos | 26 min 17 s | 9 % | 2 |
+| Cierre (informe y merge) | 0 min 01 s | 0 % | 3 |
+| **Total activo** | **5 h 06 min** | **100 %** | **19** |
 
-- Inicio: 2026-10-25 06:31:36 +00:00. Fin: 2026-10-26 04:53:54 +00:00.
-- Arranque confirmado: 06:31:36. Activo desde el arranque: **5 h 01 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
+- Inicio: 2026-10-25 06:31:36 +00:00. Fin: 2026-10-26 05:13:09 +00:00.
+- Arranque confirmado: 06:31:36. Activo desde el arranque: **5 h 06 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
 - Esperas por el usuario: ninguna.
-- Pausas entre sesiones (fuera del activo): 17 h 21 min.
+- Pausas entre sesiones (fuera del activo): 17 h 35 min.
   - 2026-10-25 10:58:15 +00:00 – 2026-10-26 04:19:29 +00:00 (17 h 21 min)
+  - 2026-10-26 04:53:54 +00:00 – 2026-10-26 05:07:59 +00:00 (14 min 05 s)
 
 En segundo plano (se solapa con las fases de arriba; no suma al activo):
 
@@ -129,8 +137,9 @@ En segundo plano (se solapa con las fases de arriba; no suma al activo):
 | Aceptación | A15 measurement and suite Linux | 10:40:29 | 10:44:43 | 4 min 14 s |
 | Revisión RDD | RDD review 4 lenses | 10:54:15 | 10:54:39 | 0 min 24 s |
 | Revisión RDD | RDD review 5 lenses | 04:42:33 | 04:43:44 | 1 min 11 s |
+| Revisión RDD | RDD review 6 lenses | 05:11:47 | 05:12:16 | 0 min 29 s |
 | **Aceptación (total)** | | | | **5 min 32 s** |
-| **Revisión RDD (total)** | | | | **6 min 05 s** |
+| **Revisión RDD (total)** | | | | **6 min 34 s** |
 
 Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan):
 
@@ -159,8 +168,11 @@ Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan
 | `4786f5a` | docs: add the Codex code review of the trees branch |  | 0 min 00 s |  |
 | `62b1813` | docs: record the measuring equipment of A15 (Codex review R2) | R1 | 1 min 36 s | Correcciones de hallazgos 1 min 36 s |
 | `06ec986` | fix(tree): reserve tree memory fallibly so running out of it fails with OutOfMemory | R1 | 20 min 54 s | Correcciones de hallazgos 20 min 54 s |
-| — | después del último commit | R1 | 11 min 55 s | Checks (fmt, clippy, suite de tests) 9 min 24 s, Revisión RDD 2 min 17 s, Correcciones de hallazgos 0 min 14 s |
-| **Total** | | | **5 h 01 min** | |
+| `3672670` | docs: record the R1 resolution and update the 5.1 closing report | R1 | 11 min 55 s | Checks (fmt, clippy, suite de tests) 9 min 24 s, Revisión RDD 2 min 17 s, Correcciones de hallazgos 0 min 14 s |
+| `61d1d02` | docs: add the Codex follow-up code review of the trees branch |  | 0 min 00 s |  |
+| `c70bbf1` | fix(trees): reject an existing rename destination before reserving the new name |  | 0 min 00 s |  |
+| — | después del último commit | R3 | 5 min 10 s | Revisión RDD 1 min 37 s, Correcciones de hallazgos 3 min 33 s |
+| **Total** | | | **5 h 06 min** | |
 
 Las tareas T1–T4 fueron a ODD Workers en secuencia (el respaldo de contexto largo); su tiempo cuenta como código y
 pruebas. Los 56 min y 24 min atribuidos a `78007fa` y `f1bc05c` son tiempo de T4 en curso: esos commits los hizo el
@@ -170,13 +182,13 @@ usuario en la rama mientras el worker de T4 trabajaba.
 
 | Área | + | − | Código + | Comentarios + | Archivos |
 |---|---|---|---|---|---|
-| `crates/krummi` | 3.471 | 16 | 2.745 | 314 | 33 |
+| `crates/krummi` | 3.503 | 16 | 2.771 | 319 | 33 |
 | `crates/krummi-tree` | 1.724 | 0 | 1.382 | 208 | 5 |
-| `odd` | 495 | 0 | — | — | 3 |
+| `odd` | 535 | 0 | — | — | 3 |
+| `docs` | 375 | 2 | — | — | 8 |
 | `crates/krummi-tx` | 354 | 18 | 264 | 64 | 5 |
 | `crates/krummi-pager` | 197 | 14 | 161 | 29 | 7 |
 | `AGENTS.md` | 200 | 0 | — | — | 1 |
-| `docs` | 196 | 2 | — | — | 7 |
 | `.agents` | 160 | 0 | — | — | 2 |
 | `README.md` | 23 | 6 | — | — | 1 |
 | `.codex` | 27 | 0 | 25 | 2 | 3 |
@@ -184,7 +196,7 @@ usuario en la rama mientras el worker de T4 trabajaba.
 | `.github` | 7 | 0 | 5 | 2 | 1 |
 | `.claude` | 2 | 1 | — | — | 1 |
 | `Cargo.toml` | 1 | 1 | 1 | 0 | 1 |
-| **Total** | **6.870** | **62** | **4.583** | **619** | **71** |
+| **Total** | **7.121** | **62** | **4.609** | **624** | **72** |
 
 Código + y Comentarios + desglosan las líneas añadidas en archivos de código (Rust, Python, PowerShell, JavaScript/TypeScript, TOML, YAML y shell); las líneas en blanco no cuentan en ninguna de las dos.
 

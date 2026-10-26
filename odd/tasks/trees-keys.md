@@ -250,3 +250,11 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   R3-weak-sweep-thresholds and R4-001 (O(N²) table insert) left pending. Final checks: fmt, clippy, `cargo test
   --workspace --no-fail-fast` 293 passed, 0 failed, 9 ignored (an earlier run hit the known `ac_f18` flake, which
   passes alone). Report and resolutions updated.
+- **L20** (2026-10-26) Codex follow-up review [2026-10-26-code.md](../../docs/reviews/trees-keys/2026-10-26-code.md):
+  R1 and R2 verified resolved; new major R3 (the R1 fix copied a rename's new name before rejecting an existing
+  destination, so an allocation failure gave OutOfMemory and invalidated the write instead of TreeAlreadyExists).
+  Fixed in `c70bbf1` (destination rejected first), RED then GREEN in
+  `r3_renaming_onto_an_existing_tree_is_rejected_before_any_reservation`; `cargo test --workspace --no-fail-fast`
+  294 passed, 0 failed, 9 ignored. RDD review 6 (`06ec986..c70bbf1`, resilience and reliability, lineage
+  `review-4519b6fb261a6f7c`): approved; its SUGGESTION (record R3 in the resolutions and the report) done here.
+  Resolutions: [2026-10-26-code-resolutions.md](../../docs/reviews/trees-keys/2026-10-26-code-resolutions.md).
