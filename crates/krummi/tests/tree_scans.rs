@@ -1220,3 +1220,63 @@ fn ac_r7_scans_keep_their_snapshot_while_a_write_changes_the_tree() {
     store.close().unwrap();
     assert!(height(tmp.path()) < tall, "the write lowered the tree");
 }
+
+/// The keys and values of the 5.1 fixture `tests/data/store-5.1`, made by the 5.1 version: the tree `t` with keys
+/// 0 to 399 of 300 bytes and the tree `small` with `k` → `v`.
+fn fixture_key(i: usize) -> Vec<u8> {
+    let mut key = format!("{i:05}").into_bytes();
+    key.resize(300, b'.');
+    key
+}
+
+fn fixture_entries(keys: impl Iterator<Item = usize>) -> Entries {
+    keys.map(|i| (fixture_key(i), format!("v51-{i}").into_bytes()))
+        .collect()
+}
+
+/// AC-R14 (R10): a store created and filled with the 5.1 version opens with this one at format version `6` and
+/// scans without error; after range removals that merge pages and lower its tree, a commit and a reopening, a
+/// whole scan and a read of every key do not fail with damage. That the 5.1 version then reads and modifies the
+/// store is an execution check, in the closing report.
+#[test]
+fn ac_r14_a_store_of_5_1_scans_and_keeps_its_format_after_range_removals() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/store-5.1/krummi.data");
+    std::fs::copy(fixture, tmp.path().join(krummi_pager::DATA_FILE)).unwrap();
+    let tall = height(tmp.path());
+    let store = open(tmp.path());
+    assert_eq!(store.info().format_version, 6);
+    let read = store.read().unwrap();
+    let tree = tree_t(&read);
+    assert_eq!(
+        forward(read.range(&tree, ..).unwrap()),
+        fixture_entries(0..400)
+    );
+    assert_eq!(read.len(&tree).unwrap(), 400);
+    drop(read);
+    let mut write = store.write().unwrap();
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    let (lower, upper) = (fixture_key(10), fixture_key(390));
+    assert_eq!(
+        write.remove_range(&tree, &lower[..]..&upper[..]).unwrap(),
+        380
+    );
+    assert_eq!(write.remove_range_prefix(&tree, b"0039", ..).unwrap(), 10);
+    write.commit().unwrap();
+    store.close().unwrap();
+    assert!(height(tmp.path()) < tall, "the removals lowered the tree");
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let tree = tree_t(&read);
+    assert_eq!(
+        forward(read.range(&tree, ..).unwrap()),
+        fixture_entries(0..10)
+    );
+    for i in 0..400 {
+        let found = read.get(&tree, &fixture_key(i)).unwrap();
+        assert_eq!(found.is_some(), i < 10, "key {i}");
+    }
+    let small = read.open_tree("small", NORMAL).unwrap();
+    assert_eq!(read.get(&small, b"k").unwrap(), Some(&b"v"[..]));
+}

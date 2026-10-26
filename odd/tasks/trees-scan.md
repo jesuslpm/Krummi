@@ -70,8 +70,8 @@ Decisions within *Dejado a la implementación*:
 | T0 | — | inline | done | — |
 | T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scan damage), S16, S20 | inline | done | `51be749`, fix `b07f248` |
 | T2 | S1 (removes), S4, S6 (remove part), S8 (removal cases), S9, S10, S11 (remove part), S13 (removes) | inline | done | `1ddd9ca` |
-| T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | done | T3COMMIT |
-| T4 | S14 | inline | pending | — |
+| T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | done | `f67d59b` |
+| T4 | S14 | inline | done | T4COMMIT |
 | T5 | S15 | inline | pending | — |
 | T6 | docs, checks, verification, RDD review, closing report | inline | pending | — |
 
@@ -137,3 +137,11 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   read's scan, and when a scan copies its bounds. Crash sweep of a write with range removals that lowers the tree
   (`ac_r12_crashes_during_a_commit_with_range_removals`), and root AC10 now scans every tree from both ends. AC-R7
   checks the height drop with a new test helper `krummi_tree::height`.
+- **L8** (T4, 10:15–10:22): the 5.1 code (`0e204da`) exported with `git archive` to the scratch folder, with an
+  example `compat` (`make`, `check`), built in release. `make` created the fixture `tests/data/store-5.1/krummi.data`
+  (512 KiB: tree `t` with keys 0–399 of 300 bytes, tree `small`), committed with `*.data binary` in
+  `.gitattributes`. Committed test `ac_r14_a_store_of_5_1_scans_and_keeps_its_format_after_range_removals`: format
+  `6`, whole scan, removals that lower the tree, reopening, no damage. Execution check (not a committed test): the
+  5.2 code (`HEAD`, exported the same way) removed `[190, 180, 10]` entries from a copy of the fixture, leaving 20;
+  the 5.1 `check` then printed "20 keys before, 153 after storing 400 and removing 267 with the 5.1 engine": it read
+  the list, every key, its value and the count, split and merged pages, committed and reopened without error.
