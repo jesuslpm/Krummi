@@ -240,7 +240,7 @@ try {
     if (-not $projectModel) { throw "No model in $configPath." }
     $doctor = Invoke-Codex @('doctor', '--json') $null 3
     $loadedModel = $null
-    try { $loadedModel = ($doctor.Stdout | ConvertFrom-Json).checks.config.load.details.model } catch { }
+    try { $loadedModel = ($doctor.Stdout | ConvertFrom-Json).checks.'config.load'.details.model } catch { }
     if ($loadedModel -ne $projectModel) {
         throw "Codex does not load the project config here (model '$loadedModel', expected '$projectModel'). Trust this folder in Codex ($Repo) and retry."
     }

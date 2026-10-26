@@ -89,3 +89,7 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   fix / dismiss with evidence / pending, stop conditions, traceability) and one line in `CLAUDE.md` *External review
   reports*. No change to `AGENTS.md`, `.codex/` or `.agents/skills/`: the wrapper's prompt is the plain request plus
   a mechanical contract (report path, output schema), which `AGENTS.md` already accommodates.
+- **L8** (2026-10-26 07:48): first live run (T3) stopped at the preflight with status `error` ("Codex does not load
+  the project config here (model '' …)"), so no review ran and nothing was approved. Cause: in the real
+  `codex doctor --json` the key is literally `"config.load"`; the wrapper and the fake read `config` → `load`. Both
+  now follow the real output; 15/15 green.

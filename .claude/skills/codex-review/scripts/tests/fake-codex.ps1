@@ -4,7 +4,7 @@ switch ($rest[0]) {
     '--version' { "codex-cli $(if ($env:FAKE_CODEX_VERSION) { $env:FAKE_CODEX_VERSION } else { '0.164.0' })"; exit 0 }
     'doctor' {
         $model = if ($env:FAKE_MODEL) { $env:FAKE_MODEL } else { 'm1' }
-        @{ checks = @{ config = @{ load = @{ details = @{ model = $model } } } } } | ConvertTo-Json -Depth 9 -Compress
+        @{ checks = @{ 'config.load' = @{ details = @{ model = $model } } } } | ConvertTo-Json -Depth 9 -Compress
         exit 0
     }
 }
