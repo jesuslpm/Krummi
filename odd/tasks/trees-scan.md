@@ -203,6 +203,26 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   a temporary store at its maximum size), in code this branch does not touch: its `free_space` binary failed 3 of 5
   runs on the branch and 3 of 5 on the baseline `0e204da` exported, and 0 of 15 alone. Pre-existing and
   load-dependent; left for a separate fix. On Linux (WSL) the whole workspace passed (L11).
+- **L15** (Codex code review, round 1): [2026-10-26-code.md](../../docs/reviews/trees-scan/2026-10-26-code.md)
+  ended as a wrapper `violation` (the ignored skill registry cache changed during the run); the user chose to fix the
+  guard first (`261b539` on `main`, merged into the branch in `f72d826`). Repeated from scratch:
+  [2026-10-26-code-02.md](../../docs/reviews/trees-scan/2026-10-26-code-02.md), status `findings`: R1 major (an
+  exhausted end left the other able to reserve and fail a write) → fixed in `f2bb44d` (RED then GREEN,
+  `r1_an_exhausted_scan_ends_at_both_ends_without_reserving`); R2 minor (two short scans of `scan_timing` started
+  within 100 keys of the end) → fixed in `52eef05`. Resolutions:
+  [2026-10-26-code-02-resolutions.md](../../docs/reviews/trees-scan/2026-10-26-code-02-resolutions.md).
+- **L16** (R11 measurement after R2, `52eef05`, 1,000,000 keys):
+
+  | Operation | Windows (s) | Linux, WSL 2 ext4 (s) |
+  |---|---|---|
+  | store at random (the load, 5.1 code) | 26.14 | 41.15 |
+  | scan forward (1,000,000 entries) | 0.10 | 0.06 |
+  | scan backward (1,000,000 entries) | 0.05 | 0.05 |
+  | 10,000 scans of 100 from random keys (1,000,000 entries) | 0.09 | 0.10 |
+  | remove with 1,000 intervals, one durable write each | 0.39 | 9.57 |
+
+  The Windows load is back to 5.1's 26.79 s, which confirms that L10's slower figures came from the machine's
+  state at that time.
 
 ## Closing
 
