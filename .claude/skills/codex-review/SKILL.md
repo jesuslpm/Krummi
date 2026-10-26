@@ -14,8 +14,9 @@ is `AGENTS.md` and `.agents/skills/review-*`; this skill does not restate or cha
 through `scripts/Invoke-CodexReview.ps1`, which checks the setup, runs `codex exec`, verifies that Codex changed
 nothing but its new report, and prints a JSON result.
 
-Use it when the user asks for a Codex review: of a PRD once it is written, or of a change once its checks pass
-(before the closing report). It adds to RDD; it does not replace it.
+Use it without waiting to be asked (project rule in `CLAUDE.md`): on every PRD once it is agreed with the user
+(before its translations), and on every implementation run once its checks pass (before the closing report). The
+user may also ask for it at any other time. It adds to RDD; it does not replace it.
 
 ## Run one review
 
