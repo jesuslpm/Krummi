@@ -86,15 +86,20 @@ pub fn lookup<S: PageSource + ?Sized>(tx: &S, name: &str) -> Result<Option<Entry
     }
 }
 
-/// The name and kind of every tree, in byte order of the names: an owned copy (A3).
+/// The name and kind of every tree, in byte order of the names: an owned copy (A3), reserved as
+/// [`reserve`](crate::reserve) does.
 pub fn list<S: PageSource + ?Sized>(tx: &S) -> Result<Vec<(String, TreeKind)>> {
     let root = tx.slot(ROOT_SLOT)?;
     let mut trees = Vec::new();
     if root != 0 {
         crate::leaves(tx, root, None, &mut |page, leaf| {
             for index in 0..node::count(leaf) {
-                let name = String::from_utf8_lossy(node::key(leaf, index)).into_owned();
                 let entry = Entry::decode_in(tx, page, node::value(leaf, index))?;
+                // Names are stored from `str`; a name that is not UTF-8, which only foreign bytes can make, is
+                // shown with replacement characters, a copy that stays infallible.
+                let name = String::from_utf8(crate::copy(tx, node::key(leaf, index))?)
+                    .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+                crate::reserve(tx, &mut trees, 1)?;
                 trees.push((name, entry.kind));
             }
             Ok(())

@@ -20,7 +20,7 @@ use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
 use krummi_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
-pub use krummi_pager::{Error, ErrorKind, Info, OpenOptions, Result, TreeKind};
+pub use krummi_pager::{Error, ErrorKind, Info, OpenOptions, Result, TreeKind, try_reserve};
 use krummi_pager::{Pager, Scratch};
 pub use space::REGION_PAGES;
 use space::Space;

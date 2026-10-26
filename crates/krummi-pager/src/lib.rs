@@ -20,6 +20,7 @@ pub use pager::{
 };
 pub use scratch::{
     PayloadBuf, Scratch, ScratchWriter, SealedPage, Snapshot, Staged, alloc_payload, alloc_sealed,
+    try_reserve,
 };
 pub use temp::TEMP_DIR;
 

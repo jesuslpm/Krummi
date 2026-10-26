@@ -223,12 +223,16 @@ impl<'e> WriteTransaction<'e> {
     /// The damage error of page `page_number`, for a layer above that finds the page inconsistent although its
     /// checksum is valid (G6). It becomes the transaction's failure, as any damage it meets (T11).
     pub fn damaged(&self, page_number: u64) -> Error {
-        let error = Error::Damaged {
+        self.fail(Error::Damaged {
             folder: self.engine.folder.clone(),
             page: Some(page_number),
-        };
-        let _ = self.track::<()>(Err(error.duplicate()));
-        error
+        })
+    }
+
+    /// Makes `error`, the failure of an operation of a layer above (such as running out of memory, P13), the
+    /// transaction's failure, as the failures of its own operations are (T11), and returns it.
+    pub fn fail(&self, error: Error) -> Error {
+        self.track::<()>(Err(error)).unwrap_err()
     }
 
     /// Whether an operation of this transaction failed, so that it can no longer be committed (T11).

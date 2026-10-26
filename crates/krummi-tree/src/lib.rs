@@ -16,6 +16,11 @@
 //! and the page number (G6, A9), and in a write it is the transaction's failure (T11). The node accessors then stay
 //! within the page without checking again.
 //!
+//! The memory an operation needs besides pages (the copy of a node that splits or merges, its cells, a separator
+//! key, the children of a node freed, the list of trees) is reserved through [`reserve`]: running out of it fails
+//! the operation with the out-of-memory class instead of aborting the process (P13), and in a write it is the
+//! transaction's failure (T11). Reading an entry reserves nothing.
+//!
 //! The crate does not validate sizes: the public API does (B7). Its operations panic on a key or a value out of
 //! range, a misuse of the engine.
 
@@ -42,6 +47,9 @@ pub trait PageSource {
     /// The damage error of page `page_number`, inconsistent although its checksum is valid; in a write it is the
     /// transaction's failure (T11).
     fn damaged(&self, page_number: u64) -> Error;
+
+    /// `error`, the failure of an operation of the tree code; in a write it becomes the transaction's failure (T11).
+    fn fail(&self, error: Error) -> Error;
 }
 
 impl PageSource for ReadTransaction<'_> {
@@ -59,6 +67,10 @@ impl PageSource for ReadTransaction<'_> {
 
     fn damaged(&self, page_number: u64) -> Error {
         ReadTransaction::damaged(self, page_number)
+    }
+
+    fn fail(&self, error: Error) -> Error {
+        error
     }
 }
 
@@ -78,6 +90,33 @@ impl PageSource for WriteTransaction<'_> {
     fn damaged(&self, page_number: u64) -> Error {
         WriteTransaction::damaged(self, page_number)
     }
+
+    fn fail(&self, error: Error) -> Error {
+        WriteTransaction::fail(self, error)
+    }
+}
+
+/// Reserves room for `additional` more elements in `vec` for an operation in `tx`: running out of memory fails it
+/// with the out-of-memory class instead of aborting the process (P13), the transaction's failure in a write (T11).
+pub fn reserve<S: PageSource + ?Sized, T>(
+    tx: &S,
+    vec: &mut Vec<T>,
+    additional: usize,
+) -> Result<()> {
+    krummi_tx::try_reserve(vec, additional).map_err(|error| tx.fail(error))
+}
+
+/// A copy of `bytes`, reserved as [`reserve`] does.
+pub fn copy<S: PageSource + ?Sized>(tx: &S, bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut copy = Vec::new();
+    reserve(tx, &mut copy, bytes.len())?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
+}
+
+/// A copy of `text`, reserved as [`reserve`] does.
+pub fn copy_str<S: PageSource + ?Sized>(tx: &S, text: &str) -> Result<String> {
+    Ok(String::from_utf8(copy(tx, text.as_bytes())?).expect("a copy of a str is UTF-8"))
 }
 
 /// The payload of node `page`, checked: a data page with a consistent layout (see [`node::is_valid`]) and, when
@@ -219,13 +258,13 @@ pub fn free_all(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
 
 fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> Result<()> {
     let node = node_at(&*tx, page, level)?;
-    let (below, children): (Option<u8>, Vec<u64>) = if node::is_leaf(node) {
-        (None, Vec::new())
+    let mut children = Vec::new();
+    let below = if node::is_leaf(node) {
+        None
     } else {
-        let children = (0..=node::count(node))
-            .map(|i| node::child(node, i))
-            .collect();
-        (child_level(node), children)
+        reserve(&*tx, &mut children, node::count(node) + 1)?;
+        children.extend((0..=node::count(node)).map(|i| node::child(node, i)));
+        child_level(node)
     };
     // A node is freed before its children, so a child that names the node itself, an ancestor or a page freed
     // before it no longer may hold data and is reported as damage instead of being freed twice.
@@ -417,17 +456,17 @@ fn split(
     replace: bool,
     cell: &[u8],
 ) -> Result<Outcome> {
-    let old = tx.page(page)?.to_vec();
+    let old = copy(&*tx, tx.page(page)?)?;
     let leaf = node::is_leaf(&old);
     let level = node::level(&old);
     let count = node::count(&old);
-    let mut cells: Vec<&[u8]> = Vec::with_capacity(count + 1);
+    let mut cells: Vec<&[u8]> = Vec::new();
+    reserve(&*tx, &mut cells, count + 1)?;
     cells.extend((0..index).map(|i| node::cell(&old, i)));
     cells.push(cell);
     let rest = index + usize::from(replace);
     cells.extend((rest..count).map(|i| node::cell(&old, i)));
     let at = node::split_point(&cells, leaf);
-    let right = tx.allocate()?;
     let (key, right_leftmost, right_cells) = if leaf {
         (node::cell_key(cells[at], true), 0, &cells[at..])
     } else {
@@ -438,6 +477,8 @@ fn split(
             &cells[at + 1..],
         )
     };
+    let key = copy(&*tx, key)?;
+    let right = tx.allocate()?;
     node::fill(tx.page_mut(right)?, level, right_leftmost, right_cells);
     node::fill(
         tx.page_mut(page)?,
@@ -445,10 +486,7 @@ fn split(
         node::leftmost(&old),
         &cells[..at],
     );
-    Ok(Outcome::Split {
-        key: key.to_vec(),
-        right,
-    })
+    Ok(Outcome::Split { key, right })
 }
 
 /// Merges child `index` of the branch at `page`, which is under a quarter full, with a sibling when both fit in
@@ -482,7 +520,7 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
     if !fits {
         return Ok(Outcome::Done);
     }
-    let moved = right_node.to_vec();
+    let moved = copy(&*tx, right_node)?;
     let target = tx.page_mut(left)?;
     if !leaf {
         node::insert(target, node::count(target), &separator[..extra - 2]);

@@ -58,6 +58,17 @@ pub fn alloc_sealed() -> Result<SealedPage> {
     alloc::<PAGE_SIZE>()
 }
 
+/// Reserves room for `additional` more elements in `vec`, or fails with the out-of-memory class if the system does
+/// not provide it (P13), instead of aborting the process as the infallible allocations do. The layers above reserve
+/// through it the memory of their operations; it is a fault point (`Op::Alloc`) even when `vec` has room.
+pub fn try_reserve<T>(vec: &mut Vec<T>, additional: usize) -> Result<()> {
+    let out_of_memory = || Error::OutOfMemory {
+        requested: additional.saturating_mul(size_of::<T>()) as u64,
+    };
+    sys::alloc_point().map_err(|_| out_of_memory())?;
+    vec.try_reserve(additional).map_err(|_| out_of_memory())
+}
+
 fn alloc<const N: usize>() -> Result<Box<[u8; N]>> {
     let bytes = sys::alloc_zeroed(N).map_err(|_| Error::OutOfMemory {
         requested: N as u64,

@@ -29,7 +29,6 @@
 //! ```
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -127,7 +126,7 @@ impl Store {
             inner: self.engine.write(limit)?,
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
-            trees: RefCell::new(BTreeMap::new()),
+            trees: RefCell::default(),
         })
     }
 }
@@ -146,8 +145,8 @@ pub struct WriteTransaction<'s> {
     inner: krummi_tx::WriteTransaction<'s>,
     folder: Folder<'s>,
     serial: u64,
-    /// The state of every tree this transaction opened, by identity, shared by all the tree's handles (B9).
-    trees: RefCell<BTreeMap<u64, TreeState>>,
+    /// The state of every tree this transaction opened, shared by all the tree's handles (B9).
+    trees: RefCell<Trees>,
 }
 
 /// How [`WriteTransaction::open_tree_with`] opens a tree; [`WriteTransaction::open_tree`] only opens. Opening an
@@ -186,8 +185,30 @@ pub struct WriteTree<'s> {
     _store: PhantomData<(&'s Store, *const ())>,
 }
 
+/// The trees a write transaction opened, sorted by identity. Growing it is a reservation that can fail with
+/// [`ErrorKind::OutOfMemory`] instead of aborting the process (P13).
+#[derive(Default)]
+struct Trees(Vec<TreeState>);
+
+impl Trees {
+    /// The position of the tree `id`, or where it would go.
+    fn find(&self, id: u64) -> std::result::Result<usize, usize> {
+        self.0.binary_search_by_key(&id, |state| state.id)
+    }
+
+    fn get(&self, id: u64) -> Option<&TreeState> {
+        self.find(id).ok().map(|at| &self.0[at])
+    }
+
+    fn get_mut(&mut self, id: u64) -> Option<&mut TreeState> {
+        self.find(id).ok().map(|at| &mut self.0[at])
+    }
+}
+
 /// A tree as its write transaction sees it.
 struct TreeState {
+    /// Its identity (A8).
+    id: u64,
     /// Its current name or, once deleted, the last one it had (A6).
     name: String,
     kind: TreeKind,
@@ -220,7 +241,8 @@ impl<'s> ReadTransaction<'s> {
         Ok(catalog::lookup(&self.inner, name)?.is_some())
     }
 
-    /// The name and kind of every tree in the snapshot, in byte order of the names. The list is a copy.
+    /// The name and kind of every tree in the snapshot, in byte order of the names. The list is a copy: running
+    /// out of memory for it fails with [`ErrorKind::OutOfMemory`] and the transaction stays usable (P13).
     pub fn list_trees(&self) -> Result<Vec<(String, TreeKind)>> {
         catalog::list(&self.inner)
     }
@@ -263,7 +285,7 @@ impl<'s> WriteTransaction<'s> {
         self.folder.check_name(name)?;
         let entry = find(self.folder, &self.inner, name, kind)?;
         let entry = entry.ok_or_else(|| self.folder.not_found(name))?;
-        Ok(self.handle(name, &entry))
+        self.handle(name, &entry)
     }
 
     /// Opens the tree `name` of kind `kind` in `mode`, with the failures of [`open_tree`](Self::open_tree)
@@ -283,7 +305,7 @@ impl<'s> WriteTransaction<'s> {
             (Some(entry), OpenMode::OpenOrCreate) => entry,
             (Some(entry), OpenMode::CreateOrEmpty | OpenMode::Empty) => self.empty(name, entry)?,
         };
-        Ok(self.handle(name, &entry))
+        self.handle(name, &entry)
     }
 
     /// Whether this transaction sees a tree named `name`, with its own changes.
@@ -293,7 +315,7 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// The name and kind of every tree this transaction sees, with its own changes, in byte order of the names.
-    /// The list is a copy.
+    /// The list is a copy: running out of memory for it fails with [`ErrorKind::OutOfMemory`] (P13).
     pub fn list_trees(&self) -> Result<Vec<(String, TreeKind)>> {
         catalog::list(&self.inner)
     }
@@ -320,6 +342,10 @@ impl<'s> WriteTransaction<'s> {
         if from == to {
             return Ok(());
         }
+        let renamed = match self.trees.get_mut().get(source.id) {
+            Some(_) => Some(krummi_tree::copy_str(&self.inner, to)?),
+            None => None,
+        };
         if let Some(target) = catalog::lookup(&self.inner, to)? {
             if !overwrite {
                 return Err(self.folder.already_exists(to));
@@ -329,8 +355,8 @@ impl<'s> WriteTransaction<'s> {
         let source = self.current(source);
         catalog::put(&mut self.inner, to, &source)?;
         catalog::remove(&mut self.inner, from)?;
-        if let Some(state) = self.trees.get_mut().get_mut(&source.id) {
-            state.name = to.to_owned();
+        if let (Some(name), Some(state)) = (renamed, self.trees.get_mut().get_mut(source.id)) {
+            state.name = name;
             state.dirty = false;
         }
         Ok(())
@@ -381,28 +407,34 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// A handle of the tree of `entry`, now named `name`; the tree's state joins the table on its first opening.
-    fn handle(&self, name: &str, entry: &Entry) -> WriteTree<'s> {
-        self.trees
-            .borrow_mut()
-            .entry(entry.id)
-            .or_insert_with(|| TreeState {
-                name: name.to_owned(),
-                kind: entry.kind,
-                root: entry.root,
-                count: entry.count,
-                deleted: false,
-                dirty: false,
-            });
-        WriteTree {
+    fn handle(&self, name: &str, entry: &Entry) -> Result<WriteTree<'s>> {
+        let mut trees = self.trees.borrow_mut();
+        if let Err(at) = trees.find(entry.id) {
+            let name = krummi_tree::copy_str(&self.inner, name)?;
+            krummi_tree::reserve(&self.inner, &mut trees.0, 1)?;
+            trees.0.insert(
+                at,
+                TreeState {
+                    id: entry.id,
+                    name,
+                    kind: entry.kind,
+                    root: entry.root,
+                    count: entry.count,
+                    deleted: false,
+                    dirty: false,
+                },
+            );
+        }
+        Ok(WriteTree {
             serial: self.serial,
             id: entry.id,
             _store: PhantomData,
-        }
+        })
     }
 
     /// `entry` with the root and the count this transaction gave its tree, which the catalog gets at commit.
     fn current(&self, entry: Entry) -> Entry {
-        match self.trees.borrow().get(&entry.id) {
+        match self.trees.borrow().get(entry.id) {
             Some(state) => Entry {
                 root: state.root,
                 count: state.count,
@@ -419,7 +451,7 @@ impl<'s> WriteTransaction<'s> {
             return Err(self.folder.foreign_handle());
         }
         let trees = self.trees.borrow();
-        let state = &trees[&tree.id];
+        let state = trees.get(tree.id).expect("a live handle");
         if state.deleted {
             return Err(self.folder.not_found(&state.name));
         }
@@ -431,7 +463,7 @@ impl<'s> WriteTransaction<'s> {
         let state = self
             .trees
             .get_mut()
-            .get_mut(&tree.id)
+            .get_mut(tree.id)
             .expect("a live handle");
         if update.count_changed {
             state.count = if added {
@@ -470,12 +502,8 @@ impl<'s> WriteTransaction<'s> {
             count: 0,
             ..entry
         };
-        self.handle(name, &emptied);
-        let state = self
-            .trees
-            .get_mut()
-            .get_mut(&entry.id)
-            .expect("added above");
+        self.handle(name, &emptied)?;
+        let state = self.trees.get_mut().get_mut(entry.id).expect("added above");
         state.root = root;
         state.count = 0;
         state.dirty = true;
@@ -487,7 +515,7 @@ impl<'s> WriteTransaction<'s> {
         let entry = self.current(entry);
         krummi_tree::free_all(&mut self.inner, entry.root)?;
         catalog::remove(&mut self.inner, name)?;
-        if let Some(state) = self.trees.get_mut().get_mut(&entry.id) {
+        if let Some(state) = self.trees.get_mut().get_mut(entry.id) {
             state.deleted = true;
             state.dirty = false;
         }
@@ -500,9 +528,9 @@ impl<'s> WriteTransaction<'s> {
     fn finish(mut self) -> Result<krummi_tx::WriteTransaction<'s>> {
         if !self.inner.has_failed() {
             let trees = self.trees.get_mut();
-            for (&id, state) in trees.iter().filter(|(_, s)| s.dirty && !s.deleted) {
+            for state in trees.0.iter().filter(|s| s.dirty && !s.deleted) {
                 let entry = Entry {
-                    id,
+                    id: state.id,
                     kind: state.kind,
                     root: state.root,
                     count: state.count,

@@ -914,9 +914,14 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// The point where a reservation of memory can fail before asking the system; only tests make it fail.
+pub(crate) fn alloc_point() -> io::Result<()> {
+    before(Op::Alloc, Path::new(""))
+}
+
 /// Allocates `len` zeroed bytes, or reports that the system has no memory for them.
 pub(crate) fn alloc_zeroed(len: usize) -> io::Result<Box<[u8]>> {
-    before(Op::Alloc, Path::new(""))?;
+    alloc_point()?;
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(len)
