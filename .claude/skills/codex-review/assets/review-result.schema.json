@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["report_path", "approved", "verdict", "open_findings", "open_questions"],
+  "properties": {
+    "report_path": {
+      "type": "string",
+      "description": "Repository-relative path of the report you saved; must be the path the request names."
+    },
+    "approved": {
+      "type": "boolean",
+      "description": "True only when no finding in the requested scope remains open."
+    },
+    "verdict": {
+      "type": "string",
+      "description": "The review skill's verdict, as written in the report."
+    },
+    "open_findings": {
+      "type": "array",
+      "description": "Every finding still open in scope, with the report IDs (follow-ups keep the original IDs).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "type": "string" },
+          "title": { "type": "string" }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "Open product questions for the user, kept apart from defects.",
+      "items": { "type": "string" }
+    }
+  }
+}
