@@ -223,6 +223,18 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
 
   The Windows load is back to 5.1's 26.79 s, which confirms that L10's slower figures came from the machine's
   state at that time.
+- **L17** (Codex follow-up): `-FollowUp docs/reviews/trees-scan/2026-10-26-code-02.md -FixRange 3bc8400..HEAD`
+  ended with wrapper status `error`: Codex hit its usage limit ("try again at 10:53 PM"); its report
+  `2026-10-26-code-03.md` was not written. R1 and R2 stay claimed fixed, unverified.
+- **L18** (RDD review 4, last slice): commits `dcf70fa`..`efbadb8` (base `1a69262`), assessed `medium`
+  (`under_budget`), reviewed as the closing slice; lenses reliability, resilience, readability; lineage
+  `review-f2a052ff746c4c2e`; **approved**, acknowledged, authority burned. Advisory findings:
+  - R2-stale-closing-report, R3-001 (WARNING): the closing report still had the measurement before Codex R2, the
+    last code commit `dcf70fa` and the Codex review as pending. Fixed: the report is updated with L15–L18.
+  - R2-scan-label-vs-length (SUGGESTION): the short-scan row printed 100 for runs of fewer entries. Fixed.
+  - R3-002 (SUGGESTION): the R1 test did not prove the injected failure was armed. Fixed: it asserts that the other
+    end made no reservation (`testing::count(Op::Alloc) == 0`); with `range.rs` from before `f2bb44d` the test
+    fails, with it the test passes.
 
 ## Closing
 

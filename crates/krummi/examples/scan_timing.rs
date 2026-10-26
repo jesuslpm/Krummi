@@ -74,7 +74,7 @@ fn main() {
             returned += count;
         }
         row(
-            &format!("{SCANS} scans of {SCAN_LEN} from random keys"),
+            &format!("{SCANS} scans of {length} from random keys"),
             returned,
             start.elapsed(),
             None,

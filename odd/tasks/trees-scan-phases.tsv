@@ -30,3 +30,8 @@
 2026-10-26T18:30:06+00:00	bg-end	review	codex-R1 again
 2026-10-26T18:30:36+00:00	mark	fix	Codex R1
 2026-10-26T18:32:13+00:00	mark	acceptance	R11 measurement again (Codex R2)
+2026-10-26T18:34:55+00:00	mark	review	Codex follow-up
+2026-10-26T18:34:55+00:00	bg-start	review	codex-R2
+2026-10-26T18:37:22+00:00	bg-end	review	codex-R2
+2026-10-26T18:37:51+00:00	mark	review	RDD review 4 (last slice)
+2026-10-26T18:39:18+00:00	mark	fix	RDD review 4 advisories

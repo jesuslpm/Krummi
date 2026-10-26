@@ -483,8 +483,11 @@ fn r1_an_exhausted_scan_ends_at_both_ends_without_reserving() {
         } else {
             scan.next()
         };
+        // The failure armed above would hit the first reservation: there must be none.
+        let reserved = testing::count(Op::Alloc);
         testing::reset();
         assert!(other.is_none(), "front first: {front_first}");
+        assert_eq!(reserved, 0, "front first: {front_first}");
         drop(scan);
         write.commit().unwrap();
         assert!(store.read().unwrap().tree_exists("pending").unwrap());
