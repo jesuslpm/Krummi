@@ -9,7 +9,8 @@
 //! `tree_timing` loads at random: `entries` random 16-byte keys (1,000,000 by default) with the same seed and
 //! values of 100 bytes, in writes of 1,000 that commit durably. Each part then works on its own copy of that
 //! store, closed and reopened. In a single read transaction, reading the bytes of every key and value returned:
-//! a whole scan forward and then backward, and 10,000 forward scans of 100 entries from random existing keys.
+//! a whole scan forward and then backward, and 10,000 forward scans of 100 entries, each from a random existing key
+//! with at least 100 entries from it to the end.
 //! Then every entry is removed with 1,000 contiguous intervals between random cuts, the first with its lower bound
 //! open and the last with its upper bound open, one per write, each committing durably. It prints a Markdown
 //! table. There is no threshold (D5 of the root PRD).
@@ -61,12 +62,16 @@ fn main() {
         assert_eq!(count, entries);
         row("scan backward", entries, start.elapsed(), None);
 
-        let order = shuffled(entries, 0x5EED_0003);
+        // Random starts with at least SCAN_LEN entries from them to the end, so every scan returns SCAN_LEN.
+        let length = SCAN_LEN.min(entries);
+        let order = shuffled(entries - length + 1, 0x5EED_0003);
         let start = Instant::now();
         let mut returned = 0;
-        for &i in order.iter().cycle().take(SCANS) {
-            let scan = read.range(&tree, &keys[i][..]..).expect("scan");
-            returned += consume(scan.take(SCAN_LEN)).0;
+        for &rank in order.iter().cycle().take(SCANS) {
+            let scan = read.range(&tree, &sorted[rank][..]..).expect("scan");
+            let count = consume(scan.take(length)).0;
+            assert_eq!(count, length, "a scan from rank {rank}");
+            returned += count;
         }
         row(
             &format!("{SCANS} scans of {SCAN_LEN} from random keys"),
