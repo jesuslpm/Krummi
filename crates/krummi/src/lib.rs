@@ -500,6 +500,43 @@ impl<'s> WriteTransaction<'s> {
         Ok(update.count_changed)
     }
 
+    /// Removes from `tree` every entry whose key is within `bounds`, and returns how many it removed. The bounds
+    /// follow [`ReadTransaction::range`]: bounds that leave no key between them remove nothing and read nothing.
+    /// The tree keeps its identity and its handles, which see the entries gone; the pages it no longer uses are
+    /// freed. Fails with [`ErrorKind::InvalidSize`] if a bound's key is empty or longer than 2,048 bytes.
+    pub fn remove_range<'k>(
+        &mut self,
+        tree: &WriteTree<'_>,
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<u64> {
+        self.remove_range_prefix(tree, &[], bounds)
+    }
+
+    /// Like [`remove_range`](Self::remove_range), only with the keys that start with `prefix`; an empty prefix
+    /// limits nothing. Fails with [`ErrorKind::InvalidSize`] if `prefix` is longer than 2,048 bytes, after checking
+    /// the bounds.
+    pub fn remove_range_prefix<'k>(
+        &mut self,
+        tree: &WriteTree<'_>,
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<u64> {
+        let interval = self.folder.interval(prefix, &bounds)?;
+        let (root, _) = self.live(tree)?;
+        let update = krummi_tree::remove_range(&mut self.inner, root, interval)?;
+        let state = self
+            .trees
+            .get_mut()
+            .get_mut(tree.id)
+            .expect("a live handle");
+        if update.removed > 0 || update.root != state.root {
+            state.count -= update.removed;
+            state.root = update.root;
+            state.dirty = true;
+        }
+        Ok(update.removed)
+    }
+
     /// A handle of the tree of `entry`, now named `name`; the tree's state joins the table on its first opening.
     fn handle(&self, name: &str, entry: &Entry) -> Result<WriteTree<'s>> {
         let mut trees = self.trees.borrow_mut();

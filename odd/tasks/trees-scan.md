@@ -68,8 +68,8 @@ Decisions within *Dejado a la implementación*:
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T0 | — | inline | done | — |
-| T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scan damage), S16, S20 | inline | done | `51be749`, fix `976a582` |
-| T2 | S1 (removes), S4, S6 (remove part), S9, S10, S11 (remove part), S13 (removes) | inline | pending | — |
+| T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scan damage), S16, S20 | inline | done | `51be749`, fix `b07f248` |
+| T2 | S1 (removes), S4, S6 (remove part), S8 (removal cases), S9, S10, S11 (remove part), S13 (removes) | inline | done | T2COMMIT |
 | T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | pending | — |
 | T4 | S14 | inline | pending | — |
 | T5 | S15 | inline | pending | — |
@@ -87,24 +87,30 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   so a cursor keeps the path. `SizeSubject` is `#[non_exhaustive]`, so adding `Prefix` is not breaking. Test
   infrastructure mapped: `trees.rs` helpers, `tree_integrity.rs` crash sweep, `tree_memory.rs` OOM sweep, the T11
   sweep in `crates/krummi/src/tests.rs`, trybuild cases in `tests/ui/trees*`, the `tree_timing` example.
-- **L3** (T1): RED: \`tree_scans.rs\` and the trybuild cases failed to compile (39 errors: no \`range\`, \`range_prefix\`,
-  \`ReadRange\`, \`WriteRange\`, \`SizeSubject::Prefix\`). GREEN: 10 tests, 4 unit tests of the interval, 5 compile-fail
-  and 1 compile-pass cases. \`a..b\` of slices does not implement \`RangeBounds<[u8]>\` (std implements it only for
-  sized types), so the API takes \`RangeBounds<&[u8]>\` (D1 updated). Tree test helpers moved to
-  \`tests/support/mod.rs\` (the 28 tests of \`trees.rs\` unchanged and passing). The S13 out-of-memory and I/O part
+- **L3** (T1): RED: `tree_scans.rs` and the trybuild cases failed to compile (39 errors: no `range`, `range_prefix`,
+  `ReadRange`, `WriteRange`, `SizeSubject::Prefix`). GREEN: 10 tests, 4 unit tests of the interval, 5 compile-fail
+  and 1 compile-pass cases. `a..b` of slices does not implement `RangeBounds<[u8]>` (std implements it only for
+  sized types), so the API takes `RangeBounds<&[u8]>` (D1 updated). Tree test helpers moved to
+  `tests/support/mod.rs` (the 28 tests of `trees.rs` unchanged and passing). The S13 out-of-memory and I/O part
   moves to T3, where the failure injection lives.
-- **L4** (RDD review 1, 09:57–10:08): commit \`51be749\` (base \`0e204da\`), assessed \`high\` (\`process_boundary\`
-  on \`tests/support/mod.rs\`); lenses resilience, readability, reliability; lineage \`review-b3f0715ef79299e4\`;
+- **L4** (RDD review 1, 09:57–10:08): commit `51be749` (base `0e204da`), assessed `high` (`process_boundary`
+  on `tests/support/mod.rs`); lenses resilience, readability, reliability; lineage `review-b3f0715ef79299e4`;
   **approved**, acknowledged, authority burned. Advisory findings, all non-blocking:
   - R4-eager-next-leaf-read (WARNING): a bounded scan read the neighbour leaf before seeing that the bound ended
     it, so a damaged neighbour failed a scan that had returned everything. Fixed: both ends stop at the parent's
-    separator before reading the next child (\`Interval::all_before_lower\` for the back); RED observed (damage on
-    page 163 without the fix), GREEN with it; covered in \`ac_r13_scans_and_damaged_pages\`.
-  - R2-misplaced-partition-doc (WARNING) and R3-002 (SUGGESTION): \`partition\` took \`child_index\`'s doc comment.
+    separator before reading the next child (`Interval::all_before_lower` for the back); RED observed (damage on
+    page 163 without the fix), GREEN with it; covered in `ac_r13_scans_and_damaged_pages`.
+  - R2-misplaced-partition-doc (WARNING) and R3-002 (SUGGESTION): `partition` took `child_index`'s doc comment.
     Fixed.
-  - R2-design-doc-drift (SUGGESTION): D1 and D2 described \`RangeBounds<[u8]>\` and a prefix turned into bounds.
+  - R2-design-doc-drift (SUGGESTION): D1 and D2 described `RangeBounds<[u8]>` and a prefix turned into bounds.
     Fixed: D1 and D2 describe the code.
-  - R2-shadowed-open-helper (SUGGESTION): the scan tests' \`open\` shadowed the support one. Renamed \`tree_t\`.
+  - R2-shadowed-open-helper (SUGGESTION): the scan tests' `open` shadowed the support one. Renamed `tree_t`.
   - R3-001 (WARNING): S13's out-of-memory and I/O failures mid-scan had no test. Accepted: moved to T3.
   - R2-mirrored-cursor-logic (SUGGESTION): the front and back step functions mirror each other. Kept: each is
     short and reads directly; a direction abstraction would hide the index arithmetic that differs.
+- **L5** (T2): RED: the removal tests failed to compile (30 errors: no `remove_range`, `remove_range_prefix`). GREEN:
+  19 scan and removal tests, including `range_removals_match_a_model` (40 rounds of random intervals with keys
+  stored back in between, checked after each round by a whole scan in both directions, the count and a read of
+  every key), and 2 more compile-fail cases. The root fix after a change moved into `fix_root`, shared by key
+  operations and range removal; freeing a subtree can count its entries (`free_subtree(.., count)`). Every test of
+  `krummi` and `krummi-tree` passes, so the 5.1 behavior that shares that code holds.

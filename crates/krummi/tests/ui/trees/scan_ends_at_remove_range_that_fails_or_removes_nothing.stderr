@@ -1,0 +1,19 @@
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/scan_ends_at_remove_range_that_fails_or_removes_nothing.rs:12:13
+   |
+11 |     let mut scan = write.range(&a, ..).unwrap();
+   |                    ----- immutable borrow occurs here
+12 |     let _ = write.remove_range(&a, &b"z"[..]..&b"a"[..]);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+13 |     let _ = scan.next();
+   |             ---- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/scan_ends_at_remove_range_that_fails_or_removes_nothing.rs:17:13
+   |
+16 |     let (key, _) = write.range(&a, ..).unwrap().next().unwrap().unwrap();
+   |                    ----- immutable borrow occurs here
+17 |     let _ = write.remove_range_prefix(&a, &[0; 2049], ..);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+18 |     println!("{key:?}");
+   |                --- immutable borrow later used here

@@ -30,6 +30,8 @@ mod range;
 #[cfg(test)]
 mod tests;
 
+use std::ops::Bound;
+
 use krummi_tx::{Error, PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction};
 use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL};
 pub use node::{MAX_KEY, MAX_VALUE};
@@ -255,13 +257,23 @@ pub fn remove(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8]) -> Result<Up
 
 /// Frees every page of the tree at `root`, reading only its branch pages and the root (D4).
 pub fn free_all(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
-    free_subtree(tx, root, None)
+    free_subtree(tx, root, None, false).map(|_| ())
 }
 
-fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> Result<()> {
+/// Frees every page of the subtree at `page`, a node of `level` when given. When `count` is set it also reads the
+/// leaves below the node and returns how many entries the subtree had; otherwise it reads only the branch pages
+/// and the node itself, and returns the entries of the node when it is a leaf.
+fn free_subtree(
+    tx: &mut WriteTransaction<'_>,
+    page: u64,
+    level: Option<u8>,
+    count: bool,
+) -> Result<u64> {
     let node = node_at(&*tx, page, level)?;
+    let mut entries = 0;
     let mut children = Vec::new();
     let below = if node::is_leaf(node) {
+        entries = node::count(node) as u64;
         None
     } else {
         reserve(&*tx, &mut children, node::count(node) + 1)?;
@@ -273,14 +285,146 @@ fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> 
     tx.free(page, 1)?;
     for child in children {
         if below != Some(0) {
-            free_subtree(tx, child, below)?;
+            entries += free_subtree(tx, child, below, count)?;
+        } else if count {
+            entries += node::count(node_at(&*tx, child, below)?) as u64;
+            tx.free(child, 1)?;
         } else if tx.may_hold_data(child) {
             tx.free(child, 1)?;
         } else {
             return Err(tx.damaged(child));
         }
     }
-    Ok(())
+    Ok(entries)
+}
+
+/// What a range removal did to a tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RangeUpdate {
+    /// The tree's root page afterwards: it changes when the root collapses.
+    pub root: u64,
+    /// How many entries it removed.
+    pub removed: u64,
+}
+
+/// Removes every entry of `interval` from the tree at `root` (D4): a leaf loses its run of entries in the
+/// interval, a branch frees the children wholly inside it, reading their leaves to count their entries, and the
+/// children that hold the bounds are fixed like after a key removal. An empty interval (R3) reads nothing, and a
+/// removal that finds no entry changes no page (T10).
+///
+/// # Panics
+///
+/// If a bound's key is empty or longer than [`MAX_KEY`], or the prefix is longer than [`MAX_KEY`].
+pub fn remove_range(
+    tx: &mut WriteTransaction<'_>,
+    root: u64,
+    interval: Interval<'_>,
+) -> Result<RangeUpdate> {
+    for bound in [interval.lower, interval.upper] {
+        if let Bound::Included(key) | Bound::Excluded(key) = bound {
+            assert!(
+                (1..=MAX_KEY).contains(&key.len()),
+                "a key has 1 to {MAX_KEY} bytes"
+            );
+        }
+    }
+    assert!(
+        interval.prefix.len() <= MAX_KEY,
+        "a prefix has up to {MAX_KEY} bytes"
+    );
+    if interval.is_empty() {
+        return Ok(RangeUpdate { root, removed: 0 });
+    }
+    let mut removed = 0;
+    // `remove_in` checked the root, which no other node points to.
+    let outcome = remove_in(tx, root, None, &interval, &mut removed)?;
+    let root = fix_root(tx, root, outcome)?;
+    Ok(RangeUpdate { root, removed })
+}
+
+/// Removes the entries of `interval` from the subtree at `page`, a node of `level` when given, adding their number
+/// to `removed`. A subtree where it removes nothing reports [`Outcome::Done`] and changes no page.
+fn remove_in(
+    tx: &mut WriteTransaction<'_>,
+    page: u64,
+    level: Option<u8>,
+    interval: &Interval<'_>,
+    removed: &mut u64,
+) -> Result<Outcome> {
+    let node = node_at(&*tx, page, level)?;
+    // In a leaf, the run of entries in the interval; in a branch, the children that hold its first and last keys.
+    let first = node::partition(node, |key| !interval.after_lower(key));
+    let last = node::partition(node, |key| interval.before_upper(key));
+    if node::is_leaf(node) {
+        if first >= last {
+            return Ok(Outcome::Done);
+        }
+        let node = tx.page_mut(page)?;
+        for _ in first..last {
+            node::remove(node, first);
+        }
+        *removed += (last - first) as u64;
+        if node::count(node) == 0 {
+            return Ok(Outcome::Empty);
+        }
+        return Ok(underfull_or_done(node));
+    }
+    let below = child_level(node);
+    if first >= last {
+        let child = node::child(node, first.min(last));
+        return match remove_in(tx, child, below, interval, removed)? {
+            Outcome::Done => Ok(Outcome::Done),
+            Outcome::Underfull => merge_child(tx, page, first.min(last)),
+            Outcome::Empty => drop_child(tx, page, first.min(last)),
+            Outcome::Split { .. } => unreachable!("a removal does not split"),
+        };
+    }
+    // The children wholly inside the interval, between the two that hold its bounds.
+    let (left, right) = (node::child(node, first), node::child(node, last));
+    let mut inner = Vec::new();
+    reserve(&*tx, &mut inner, last - first - 1)?;
+    inner.extend((first + 1..last).map(|i| node::child(node, i)));
+    let before = *removed;
+    let left_outcome = remove_in(tx, left, below, interval, removed)?;
+    let right_outcome = remove_in(tx, right, below, interval, removed)?;
+    for &child in &inner {
+        *removed += free_subtree(tx, child, below, true)?;
+    }
+    if *removed == before {
+        return Ok(Outcome::Done);
+    }
+    if !inner.is_empty() {
+        // Cell `first` separates child `first` from the next one: removing the cell drops that child.
+        let parent = tx.page_mut(page)?;
+        for _ in &inner {
+            node::remove(parent, first);
+        }
+    }
+    // The two children that hold the bounds are now children `first` and `first + 1`.
+    let right_gone = matches!(right_outcome, Outcome::Empty);
+    let left_gone = matches!(left_outcome, Outcome::Empty);
+    let mut emptied = false;
+    if right_gone {
+        emptied |= matches!(drop_child(tx, page, first + 1)?, Outcome::Empty);
+    }
+    if left_gone {
+        emptied |= matches!(drop_child(tx, page, first)?, Outcome::Empty);
+    }
+    if emptied {
+        return Ok(Outcome::Empty);
+    }
+    if !left_gone && matches!(left_outcome, Outcome::Underfull) {
+        merge_child(tx, page, first)?;
+    }
+    if !right_gone && matches!(right_outcome, Outcome::Underfull) {
+        // The right child may have been merged into the left one just above.
+        let at = if left_gone { first } else { first + 1 };
+        let parent = tx.page(page)?;
+        if at <= node::count(parent) && node::child(parent, at) == right {
+            merge_child(tx, page, at)?;
+        }
+    }
+    Ok(underfull_or_done(tx.page(page)?))
 }
 
 #[derive(Clone, Copy)]
@@ -316,9 +460,20 @@ fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> R
         );
     }
     let mut count_changed = false;
-    let mut root = root;
     // `change` checked the root, which no other node points to.
-    match change(tx, root, None, key, op, &mut count_changed)? {
+    let outcome = change(tx, root, None, key, op, &mut count_changed)?;
+    let root = fix_root(tx, root, outcome)?;
+    Ok(Update {
+        root,
+        count_changed,
+    })
+}
+
+/// The tree's root page after a change left `outcome` in the root at `root`: a new root above a split one, the only
+/// child of a branch root left without cells, or the same page.
+fn fix_root(tx: &mut WriteTransaction<'_>, root: u64, outcome: Outcome) -> Result<u64> {
+    let mut root = root;
+    match outcome {
         Outcome::Done => {}
         Outcome::Split { key, right } => {
             // A checked branch is below level 255.
@@ -349,10 +504,7 @@ fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> R
             }
         }
     }
-    Ok(Update {
-        root,
-        count_changed,
-    })
+    Ok(root)
 }
 
 /// Applies `op` to the subtree at `page`, a node of `level` when given; `count_changed` reports whether the number

@@ -1,0 +1,17 @@
+error[E0599]: no method named `remove_range` found for struct `ReadTransaction<'s>` in the current scope
+ --> tests/ui/trees/read_transaction_cannot_remove_ranges.rs:8:18
+  |
+8 |     let _ = read.remove_range(&a, ..);
+  |                  ^^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_range_prefix` found for struct `ReadTransaction<'s>` in the current scope
+ --> tests/ui/trees/read_transaction_cannot_remove_ranges.rs:9:18
+  |
+9 |     let _ = read.remove_range_prefix(&a, b"p", ..);
+  |                  ^^^^^^^^^^^^^^^^^^^
+  |
+help: there is a method `range_prefix` with a similar name
+  |
+9 -     let _ = read.remove_range_prefix(&a, b"p", ..);
+9 +     let _ = read.range_prefix(&a, b"p", ..);
+  |

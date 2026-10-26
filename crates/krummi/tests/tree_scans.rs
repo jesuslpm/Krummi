@@ -743,3 +743,408 @@ fn scan_types<'t>(read: ReadRange<'t>, write: WriteRange<'t>, _tx: &WriteTransac
     check(read);
     check(write);
 }
+
+/// AC-R1 (removals): on the example tree, removing the prefix `b` removes 2 entries, and removing from `ab`
+/// included to `ba` excluded with the prefix `b` removes 1 (only `b`), each on the original tree.
+#[test]
+fn ac_r1_the_output_removals() {
+    stores(|store, _| {
+        let all = EXAMPLE.map(<[u8]>::to_vec);
+        fill(store, "t", &all);
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        assert_eq!(write.remove_range_prefix(&tree, b"b", ..).unwrap(), 2);
+        let left = keys(&forward(write.range(&tree, ..).unwrap()));
+        assert_eq!(left, [&b"a"[..], b"ab", b"c"].map(<[u8]>::to_vec));
+        write.abort();
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        let bounds: Bounds<'_> = (Included(b"ab"), Excluded(b"ba"));
+        assert_eq!(write.remove_range_prefix(&tree, b"b", bounds).unwrap(), 1);
+        assert_eq!(write.get(&tree, b"b").unwrap(), None);
+        assert_eq!(write.len(&tree).unwrap(), 4);
+        write.commit().unwrap();
+    });
+}
+
+/// AC-R4: empty intervals scan and remove nothing without failing, also with the root damaged; through a deleted
+/// tree's handle they fail with tree not found; equal included bounds give the entry once; a write that only
+/// scans, removes nothing and fails with invalid size leaves the files as they were, and one that removes an
+/// entry writes.
+#[test]
+fn ac_r4_empty_intervals() {
+    let empties: [Bounds<'_>; 3] = [
+        (Included(b"c"), Included(b"a")),
+        (Included(b"b"), Excluded(b"b")),
+        (Excluded(b"b"), Included(b"b")),
+    ];
+    stores(|store, folder| {
+        fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        for bounds in empties {
+            assert!(forward(write.range(&tree, bounds).unwrap()).is_empty());
+            assert_eq!(write.remove_range(&tree, bounds).unwrap(), 0);
+        }
+        assert!(forward(write.range_prefix(&tree, b"a", &b"c"[..]..).unwrap()).is_empty());
+        assert_eq!(
+            write.remove_range_prefix(&tree, b"a", &b"c"[..]..).unwrap(),
+            0
+        );
+        let same: Bounds<'_> = (Included(b"b"), Included(b"b"));
+        let mut scan = write.range(&tree, same).unwrap();
+        assert_eq!(scan.next().unwrap().unwrap().0, b"b");
+        assert!(scan.next_back().is_none() && scan.next().is_none());
+        let second = write.open_tree("t", NORMAL).unwrap();
+        write.delete_tree("t").unwrap();
+        let error = write.remove_range(&second, empties[0]).unwrap_err();
+        assert_eq!(not_found(error, folder), "t");
+        let error = write.range(&second, empties[0]).map(|_| ()).unwrap_err();
+        assert_eq!(not_found(error, folder), "t");
+        write.abort();
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    fill(&store, "t", &EXAMPLE.map(<[u8]>::to_vec));
+    store.close().unwrap();
+    // Only scans, empty removals, removals of absent keys and invalid sizes: nothing is written.
+    let changed = files_change(tmp.path(), |store| {
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        assert_eq!(forward(write.range(&tree, ..).unwrap()).len(), 5);
+        for bounds in empties {
+            assert_eq!(write.remove_range(&tree, bounds).unwrap(), 0);
+        }
+        assert_eq!(write.remove_range(&tree, &b"bb"[..]..&b"c"[..]).unwrap(), 0);
+        assert_eq!(write.remove_range_prefix(&tree, b"z", ..).unwrap(), 0);
+        let long = vec![0; MAX_KEY + 1];
+        write.remove_range(&tree, &long[..]..).unwrap_err();
+        write.commit().unwrap();
+    });
+    assert!(!changed, "a write that removes nothing writes nothing");
+    let changed = files_change(tmp.path(), |store| {
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        assert_eq!(write.remove_range(&tree, &b"c"[..]..).unwrap(), 1);
+        write.commit().unwrap();
+    });
+    assert!(changed, "a write that removes an entry writes");
+
+    // The root damaged: empty intervals still read nothing.
+    let root = root_page(tmp.path(), "t");
+    damage(tmp.path(), root);
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    for bounds in empties {
+        assert!(forward(write.range(&tree, bounds).unwrap()).is_empty());
+        assert_eq!(write.remove_range(&tree, bounds).unwrap(), 0);
+    }
+    assert_eq!(
+        write.remove_range_prefix(&tree, b"a", &b"c"[..]..).unwrap(),
+        0
+    );
+    write.commit().unwrap();
+}
+
+/// AC-R5 (removals): the sizes of a removal's bounds and prefix are checked as a scan's, and it fails without
+/// effect.
+#[test]
+fn ac_r5_sizes_of_removals() {
+    stores(|store, folder| {
+        fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        let (short, long) = (Vec::new(), vec![b'k'; MAX_KEY + 1]);
+        let error = write
+            .remove_range(&tree, (Included(&short[..]), Unbounded))
+            .unwrap_err();
+        assert_eq!(invalid_size(error, folder), (SizeSubject::Key, 0, 1, 2048));
+        let error = write
+            .remove_range(&tree, (Unbounded, Excluded(&long[..])))
+            .unwrap_err();
+        assert_eq!(
+            invalid_size(error, folder),
+            (SizeSubject::Key, 2049, 1, 2048)
+        );
+        let error = write.remove_range_prefix(&tree, &long, ..).unwrap_err();
+        assert_eq!(
+            invalid_size(error, folder),
+            (SizeSubject::Prefix, 2049, 0, 2048)
+        );
+        let bounds = (Unbounded, Included(&short[..]));
+        let error = write.remove_range_prefix(&tree, &long, bounds).unwrap_err();
+        assert_eq!(invalid_size(error, folder), (SizeSubject::Key, 0, 1, 2048));
+        assert_eq!(write.len(&tree).unwrap(), 5);
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        assert_eq!(read.len(&tree_t(&read)).unwrap(), 5);
+    });
+}
+
+/// AC-R6 (removals): another handle of the same tree sees the tree without the removed entries and the new count.
+#[test]
+fn ac_r6_other_handles_see_a_range_removal() {
+    stores(|store, _| {
+        fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
+        let mut write = store.write().unwrap();
+        let first = write.open_tree("t", NORMAL).unwrap();
+        let second = write.open_tree("t", NORMAL).unwrap();
+        assert_eq!(
+            write.remove_range(&first, &b"ab"[..]..=&b"ba"[..]).unwrap(),
+            3
+        );
+        let left = keys(&forward(write.range(&second, ..).unwrap()));
+        assert_eq!(left, [&b"a"[..], b"c"].map(<[u8]>::to_vec));
+        assert_eq!(write.len(&second).unwrap(), 2);
+        write.commit().unwrap();
+    });
+}
+
+/// The keys of a removal test: `count` keys of 300 bytes, so that the tree has several levels.
+fn removal_keys(count: usize) -> Vec<Vec<u8>> {
+    numbered(count, 300)
+}
+
+/// Checks that the tree `t` of `write` holds exactly `model`: a whole scan in both directions, the count and a read
+/// of every key the test used.
+fn check_tree(write: &WriteTransaction<'_>, model: &BTreeMap<Vec<u8>, Vec<u8>>, used: &[Vec<u8>]) {
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    let want: Entries = model.clone().into_iter().collect();
+    assert_eq!(forward(write.range(&tree, ..).unwrap()), want);
+    let mut reversed = keys(&want);
+    reversed.reverse();
+    assert_eq!(backward_keys(write.range(&tree, ..).unwrap()), reversed);
+    assert_eq!(write.len(&tree).unwrap(), model.len() as u64);
+    for key in used {
+        assert_eq!(
+            write.get(&tree, key).unwrap(),
+            model.get(key).map(Vec::as_slice)
+        );
+    }
+}
+
+/// AC-R9: removals within one page, across pages and levels, with a prefix and without, return how many entries
+/// they removed, remove only those, lower the count, and persist after commit and reopening.
+#[test]
+fn ac_r9_range_removals_across_pages_and_levels() {
+    stores(|store, _| {
+        let all = removal_keys(2000);
+        let mut model = fill(store, "t", &all);
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        let steps: [(&[u8], Bounds<'_>); 6] = [
+            // Within one page.
+            (b"", (Included(&all[100]), Excluded(&all[103]))),
+            // Across several pages.
+            (b"", (Excluded(&all[200]), Included(&all[320]))),
+            // Across a large part of the tree, so that whole subtrees go.
+            (b"", (Included(&all[400]), Excluded(&all[1600]))),
+            // A prefix: the keys from 01700 to 01799.
+            (b"017", (Unbounded, Unbounded)),
+            // A prefix and a bound.
+            (b"018", (Included(&all[1850]), Unbounded)),
+            // Everything before a key.
+            (b"", (Unbounded, Excluded(&all[50]))),
+        ];
+        for (prefix, bounds) in steps {
+            let want = expected(&model, prefix, bounds);
+            let removed = write.remove_range_prefix(&tree, prefix, bounds).unwrap();
+            assert_eq!(removed, want.len() as u64, "prefix {prefix:?}");
+            for (key, _) in &want {
+                model.remove(key);
+            }
+            check_tree(&write, &model, &all);
+        }
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let tree = tree_t(&read);
+        let want: Entries = model.clone().into_iter().collect();
+        assert_eq!(forward(read.range(&tree, ..).unwrap()), want);
+        assert_eq!(read.len(&tree).unwrap(), model.len() as u64);
+    });
+    // Reopening: the removals persist.
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let all = removal_keys(2000);
+    let mut model = fill(&store, "t", &all);
+    let mut write = store.write().unwrap();
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    assert_eq!(
+        write
+            .remove_range(&tree, &all[10][..]..&all[1990][..])
+            .unwrap(),
+        1980
+    );
+    write.commit().unwrap();
+    store.close().unwrap();
+    model.retain(|k, _| *k < all[10] || *k >= all[1990]);
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let tree = tree_t(&read);
+    assert_eq!(
+        forward(read.range(&tree, ..).unwrap()),
+        model.into_iter().collect::<Entries>()
+    );
+    assert_eq!(read.len(&tree).unwrap(), 20);
+}
+
+/// Removals at random intervals of a tree of several levels, compared with a model after each one, until the
+/// tree is empty, with keys stored back in between so that pages split and merge again.
+#[test]
+fn range_removals_match_a_model() {
+    stores(|store, _| {
+        let all = removal_keys(1500);
+        let mut model = fill(store, "t", &all);
+        let mut random = Lcg(3);
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        for round in 0..40 {
+            let a = (random.next() as usize) % all.len();
+            let b = (random.next() as usize) % all.len();
+            let (a, b) = (a.min(b), a.max(b));
+            let lower = match random.next() % 3 {
+                0 => Included(&all[a][..]),
+                1 => Excluded(&all[a][..]),
+                _ => Unbounded,
+            };
+            let upper = match random.next() % 4 {
+                0 => Included(&all[b][..]),
+                1 => Excluded(&all[b][..]),
+                2 if round % 5 == 0 => Unbounded,
+                _ => Excluded(&all[(b + 1).min(all.len() - 1)][..]),
+            };
+            let want = expected(&model, b"", (lower, upper));
+            assert_eq!(
+                write.remove_range(&tree, (lower, upper)).unwrap(),
+                want.len() as u64
+            );
+            for (key, _) in &want {
+                model.remove(key);
+            }
+            // Store some keys back.
+            for _ in 0..(random.next() % 200) {
+                let key = &all[(random.next() as usize) % all.len()];
+                write.set(&tree, key, &value_of(key)).unwrap();
+                model.insert(key.clone(), value_of(key));
+            }
+            check_tree(&write, &model, &all);
+        }
+        assert_eq!(write.remove_range(&tree, ..).unwrap(), model.len() as u64);
+        model.clear();
+        check_tree(&write, &model, &all);
+        write.commit().unwrap();
+    });
+}
+
+/// AC-R10: removing every entry of a tree of several levels, with one interval or with ten contiguous ones in
+/// separate writes, leaves the pages in use as with the tree empty.
+#[test]
+fn ac_r10_removing_every_entry_gives_the_pages_back() {
+    stores(|store, _| {
+        commit_tree(store, "other", &[(b"k", b"v")]);
+        let in_use = |store: &Store| {
+            let info = store.info();
+            info.page_count - info.free_pages
+        };
+        let all = removal_keys(1500);
+        for intervals in [1, 10] {
+            commit_tree(store, "t", EMPTY);
+            let empty = in_use(store);
+            fill(store, "t", &all);
+            assert!(in_use(store) > empty + 20, "the tree takes many pages");
+            let cuts: Vec<usize> = (0..=intervals).map(|i| i * all.len() / intervals).collect();
+            for pair in cuts.windows(2) {
+                let mut write = store.write().unwrap();
+                let tree = write.open_tree("t", NORMAL).unwrap();
+                let lower = if pair[0] == 0 {
+                    Unbounded
+                } else {
+                    Included(&all[pair[0]][..])
+                };
+                let upper = if pair[1] == all.len() {
+                    Unbounded
+                } else {
+                    Excluded(&all[pair[1]][..])
+                };
+                let removed = write.remove_range(&tree, (lower, upper)).unwrap();
+                assert_eq!(removed, (pair[1] - pair[0]) as u64);
+                write.commit().unwrap();
+            }
+            assert_eq!(in_use(store), empty, "{intervals} intervals");
+            let mut write = store.write().unwrap();
+            write.delete_tree("t").unwrap();
+            write.commit().unwrap();
+        }
+    });
+}
+
+/// AC-R11 (removals): a removal through a handle of a deleted tree fails with tree not found and the last name,
+/// through a handle of an ended write with misuse; invalid size wins over both; the write stays usable.
+#[test]
+fn ac_r11_removals_through_deleted_and_foreign_handles() {
+    stores(|store, folder| {
+        fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
+        let mut write = store.write().unwrap();
+        let first = write.open_tree("t", NORMAL).unwrap();
+        let second = write.open_tree("t", NORMAL).unwrap();
+        write.delete_tree("t").unwrap();
+        assert_eq!(
+            not_found(write.remove_range(&second, ..).unwrap_err(), folder),
+            "t"
+        );
+        let long = vec![0; MAX_KEY + 1];
+        let error = write.remove_range_prefix(&first, &long, ..).unwrap_err();
+        assert_eq!(invalid_size(error, folder).0, SizeSubject::Prefix);
+        write.abort();
+
+        let old = store.write().unwrap();
+        let foreign = old.open_tree("t", NORMAL).unwrap();
+        old.commit().unwrap();
+        let mut write = store.write().unwrap();
+        misuse(write.remove_range(&foreign, ..).unwrap_err(), folder);
+        let error = write.remove_range(&foreign, &long[..]..).unwrap_err();
+        assert_eq!(invalid_size(error, folder).0, SizeSubject::Key);
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        assert_eq!(write.remove_range(&tree, ..).unwrap(), 5);
+        write.commit().unwrap();
+    });
+}
+
+/// AC-R13 (removals, disk only): a removal far from a damaged leaf does not fail; one that needs it fails with
+/// damage, and the commit then fails with damage and applies nothing.
+#[test]
+fn ac_r13_removals_and_damaged_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let all = removal_keys(2000);
+    fill(&store, "t", &all);
+    store.close().unwrap();
+    let leaf = leaf_page(tmp.path(), Some("t"), &all[1000]);
+    damage(tmp.path(), leaf);
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    assert_eq!(
+        write
+            .remove_range(&tree, &all[10][..]..&all[30][..])
+            .unwrap(),
+        20
+    );
+    assert_eq!(write.remove_range(&tree, &all[1950][..]..).unwrap(), 50);
+    write.commit().unwrap();
+    let mut write = store.write().unwrap();
+    let tree = write.open_tree("t", NORMAL).unwrap();
+    let error = write
+        .remove_range(&tree, &all[900][..]..&all[1100][..])
+        .unwrap_err();
+    assert_eq!(damaged_page(error), leaf);
+    assert_eq!(damaged_page(write.commit().unwrap_err()), leaf);
+    let read = store.read().unwrap();
+    assert_eq!(
+        read.len(&tree_t(&read)).unwrap(),
+        1930,
+        "the failed write applied nothing"
+    );
+}
