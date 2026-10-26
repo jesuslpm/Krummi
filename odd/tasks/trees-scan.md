@@ -176,3 +176,14 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   reads, so the same key is served from another place of the engine's memory; 5.1's AC20 test keeps an older read
   open to prevent it. Fixed the same way. Old test: 10 failures in 60 runs on WSL; fixed: 0 in 60. The rest of the
   workspace passed on Linux.
+- **L12** (RDD review 3, last slice): commits `f67d59b`..`1a69262` (base `1ddd9ca`), assessed `high`
+  (`shell_source` on `.github/workflows/ci.yml`); lenses reliability, resilience, readability; lineage
+  `review-fcafd4847b9889fb`; **approved**, acknowledged, authority burned. Advisory findings:
+  - R4-saturating-count-masks-accounting-bugs, R3-saturating-count-masks-invariant (WARNING) and R2-002
+    (SUGGESTION): the saturating count would hide a counting bug in a healthy write. Fixed: a `debug_assert` that a
+    removal never removes more than the count unless the write already failed; the removal tests and sweeps pass.
+  - R2-001, R3-scan-timing-small-entries-panic (WARNING): `scan_timing` panicked with fewer than 1,000 entries.
+    Fixed: at most as many intervals as entries (a run of 300 entries works).
+  - R2-003 (SUGGESTION): the key length was a bare 16. Fixed: `timing::KEY`.
+  - R3-scan-whole-order-check-weakened (SUGGESTION): after an injected failure the sweep checks only that the scan
+    stops and that nothing applies, which is what the PRD specifies. No change.

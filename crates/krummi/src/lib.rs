@@ -532,7 +532,13 @@ impl<'s> WriteTransaction<'s> {
             .expect("a live handle");
         if update.removed > 0 || update.root != state.root {
             // After a failure of T11 the tree may be inconsistent and the transaction cannot commit (left to the
-            // implementation): the count must not wrap.
+            // implementation): the count must not wrap. In a healthy write it never removes more than it counts.
+            debug_assert!(
+                update.removed <= state.count || self.inner.has_failed(),
+                "removed {} of {} entries",
+                update.removed,
+                state.count
+            );
             state.count = state.count.saturating_sub(update.removed);
             state.root = update.root;
             state.dirty = true;

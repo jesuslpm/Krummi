@@ -15,3 +15,7 @@
 2026-10-26T12:24:30+00:00	mark	fix	ac_r12 full sweep
 2026-10-26T12:26:21+00:00	mark	acceptance	R11 measurement Windows
 2026-10-26T12:28:11+00:00	mark	checks	Linux tests and measurement (WSL)
+2026-10-26T12:43:11+00:00	mark	verify	checks and independent verifier
+2026-10-26T12:43:37+00:00	bg-start	review	RDD review 3 lenses (last slice)
+2026-10-26T12:44:33+00:00	bg-end	review	RDD review 3 lenses (last slice)
+2026-10-26T12:45:01+00:00	mark	fix	RDD review 3 advisories

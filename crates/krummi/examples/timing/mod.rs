@@ -12,10 +12,12 @@ pub const BATCH: usize = 1_000;
 pub const VALUE: usize = 100;
 /// The measured tree.
 pub const TREE: &str = "timing";
+/// Bytes of every key.
+pub const KEY: usize = 16;
 
 /// Stores every key, in the given order, in a new store in `folder`, in writes of [`BATCH`] entries that commit
 /// durably, and returns the time and the store's size.
-pub fn load(folder: &Path, keys: &[[u8; 16]]) -> (Duration, u64) {
+pub fn load(folder: &Path, keys: &[[u8; KEY]]) -> (Duration, u64) {
     let store = Store::open(folder, &StoreOptions::default()).expect("open");
     let value = [0x5Au8; VALUE];
     let start = Instant::now();
@@ -36,10 +38,10 @@ pub fn load(folder: &Path, keys: &[[u8; 16]]) -> (Duration, u64) {
 }
 
 /// `count` distinct random keys: the first 8 bytes are a bijection of the index, so no two keys are equal.
-pub fn keys(count: usize) -> Vec<[u8; 16]> {
+pub fn keys(count: usize) -> Vec<[u8; KEY]> {
     (0..count as u64)
         .map(|i| {
-            let mut key = [0u8; 16];
+            let mut key = [0u8; KEY];
             key[..8].copy_from_slice(&splitmix(i ^ 0x5EED_0001).to_be_bytes());
             key[8..].copy_from_slice(&splitmix(!i).to_be_bytes());
             key

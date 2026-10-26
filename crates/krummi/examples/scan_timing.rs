@@ -22,7 +22,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use krummi::{Result, Store, StoreOptions, TreeKind};
-use timing::{TREE, VALUE, header, keys, load, row, shuffled};
+use timing::{KEY, TREE, VALUE, header, keys, load, row, shuffled};
 
 const SCANS: usize = 10_000;
 const SCAN_LEN: usize = 100;
@@ -53,7 +53,7 @@ fn main() {
 
         let start = Instant::now();
         let (count, bytes) = consume(read.range(&tree, ..).expect("scan"));
-        assert_eq!((count, bytes), (entries, entries * (16 + VALUE)));
+        assert_eq!((count, bytes), (entries, entries * (KEY + VALUE)));
         row("scan forward", entries, start.elapsed(), None);
 
         let start = Instant::now();
@@ -79,21 +79,23 @@ fn main() {
 
     let copy = copy_of(loaded.path(), &base);
     let store = Store::open(copy.path(), &StoreOptions::default()).expect("reopen");
+    // As many intervals as entries at most, so that small runs work too.
+    let intervals = INTERVALS.min(entries);
     let mut cuts: Vec<usize> = shuffled(entries, 0x5EED_0004)
         .into_iter()
         .filter(|&i| i > 0)
-        .take(INTERVALS - 1)
+        .take(intervals - 1)
         .collect();
     cuts.sort_unstable();
     let start = Instant::now();
     let mut removed = 0;
-    for i in 0..INTERVALS {
+    for i in 0..intervals {
         let lower = if i == 0 {
             Unbounded
         } else {
             Included(&sorted[cuts[i - 1]][..])
         };
-        let upper = if i == INTERVALS - 1 {
+        let upper = if i == intervals - 1 {
             Unbounded
         } else {
             Excluded(&sorted[cuts[i]][..])
@@ -109,7 +111,7 @@ fn main() {
     }
     assert_eq!(removed, entries as u64);
     row(
-        &format!("remove with {INTERVALS} intervals"),
+        &format!("remove with {intervals} intervals"),
         entries,
         start.elapsed(),
         Some(store.info().size_bytes),
