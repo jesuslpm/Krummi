@@ -374,3 +374,86 @@ fn r3_renaming_onto_an_existing_tree_is_rejected_before_any_reservation() {
         );
     }
 }
+
+/// Commits the tree `t` with [`ENTRIES`] entries of [`BIG`] bytes: a branch root over several leaves.
+fn commit_big_tree(store: &Store) {
+    let mut write = store.write().unwrap();
+    fill(&mut write, "t").unwrap();
+    write.commit().unwrap();
+}
+
+/// The number of entries of the committed tree `t`.
+fn committed_len(store: &Store) -> u64 {
+    let read = store.read().unwrap();
+    let tree = read.open_tree("t", NORMAL).unwrap();
+    read.len(&tree).unwrap()
+}
+
+/// In-order scan PRD, AC-R12 and R8 (T11): running out of memory while a range removal frees inner subtrees and
+/// fixes the children at its bounds fails it with the out-of-memory class, and the write applies nothing.
+#[test]
+fn ac_r12_a_range_removal_out_of_memory_follows_t11() {
+    let failed = sweep(
+        commit_big_tree,
+        |write, arm| {
+            let tree = write.open_tree("t", NORMAL)?;
+            arm();
+            let (lower, upper) = (key(3), key(17));
+            let removed = write.remove_range(&tree, &lower[..]..&upper[..])?;
+            assert_eq!(removed, 14);
+            Ok(())
+        },
+        |store| assert_eq!(committed_len(store), ENTRIES),
+    );
+    assert!(failed >= 1, "the removal reserves memory");
+}
+
+/// In-order scan PRD, AC-R13 (R8): running out of memory in the middle of a write's scan, when its back end
+/// starts, fails that step with the out-of-memory class; the scan then returns nothing from either end, and the
+/// write follows T11.
+#[test]
+fn ac_r13_a_write_scan_out_of_memory_stops_and_follows_t11() {
+    let failed = sweep(
+        commit_big_tree,
+        |write, arm| {
+            let tree = write.open_tree("t", NORMAL)?;
+            let mut scan = write.range(&tree, ..)?;
+            assert!(scan.next().unwrap().is_ok());
+            arm();
+            match scan.next_back().unwrap() {
+                Ok(_) => Ok(()),
+                Err(error) => {
+                    assert!(scan.next().is_none() && scan.next_back().is_none());
+                    Err(error)
+                }
+            }
+        },
+        |store| assert_eq!(committed_len(store), ENTRIES),
+    );
+    assert_eq!(failed, 1, "the back end reserves its path once");
+}
+
+/// In-order scan PRD, AC-R13 (R8): in a read transaction, running out of memory in the middle of a scan fails that
+/// step with the out-of-memory class and the scan then returns nothing from either end; asking for a scan, which
+/// copies its bounds, fails the same way; the read stays usable and a new scan returns every entry.
+#[test]
+fn ac_r13_a_read_scan_out_of_memory_stops_and_the_read_stays_usable() {
+    let store = temporary();
+    commit_big_tree(&store);
+    let read = store.read().unwrap();
+    let tree = read.open_tree("t", NORMAL).unwrap();
+    let mut scan = read.range(&tree, ..).unwrap();
+    assert!(scan.next().unwrap().is_ok());
+    fail_alloc(0);
+    let error = scan.next_back().unwrap().unwrap_err();
+    testing::reset();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    assert!(scan.next().is_none() && scan.next_back().is_none());
+    let lower = key(3);
+    fail_alloc(0);
+    let error = read.range(&tree, &lower[..]..).map(|_| ()).unwrap_err();
+    testing::reset();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    assert_eq!(read.range(&tree, ..).unwrap().count() as u64, ENTRIES);
+    assert!(read.get(&tree, &key(0)).unwrap().is_some());
+}

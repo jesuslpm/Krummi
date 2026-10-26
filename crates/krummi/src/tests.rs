@@ -109,6 +109,68 @@ fn splits_and_merges(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
     results
 }
 
+/// The write of the 5.2 sweep (In-order scan PRD: AC-R12, AC-R13): it splits pages, scans the tree from both
+/// ends, removes intervals that merge pages and free subtrees over several levels, with a prefix and without, and
+/// scans again. A scan that fails stops at both ends (R8).
+fn range_removals(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
+    let tree = match write.open_tree("t", TreeKind::Normal) {
+        Ok(tree) => tree,
+        Err(error) => return vec![Err(error)],
+    };
+    let mut results = Vec::new();
+    for i in 12..48 {
+        results.push(write.set(&tree, &long_key(i), b"split"));
+    }
+    let ok = |results: &[Result<()>]| results.iter().all(Result::is_ok);
+    results.push(scan_whole(write, &tree, ok(&results).then_some(48)));
+    let (lower, upper) = (long_key(5), long_key(30));
+    results.push(write.remove_range(&tree, &lower[..]..&upper[..]).map(drop));
+    // The keys from 40 to 47.
+    results.push(write.remove_range_prefix(&tree, b"0004", ..).map(drop));
+    results.push(scan_whole(write, &tree, ok(&results).then_some(15)));
+    results
+}
+
+/// Scans `tree` whole, alternating ends, and checks that its keys are in order and, when given, that it holds
+/// `count` entries (after an earlier failure what the write sees is left to the implementation); after a failure
+/// the scan returns nothing more from either end.
+fn scan_whole(
+    write: &WriteTransaction<'_>,
+    tree: &WriteTree<'_>,
+    count: Option<usize>,
+) -> Result<()> {
+    let mut scan = write.range(tree, ..)?;
+    let (mut front, mut back) = (Vec::new(), Vec::new());
+    loop {
+        let step = if (front.len() + back.len()) % 2 == 0 {
+            scan.next().map(|e| e.map(|(k, _)| front.push(k)))
+        } else {
+            scan.next_back().map(|e| e.map(|(k, _)| back.push(k)))
+        };
+        match step {
+            None => break,
+            Some(Ok(())) => {}
+            Some(Err(error)) => {
+                assert!(
+                    scan.next().is_none() && scan.next_back().is_none(),
+                    "the scan stopped"
+                );
+                return Err(error);
+            }
+        }
+    }
+    back.reverse();
+    front.extend(back);
+    if let Some(count) = count {
+        assert_eq!(front.len(), count);
+    }
+    assert!(
+        front.windows(2).all(|pair| pair[0] < pair[1]),
+        "in key order"
+    );
+    Ok(())
+}
+
 /// AC-B18, second part, with its 2026-10-25 annotation (T11): a failure of disk full or maximum size at each
 /// point where the write of [`splits_and_merges`] reads, changes, reserves or frees a page, also after it changed
 /// many and in the middle of splits and merges over several levels, or where its commit writes the catalog, makes
@@ -116,6 +178,71 @@ fn splits_and_merges(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
 /// that failed commit, the tree, the catalog and the count are as before, and a new write reads and modifies them.
 /// On disk and in a temporary store, at one point in `step`; once no point is left, the write commits.
 fn t11_sweep(step: u64) {
+    t11_sweep_of(
+        step,
+        splits_and_merges,
+        &[Class::DiskFull, Class::MaxSize],
+        700,
+        |store| {
+            let read = store.read().unwrap();
+            let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+            assert_eq!(read.len(&tree).unwrap(), 7, "0, 8, 16, 24, 32, 40 and 100");
+            assert_eq!(read.get(&tree, &long_key(40)).unwrap(), Some(&b"split"[..]));
+        },
+    );
+}
+
+/// AC-R12 with AC-B18's second part, and AC-R13's I/O failure in the middle of a scan: a failure of disk full,
+/// maximum size or input and output at each point where the write of [`range_removals`] reads, changes, reserves
+/// or frees a page, in its range removals and in its scans, fails that operation, and its commit fails with that
+/// class and applies nothing (the rest as in [`t11_sweep`]).
+fn t11_range_sweep(step: u64) {
+    let classes = [Class::DiskFull, Class::MaxSize, Class::Io];
+    t11_sweep_of(step, range_removals, &classes, 500, |store| {
+        let read = store.read().unwrap();
+        let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+        assert_eq!(read.len(&tree).unwrap(), 15, "0 to 4 and 30 to 39");
+        assert_eq!(read.get(&tree, &long_key(30)).unwrap(), Some(&b"split"[..]));
+        assert_eq!(read.get(&tree, &long_key(29)).unwrap(), None);
+    });
+}
+
+/// The failures a T11 sweep injects, in turns.
+#[derive(Clone, Copy)]
+enum Class {
+    DiskFull,
+    MaxSize,
+    Io,
+}
+
+impl Class {
+    fn error(self, folder: &std::path::Path) -> Error {
+        match self {
+            Class::DiskFull => Error::DiskFull {
+                folder: folder.to_path_buf(),
+            },
+            Class::MaxSize => Error::MaxSize {
+                max_size: 1 << 20,
+                needed: 2 << 20,
+            },
+            Class::Io => Error::Io {
+                folder: folder.to_path_buf(),
+                source: io::Error::other("injected"),
+            },
+        }
+    }
+}
+
+/// The T11 sweep of the write `change` on a store with the trees `other` and `t` of 12 entries each, with the
+/// failures of `classes` in turns; the write must have more than `min_points` points, and `finished` checks the
+/// store once it commits.
+fn t11_sweep_of(
+    step: u64,
+    change: fn(&mut WriteTransaction<'_>) -> Vec<Result<()>>,
+    classes: &[Class],
+    min_points: u64,
+    finished: impl Fn(&Store),
+) {
     // The checks are about T11, not about durability: the store's flushes to disk are skipped.
     testing::skip_syncs(true);
     let tmp = tempfile::tempdir().unwrap();
@@ -136,20 +263,11 @@ fn t11_sweep(step: u64) {
         let before = trees_seen(store, &keys);
         let mut points = 0;
         loop {
-            let failure = if points % 2 == 0 {
-                Error::DiskFull {
-                    folder: tmp.path().to_path_buf(),
-                }
-            } else {
-                Error::MaxSize {
-                    max_size: 1 << 20,
-                    needed: 2 << 20,
-                }
-            };
+            let failure = classes[(points / step) as usize % classes.len()].error(tmp.path());
             let class = failure.kind();
             let mut write = store.write().unwrap();
             store.engine.set_page_fault(Some((points, failure)));
-            let results = splits_and_merges(&mut write);
+            let results = change(&mut write);
             let label = format!("point {points}");
             if store.engine.page_fault_pending() {
                 assert!(results.iter().all(Result::is_ok), "{label}");
@@ -190,11 +308,8 @@ fn t11_sweep(step: u64) {
             write.commit().unwrap();
             points += step;
         }
-        assert!(points > 700, "{points} points");
-        let read = store.read().unwrap();
-        let tree = read.open_tree("t", TreeKind::Normal).unwrap();
-        assert_eq!(read.len(&tree).unwrap(), 7, "0, 8, 16, 24, 32, 40 and 100");
-        assert_eq!(read.get(&tree, &long_key(40)).unwrap(), Some(&b"split"[..]));
+        assert!(points > min_points, "{points} points");
+        finished(store);
     }
     on_disk.close().unwrap();
     testing::reset();
@@ -204,6 +319,19 @@ fn t11_sweep(step: u64) {
 #[test]
 fn ac_b18_a_failure_at_a_sample_of_page_operations_of_splits_and_merges_applies_nothing() {
     t11_sweep(13);
+}
+
+/// AC-R12 and AC-R13 at every 13th point of the write with range removals and scans.
+#[test]
+fn ac_r12_a_failure_at_a_sample_of_page_operations_of_range_removals_and_scans_applies_nothing() {
+    t11_range_sweep(13);
+}
+
+/// `cargo test -p krummi --lib -- --ignored ac_r12_a_failure_at_every`.
+#[test]
+#[ignore = "acceptance: a failure at every page operation of the write and its commit"]
+fn ac_r12_a_failure_at_every_page_operation_of_range_removals_and_scans_applies_nothing() {
+    t11_range_sweep(1);
 }
 
 /// `cargo test -p krummi --lib -- --ignored ac_b18_a_failure_at_every`.

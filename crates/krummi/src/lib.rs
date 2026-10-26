@@ -530,7 +530,9 @@ impl<'s> WriteTransaction<'s> {
             .get_mut(tree.id)
             .expect("a live handle");
         if update.removed > 0 || update.root != state.root {
-            state.count -= update.removed;
+            // After a failure of T11 the tree may be inconsistent and the transaction cannot commit (left to the
+            // implementation): the count must not wrap.
+            state.count = state.count.saturating_sub(update.removed);
             state.root = update.root;
             state.dirty = true;
         }

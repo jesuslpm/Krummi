@@ -1,7 +1,9 @@
 //! In-order scans, prefix scans and range removal through the public API (In-order scan and prefix search PRD:
-//! R1–R11; AC-R1–AC-R6, AC-R9–AC-R11, AC-R13; Trees PRD: AC-B7 in its 5.2 part; root PRD: AC20 with scans).
-//! Crashes, power cuts, failures and altered bytes are in `tree_integrity.rs`, `tree_memory.rs` and the library's
-//! own tests; what must not compile is in `trees_compile.rs`.
+//! R1–R11; AC-R1–AC-R7, AC-R9–AC-R11, AC-R13 for damaged pages; Trees PRD: AC-B7 in its 5.2 part; root PRD: AC20
+//! with scans). Crashes, power cuts and altered bytes (AC-R12, root AC10) are in `tree_integrity.rs`, running out of
+//! memory (AC-R12, AC-R13) in `tree_memory.rs`, the failures of T11 and of input and output in the middle of a range
+//! removal or a scan (AC-R12, AC-R13) in the library's own tests, and what must not compile (AC-R8) in
+//! `trees_compile.rs`.
 //!
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the
 //! store's files, which run on disk only. Expected results come from `std::collections::BTreeMap`, whose order
@@ -1147,4 +1149,74 @@ fn ac_r13_removals_and_damaged_pages() {
         1930,
         "the failed write applied nothing"
     );
+}
+
+/// The height of the tree `t` in the closed store at `folder`.
+fn height(folder: &std::path::Path) -> u8 {
+    inspect(folder, |read| {
+        let root = krummi_tree::catalog::lookup(read, "t")
+            .unwrap()
+            .unwrap()
+            .root;
+        krummi_tree::height(read, root).unwrap()
+    })
+}
+
+/// AC-R7 (G3, AC-B17): a read with a scan half consumed and another not started keeps returning exactly the
+/// entries of its snapshot while a write removes intervals and stores entries until the tree changes height and
+/// commits; a new read sees the write's entries.
+#[test]
+fn ac_r7_scans_keep_their_snapshot_while_a_write_changes_the_tree() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let all = removal_keys(1500);
+    let snapshot = fill(&store, "t", &all);
+    store.close().unwrap();
+    let tall = height(tmp.path());
+    assert!(tall >= 3, "the tree has {tall} levels");
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let tree = tree_t(&read);
+    let mut half = read.range(&tree, ..).unwrap();
+    let first: Entries = forward(half.by_ref().take(100));
+    let mut later = read.range_prefix(&tree, b"01", ..).unwrap();
+
+    let mut write = store.write().unwrap();
+    let wtree = write.open_tree("t", NORMAL).unwrap();
+    assert_eq!(
+        write
+            .remove_range(&wtree, &all[50][..]..&all[1450][..])
+            .unwrap(),
+        1400
+    );
+    write.set(&wtree, b"new", b"entry").unwrap();
+    assert_eq!(write.remove_range_prefix(&wtree, b"0145", ..).unwrap(), 10);
+    let model_after = {
+        let mut model = snapshot.clone();
+        model.retain(|k, _| *k < all[50] || *k >= all[1450]);
+        model.retain(|k, _| !k.starts_with(b"0145"));
+        model.insert(b"new".to_vec(), b"entry".to_vec());
+        model
+    };
+    write.commit().unwrap();
+
+    let mut seen = first;
+    seen.extend(forward(half));
+    assert_eq!(seen, snapshot.clone().into_iter().collect::<Entries>());
+    let want: Entries = snapshot
+        .iter()
+        .filter(|(k, _)| k.starts_with(b"01"))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    assert_eq!(forward(later.by_ref()), want);
+    drop(read);
+    let read = store.read().unwrap();
+    let tree = tree_t(&read);
+    assert_eq!(
+        forward(read.range(&tree, ..).unwrap()),
+        model_after.into_iter().collect::<Entries>()
+    );
+    drop(read);
+    store.close().unwrap();
+    assert!(height(tmp.path()) < tall, "the write lowered the tree");
 }

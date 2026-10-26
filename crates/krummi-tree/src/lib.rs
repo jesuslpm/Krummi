@@ -174,6 +174,12 @@ pub fn leaf_of<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Result<
     Ok(descend(tx, root, key)?.0)
 }
 
+/// The number of levels of the tree at `root`, one for a lone leaf (tests use it to see a tree gain and lose
+/// levels).
+pub fn height<S: PageSource + ?Sized>(tx: &S, root: u64) -> Result<u8> {
+    Ok(node::level(node_at(tx, root, None)?) + 1)
+}
+
 /// The page number and the payload of the leaf where `key` is or would be.
 pub(crate) fn descend<'t, S: PageSource + ?Sized>(
     tx: &'t S,

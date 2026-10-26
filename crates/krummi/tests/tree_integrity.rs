@@ -1,6 +1,7 @@
 //! Crashes, power cuts and altered bytes in stores with trees, on disk (Trees and key operations PRD: AC-A16; Trees
-//! PRD: AC-B18, its first part; root PRD: AC10 repeated with the trees). The failures of T11 in the middle of a
-//! split or a merge, the second part of AC-B18, need the engine's hooks: they are in `src/tests.rs`.
+//! PRD: AC-B18, its first part; In-order scan PRD: AC-R12, its first part; root PRD: AC10 repeated with the trees
+//! and their scans). The failures of T11 in the middle of a split, a merge or a range removal, the second part of
+//! AC-B18 and AC-R12, need the engine's hooks: they are in `src/tests.rs`.
 //!
 //! The crash sweeps record the file operations of a run and rebuild, for every point of the tested commit, what a
 //! power cut (the models of `POWER_CUTS`) or a crash of the process (`Model::Written`: the system keeps every write
@@ -225,6 +226,95 @@ fn ac_b18_crashes_through_the_close() {
     splits_and_merges(true);
 }
 
+/// The crash sweep of AC-R12: a write that removes intervals of a tree of several levels, freeing whole subtrees
+/// and merging the children at the bounds until the tree loses levels, and a prefix.
+fn range_removals(through_close: bool) {
+    let key = |i: usize| long_key(i, 2048);
+    let keys: Vec<Vec<u8>> = (0..100).map(key).collect();
+    crash_sweep(
+        &keys,
+        through_close,
+        |store| {
+            let mut write = store.write().unwrap();
+            let tree = write
+                .open_tree_with("t", NORMAL, OpenMode::CreateNew)
+                .unwrap();
+            for key in &keys {
+                write.set(&tree, key, b"before").unwrap();
+            }
+            write.commit().unwrap();
+        },
+        |write| {
+            let tree = write.open_tree("t", NORMAL).unwrap();
+            let (lower, upper) = (key(10), key(90));
+            assert_eq!(
+                write.remove_range(&tree, &lower[..]..&upper[..]).unwrap(),
+                80
+            );
+            // The keys from 90 to 99.
+            assert_eq!(write.remove_range_prefix(&tree, b"0009", ..).unwrap(), 10);
+            assert_eq!(write.range(&tree, ..).unwrap().count(), 10);
+        },
+    );
+}
+
+/// AC-R12, first part (G1, G5, AC-B18): interrupted at every point where its commit writes or flushes, the write of
+/// [`range_removals`] leaves the tree with all its entries of before or all those of after, and it can be read and
+/// modified.
+#[test]
+fn ac_r12_crashes_during_a_commit_with_range_removals() {
+    range_removals(false);
+}
+
+/// AC-R12 also at every point of the close that moves that commit into `krummi.data` (see above).
+#[test]
+#[ignore = "acceptance: every point of the commit and of the close that follows it"]
+fn ac_r12_crashes_through_the_close() {
+    range_removals(true);
+}
+
+/// The entries a scan of the whole tree returns from one end until it ends or fails: a failure must be of the
+/// damage class, after which the scan returns nothing more from either end, and every entry before it must be
+/// the next one expected from that end.
+fn check_scan(
+    read: &krummi::ReadTransaction<'_>,
+    tree: &krummi::ReadTree<'_>,
+    entries: &[(Vec<u8>, Vec<u8>)],
+    front: bool,
+    offset: usize,
+) {
+    let mut scan = read.range(tree, ..).unwrap();
+    let mut expected: Box<dyn Iterator<Item = &(Vec<u8>, Vec<u8>)>> = if front {
+        Box::new(entries.iter())
+    } else {
+        Box::new(entries.iter().rev())
+    };
+    loop {
+        let step = if front { scan.next() } else { scan.next_back() };
+        match step {
+            None => {
+                assert!(
+                    expected.next().is_none(),
+                    "byte {offset}: the scan ended early"
+                );
+                return;
+            }
+            Some(Ok((key, value))) => {
+                let (k, v) = expected.next().expect("no entry beyond the tree's");
+                assert_eq!((key, value), (&k[..], &v[..]), "byte {offset}");
+            }
+            Some(Err(error)) => {
+                assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}: {error}");
+                assert!(
+                    scan.next().is_none() && scan.next_back().is_none(),
+                    "byte {offset}"
+                );
+                return;
+            }
+        }
+    }
+}
+
 /// AC10 of the root PRD with trees (G6, D10): every altered byte of a small store with trees, read whole through
 /// the public API, gives the damage class, "not a store" (the mark) or no observable difference: the same trees,
 /// counts and values, never different ones. The suite alters one byte in `step`; the acceptance run, every byte.
@@ -319,6 +409,9 @@ fn ac10_trees_sweep(step: usize) {
                 Ok(found) => assert_eq!(found, None, "byte {offset}"),
                 Err(error) => damaged(error, offset),
             }
+            // The whole tree scanned from each end (In-order scan PRD: root AC10 with scans).
+            check_scan(&read, &tree, entries, true, offset);
+            check_scan(&read, &tree, entries, false, offset);
         }
     }
     testing::reset();

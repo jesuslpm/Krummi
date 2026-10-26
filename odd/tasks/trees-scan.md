@@ -69,8 +69,8 @@ Decisions within *Dejado a la implementación*:
 |---|---|---|---|---|
 | T0 | — | inline | done | — |
 | T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scan damage), S16, S20 | inline | done | `51be749`, fix `b07f248` |
-| T2 | S1 (removes), S4, S6 (remove part), S8 (removal cases), S9, S10, S11 (remove part), S13 (removes) | inline | done | T2COMMIT |
-| T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | pending | — |
+| T2 | S1 (removes), S4, S6 (remove part), S8 (removal cases), S9, S10, S11 (remove part), S13 (removes) | inline | done | `1ddd9ca` |
+| T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | done | T3COMMIT |
 | T4 | S14 | inline | pending | — |
 | T5 | S15 | inline | pending | — |
 | T6 | docs, checks, verification, RDD review, closing report | inline | pending | — |
@@ -114,3 +114,26 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   every key), and 2 more compile-fail cases. The root fix after a change moved into `fix_root`, shared by key
   operations and range removal; freeing a subtree can count its entries (`free_subtree(.., count)`). Every test of
   `krummi` and `krummi-tree` passes, so the 5.1 behavior that shares that code holds.
+- **L6** (RDD review 2, 10:12–10:30): commits `b07f248` and `1ddd9ca` (base `51be749`), assessed `medium`
+  (`under_budget`) and raised to `high` with `--escalate-item 1` (range removal deletes stored entries); the
+  assessment always covers the range up to `HEAD`, so the fix commit was reviewed with T2 instead of alone. Lenses
+  risk, reliability, resilience; lineage `review-7dbcd8773193aef6`; **approved**, acknowledged, authority burned.
+  Two attempts before it failed in the harness, not in the review: the consent invocation ran through `cmd.exe`
+  and then WSL's `bash` (both `not_started`, retry safe). Advisory findings:
+  - R4-partial-range-removal-on-error (WARNING): after a failure of T11 inside a range removal the write's tree is
+    partly changed. Accepted as specified (PRD *Dejado a la implementación*: what the write sees after a T11
+    failure; it cannot commit), and hardened: the count update saturates, so further operations in that failed
+    write cannot overflow it.
+  - R3-underfull-after-boundary-merge (WARNING): merging the two bound children can leave a node under a quarter.
+    Dismissed with evidence: 5.1's merge policy keeps no minimum fill either (a merge only happens when both fit
+    in one page) and the parent PRD leaves the fill policy to the implementation; AC-R10 checks that pages come
+    back when a tree is emptied.
+  - R3-no-structural-check-after-range-removal (SUGGESTION): whole scans read every node with the layout and level
+    checks of 5.1, so a malformed node fails them; occupancy is not an invariant (above). No change.
+- **L7** (T3): the T11 sweep of 5.1 now takes the write and the failure classes (`t11_sweep_of`); its range
+  scenario alternates disk full, maximum size and input and output at 598 points (sample: every 13th), covering
+  range removals and scans in a write (the I/O failure in the middle of a scan; a read transaction maps its pages
+  and has no read that fails with I/O). Out of memory: during a range removal, in the middle of a write's and a
+  read's scan, and when a scan copies its bounds. Crash sweep of a write with range removals that lowers the tree
+  (`ac_r12_crashes_during_a_commit_with_range_removals`), and root AC10 now scans every tree from both ends. AC-R7
+  checks the height drop with a new test helper `krummi_tree::height`.
