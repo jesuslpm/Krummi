@@ -71,8 +71,8 @@ Decisions within *Dejado a la implementación*:
 | T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scan damage), S16, S20 | inline | done | `51be749`, fix `b07f248` |
 | T2 | S1 (removes), S4, S6 (remove part), S8 (removal cases), S9, S10, S11 (remove part), S13 (removes) | inline | done | `1ddd9ca` |
 | T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | done | `f67d59b` |
-| T4 | S14 | inline | done | T4COMMIT |
-| T5 | S15 | inline | pending | — |
+| T4 | S14 | inline | done | `d6f2263` |
+| T5 | S15 | inline | code done, runs pending | T5COMMIT |
 | T6 | docs, checks, verification, RDD review, closing report | inline | pending | — |
 
 Route evidence: every task is one behavior of one crate pair (krummi-tree and krummi) built on the previous one, so
