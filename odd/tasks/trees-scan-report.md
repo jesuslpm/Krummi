@@ -213,7 +213,7 @@ Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan
 El tramo de «Documentación» es casi todo la espera a la aceptación descrita arriba. «Revisión RDD» incluye, tras la
 pausa, las esperas a las dos rondas de Codex, el arreglo de su guardia en `main` y la revisión RDD 4. El trabajo efectivo se repartió
 entre el código y sus pruebas (33 min), los chequeos (incluidas la corrida en Linux y las repeticiones para aislar
-dos pruebas intermitentes, 22 min) y las correcciones de hallazgos (11 min). La tarea en segundo plano de la
+dos pruebas intermitentes, 22 min) y las correcciones de hallazgos (14 min). La tarea en segundo plano de la
 revisión RDD 2 no tiene fin registrado: sus dos primeros intentos fallaron en el script del agente antes de empezar
 (L6), y el tercero se lanzó sin `bg-end`.
 
