@@ -51,6 +51,14 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 
 *Annotation of 2026-10-25, before executing this PRD: an operation through a handle of another transaction of the same class, also of one that has ended, fails without effect with the misuse class and the transaction stays usable (exception to B1, annotated in the parent). Its precedence is that of a handle of a deleted tree (A7): after invalid size, it wins over everything else. This criterion checks it: given a handle of a write transaction already committed, when it is used in a new write transaction of the same store to read, store and query the number of entries, and a handle of a read transaction, when it is used in another read transaction to read and query the number of entries, then each operation fails with the misuse class without effect and the new write commits with its other changes. Using a read transaction's handle in a write transaction, or the other way round, does not compile.*
 
+*Annotations of 2026-10-26 from in-order scan and prefix search ([trees-scan.prd.en.md](trees-scan.prd.en.md)):*
+
+- *A7: the precedence also holds for scans and Remove range, with misuse before tree not found (decision R8).*
+- *A9: a scan fails with damage in the pages it needs, like Read, and Remove range in those and in the neighbouring
+  ones it reads to reorganize the tree; a page they do not need never makes them fail (decision R8).*
+- *A10: Remove range ends the references and the scans, and is a change for T10 only if it removes some entry;
+  requesting a scan and taking entries from it does not end them (decisions R6 and R7).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:

@@ -78,6 +78,16 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
   escritura nueva los lee y modifica sin error. Las pruebas usan el conocimiento de la implementación para alcanzar
   cada punto.*
 
+*Anotaciones del 2026-10-26 desde el recorrido en orden y la búsqueda por prefijo
+([trees-scan.prd.md](trees-scan.prd.md)):*
+
+- *B5: las claves límite de un recorrido se validan como claves, de 1 a 2.048 bytes, y el prefijo es de 0 a 2.048
+  bytes; el prefijo vacío no limita nada (decisiones R4 y R5).*
+- *B7: el orden de los argumentos fuera de tamaño sigue con límite inferior, límite superior y prefijo (decisión
+  R5).*
+- *B8: tamaño no válido puede informar **prefijo** como lo que incumple su tamaño, con mínimo `0` y máximo `2048`
+  (decisión R5).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

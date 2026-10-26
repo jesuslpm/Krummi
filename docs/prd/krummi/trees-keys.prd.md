@@ -51,6 +51,16 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 
 *Anotación del 2026-10-25, antes de ejecutar este PRD: una operación a través de una apertura de otra transacción de la misma clase, también de una ya terminada, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás. Lo comprueba este criterio: dada una apertura de una escritura ya confirmada, cuando se usa en una escritura nueva del mismo almacén para leer, guardar y consultar el número de entradas, y una apertura de una lectura, cuando se usa en otra lectura para leer y consultar el número de entradas, entonces cada operación falla con la clase de uso incorrecto sin efecto y la escritura nueva se confirma con sus demás cambios. Usar en una escritura una apertura de una lectura, o al revés, no compila.*
 
+*Anotaciones del 2026-10-26 desde el recorrido en orden y la búsqueda por prefijo
+([trees-scan.prd.md](trees-scan.prd.md)):*
+
+- *A7: la precedencia vale también para los recorridos y Quitar intervalo, con uso incorrecto antes que árbol no
+  encontrado (decisión R8).*
+- *A9: un recorrido falla con daño en las páginas que necesita, como Leer, y Quitar intervalo en esas y en las
+  vecinas que lee para reorganizar el árbol; una página que no necesitan nunca los hace fallar (decisión R8).*
+- *A10: Quitar intervalo termina las referencias y los recorridos, y es un cambio para T10 solo si quita alguna
+  entrada; pedir un recorrido y sacar entradas no los termina (decisiones R6 y R7).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

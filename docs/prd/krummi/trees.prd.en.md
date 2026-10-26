@@ -76,6 +76,15 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
   a new write reads and modifies them without error. The tests use knowledge of the implementation to reach each
   point.*
 
+*Annotations of 2026-10-26 from in-order scan and prefix search ([trees-scan.prd.en.md](trees-scan.prd.en.md)):*
+
+- *B5: the bound keys of a scan are validated as keys, from 1 to 2,048 bytes, and the prefix is from 0 to 2,048
+  bytes; the empty prefix limits nothing (decisions R4 and R5).*
+- *B7: the order of the arguments outside their size continues with lower bound, upper bound and prefix (decision
+  R5).*
+- *B8: invalid size can report **prefix** as what violates its size, with minimum `0` and maximum `2048` (decision
+  R5).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:
