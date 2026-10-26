@@ -41,7 +41,7 @@ The PRD's annotations to earlier PRDs are already committed (`c6fa485`).
 Decisions within *Dejado a la implementación*:
 
 - **D1 — Public API.** Both transactions get `range(&tree, bounds)` and `range_prefix(&tree, prefix, bounds)`,
-  with `bounds: impl RangeBounds<[u8]>` (so `..`, `a..b`, `a..=b` and `(Bound, Bound)` work), returning a
+  with `bounds: impl RangeBounds<&[u8]>` (so `..`, `a..b`, `a..=b` and `(Bound, Bound)` of slices work; `RangeBounds<[u8]>` would not take `a..b`, which std implements only for sized types), returning a
   double-ended, fused iterator of `Result<(&[u8], &[u8])>`: `ReadRange` (Send, as its transaction is Sync) and
   `WriteRange` (not Send). The write transaction gets `remove_range(&tree, bounds) -> Result<u64>` and
   `remove_range_prefix(&tree, prefix, bounds) -> Result<u64>`. Checks run in the R8 order: sizes (lower, upper,
@@ -50,9 +50,9 @@ Decisions within *Dejado a la implementación*:
 - **D2 — R3 emptiness.** An interval is empty without reading pages when no valid key (1 to 2,048 bytes) that starts
   with the prefix lies between the bounds; with the empty prefix this includes inverted bounds and equal bounds with
   one excluded. It is decided exactly: the smallest valid key with the prefix that satisfies the lower bound is
-  compared with the upper bound. Otherwise the prefix is turned into bounds (from the prefix included up to the
-  next key after every key with the prefix, excluded, or open when the prefix is all `0xFF`) intersected with the
-  given ones, so a scan needs no per-key prefix test.
+  compared with the upper bound. Otherwise the prefix folds into the two monotonic predicates that test a key
+  against the bounds (a key at or after the prefix is after it; a key before it or starting with it is before its
+  end), so a descent finds both ends with a binary search and no key needs a separate prefix test.
 - **D3 — Scan.** A cursor per end holds the path from the root (page and child index per level, reserved once with
   the tree's height) and positions itself on its first step; the ends stop when the next key would pass the other
   end's last returned key or the bound. Every node is read with the 5.1 checks (damage with its page number); after
@@ -68,9 +68,9 @@ Decisions within *Dejado a la implementación*:
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T0 | — | inline | done | — |
-| T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scans), S16, S20 | inline | pending | — |
+| T1 | S1 (scans), S2, S3, S5, S6 (scan part), S8, S11 (scan part), S13 (scan damage), S16, S20 | inline | done | `51be749`, fix `976a582` |
 | T2 | S1 (removes), S4, S6 (remove part), S9, S10, S11 (remove part), S13 (removes) | inline | pending | — |
-| T3 | S7, S12, S17, S18, S19 | inline | pending | — |
+| T3 | S7, S12, S13 (out-of-memory and I/O failures mid-scan), S17, S18, S19 | inline | pending | — |
 | T4 | S14 | inline | pending | — |
 | T5 | S15 | inline | pending | — |
 | T6 | docs, checks, verification, RDD review, closing report | inline | pending | — |
@@ -87,3 +87,24 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   so a cursor keeps the path. `SizeSubject` is `#[non_exhaustive]`, so adding `Prefix` is not breaking. Test
   infrastructure mapped: `trees.rs` helpers, `tree_integrity.rs` crash sweep, `tree_memory.rs` OOM sweep, the T11
   sweep in `crates/krummi/src/tests.rs`, trybuild cases in `tests/ui/trees*`, the `tree_timing` example.
+- **L3** (T1): RED: \`tree_scans.rs\` and the trybuild cases failed to compile (39 errors: no \`range\`, \`range_prefix\`,
+  \`ReadRange\`, \`WriteRange\`, \`SizeSubject::Prefix\`). GREEN: 10 tests, 4 unit tests of the interval, 5 compile-fail
+  and 1 compile-pass cases. \`a..b\` of slices does not implement \`RangeBounds<[u8]>\` (std implements it only for
+  sized types), so the API takes \`RangeBounds<&[u8]>\` (D1 updated). Tree test helpers moved to
+  \`tests/support/mod.rs\` (the 28 tests of \`trees.rs\` unchanged and passing). The S13 out-of-memory and I/O part
+  moves to T3, where the failure injection lives.
+- **L4** (RDD review 1, 09:57–10:08): commit \`51be749\` (base \`0e204da\`), assessed \`high\` (\`process_boundary\`
+  on \`tests/support/mod.rs\`); lenses resilience, readability, reliability; lineage \`review-b3f0715ef79299e4\`;
+  **approved**, acknowledged, authority burned. Advisory findings, all non-blocking:
+  - R4-eager-next-leaf-read (WARNING): a bounded scan read the neighbour leaf before seeing that the bound ended
+    it, so a damaged neighbour failed a scan that had returned everything. Fixed: both ends stop at the parent's
+    separator before reading the next child (\`Interval::all_before_lower\` for the back); RED observed (damage on
+    page 163 without the fix), GREEN with it; covered in \`ac_r13_scans_and_damaged_pages\`.
+  - R2-misplaced-partition-doc (WARNING) and R3-002 (SUGGESTION): \`partition\` took \`child_index\`'s doc comment.
+    Fixed.
+  - R2-design-doc-drift (SUGGESTION): D1 and D2 described \`RangeBounds<[u8]>\` and a prefix turned into bounds.
+    Fixed: D1 and D2 describe the code.
+  - R2-shadowed-open-helper (SUGGESTION): the scan tests' \`open\` shadowed the support one. Renamed \`tree_t\`.
+  - R3-001 (WARNING): S13's out-of-memory and I/O failures mid-scan had no test. Accepted: moved to T3.
+  - R2-mirrored-cursor-logic (SUGGESTION): the front and back step functions mirror each other. Kept: each is
+    short and reads directly; a direction abstraction would hide the index arithmetic that differs.

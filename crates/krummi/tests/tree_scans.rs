@@ -11,7 +11,6 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
-use std::path::Path;
 
 use krummi::{OpenMode, ReadRange, Result, SizeSubject, Store, WriteRange, WriteTransaction};
 use support::*;
@@ -143,7 +142,7 @@ fn ac_r1_the_output_examples() {
     stores(|store, _| {
         let model = fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let read = store.read().unwrap();
-        let tree = open(&read);
+        let tree = tree_t(&read);
         for (prefix, bounds, front, want) in rows {
             let scan = read_scan(&read, &tree, prefix, bounds);
             let got = if front {
@@ -197,7 +196,7 @@ fn ac_r1_the_output_examples() {
 }
 
 /// Opens the tree `t` of the tests in a read.
-fn open<'s>(read: &krummi::ReadTransaction<'s>) -> krummi::ReadTree<'s> {
+fn tree_t<'s>(read: &krummi::ReadTransaction<'s>) -> krummi::ReadTree<'s> {
     read.open_tree("t", NORMAL).unwrap()
 }
 
@@ -214,7 +213,7 @@ fn ac_r2_scans_of_a_tree_of_several_levels() {
         let all = numbered(3000, 200);
         let model = fill(store, "t", &all);
         let read = store.read().unwrap();
-        let tree = open(&read);
+        let tree = tree_t(&read);
         assert_eq!(read.len(&tree).unwrap(), 3000);
         let whole = forward(read.range(&tree, ..).unwrap());
         assert_eq!(whole, model.clone().into_iter().collect::<Entries>());
@@ -305,7 +304,7 @@ fn ac_r3_prefixes() {
         all.push(sibling);
         let model = fill(store, "t", &all);
         let read = store.read().unwrap();
-        let tree = open(&read);
+        let tree = tree_t(&read);
         let ff = [
             vec![0xFF, 0xFF],
             vec![0xFF, 0xFF, 0x00],
@@ -362,7 +361,7 @@ fn ac_b7_keys_come_out_in_unsigned_byte_order() {
         }
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let tree = open(&read);
+        let tree = tree_t(&read);
         let got = keys(&forward(read.range(&tree, ..).unwrap()));
         let mut sorted = all.clone();
         sorted.sort();
@@ -388,7 +387,7 @@ fn ac_r5_sizes_of_scans() {
         commit_tree(store, "t", &[(b"k", b"v")]);
         commit_tree(store, "empty", EMPTY);
         let read = store.read().unwrap();
-        let tree = open(&read);
+        let tree = tree_t(&read);
         let empty = read.open_tree("empty", NORMAL).unwrap();
         let mut write = store.write().unwrap();
         let wtree = write.open_tree("t", NORMAL).unwrap();
@@ -543,7 +542,7 @@ fn ac_r11_scans_through_deleted_and_foreign_handles() {
         write.abort();
 
         let old = store.read().unwrap();
-        let foreign = open(&old);
+        let foreign = tree_t(&old);
         drop(old);
         let read = store.read().unwrap();
         let error = read.range(&foreign, ..).map(|_| ()).unwrap_err();
@@ -554,7 +553,7 @@ fn ac_r11_scans_through_deleted_and_foreign_handles() {
             .unwrap_err();
         assert_eq!(invalid_size(error, folder).0, SizeSubject::Key);
         assert_eq!(
-            forward(read.range(&open(&read), ..).unwrap()).len(),
+            forward(read.range(&tree_t(&read), ..).unwrap()).len(),
             5,
             "the read stays usable"
         );
@@ -565,7 +564,7 @@ fn ac_r11_scans_through_deleted_and_foreign_handles() {
 #[test]
 fn ac_r11_handle_failures_win_over_damage() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = open_store(tmp.path());
+    let store = open(tmp.path());
     let all = numbered(60, 1000);
     fill(&store, "t", &all);
     store.close().unwrap();
@@ -579,7 +578,7 @@ fn ac_r11_handle_failures_win_over_damage() {
 
     // A handle of a deleted tree whose leaf is damaged (deleting reads only the branch pages).
     damage(tmp.path(), leaf);
-    let store = open_store(tmp.path());
+    let store = open(tmp.path());
     let mut write = store.write().unwrap();
     let tree = write.open_tree("t", NORMAL).unwrap();
     write.delete_tree("t").unwrap();
@@ -591,21 +590,17 @@ fn ac_r11_handle_failures_win_over_damage() {
     // A handle of another read, with the root damaged (the leaf repaired: flipping the byte again restores it).
     damage(tmp.path(), leaf);
     damage(tmp.path(), root);
-    let store = open_store(tmp.path());
+    let store = open(tmp.path());
     let old = store.read().unwrap();
-    let foreign = open(&old);
+    let foreign = tree_t(&old);
     drop(old);
     let read = store.read().unwrap();
     misuse(
         read.range(&foreign, ..).map(|_| ()).unwrap_err(),
         Some(tmp.path()),
     );
-    let mut scan = read.range(&open(&read), ..).unwrap();
+    let mut scan = read.range(&tree_t(&read), ..).unwrap();
     assert_eq!(damaged_page(scan.next().unwrap().unwrap_err()), root);
-}
-
-fn open_store(folder: &Path) -> Store {
-    support::open(folder)
 }
 
 /// AC-R13 (scans, disk only): a scan that needs a damaged leaf or a damaged branch fails with damage and its page
@@ -614,15 +609,33 @@ fn open_store(folder: &Path) -> Store {
 #[test]
 fn ac_r13_scans_and_damaged_pages() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = open_store(tmp.path());
+    let store = open(tmp.path());
     let all = numbered(3000, 200);
     let model = fill(&store, "t", &all);
     store.close().unwrap();
     let leaf = leaf_page(tmp.path(), Some("t"), &all[1500]);
+    // The first and the last key of the damaged leaf.
+    let in_leaf = |i: usize| leaf_page(tmp.path(), Some("t"), &all[i]) == leaf;
+    let (mut first, mut last) = (1500, 1500);
+    while in_leaf(first - 1) {
+        first -= 1;
+    }
+    while in_leaf(last + 1) {
+        last += 1;
+    }
     damage(tmp.path(), leaf);
-    let store = open_store(tmp.path());
+    let store = open(tmp.path());
     let read = store.read().unwrap();
-    let tree = open(&read);
+    let tree = tree_t(&read);
+
+    // Scans that end at the leaf's neighbours stop without reading it, from either end.
+    let before = read.range(&tree, ..=&all[first - 1][..]).unwrap();
+    assert_eq!(forward(before).len(), first);
+    let after = read.range(&tree, &all[last + 1][..]..).unwrap();
+    assert_eq!(backward_keys(after).len(), all.len() - last - 1);
+    let mut both = read.range(&tree, ..=&all[first - 1][..]).unwrap();
+    assert!(both.next_back().unwrap().is_ok());
+    assert_eq!(forward(both).len(), first - 1);
 
     // Forward from the start: the entries before the damaged leaf, then the failure, then nothing.
     let mut scan = read.range(&tree, ..).unwrap();
@@ -679,9 +692,9 @@ fn ac_r13_scans_and_damaged_pages() {
     let root = root_page(tmp.path(), "t");
     damage(tmp.path(), leaf);
     damage(tmp.path(), root);
-    let store = open_store(tmp.path());
+    let store = open(tmp.path());
     let read = store.read().unwrap();
-    let tree = open(&read);
+    let tree = tree_t(&read);
     for front in [true, false] {
         let mut scan = read.range(&tree, ..).unwrap();
         let first = if front { scan.next() } else { scan.next_back() };
@@ -696,7 +709,7 @@ fn ac20_scans_return_references_into_the_engine_s_memory() {
     stores(|store, _| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let read = store.read().unwrap();
-        let tree = open(&read);
+        let tree = tree_t(&read);
         let (key, value) = read
             .range(&tree, &b"ab"[..]..)
             .unwrap()

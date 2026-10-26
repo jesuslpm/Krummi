@@ -230,7 +230,6 @@ pub(crate) fn search(node: &[u8], key: &[u8]) -> Result<usize, usize> {
     Err(low)
 }
 
-/// The child of a branch that holds `key`.
 /// How many of the node's first keys satisfy `holds`, a test that is true up to some key and false after it.
 pub(crate) fn partition(node: &[u8], mut holds: impl FnMut(&[u8]) -> bool) -> usize {
     let (mut low, mut high) = (0, count(node));
@@ -245,6 +244,7 @@ pub(crate) fn partition(node: &[u8], mut holds: impl FnMut(&[u8]) -> bool) -> us
     low
 }
 
+/// The child of a branch that holds `key`.
 pub(crate) fn child_index(node: &[u8], key: &[u8]) -> usize {
     match search(node, key) {
         Ok(index) => index + 1,

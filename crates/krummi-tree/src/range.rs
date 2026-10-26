@@ -49,6 +49,16 @@ impl Interval<'_> {
         bound && (key < self.prefix || key.starts_with(self.prefix))
     }
 
+    /// Whether every key before `key` is before the lower bound or before the prefix. It may say no when no key
+    /// in between exists, which only costs a page read.
+    pub fn all_before_lower(&self, key: &[u8]) -> bool {
+        let bound = match self.lower {
+            Included(lower) | Excluded(lower) => lower >= key,
+            Unbounded => false,
+        };
+        bound || self.prefix >= key
+    }
+
     /// Whether no valid key (1 to [`MAX_KEY`] bytes) that starts with the prefix lies between the bounds (R3). It
     /// is decided from the arguments alone: the smallest such key after the lower bound is compared with the upper
     /// bound. The bounds and the prefix must be valid sizes.
@@ -246,6 +256,15 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                     return Ok(None);
                 };
                 if *child < node::count(branch) {
+                    // The next child's keys start at this separator: if it already ends the scan, they all do, and
+                    // the scan stops without reading that child.
+                    let separator = node::key(branch, *child);
+                    let interval = self.interval.borrow();
+                    if !interval.before_upper(separator)
+                        || self.back.last.is_some_and(|last| separator >= last)
+                    {
+                        return Ok(None);
+                    }
                     *child += 1;
                     let (branch, child) = (*branch, *child);
                     self.descend(true, branch, child)?;
@@ -284,6 +303,15 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                     return Ok(None);
                 };
                 if *child > 0 {
+                    // The previous child's keys are before this separator: if every key before it is before the
+                    // interval or the front's last key, the scan stops without reading that child.
+                    let separator = node::key(branch, *child - 1);
+                    let interval = self.interval.borrow();
+                    if interval.all_before_lower(separator)
+                        || self.front.last.is_some_and(|last| separator <= last)
+                    {
+                        return Ok(None);
+                    }
                     *child -= 1;
                     let (branch, child) = (*branch, *child);
                     self.descend(false, branch, child)?;
