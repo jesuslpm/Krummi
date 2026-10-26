@@ -344,3 +344,33 @@ fn r1_committing_changed_tree_entries_follows_t11() {
     }
     assert!(failures >= 1, "{failures} reservations failed");
 }
+
+/// R3 of the follow-up code review (`docs/reviews/trees-keys/2026-10-26-code.md`; A3, A7, B7): renaming an open
+/// tree to an existing name without overwriting fails with the already-exists class even when the next
+/// reservations would fail for lack of memory, because the rename reserves nothing before rejecting it; the write
+/// keeps its pending change and commits.
+#[test]
+fn r3_renaming_onto_an_existing_tree_is_rejected_before_any_reservation() {
+    for nth in 0..4 {
+        let store = temporary();
+        commit_tree(&store, "t");
+        commit_tree(&store, "u");
+        let mut write = store.write().unwrap();
+        let t = write.open_tree("t", NORMAL).unwrap();
+        write.set(&t, b"k", b"changed").unwrap();
+        fail_alloc(nth);
+        let error = write.rename_tree("t", "u", false).unwrap_err();
+        testing::reset();
+        assert_eq!(
+            error.kind(),
+            ErrorKind::TreeAlreadyExists,
+            "nth {nth}: {error}"
+        );
+        write.commit().unwrap();
+        assert_eq!(
+            committed_value(&store, "t", b"k").as_deref(),
+            Some(&b"changed"[..]),
+            "nth {nth}"
+        );
+    }
+}

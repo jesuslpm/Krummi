@@ -342,14 +342,16 @@ impl<'s> WriteTransaction<'s> {
         if from == to {
             return Ok(());
         }
+        // The destination is rejected before anything is reserved (A7); the new name is copied before any change.
+        let target = catalog::lookup(&self.inner, to)?;
+        if target.is_some() && !overwrite {
+            return Err(self.folder.already_exists(to));
+        }
         let renamed = match self.trees.get_mut().get(source.id) {
             Some(_) => Some(krummi_tree::copy_str(&self.inner, to)?),
             None => None,
         };
-        if let Some(target) = catalog::lookup(&self.inner, to)? {
-            if !overwrite {
-                return Err(self.folder.already_exists(to));
-            }
+        if let Some(target) = target {
             self.delete(to, target)?;
         }
         let source = self.current(source);
