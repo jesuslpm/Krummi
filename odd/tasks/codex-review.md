@@ -52,8 +52,8 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
 |---|---|---|---|---|
 | T0 | S10 | inline | done | npm `@openai/codex` 0.138.0 → 0.164.0 |
 | T1 | S1–S5 | inline | done | see Log L6 |
-| T2 | S6–S9 | inline | in progress | |
-| T3 | S10 | inline | pending | |
+| T2 | S6–S9 | inline | done | see Log L7 |
+| T3 | S10 | inline | in progress | |
 
 ## Log
 
@@ -85,3 +85,7 @@ Estimate: 1 h – 1 h 45 min. Real start: 2026-10-26 07:32:47 +0000.
   RED-first; the first run failed 8 cases, all test-harness defects (fake `CODEX_HOME` inside the test repo, which
   the guard flagged; console encoding in the fake; fake rollout lines joined), plus one wrapper bug: settings read
   from a dictionary through `Get-Prop` lost the reviewers' model. Silent telemetry failures now surface in the result.
+- **L7** (2026-10-26 07:50): T2 skill `.claude/skills/codex-review/SKILL.md` (run table, status table, loop with
+  fix / dismiss with evidence / pending, stop conditions, traceability) and one line in `CLAUDE.md` *External review
+  reports*. No change to `AGENTS.md`, `.codex/` or `.agents/skills/`: the wrapper's prompt is the plain request plus
+  a mechanical contract (report path, output schema), which `AGENTS.md` already accommodates.

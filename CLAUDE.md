@@ -18,6 +18,8 @@ protocol in `AGENTS.md`. Preserve those reports. When addressing a finding, reco
 evidence and fix commit or artifact version in the report's separate `*-resolutions.md` file, with dated,
 append-only updates. Link the report and resolutions from the execution log or closing report when relevant.
 A claimed fix remains unverified until a follow-up review confirms it; do not rewrite the reviewer's verdict.
+To run Codex from Claude (review, fix or dismiss with evidence, verify, up to three rounds), use the
+`codex-review` skill.
 
 ## Engineering principles
 
