@@ -258,3 +258,6 @@ Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 
   294 passed, 0 failed, 9 ignored. RDD review 6 (`06ec986..c70bbf1`, resilience and reliability, lineage
   `review-4519b6fb261a6f7c`): approved; its SUGGESTION (record R3 in the resolutions and the report) done here.
   Resolutions: [2026-10-26-code-resolutions.md](../../docs/reviews/trees-keys/2026-10-26-code-resolutions.md).
+- **L21** (2026-10-26) Codex verification [2026-10-26-code-02.md](../../docs/reviews/trees-keys/2026-10-26-code-02.md):
+  "R3 verified resolved in `c70bbf1`. No new findings in this fix". Every external finding (R1, R2, R3) is verified
+  resolved; the branch stays unmerged until the user asks.

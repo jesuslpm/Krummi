@@ -27,7 +27,8 @@ subido. Último commit de código: `c70bbf1` (corrección de la revisión de seg
   revisión de seguimiento: R1 (memoria agotada, `06ec986`) y R2 (datos del equipo, `62b1813`). La revisión de
   seguimiento [2026-10-26-code.md](../../docs/reviews/trees-keys/2026-10-26-code.md) los dio por verificados y
   encontró R3, una regresión de la corrección de R1, corregida en `c70bbf1`
-  ([resoluciones](../../docs/reviews/trees-keys/2026-10-26-code-resolutions.md)), pendiente de verificación.
+  ([resoluciones](../../docs/reviews/trees-keys/2026-10-26-code-resolutions.md)), que la verificación
+  [2026-10-26-code-02.md](../../docs/reviews/trees-keys/2026-10-26-code-02.md) dio por resuelta sin hallazgos nuevos.
 - **Hallazgos corregidos por el camino:** una página con checksum válido pero estructura incoherente hacía entrar en
   pánico en lugar de dar daño (nodos y entradas del catálogo, `4735a47`); una hoja vacía no raíz podía quedar en el
   árbol (`4735a47`); un nodo que se nombra a sí mismo o a un antecesor como hija se liberaba dos veces (`4ab9216`);
