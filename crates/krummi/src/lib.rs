@@ -30,13 +30,14 @@
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
+use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result, SizeSubject, TreeKind};
-use krummi_tree::PageSource;
 use krummi_tree::catalog::{self, Entry};
+use krummi_tree::{Interval, PageSource};
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
 const MAX_NAME: usize = 1024;
@@ -163,6 +164,38 @@ pub enum OpenMode {
     Empty,
 }
 
+/// A scan of a tree in a read transaction, from [`ReadTransaction::range`]: a double-ended iterator of keys
+/// with their values, in key order. It can be sent to another thread, like its transaction. After a failure it
+/// returns nothing more from either end.
+pub struct ReadRange<'t>(krummi_tree::Range<'t, krummi_tx::ReadTransaction<'t>>);
+
+/// A scan of a tree in a write transaction, from [`WriteTransaction::range`], like [`ReadRange`]. It stays on its
+/// transaction's thread and ends at the transaction's next operation that may modify it.
+pub struct WriteRange<'t>(krummi_tree::Range<'t, krummi_tx::WriteTransaction<'t>>);
+
+macro_rules! scan_iterator {
+    ($range:ident) => {
+        impl<'t> Iterator for $range<'t> {
+            type Item = Result<(&'t [u8], &'t [u8])>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.0.next()
+            }
+        }
+
+        impl DoubleEndedIterator for $range<'_> {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                self.0.next_back()
+            }
+        }
+
+        impl std::iter::FusedIterator for $range<'_> {}
+    };
+}
+
+scan_iterator!(ReadRange);
+scan_iterator!(WriteRange);
+
 /// A tree opened in a read transaction: it sees the transaction's snapshot. It can be sent to other threads and
 /// shared between them, like the transaction, and cannot outlive its store. Using it in another transaction
 /// fails with [`ErrorKind::Misuse`] without effect.
@@ -259,6 +292,37 @@ impl<'s> ReadTransaction<'s> {
     pub fn len(&self, tree: &ReadTree<'_>) -> Result<u64> {
         self.check_handle(tree)?;
         Ok(tree.count)
+    }
+
+    /// A scan of the entries of `tree` whose keys are within `bounds`, in key order from its front end
+    /// ([`Iterator::next`]) and in reverse order from its back end ([`DoubleEndedIterator::next_back`]); each entry
+    /// comes out once. A bound's key need not be in the tree. Bounds that leave no key between them, such as a
+    /// lower bound after the upper one, give an empty scan, not an error. Fails with [`ErrorKind::InvalidSize`] if
+    /// a bound's key is empty or longer than 2,048 bytes, also when the tree or the interval is empty. The keys and
+    /// values point into the engine's memory, not to copies, and live as long as the transaction.
+    pub fn range<'k>(
+        &self,
+        tree: &ReadTree<'_>,
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<ReadRange<'_>> {
+        self.range_prefix(tree, &[], bounds)
+    }
+
+    /// Like [`range`](Self::range), only with the keys that start with `prefix`; an empty prefix limits nothing.
+    /// Fails with [`ErrorKind::InvalidSize`] if `prefix` is longer than 2,048 bytes, after checking the bounds.
+    pub fn range_prefix<'k>(
+        &self,
+        tree: &ReadTree<'_>,
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<ReadRange<'_>> {
+        let interval = self.folder.interval(prefix, &bounds)?;
+        self.check_handle(tree)?;
+        Ok(ReadRange(krummi_tree::Range::new(
+            &self.inner,
+            tree.root,
+            interval,
+        )?))
     }
 
     fn check_handle(&self, tree: &ReadTree<'_>) -> Result<()> {
@@ -376,6 +440,34 @@ impl<'s> WriteTransaction<'s> {
     /// The number of entries of `tree`, with this transaction's changes, counted without walking the tree.
     pub fn len(&self, tree: &WriteTree<'_>) -> Result<u64> {
         Ok(self.live(tree)?.1)
+    }
+
+    /// A scan of `tree` within `bounds`, with this transaction's changes, as [`ReadTransaction::range`] describes.
+    /// It and the keys and values it returns live until the next operation that may modify the transaction. A
+    /// failure while scanning, other than invalid size, is the transaction's (T11).
+    pub fn range<'k>(
+        &self,
+        tree: &WriteTree<'_>,
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<WriteRange<'_>> {
+        self.range_prefix(tree, &[], bounds)
+    }
+
+    /// Like [`range`](Self::range), only with the keys that start with `prefix`, as
+    /// [`ReadTransaction::range_prefix`] describes.
+    pub fn range_prefix<'k>(
+        &self,
+        tree: &WriteTree<'_>,
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<WriteRange<'_>> {
+        let interval = self.folder.interval(prefix, &bounds)?;
+        let (root, _) = self.live(tree)?;
+        Ok(WriteRange(krummi_tree::Range::new(
+            &self.inner,
+            root,
+            interval,
+        )?))
     }
 
     /// Stores `value` under `key` in `tree`, replacing the value if the key is there.
@@ -633,6 +725,30 @@ impl Folder<'_> {
 
     fn check_value(self, value: &[u8]) -> Result<()> {
         self.check_size(SizeSubject::Value, value.len(), 0, krummi_tree::MAX_VALUE)
+    }
+
+    /// The interval of `bounds` and `prefix`, after checking their sizes in the order lower bound, upper bound,
+    /// prefix (R5).
+    fn interval<'a>(
+        self,
+        prefix: &'a [u8],
+        bounds: &impl RangeBounds<&'a [u8]>,
+    ) -> Result<Interval<'a>> {
+        let (lower, upper) = (
+            bounds.start_bound().map(|k| *k),
+            bounds.end_bound().map(|k| *k),
+        );
+        for bound in [lower, upper] {
+            if let Bound::Included(key) | Bound::Excluded(key) = bound {
+                self.check_key(key)?;
+            }
+        }
+        self.check_size(SizeSubject::Prefix, prefix.len(), 0, krummi_tree::MAX_KEY)?;
+        Ok(Interval {
+            prefix,
+            lower,
+            upper,
+        })
     }
 
     fn not_found(self, name: &str) -> Error {

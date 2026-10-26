@@ -68,6 +68,8 @@ pub enum SizeSubject {
     Key,
     /// A value of a tree.
     Value,
+    /// The prefix of a scan or a range removal of a tree.
+    Prefix,
 }
 
 /// An engine error.
@@ -364,6 +366,7 @@ impl fmt::Display for SizeSubject {
             SizeSubject::TreeName => "tree name",
             SizeSubject::Key => "key",
             SizeSubject::Value => "value",
+            SizeSubject::Prefix => "prefix",
         })
     }
 }

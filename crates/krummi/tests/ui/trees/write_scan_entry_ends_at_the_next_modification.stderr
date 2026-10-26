@@ -1,0 +1,10 @@
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/write_scan_entry_ends_at_the_next_modification.rs:11:13
+   |
+ 9 |     let (key, _) = write.range(&a, ..).unwrap().next().unwrap().unwrap();
+   |                    ----- immutable borrow occurs here
+10 |     println!("{key:?}");
+11 |     let _ = write.remove(&a, b"absent");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+12 |     println!("{key:?}");
+   |                --- immutable borrow later used here
