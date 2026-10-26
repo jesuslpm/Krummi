@@ -8,11 +8,13 @@ Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.md)
 **transactions** ([PRD](docs/prd/krummi/transactions.prd.md)), and module 3, the **journal and recovery**
 ([PRD](docs/prd/krummi/journal.prd.md)), with grouped and direct journal writes
 ([PRD](docs/prd/krummi/journal-group-commit.prd.md)), module 4, **free space**
-([PRD](docs/prd/krummi/free-space.prd.md)), and the first part of module 5, **trees and key operations**
-([module PRD](docs/prd/krummi/trees.prd.md), [PRD](docs/prd/krummi/trees-keys.prd.md)). An application can create, open, inspect and close stores, on disk or in
+([PRD](docs/prd/krummi/free-space.prd.md)), and the first two parts of module 5, **trees and key operations** and
+**in-order scan and prefix search** ([module PRD](docs/prd/krummi/trees.prd.md),
+[PRD](docs/prd/krummi/trees-keys.prd.md), [PRD](docs/prd/krummi/trees-scan.prd.md)). An application can create, open, inspect and close stores, on disk or in
 memory, and open read transactions from any number of threads and one write transaction at a time, which the others
 wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
-crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
+crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key, scans them in key
+order from both ends, by interval and by prefix, and removes whole intervals. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
 Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
 
 ```rust
@@ -29,6 +31,11 @@ store.make_durable()?; // waits until every commit made so far is durable
 let mut write = store.write()?;
 let tree = write.open_tree_with("orders", TreeKind::Normal, OpenMode::OpenOrCreate)?; // like .NET's FileMode
 write.set(&tree, b"order-1", b"two ravens")?; // like a Dictionary: set, try_add, get, remove, len
+for entry in write.range_prefix(&tree, b"order-", ..)?.rev() { // like BTreeMap::range, from either end
+    let (key, value) = entry?; // borrowed from the engine, not copied
+    println!("{key:?} {value:?}");
+}
+write.remove_range(&tree, &b"order-0"[..]..&b"order-5"[..])?; // returns how many entries it removed
 write.commit()?;
 drop(read);
 store.close()?; // moves everything into krummi.data and removes the journal
@@ -66,8 +73,11 @@ to 1,024 bytes. A catalog, itself a B+ tree, maps each tree's name to its identi
 entries; it takes no page until the first tree is created. A changed node keeps its page number, so a write needs no
 path copying, and reads return values without copying them. Opening and creating follow .NET's `FileMode` (open,
 create new, open or create, create or empty, empty), and the key operations follow a .NET `Dictionary`. A page whose
-layout is inconsistent is reported as damage, never trusted. `cargo run --release -p krummi --example tree_timing`
-measures storing, reading and removing 1 million entries.
+layout is inconsistent is reported as damage, never trusted. Scans follow Rust's `BTreeMap::range`: two bounds,
+each included, excluded or open, and an optional prefix, consumed from the front or the back; a scan keeps the
+path from the root at each end and reads no page until it is used, and a range removal frees the subtrees wholly
+inside the interval in one descent. `cargo run --release -p krummi --example tree_timing` measures storing, reading
+and removing 1 million entries, and `--example scan_timing` scanning them and removing them by intervals.
 
 ## Layout
 

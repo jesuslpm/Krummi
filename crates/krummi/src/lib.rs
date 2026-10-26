@@ -7,7 +7,8 @@
 //! any action of the application. Module 4 adds free space: the pages that writes free are reused before the store
 //! grows, and [`StoreInfo`] reports how many pages are free. Module 5 adds named trees: inside a transaction an
 //! application opens a tree by its name and kind, stores, adds, reads and removes entries by key, and creates,
-//! empties, renames, lists and deletes trees.
+//! empties, renames, lists and deletes trees. It scans a tree in key order from both ends, between two bounds and
+//! with an optional prefix, and removes every entry of an interval at once.
 //!
 //! ```
 //! use krummi::{OpenMode, Store, StoreOptions, TreeKind};

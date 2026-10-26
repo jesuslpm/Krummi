@@ -60,12 +60,13 @@ jobs:
           cargo test -p krummi-tx --test recovery -- --ignored ac10
           cargo test -p krummi-tx --test free_space -- --ignored ac10
       # Trees: every byte of a 128 KiB store with trees (AC10), crashes at every point of a commit and of the
-      # close that follows it (AC-A16, AC-B18), and a failure at every page operation of splits and merges.
-      - name: Tree acceptance sweeps (AC10, AC-A16, AC-B18)
+      # close that follows it (AC-A16, AC-B18, AC-R12), and a failure at every page operation of splits and merges
+      # and of range removals and scans.
+      - name: Tree acceptance sweeps (AC10, AC-A16, AC-B18, AC-R12)
         timeout-minutes: 60
         run: |
           cargo test -p krummi --test tree_integrity -- --ignored
-          cargo test -p krummi --lib -- --ignored ac_b18
+          cargo test -p krummi --lib -- --ignored ac_b18 ac_r12
       - name: Free-space model with 100,000 operations (AC-F16)
         timeout-minutes: 30
         run: cargo test --release -p krummi-tx --test free_space -- --ignored ac_f16
