@@ -32,7 +32,7 @@ python -I .claude/skills/closing-report/scripts/phase_times.py bg-end <log> revi
 |---|---|
 | PRD | `-Prd docs/prd/krummi/<name>.prd.md -Feature <slug>` |
 | Code | `-Range <base>..<head> -Feature <slug>` |
-| Follow-up of a PRD review | `-FollowUp docs/reviews/<slug>/<date>-prd.md` (always the chain's original report) |
+| Follow-up of a PRD review | `-FollowUp docs/reviews/<slug>/<date>-prd.md` (always the chain's original report), plus `-FixRange <base>..<head>` when the fixes are committed |
 | Follow-up of a code review | `-FollowUp docs/reviews/<slug>/<date>-code.md -FixRange <last reviewed head>..HEAD` |
 
 `<slug>` is the feature's PRD or task slug. Every run uses the `workspace-write` sandbox: Codex needs it to run

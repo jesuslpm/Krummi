@@ -182,6 +182,18 @@ Describe 'Invoke-CodexReview' {
         $r.Result.resolutions | Should Be 'docs/reviews/feat/2026-10-01-prd-100-resolutions.md'
     }
 
+    It 'passes -FixRange on a PRD follow-up to Codex and rejects an invalid one' {
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd.md") 'report'
+        Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-prd-resolutions.md") 'resolutions'
+        $r = Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-prd.md', '-FixRange', 'HEAD..HEAD', '-Repo', $script:Repo)
+        $r.Result.status | Should Be 'approved'
+        Get-FakeLog | Should Match 'Correcciones en HEAD\.\.HEAD'
+        Remove-Item -Force $env:FAKE_LOG
+        $bad = Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-prd.md', '-FixRange', 'nope..HEAD', '-Repo', $script:Repo)
+        $bad.Result.status | Should Be 'error'
+        Get-FakeLog | Should Be ''
+    }
+
     It 'refuses a follow-up without resolutions, without fix range, or of a follow-up report' {
         Set-Content (Join-Path $script:Repo "docs/reviews/feat/2026-10-01-code.md") 'report'
         (Invoke-Review 'approved' @('-FollowUp', 'docs/reviews/feat/2026-10-01-code.md', '-FixRange', 'HEAD..HEAD', '-Repo', $script:Repo)).Result.message |

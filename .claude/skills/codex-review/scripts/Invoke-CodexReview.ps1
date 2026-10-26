@@ -217,8 +217,11 @@ try {
             $request = "Claude lo ha corregido: $resolutionsRel. Revisión de seguimiento de ${originalRel}: verifica solo " +
                 "los hallazgos que siguen pendientes y las regresiones causadas por sus correcciones. Las resoluciones " +
                 "'dismissed with evidence' también se verifican: confirma o rebate su evidencia."
-            if ($kind -eq 'code') {
-                if (-not $FixRange) { throw 'A code follow-up needs -FixRange <base>..<head> with the fix commits.' }
+            if ($kind -eq 'code' -and -not $FixRange) {
+                throw 'A code follow-up needs -FixRange <base>..<head> with the fix commits.'
+            }
+            # Optional for a PRD follow-up (fixes may be uncommitted), but never ignored when given.
+            if ($FixRange) {
                 $fixBase, $fixHead = Resolve-Range $FixRange
                 $request += " Correcciones en $FixRange ($fixBase..$fixHead)."
             }
