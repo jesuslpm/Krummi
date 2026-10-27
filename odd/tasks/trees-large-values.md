@@ -71,7 +71,7 @@ Decisions within *Dejado a la implementación*:
 | T2 | transaction part of S3, S6, S8 | delegated (context backstop) | done | `244548d` |
 | T3 | S1, S2, S3, S4, S5, S7, S9, S10, S12 (leaf part) | delegated (context backstop) | done | `9a596b2` |
 | T4 | S6, S8, S11 (tree level), L7 fixes | delegated (context backstop) | done | `d0be3f0` |
-| T5 | S13, S14, L9 fixes | delegated (context backstop) | done | see L11 |
+| T5 | S13, S14, L9 fixes | delegated (context backstop) | done | `899244a` |
 | T6 | docs, checks, verification, RDD review, Codex review, closing report | inline | pending | — |
 
 Route evidence: the tasks depend on each other (pager → transaction → tree → acceptance → measurement), so there are
