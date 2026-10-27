@@ -202,3 +202,23 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   repeated slightly larger overwrites grow `krummi.temp` past `max_size`. Verified against the code (`temp.rs` grows
   a chunk of the run's size and releases chunks only when the area is removed): a demonstrated defect against the
   PRD's *Dejado a la implementación* (that memory counts for the maximum size). Fix delegated (ODD Worker).
+- **L15** (independent verifier, `sonnet`/`high`, on `4eb4807` in scratch clones): no blockers; S1–S12 met, S13 and
+  S14 partial until the closing report. `cargo test --workspace` 369 passed; the full AC-V8 T11 sweep passed (40 s).
+  Differential against `27a5e5b`: a 15,480-line transcript of random operations with inline values (set, add,
+  remove, three range removals, scans both ways and by prefix, count, rename, delete, empty, abort, error kinds and
+  store info), on disk and in temporary mode, byte-identical. Probes kept as regression tests in `3a528ec`
+  (`crates/krummi/tests/tree_value_model.rs`; the altered-byte probe `#[ignore]`, about 300 s); its probe of
+  rejected operations hashing every file of the folder was not kept: on Windows it read the locked `krummi.data` as
+  empty, it failed after the R1 fix because a background transfer removed a released `krummi.temp` chunk (temporary
+  area, J7, not a write of the rejected operations), and AC-V10 is already `tree_values.rs::ac_v10_…`.
+- **L16** (Codex R1 fix, ODD Worker `opus`/`high`, `7b4286b`): own chunks for runs over a normal chunk or without a
+  contiguous free range, released with the run's last holder; transfer passes free retired versions. Resolutions in
+  `docs/reviews/trees-large-values/2026-10-27-code-resolutions.md`. RDD review 5 (`62f7571..3a528ec`, escalated item
+  4, lenses risk, resilience, reliability; lineage `review-695b76ad34d5b00d`): **approved**, acknowledged, authority
+  burned (a first attempt never started: an untracked file needed a selection). Advisory findings: R3-002 fixed in
+  `c0b8d1a` (a comment without code); accepted as follow-up work for the closing report: R4-own-chunk-churn
+  (WARNING: with fragmented shared chunks, every small run that finds no contiguous range gets its own file while a
+  snapshot holds it; a resource and latency cost, not a correctness one, and growing shared chunks instead reopens
+  R1), R4-release-syscalls-under-lock (SUGGESTION: unmap and delete outside the area lock), R3-001 (WARNING: the
+  regression test's exact file-bytes equality could fail if Windows keeps a released file open, e.g. an antivirus
+  scan) and R3-003 (SUGGESTION: the probes hard-code the threshold sizes).
