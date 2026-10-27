@@ -28,6 +28,12 @@ pub const INITIAL_SIZE: u64 = 64 * 1024;
 /// Largest growth step: below it the store doubles on each growth (P11).
 pub const MAX_GROWTH_STEP: u64 = 1 << 30;
 
+/// The size a store of `len` bytes grows to when it needs `needed` bytes, before any limit: it doubles, by at most
+/// [`MAX_GROWTH_STEP`], or takes what it needs when that is more (P11).
+pub fn growth_target(len: u64, needed: u64) -> u64 {
+    (len + len.min(MAX_GROWTH_STEP)).max(needed)
+}
+
 /// Options for opening a store.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OpenOptions {
@@ -596,8 +602,7 @@ impl Pager {
                 needed: needed.saturating_add(others),
             });
         }
-        let step = len.min(MAX_GROWTH_STEP);
-        let target = (len + step).max(needed);
+        let target = growth_target(len, needed);
         Ok(cap.map_or(target, |cap| target.min(cap)))
     }
 

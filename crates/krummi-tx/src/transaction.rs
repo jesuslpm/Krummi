@@ -6,7 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use krummi_pager::format::{PAGE_SIZE_U64, seal_page};
-use krummi_pager::{PayloadBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_sealed};
+use krummi_pager::{
+    PayloadBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_sealed, growth_target,
+};
 
 use crate::map;
 use crate::space::Layout;
@@ -510,9 +512,9 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// Makes room for `new_pages` more changed pages and for a store of at least `file_pages` pages. With a
-    /// maximum size, the file, the scratch area and this transaction's changes count together (T14); before the
-    /// store grows, and when they do not fit, the versions no read needs any more are written in place first, and
-    /// only then the operation fails with the maximum-size class (J7).
+    /// maximum size, the file, the scratch area and this transaction's changes count together (T14); before a
+    /// growth the waiting versions would limit, and when they do not fit, the versions no read needs any more are
+    /// written in place first, and only then the operation fails with the maximum-size class (J7).
     fn reserve(&mut self, new_pages: u64, file_pages: u64) -> Result<()> {
         let pager = self.engine.scratch.pager();
         let Some(max_size) = self.engine.max_size else {
@@ -522,16 +524,20 @@ impl<'e> WriteTransaction<'e> {
             return Ok(());
         };
         let mut flushed = false;
-        // A growth is capped by what the scratch area holds at that moment; the versions no read needs are written
-        // in place first, so the store's size does not depend on when the background transfer last ran (J7).
+        // A growth is capped by what the scratch area holds at that moment. When that cap would cut it, the
+        // versions no read needs are written in place first, so the store's size does not depend on when the
+        // background transfer last ran (J7); otherwise the write does not wait for the transfer (J5).
         if file_pages > pager.page_count() && self.engine.scratch.scratch_bytes() > 0 {
-            self.writer.flush()?;
-            flushed = true;
+            let growth =
+                growth_target(pager.info().size_bytes, file_pages * PAGE_SIZE_U64).min(max_size);
+            if growth.saturating_add(self.memory(new_pages)) > max_size {
+                self.writer.flush()?;
+                flushed = true;
+            }
         }
         loop {
             let file = pager.info().size_bytes.max(file_pages * PAGE_SIZE_U64);
-            let memory = self.engine.scratch.scratch_bytes()
-                + (self.dirty.len() as u64 + new_pages) * PAGE_SIZE_U64;
+            let memory = self.memory(new_pages);
             let needed = file.saturating_add(memory);
             if needed <= max_size {
                 if file_pages > pager.page_count() {
@@ -545,6 +551,12 @@ impl<'e> WriteTransaction<'e> {
             self.writer.flush()?;
             flushed = true;
         }
+    }
+
+    /// The memory that counts against the maximum size with `new_pages` more changed pages: the scratch area and
+    /// this transaction's changes (T14).
+    fn memory(&self, new_pages: u64) -> u64 {
+        self.engine.scratch.scratch_bytes() + (self.dirty.len() as u64 + new_pages) * PAGE_SIZE_U64
     }
 
     fn seal(&mut self) -> Result<Vec<(u64, SealedPage)>> {

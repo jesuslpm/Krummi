@@ -1007,6 +1007,59 @@ fn growth_within_the_maximum_size_ignores_versions_no_read_needs() {
     engine.set_transfer_paused(false);
 }
 
+/// J5 and AC-J17 with a maximum size: when the pending versions do not limit the growth, a write that grows the
+/// store does not wait for a running transfer.
+#[test]
+fn growth_with_ample_room_does_not_wait_for_a_running_transfer() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Barrier, mpsc};
+    use std::time::Duration;
+    let options = krummi_tx::OpenOptions {
+        max_size: Some(64 << 20),
+    };
+    let engine = Engine::open_temporary(&options).unwrap();
+    engine.set_transfer_paused(true);
+    let mut tx = engine.write(None).unwrap();
+    tx.allocate_run(engine.info().page_count - FIRST_PAGE)
+        .unwrap();
+    tx.commit().unwrap();
+    assert!(engine.scratch_bytes() > 0, "versions wait for the transfer");
+    let pages = engine.info().page_count;
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let (e, r) = (Arc::clone(&entered), Arc::clone(&release));
+    let armed = Arc::new(AtomicBool::new(true));
+    engine.set_transfer_hook(Some(Arc::new(move || {
+        if armed.swap(false, Ordering::SeqCst) {
+            e.wait();
+            r.wait();
+        }
+    })));
+    std::thread::scope(|s| {
+        let held = s.spawn(|| engine.transfer_now());
+        entered.wait();
+        let (done, finished) = mpsc::channel();
+        let engine = &engine;
+        let writer = s.spawn(move || {
+            let mut tx = engine.write(None).unwrap();
+            tx.allocate().unwrap();
+            tx.commit().unwrap();
+            done.send(()).unwrap();
+        });
+        let completed = finished.recv_timeout(Duration::from_secs(5)).is_ok();
+        release.wait();
+        writer.join().unwrap();
+        held.join().unwrap();
+        assert!(
+            completed,
+            "the growing write finished while the transfer was held"
+        );
+    });
+    assert!(engine.info().page_count > pages, "the store grew");
+    engine.set_transfer_hook(None);
+    engine.set_transfer_paused(false);
+}
+
 /// J7 and T14 with a read open while the store grows: the versions it needs still count, so a reservation that
 /// does not fit fails with the maximum-size class and the store and those versions stay within the maximum; once
 /// the read ends, the rest of the room is reserved.
