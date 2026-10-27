@@ -107,6 +107,12 @@ thread): independent verifier at the end.
   and under the write turn the scratch area can only shrink. Workspace in its copy: 328 pass, 0 fail, 11 ignored;
   fmt and clippy clean. Advisories: the duplicated cap prediction could drift if the pager's formula changes (the
   tests would catch it). Its scratch folder was removed.
+- **L11** (Codex follow-up): `-FollowUp docs/reviews/max-size-growth/2026-10-27-code.md -FixRange e341f00..a7937d5`,
+  wrapper status `approved`, report [2026-10-27-code-02.md](../../docs/reviews/max-size-growth/2026-10-27-code-02.md):
+  "Approved — R1 verified resolved; no findings remain open in the requested follow-up scope."
+- **L12** (RDD review, last slice `ce4f264..3478433`): assessed `medium` (`under_budget`), reviewed as the closing
+  slice; lens reliability; lineage `review-837d82fd48e9ccd3`; **approved** with no findings, acknowledged, authority
+  burned.
 
 ## Closing
 
