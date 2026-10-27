@@ -14,6 +14,9 @@ min. Real start: 2026-10-26 18:57:10 +0000.
 - **S2** — `ac_f18_the_maximum_size_in_a_temporary_store` (AC-F11 first part, AC-F18) passes under load, every
   time: "in a temporary store whose maximum size leaves room for the versions of a write but not for growth, the
   free pages are reserved and one more fails".
+- **S3** — J5: the transfer runs "sin bloquear a los lectores ni al escritor"; AC-J17: "entonces las dos terminan
+  sin esperar al traslado". A bounded growth that the waiting versions do not limit does not wait for a running
+  transfer (Codex review R1, 2026-10-27).
 
 ## Design
 
@@ -24,13 +27,18 @@ min. Real start: 2026-10-26 18:57:10 +0000.
   page more than the maximum, and the flush before failing has nothing left to move.
 - **D2** — Fix: before a growth, when the scratch area holds versions, transfer the ones no read needs (the same
   synchronous flush the J7 path uses), then size the growth. At most one flush per reservation.
+- **D3** — Correction of D2 (Codex R1): flush before a growth only when the waiting versions would cut it, that is
+  when the pager's growth target (`growth_target`, extracted from its sizing and shared), capped at the maximum,
+  plus the memory exceeds the maximum. Otherwise the growth is the full one whatever the scratch area holds, so its
+  size still does not depend on the transfer (S1) and the writer does not wait (S3).
 
 ## Tasks
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1, S2 | inline | done | `fa77b47` |
-| T2 | checks, verification, RDD and Codex reviews, closing report | inline | done (Codex pending) | `5db200f`, report |
+| T2 | checks, verification, RDD and Codex reviews, closing report | inline | done | `5db200f`, report |
+| T3 | S3 (Codex R1), S1, S2 | inline | done | `ce4f264`, `a7937d5` |
 
 Route evidence: one understood change in one function, inline. Risk item 4 (async ordering with the transfer
 thread): independent verifier at the end.
@@ -71,6 +79,34 @@ thread): independent verifier at the end.
   29 passed each. Advisories: a growth now waits for a transfer (accepted in the RDD review); a test that pauses the
   journal and grows a bounded store would now block (none does; test-only). Its scratch folder was removed.
 - **L6** (Codex review): not run; Codex's usage limit runs until 10:53 PM (see the trees-scan run, L17). Pending.
+- **L7** (Codex review, 2026-10-27, after the merge into `main`): `-Range 990689b..e341f00`, wrapper status
+  `findings`, report [2026-10-27-code.md](../../docs/reviews/max-size-growth/2026-10-27-code.md): R1 (major)
+  "Growth waits for transfer even when the maximum leaves ample room" (J5, AC-J17), reproduced by Codex with a held
+  transfer and a 64 MiB maximum. Disposition: fixed (T3, branch `fix/max-size-growth-transfer-wait` from `main`
+  `e341f00`). Resolutions: [2026-10-27-code-resolutions.md](../../docs/reviews/max-size-growth/2026-10-27-code-resolutions.md).
+- **L8** (T3): RED: `growth_with_ample_room_does_not_wait_for_a_running_transfer` (64 MiB maximum, transfer held by
+  its hook, a write that grows the store) fails at `e341f00` ("the growing write finished while the transfer was
+  held"); GREEN after D3 (`ce4f264`). `free_space` 30 pass; workspace 328 pass, 0 fail, 11 ignored; fmt and clippy
+  clean; four processes in parallel running the `maximum_size` tests five times each: 20 of 20 pass.
+- **L9** (RDD review, `ce4f264`, base `e341f00`): raised to `high` with item 4 (when a writer waits for the
+  transfer); lenses resilience, reliability; lineage `review-91c1935f1e800699`; **approved**, acknowledged,
+  authority burned. Advisory findings:
+  - R3-cap-prediction-duplicated (WARNING): `reserve` predicts the pager's cap on its own. Dismissed: the pager caps
+    at `min(max, max - memory)` with the same length, need and memory, and the target is the shared
+    `growth_target`, so the condition `min(target, max) + memory > max` is exactly "the cap cuts the growth";
+    between the check and the growth the memory can only fall (the writer is the only one that adds versions).
+  - R3-boundary-untested (SUGGESTION): the cut side is covered by
+    `growth_within_the_maximum_size_ignores_versions_no_read_needs` (128 pages, no background pass); at equality
+    the growth fits whole either way. Not added.
+  - R3-timeout-flake (SUGGESTION): the 5 s wait could fail on a loaded machine. Fixed: 30 s (`a7937d5`).
+- **L10** (independent verifier, Sonnet high, on `a7937d5`): **no blockers**; S1, S2, S3 pass. RED of the new test at
+  `e341f00` (30 s timeout), GREEN at `a7937d5`. Boundary probe: maximums of 128 to 300 pages, with and without 1000
+  extra bytes (346 cases), paused transfer against a transfer drained after every commit: 0 differences in page
+  count or in the step of the first `MaxSize`; the same probe shows differences at `990689b`. Eight concurrent runs of
+  the `maximum_size` tests and 16 full `free_space` runs pass. The prediction in `reserve` matches the pager's cap,
+  and under the write turn the scratch area can only shrink. Workspace in its copy: 328 pass, 0 fail, 11 ignored;
+  fmt and clippy clean. Advisories: the duplicated cap prediction could drift if the pager's formula changes (the
+  tests would catch it). Its scratch folder was removed.
 
 ## Closing
 
