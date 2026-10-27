@@ -209,6 +209,16 @@ impl TempArea {
         }
     }
 
+    /// Whether `bytes` are inside one of the area's chunks (tests: AC-V3).
+    pub(crate) fn holds(&self, bytes: &[u8]) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.chunks.iter().any(|chunk| {
+            let start = chunk.ptr.as_ptr() as usize;
+            let at = bytes.as_ptr() as usize;
+            at >= start && at + bytes.len() <= start + chunk.pages * PAGE_SIZE
+        })
+    }
+
     fn release(&self, chunk: usize, index: usize, pages: usize) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.held -= 1;
@@ -217,7 +227,8 @@ impl TempArea {
 }
 
 impl AreaState {
-    /// Takes `pages` contiguous free slots from the first free range that has them: their chunk and first index.
+    /// Takes `pages` contiguous free slots from the first free range that has them: their chunk and first index. A
+    /// single page takes the first range at once, since every free range has at least one slot.
     fn take(&mut self, pages: usize) -> Option<(usize, usize)> {
         let (&(chunk, index), &len) = self.free.iter().find(|&(_, &len)| len >= pages)?;
         self.free.remove(&(chunk, index));
@@ -295,6 +306,11 @@ impl Slot {
         self.bytes()[index * PAGE_SIZE..(index + 1) * PAGE_SIZE]
             .try_into()
             .expect("a whole page")
+    }
+
+    /// Number of pages in the slots.
+    pub fn pages(&self) -> usize {
+        self.pages
     }
 
     /// Every page in the slots, as one contiguous sequence.

@@ -248,6 +248,12 @@ pub fn seal_run(first: u64, run: &mut [u8]) {
     run[..8].copy_from_slice(&checksum.to_le_bytes());
 }
 
+/// Pages of the run of a value of `len` bytes: its 16-byte header and the value, rounded up to whole pages (D1 of the
+/// large values execution), so at most one page more than the value's bytes fill (V5).
+pub fn run_pages(len: u64) -> u64 {
+    (len + PAGE_HEADER_SIZE as u64).div_ceil(PAGE_SIZE_U64)
+}
+
 /// Whether `run` is an intact run written at page `first`, with exactly its length (G6, V7).
 pub fn verify_run(first: u64, run: &[u8]) -> bool {
     !run.is_empty()

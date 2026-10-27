@@ -26,12 +26,12 @@ pub const MIN_MAX_SIZE: u64 = 1 << 20;
 pub const INITIAL_SIZE: u64 = 64 * 1024;
 /// Largest growth step: below it the store doubles on each growth (P11).
 pub const MAX_GROWTH_STEP: u64 = 1 << 30;
-/// Address space a temporary store without a maximum size reserves for its pages, and so the most it can grow to
-/// (D3 of the large values execution; beyond it a growth is the out-of-memory class, P13). Reserving takes address
-/// space but no memory: 64 GiB is far more than a temporary store, meant for tests, holds in memory, and 2,048 of
-/// them fit in the 128 TiB of address space of a process on x86-64 Windows and Linux, far more than the stores the
-/// tests of the engine keep open at once. A store with a maximum size reserves that size instead, so a maximum
-/// beyond the address space the system grants fails the opening with the out-of-memory class.
+/// Address space a temporary store reserves for its pages, and so the most it can grow to (D3 of the large values
+/// execution; beyond it a growth is the out-of-memory class, P13). Reserving takes address space but no memory:
+/// 64 GiB is far more than a temporary store, meant for tests, holds in memory, and 2,048 of them fit in the 128 TiB
+/// of address space of a process on x86-64 Windows and Linux, far more than the stores the tests of the engine keep
+/// open at once. A store with a smaller maximum size reserves that size instead; a larger maximum still reserves
+/// this, so that the store opens whatever address space the system grants, and grows only up to it.
 pub const TEMPORARY_RESERVATION: u64 = 64 << 30;
 
 /// The size a store of `len` bytes grows to when it needs `needed` bytes, before any limit: it doubles, by at most
@@ -173,11 +173,11 @@ impl Pager {
 
     /// Opens a store that lives only in memory (G9).
     ///
-    /// Its pages live in one range of address space, reserved for its maximum size or else for
+    /// Its pages live in one range of address space, reserved for the smaller of its maximum size and
     /// [`TEMPORARY_RESERVATION`] bytes, and committed as it grows.
     pub fn open_temporary(options: &OpenOptions) -> Result<Pager> {
         let max_size = effective_max_size(options)?;
-        let reserved = max_size.unwrap_or(TEMPORARY_RESERVATION);
+        let reserved = max_size.map_or(TEMPORARY_RESERVATION, |max| max.min(TEMPORARY_RESERVATION));
         let mut memory = usize::try_from(reserved)
             .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))
             .and_then(sys::Reservation::new)
@@ -299,6 +299,25 @@ impl Pager {
         match self.raw_pages(first, count) {
             Some(run) if format::verify_run(first, run) => Ok(run),
             _ => Err(self.damaged(first)),
+        }
+    }
+
+    /// Whether `bytes` are inside the store's pages: a mapping of `krummi.data`, the newest or an older one that
+    /// references still use, or the committed memory of a temporary store (tests: AC20, AC-V3).
+    pub(crate) fn holds(&self, bytes: &[u8]) -> bool {
+        let inside = |start: *const u8, len: usize| {
+            let (start, at) = (start as usize, bytes.as_ptr() as usize);
+            at >= start && at + bytes.len() <= start + len
+        };
+        match &self.storage {
+            Storage::File(f) => {
+                let state = f.state.lock().unwrap();
+                state.maps.iter().any(|map| inside(map.as_ptr(), map.len()))
+            }
+            Storage::Memory(m) => {
+                let memory = m.lock().unwrap();
+                inside(memory.ptr().as_ptr(), memory.committed())
+            }
         }
     }
 
@@ -564,8 +583,8 @@ impl Pager {
                     return Ok(());
                 }
                 let new_len = self.next_size(len, needed, limit, bounded)?;
-                // The reservation is the maximum size when there is one, so only a store without one, or a growth
-                // that ignores it, reaches its end: there is no more memory for the store (P13).
+                // The reservation is the maximum size when there is a smaller one, so only a store without one, with
+                // a larger one, or a growth that ignores it, reaches its end: there is no more memory for it (P13).
                 let reserved = memory.len() as u64;
                 if needed > reserved {
                     return Err(Error::OutOfMemory {
@@ -686,7 +705,7 @@ impl Pager {
         }
     }
 
-    fn damaged(&self, page: u64) -> Error {
+    pub(crate) fn damaged(&self, page: u64) -> Error {
         Error::Damaged {
             folder: self.folder.clone(),
             page: Some(page),

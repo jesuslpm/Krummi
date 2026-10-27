@@ -930,6 +930,10 @@ pub(crate) fn alloc_zeroed(len: usize) -> io::Result<Box<[u8]>> {
     Ok(bytes.into_boxed_slice())
 }
 
+/// A multiple of the page size of every system the engine may run on (4, 16 or 64 KiB): where the commits of a
+/// [`Reservation`] start, since the systems commit whole pages from a page boundary.
+const COMMIT_ALIGN: usize = 64 << 10;
+
 /// An address range reserved for the pages of a temporary store, whose first bytes are committed, zeroed, as the
 /// store grows (D3 of the large values execution). The range never moves, so the store's pages are contiguous and
 /// stay where they are while it lives. Reserving takes address space but no memory; committing takes memory, and
@@ -976,7 +980,9 @@ impl Reservation {
     }
 
     /// Commits the range up to byte `len`, zeroed, after the fault point of a reservation of memory. On failure
-    /// nothing more is committed.
+    /// nothing more is committed. The system commits whole pages of its own from a page boundary, so the commit
+    /// starts at the boundary of [`COMMIT_ALIGN`] before the first byte not committed yet; committing the bytes before
+    /// it again keeps them as they are.
     ///
     /// # Panics
     ///
@@ -989,11 +995,12 @@ impl Reservation {
             self.committed
         );
         alloc_point()?;
-        // SAFETY: `committed < len <= self.len`, so the offset is inside the reserved range.
-        let start = unsafe { self.ptr.as_ptr().add(self.committed) };
-        // SAFETY: `start..start + (len - committed)` is a part of the range this reservation owns that is not
-        // committed yet: nobody holds a reference into it.
-        unsafe { commit_range(start, len - self.committed) }?;
+        let from = self.committed - self.committed % COMMIT_ALIGN;
+        // SAFETY: `from <= committed < len <= self.len`, so the offset is inside the reserved range.
+        let start = unsafe { self.ptr.as_ptr().add(from) };
+        // SAFETY: `start..start + (len - from)` is a part of the range this reservation owns, from a boundary of the
+        // system's pages (the range starts on one); committing keeps the bytes already committed as they are.
+        unsafe { commit_range(start, len - from) }?;
         self.committed = len;
         Ok(())
     }
@@ -1015,15 +1022,17 @@ fn reserve_range(len: usize) -> io::Result<std::ptr::NonNull<u8>> {
     std::ptr::NonNull::new(ptr.cast()).ok_or_else(io::Error::last_os_error)
 }
 
-/// Commits `len` bytes from `start`, readable and writable and zeroed.
+/// Commits `len` bytes from `start`, readable and writable: the bytes not committed yet read zero, and the ones
+/// already committed keep their content.
 ///
 /// # Safety
 ///
-/// `start..start + len` must be inside a range reserved by `reserve_range` and not committed yet.
+/// `start..start + len` must be inside a range reserved by `reserve_range`, and `start` on a page boundary.
 #[cfg(windows)]
 unsafe fn commit_range(start: *mut u8, len: usize) -> io::Result<()> {
     use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_READWRITE, VirtualAlloc};
-    // SAFETY: the caller guarantees that the bytes are reserved by this process and not in use.
+    // SAFETY: the caller guarantees that the bytes are reserved by this process; committing pages that are already
+    // committed leaves them as they are.
     let ptr = unsafe { VirtualAlloc(start.cast(), len, MEM_COMMIT, PAGE_READWRITE) };
     if ptr.is_null() {
         Err(io::Error::last_os_error())
@@ -1061,17 +1070,18 @@ fn reserve_range(len: usize) -> io::Result<std::ptr::NonNull<u8>> {
     std::ptr::NonNull::new(ptr.cast()).ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))
 }
 
-/// Commits `len` bytes from `start`, readable and writable and zeroed.
+/// Commits `len` bytes from `start`, readable and writable: the bytes not committed yet read zero, and the ones
+/// already committed keep their content.
 ///
 /// # Safety
 ///
-/// `start..start + len` must be inside a range reserved by `reserve_range` and not committed yet.
+/// `start..start + len` must be inside a range reserved by `reserve_range`, and `start` on a page boundary.
 #[cfg(unix)]
 unsafe fn commit_range(start: *mut u8, len: usize) -> io::Result<()> {
     use rustix::mm::{MprotectFlags, mprotect};
-    // SAFETY: the caller guarantees that the bytes belong to a private anonymous mapping of this process that
-    // nobody uses yet; making them writable is when the system charges them as memory, and anonymous pages read
-    // as zeros.
+    // SAFETY: the caller guarantees that the bytes belong to a private anonymous mapping of this process, from a
+    // page boundary; making them writable is when the system charges them as memory, anonymous pages read as zeros,
+    // and pages that were already writable keep their content.
     unsafe {
         mprotect(
             start.cast(),

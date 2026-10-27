@@ -364,8 +364,9 @@ fn an_impossible_growth_is_a_maximum_size_error() {
     assert_eq!(pager.info().size_bytes, INITIAL_SIZE);
 }
 
-/// D3: a temporary store's memory is one reserved range, of its maximum size or else [`TEMPORARY_RESERVATION`];
-/// growing beyond it is the out-of-memory class (P13) and leaves the store as it was and usable.
+/// D3: a temporary store's memory is one reserved range, the smaller of its maximum size and
+/// [`TEMPORARY_RESERVATION`]; growing beyond it is the out-of-memory class (P13) and leaves the store as it was and
+/// usable.
 #[test]
 fn growing_a_temporary_store_beyond_its_reservation_is_out_of_memory() {
     let mut pager = Pager::open_temporary(&options()).unwrap();
@@ -394,6 +395,47 @@ fn growing_a_temporary_store_beyond_its_reservation_is_out_of_memory() {
         .unwrap();
     assert_eq!(error.kind(), ErrorKind::OutOfMemory);
     assert_eq!(pager.info().size_bytes, max);
+}
+
+/// D3, with the fix of the T1 review (L5, R1-001): a maximum size beyond [`TEMPORARY_RESERVATION`], even one beyond
+/// the address space the system grants, reserves only the default, so the store opens; it grows within it and
+/// beyond it is out of memory (P13), the documented limitation.
+#[test]
+fn a_temporary_store_with_a_huge_maximum_size_reserves_the_default_and_opens() {
+    let max = 1 << 50;
+    let pager = Pager::open_temporary(&OpenOptions {
+        max_size: Some(max),
+    })
+    .unwrap();
+    assert_eq!(pager.info().max_size, Some(max));
+    let Storage::Memory(memory) = &pager.storage else {
+        panic!("a temporary store lives in memory");
+    };
+    assert_eq!(memory.lock().unwrap().len() as u64, TEMPORARY_RESERVATION);
+    pager.ensure_pages(pager.page_count() + 1).unwrap();
+    let error = pager
+        .ensure_pages(TEMPORARY_RESERVATION / PAGE_SIZE_U64 + 1)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+}
+
+/// The fix of the T1 review (L5, R4-unaligned-commit): a reservation commits lengths that do not end on a page of
+/// the system, from the start of the system page that holds its first byte not committed yet, and every committed
+/// byte reads zero and can be written.
+#[test]
+fn a_reservation_commits_lengths_that_do_not_end_on_a_system_page() {
+    let mut reservation = sys::Reservation::new(1 << 20).unwrap();
+    for len in [100, 5000, 3 * 4096 + 1, 1 << 20] {
+        let before = reservation.committed();
+        reservation.commit(len).unwrap();
+        assert_eq!(reservation.committed(), len);
+        // SAFETY: the first `len` bytes of the reservation are committed and nothing else uses it.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(reservation.ptr().as_ptr(), len) };
+        assert!(bytes[before..].iter().all(|&b| b == 0), "committed zeroed");
+        bytes[before..].fill(7);
+        assert!(bytes.iter().all(|&b| b == 7));
+    }
 }
 
 /// D3: the growths of a temporary store keep the growth steps (P11) and report the committed memory as its size

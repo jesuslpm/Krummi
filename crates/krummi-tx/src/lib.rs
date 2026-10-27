@@ -1,9 +1,10 @@
 //! Transactions of Krummi (module 2): read transactions that see a snapshot, one write transaction at a time and
 //! the queue of those waiting for it (Transactions PRD, T1–T18).
 //!
-//! The crate is internal to the engine. Its page API (`page`, `page_mut`, `allocate`, `free`) and the meta page's
-//! slots (`slot`, `set_slot`) are for the engine's own modules and tests; applications use the `krummi` crate, which
-//! exposes only opening, committing and aborting transactions (T1).
+//! The crate is internal to the engine. Its page API (`page`, `page_mut`, `allocate`, `free`), its value runs
+//! (`allocate_value_run`, `run`, `free`; D4 and D5 of the large values execution) and the meta page's slots (`slot`,
+//! `set_slot`) are for the engine's own modules and tests; applications use the `krummi` crate, which exposes only
+//! opening, committing and aborting transactions (T1).
 
 mod map;
 mod space;
@@ -19,8 +20,11 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
+pub use krummi_pager::format::run_pages;
 use krummi_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
-pub use krummi_pager::{Error, ErrorKind, Info, OpenOptions, Result, TreeKind, try_reserve};
+pub use krummi_pager::{
+    Error, ErrorKind, Info, Memory, OpenOptions, Result, TreeKind, try_reserve,
+};
 use krummi_pager::{Pager, Scratch};
 pub use space::REGION_PAGES;
 use space::Space;
@@ -308,6 +312,13 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn scratch_bytes(&self) -> u64 {
         self.scratch.scratch_bytes()
+    }
+
+    /// Where the bytes of a reference live, if in the store's pages or in the versions of the temporary area, not in
+    /// a write's own changes (tests: AC20, AC-V3).
+    #[cfg(feature = "test-hooks")]
+    pub fn memory_of(&self, bytes: &[u8]) -> Option<Memory> {
+        self.scratch.memory_of(bytes)
     }
 
     /// Transfer passes so far (tests).

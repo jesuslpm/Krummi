@@ -1,13 +1,19 @@
 //! Read and write transactions (Transactions PRD: T1, T2, T8, T10, T11, T14), and the reservations and frees of
 //! free space inside a write (free-space PRD: F3–F9).
+//!
+//! Value runs (large values execution, D4 and D5): a layer above stores a large value in a run of contiguous pages,
+//! reserved like any range (F5) but kept by the write as one contiguous buffer, which it fills once, when it reserves
+//! it; runs are never changed afterwards. Every transaction reads a run as one sequence without copying it: a write
+//! from its own buffer, or else, like any reader, from the run's version in the temporary area or from the store.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use krummi_pager::format::{PAGE_SIZE_U64, seal_page};
+use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_page, seal_run};
 use krummi_pager::{
-    PayloadBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_sealed, growth_target,
+    PayloadBuf, RunBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_run,
+    alloc_sealed, growth_target,
 };
 
 use crate::map;
@@ -32,6 +38,24 @@ impl<'e> ReadTransaction<'e> {
     /// reference lives as long as the transaction (T8).
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
         self.snapshot.page(page_number)
+    }
+
+    /// The content of the value run of `count` pages from page `first` as this transaction sees it, after the run's
+    /// header, as one contiguous sequence without copying it (V2 of the large values PRD, T16). The reference lives
+    /// as long as the transaction (T8). A damaged run, or pages that are not such a run, are the damage class with
+    /// page `first` (G6, V7).
+    ///
+    /// # Panics
+    ///
+    /// If `first` is one of the store's header pages.
+    pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        Ok(&self.snapshot.run(first, count)?[PAGE_HEADER_SIZE..])
+    }
+
+    /// Whether a value run of `count` pages from page `first` may hold data of the layers above, as
+    /// [`may_hold_data`](Self::may_hold_data) for each of its pages.
+    pub fn may_hold_run(&self, first: u64, count: u64) -> bool {
+        count > 0 && first.checked_add(count).is_some() && self.may_hold_data(first)
     }
 
     /// Slot `slot` of the meta page as this transaction sees it; `0` if it was never set.
@@ -81,6 +105,11 @@ pub struct WriteTransaction<'e> {
     /// Pages this transaction changed, by number: the meta page and map pages among them when it reserved or
     /// freed pages.
     dirty: BTreeMap<u64, PayloadBuf>,
+    /// Value runs this transaction reserved, by first page, each a buffer of whole pages with room for its header
+    /// (D4); their pages are not in `dirty`.
+    runs: BTreeMap<u64, RunBuf>,
+    /// Pages of `runs`, which count as changed pages (T14).
+    run_pages: u64,
     /// The frontier when the transaction got its turn, and as this transaction moved it (F3).
     start_frontier: u64,
     frontier: u64,
@@ -106,6 +135,8 @@ impl<'e> WriteTransaction<'e> {
             engine,
             writer,
             dirty: BTreeMap::new(),
+            runs: BTreeMap::new(),
+            run_pages: 0,
             freed: BTreeSet::new(),
             gained: BTreeSet::new(),
             failure: RefCell::new(None),
@@ -114,18 +145,16 @@ impl<'e> WriteTransaction<'e> {
 
     /// The payload of page `page_number` as this transaction sees it: its own change, or what was committed
     /// before it got its turn (T2). The reference lives until the next change of this transaction (T8). Reading a
-    /// page this transaction freed fails with the misuse class (F8, T11).
+    /// page this transaction freed, or a page of a value run it reserved, fails with the misuse class (F8, T11).
     ///
     /// # Panics
     ///
     /// If the page was never reserved.
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
         self.track(self.engine.injected_fault())?;
-        self.check_reserved(page_number);
-        if self.freed.contains(&page_number) {
-            return self.track(Err(self
-                .engine
-                .misuse("the page was freed by this transaction")));
+        self.check_reserved(page_number, 1);
+        if let Err(error) = self.check_page(page_number) {
+            return self.track(Err(error));
         }
         if let Some(payload) = self.dirty.get(&page_number) {
             return Ok(&payload[..]);
@@ -135,8 +164,8 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// The payload of page `page_number` to change it. The first change copies the page into this transaction
-    /// (T14). Changing one of the store's own pages, or a page this transaction freed, fails with the misuse
-    /// class (F8, T11).
+    /// (T14). Changing one of the store's own pages, a page this transaction freed, or a page of a value run it
+    /// reserved, fails with the misuse class (F8, T11).
     ///
     /// # Panics
     ///
@@ -163,13 +192,62 @@ impl<'e> WriteTransaction<'e> {
         let result = self
             .engine
             .injected_fault()
-            .and_then(|()| self.reserve_run(count));
+            .and_then(|()| self.reserve_run(count, false));
         self.track(result)
     }
 
+    /// Reserves a value run of exactly `count` contiguous pages as [`allocate_run`](Self::allocate_run) does (F5),
+    /// kept as one contiguous buffer (D4), and returns its first page and its content after the run's header,
+    /// zeroed, for the caller to fill now: a run is never changed afterwards. Its pages are not pages of their own:
+    /// it is read with [`run`](Self::run) and freed whole with [`free`](Self::free).
+    pub fn allocate_value_run(&mut self, count: u64) -> Result<(u64, &mut [u8])> {
+        let result = self
+            .engine
+            .injected_fault()
+            .and_then(|()| self.reserve_run(count, true));
+        let first = self.track(result)?;
+        let run = self.runs.get_mut(&first).expect("reserved above");
+        Ok((first, &mut run[PAGE_HEADER_SIZE..]))
+    }
+
+    /// The content of the value run of `count` pages from page `first` as this transaction sees it, after the run's
+    /// header, as one contiguous sequence without copying it (V2 of the large values PRD): its own buffer for a run
+    /// it reserved, or else what was committed before it got its turn (T2). The reference lives until the next
+    /// change of this transaction (T8). Pages that are not such a run are the damage class with page `first` (G6,
+    /// V7); reading pages this transaction freed or changed as pages fails with the misuse class (F8, T11).
+    ///
+    /// # Panics
+    ///
+    /// If the pages were never reserved.
+    pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.track(self.engine.injected_fault())?;
+        self.check_reserved(first, count);
+        let end = first + count;
+        let result = if self.freed.range(first..end).next().is_some() {
+            Err(self.engine.misuse("the page was freed by this transaction"))
+        } else if self.dirty.range(first..end).next().is_some() {
+            Err(self
+                .engine
+                .misuse("the page was changed by this transaction"))
+        } else {
+            match self.run_at(first) {
+                Some((at, run)) if at == first && run_count(run) == count => {
+                    return Ok(&run[PAGE_HEADER_SIZE..]);
+                }
+                None if self.runs.range(first..end).next().is_none() => {
+                    self.writer.snapshot().run(first, count)
+                }
+                // Not exactly one of its own runs: what the store would report (D3).
+                _ => Err(self.damage(first)),
+            }
+        };
+        self.track(result).map(|run| &run[PAGE_HEADER_SIZE..])
+    }
+
     /// Frees `count` pages from `first`, which must be in use as this transaction sees them; their changes in this
-    /// transaction are dropped. They become free for the writes that follow this commit, not for this transaction
-    /// (F6, F8). Freeing the store's own pages, pages from the frontier on, pages already free, or a page twice
+    /// transaction are dropped, and so is a value run it reserved there, which is freed whole. They become free for
+    /// the writes that follow this commit, not for this transaction (F6, F8). Freeing the store's own pages, pages
+    /// from the frontier on, pages already free, a page twice, or part of a value run this transaction reserved
     /// fails with the misuse class (T11).
     pub fn free(&mut self, first: u64, count: u64) -> Result<()> {
         let result = self
@@ -222,13 +300,26 @@ impl<'e> WriteTransaction<'e> {
         (FIRST_PAGE..self.frontier).contains(&page_number) && !self.freed.contains(&page_number)
     }
 
+    /// Whether a value run of `count` pages from page `first` may hold data of the layers above as this transaction
+    /// sees it, as [`may_hold_data`](Self::may_hold_data) for each of its pages.
+    pub fn may_hold_run(&self, first: u64, count: u64) -> bool {
+        first
+            .checked_add(count)
+            .is_some_and(|end| count > 0 && first >= FIRST_PAGE && end <= self.frontier)
+            && self.freed.range(first..first + count).next().is_none()
+    }
+
     /// The damage error of page `page_number`, for a layer above that finds the page inconsistent although its
     /// checksum is valid (G6). It becomes the transaction's failure, as any damage it meets (T11).
     pub fn damaged(&self, page_number: u64) -> Error {
-        self.fail(Error::Damaged {
+        self.fail(self.damage(page_number))
+    }
+
+    fn damage(&self, page_number: u64) -> Error {
+        Error::Damaged {
             folder: self.engine.folder.clone(),
             page: Some(page_number),
-        })
+        }
     }
 
     /// Makes `error`, the failure of an operation of a layer above (such as running out of memory, P13), the
@@ -266,7 +357,7 @@ impl<'e> WriteTransaction<'e> {
         if let Some(error) = self.failure.get_mut().take() {
             return Err(error);
         }
-        if self.dirty.is_empty() {
+        if self.dirty.is_empty() && self.runs.is_empty() {
             // E11: what it saw may not be durable yet; aborting, or a deferred commit, never waits.
             let seen = self.writer.snapshot().txid();
             let engine = self.engine;
@@ -284,8 +375,9 @@ impl<'e> WriteTransaction<'e> {
         let meta_written = self.dirty.contains_key(&META_PAGE);
         let sealed = self.seal();
         let pages = self.track(sealed)?;
+        let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
-        let committed = self.writer.commit(&pages);
+        let committed = self.writer.commit(&pages, &runs);
         let txid = self.track(committed)?;
         // The point of no return (E2): the commit is in the journal's queue and the next writer sees it, and the
         // pages it freed (F6).
@@ -312,11 +404,32 @@ impl<'e> WriteTransaction<'e> {
     /// Aborts the transaction: none of its changes apply (T10).
     pub fn abort(self) {}
 
-    fn check_reserved(&self, page_number: u64) {
+    fn check_reserved(&self, first: u64, count: u64) {
         assert!(
-            (FIRST_PAGE..self.frontier).contains(&page_number),
-            "page {page_number} was never reserved"
+            first >= FIRST_PAGE
+                && first
+                    .checked_add(count)
+                    .is_some_and(|end| count > 0 && end <= self.frontier),
+            "pages {first} to {first} + {count} were never reserved"
         );
+    }
+
+    /// Whether page `page_number` can be used as a page of its own: not freed by this transaction, and not in a value
+    /// run it reserved (F8, D4).
+    fn check_page(&self, page_number: u64) -> Result<()> {
+        if self.freed.contains(&page_number) {
+            Err(self.engine.misuse("the page was freed by this transaction"))
+        } else if self.run_at(page_number).is_some() {
+            Err(self.engine.misuse("the page is in a value run"))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The value run this transaction reserved that holds page `page_number`, with its first page.
+    fn run_at(&self, page_number: u64) -> Option<(u64, &RunBuf)> {
+        let (&first, run) = self.runs.range(..=page_number).next_back()?;
+        (page_number < first + run_count(run)).then_some((first, run))
     }
 
     fn writable(&mut self, page_number: u64) -> Result<()> {
@@ -325,10 +438,8 @@ impl<'e> WriteTransaction<'e> {
                 .engine
                 .misuse("the store's own pages cannot be changed"));
         }
-        self.check_reserved(page_number);
-        if self.freed.contains(&page_number) {
-            return Err(self.engine.misuse("the page was freed by this transaction"));
-        }
+        self.check_reserved(page_number, 1);
+        self.check_page(page_number)?;
         if !self.dirty.contains_key(&page_number) {
             self.copy_for_write(page_number)?;
         }
@@ -348,6 +459,17 @@ impl<'e> WriteTransaction<'e> {
         for page in pages {
             self.dirty.insert(page, alloc_payload()?);
         }
+        Ok(())
+    }
+
+    /// Adds the `count` pages from `first` that this transaction just reserved, zeroed: as pages, or as one value
+    /// run (D4).
+    fn add_reserved(&mut self, first: u64, count: u64, value_run: bool) -> Result<()> {
+        if !value_run {
+            return self.add_zeroed(first..first + count);
+        }
+        self.runs.insert(first, alloc_run(count)?);
+        self.run_pages += count;
         Ok(())
     }
 
@@ -373,20 +495,21 @@ impl<'e> WriteTransaction<'e> {
         Ok(&mut self.dirty.get_mut(&page).expect("copied above")[..])
     }
 
-    fn reserve_run(&mut self, count: u64) -> Result<u64> {
+    /// Reserves `count` contiguous pages, as pages or as one value run (`value_run`), and returns the first.
+    fn reserve_run(&mut self, count: u64, value_run: bool) -> Result<u64> {
         if count == 0 || count > self.layout.cap() {
             return Err(self
                 .engine
                 .misuse("a range must have at least one page and fit in a region"));
         }
-        if let Some(first) = self.take_from_map(count)? {
+        if let Some(first) = self.take_from_map(count, value_run)? {
             return Ok(first);
         }
-        self.take_at_frontier(count)
+        self.take_at_frontier(count, value_run)
     }
 
     /// Takes the first run of `count` free pages of the map, reading the regions it needs (F4, F5, F9).
-    fn take_from_map(&mut self, count: u64) -> Result<Option<u64>> {
+    fn take_from_map(&mut self, count: u64, value_run: bool) -> Result<Option<u64>> {
         if self.free < count {
             return Ok(None);
         }
@@ -409,7 +532,7 @@ impl<'e> WriteTransaction<'e> {
             self.ensure_map(region)?;
             self.reserve(count, first + count)?;
             map::set(self.ensure_map(region)?, bit, count, false);
-            self.add_zeroed(first..first + count)?;
+            self.add_reserved(first, count, value_run)?;
             self.free -= count;
             return Ok(Some(first));
         }
@@ -418,7 +541,7 @@ impl<'e> WriteTransaction<'e> {
 
     /// Takes `count` pages at the frontier; when they do not fit in its region, the rest of the region is left
     /// free and they start after the next region's map page, which this transaction writes (F3, F5).
-    fn take_at_frontier(&mut self, count: u64) -> Result<u64> {
+    fn take_at_frontier(&mut self, count: u64, value_run: bool) -> Result<u64> {
         let layout = self.layout;
         let region = layout.region(self.frontier);
         let offset = layout.bit(self.frontier);
@@ -444,7 +567,7 @@ impl<'e> WriteTransaction<'e> {
         if let Some(region) = enter {
             self.add_zeroed([layout.map_page(region)])?;
         }
-        self.add_zeroed(first..first + count)?;
+        self.add_reserved(first, count, value_run)?;
         self.frontier = first + count;
         Ok(first)
     }
@@ -466,6 +589,12 @@ impl<'e> WriteTransaction<'e> {
             };
             return Err(self.engine.misuse(reason));
         }
+        // A value run this transaction reserved goes whole: its own range, or none of it.
+        let own_run = match self.run_at(first) {
+            Some((at, run)) if at == first && run_count(run) == count => true,
+            None if self.runs.range(first..end).next().is_none() => false,
+            _ => return Err(self.engine.misuse("a value run is freed whole")),
+        };
         let layout = self.layout;
         for region in layout.region(first)..=layout.region(end - 1) {
             let start = region * layout.region_pages();
@@ -477,6 +606,10 @@ impl<'e> WriteTransaction<'e> {
             {
                 return Err(self.engine.misuse("the page is already free"));
             }
+        }
+        if own_run {
+            self.runs.remove(&first);
+            self.run_pages -= count;
         }
         for page in first..end {
             self.dirty.remove(&page);
@@ -504,7 +637,10 @@ impl<'e> WriteTransaction<'e> {
             meta[8..16].copy_from_slice(&self.free.to_le_bytes());
         }
         let last = self.frontier - 1;
-        if self.frontier > self.start_frontier && !self.dirty.contains_key(&last) {
+        if self.frontier > self.start_frontier
+            && !self.dirty.contains_key(&last)
+            && self.run_at(last).is_none()
+        {
             self.reserve(1, 0)?;
             self.add_zeroed([last])?;
         }
@@ -554,9 +690,10 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// The memory that counts against the maximum size with `new_pages` more changed pages: the scratch area and
-    /// this transaction's changes (T14).
+    /// this transaction's changes, the pages of its value runs included (T14).
     fn memory(&self, new_pages: u64) -> u64 {
-        self.engine.scratch.scratch_bytes() + (self.dirty.len() as u64 + new_pages) * PAGE_SIZE_U64
+        let pages = self.dirty.len() as u64 + self.run_pages + new_pages;
+        self.engine.scratch.scratch_bytes() + pages * PAGE_SIZE_U64
     }
 
     fn seal(&mut self) -> Result<Vec<(u64, SealedPage)>> {
@@ -567,6 +704,18 @@ impl<'e> WriteTransaction<'e> {
             pages.push((page_number, page));
         }
         Ok(pages)
+    }
+
+    /// Seals the value runs in place, each as a whole (D1, D5).
+    fn seal_runs(&mut self) -> Vec<(u64, RunBuf)> {
+        self.run_pages = 0;
+        std::mem::take(&mut self.runs)
+            .into_iter()
+            .map(|(first, mut run)| {
+                seal_run(first, &mut run);
+                (first, run)
+            })
+            .collect()
     }
 
     /// Records the first failure of the transaction (T11) and whether the store stopped accepting writes (T12).
@@ -581,6 +730,11 @@ impl<'e> WriteTransaction<'e> {
         }
         result
     }
+}
+
+/// Number of pages of a value run's buffer.
+fn run_count(run: &RunBuf) -> u64 {
+    (run.len() / PAGE_SIZE) as u64
 }
 
 impl Drop for WriteTransaction<'_> {

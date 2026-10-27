@@ -20,6 +20,15 @@
 //! versions in place, holding `flushing` (see the `transfer` module), so no two writes of a page overlap; the
 //! close writes the rest once that thread has ended. A scratch area without the thread ([`Scratch::new`], for its
 //! own tests) writes them on the caller's thread, under the same lock.
+//!
+//! Value runs (D5 of the large values execution) are published as one version per page, all pointing into the run's
+//! contiguous slots of the temporary area, so that [`Snapshot::run`] returns the run as one sequence. A run is
+//! written in place as a unit once it is the newest version of one of its pages and no snapshot is older than it:
+//! all its pages, also those a later commit reused, since no snapshot reads those pages from the data file (the
+//! snapshots older than the run are gone, and the newer ones find the run or a newer version here). Then every page
+//! of the run drops the run's version and the ones before it, so that no snapshot finds part of a run here and the
+//! rest in the data file. A pass writes in the order of the commits, so an older run never overwrites a newer
+//! version of one of its pages.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -34,7 +43,7 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::format::Header;
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
-use crate::journal::Journal;
+use crate::journal::{Journal, RAW_ENTRY};
 use crate::pager::{Info, Pager};
 use crate::recovery;
 use crate::sys;
@@ -45,8 +54,21 @@ use crate::transfer::{self, Demand, Pacing, Signal};
 pub type PayloadBuf = Box<[u8; PAGE_PAYLOAD_SIZE]>;
 /// A whole page, sealed with its header and checksum, ready to be published.
 pub type SealedPage = Box<[u8; PAGE_SIZE]>;
-/// Pages of a commit copied into the temporary area, ready to be published (J7 of the Journal PRD).
-pub struct Staged(Vec<(u64, Arc<Slot>)>);
+/// A value run of whole pages (D1 of the large values execution): the run's 16-byte header, then its content. A write
+/// transaction fills it and seals it with [`seal_run`](crate::format::seal_run) to publish it.
+pub type RunBuf = Box<[u8]>;
+/// Pages of a commit copied into the temporary area, ready to be published (J7 of the Journal PRD): each page's
+/// number, its slots and its index in them.
+pub struct Staged(Vec<(u64, Arc<Slot>, usize)>);
+
+/// Where the bytes of a reference live (tests: AC20, AC-V3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Memory {
+    /// The store's pages: the mapping of `krummi.data`, or the memory of a temporary store.
+    Data,
+    /// The versions of the temporary area (J7).
+    Versions,
+}
 
 /// A zeroed page payload, or the out-of-memory class if the system does not provide it (P13).
 pub fn alloc_payload() -> Result<PayloadBuf> {
@@ -56,6 +78,14 @@ pub fn alloc_payload() -> Result<PayloadBuf> {
 /// A zeroed whole page, or the out-of-memory class if the system does not provide it (P13).
 pub fn alloc_sealed() -> Result<SealedPage> {
     alloc::<PAGE_SIZE>()
+}
+
+/// A zeroed run of `pages` pages, or the out-of-memory class if the system does not provide it (P13).
+pub fn alloc_run(pages: u64) -> Result<RunBuf> {
+    let requested = pages.saturating_mul(PAGE_SIZE_U64);
+    let out_of_memory = || Error::OutOfMemory { requested };
+    let bytes = usize::try_from(requested).map_err(|_| out_of_memory())?;
+    sys::alloc_zeroed(bytes).map_err(|_| out_of_memory())
 }
 
 /// Reserves room for `additional` more elements in `vec`, or fails with the out-of-memory class if the system does
@@ -129,7 +159,10 @@ struct State {
 
 struct Version {
     txid: u64,
+    /// The slots holding the page: its own, or those of its value run.
     page: Arc<Slot>,
+    /// Index of the page in `page`: 0 for a page of its own.
+    index: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -215,6 +248,17 @@ impl Scratch {
     /// Bytes of page versions held only in the scratch area (T14).
     pub fn scratch_bytes(&self) -> u64 {
         self.lock().bytes
+    }
+
+    /// Where `bytes` live, if in the store's pages or in the temporary area (tests: AC20, AC-V3).
+    pub fn memory_of(&self, bytes: &[u8]) -> Option<Memory> {
+        if self.pager().holds(bytes) {
+            Some(Memory::Data)
+        } else if self.shared.area.holds(bytes) {
+            Some(Memory::Versions)
+        } else {
+            None
+        }
     }
 
     /// Opens a snapshot of everything committed and durable so far (T2, G3, E3).
@@ -542,6 +586,7 @@ impl Shared {
         }
         let durable = self.journal.as_ref().map_or(u64::MAX, Journal::durable);
         let garbage;
+        // The commit, first page and slots of each page or value run to write (see the module documentation).
         let mut pending: Vec<(u64, u64, Arc<Slot>)> = {
             let mut state = self.lock();
             let visible = state.last_committed.min(durable);
@@ -552,13 +597,16 @@ impl Shared {
                 .iter()
                 .filter_map(|(&page_number, versions)| {
                     let newest = versions.last()?;
+                    let first = page_number - newest.index as u64;
                     (newest.txid <= durable && oldest.is_none_or(|oldest| oldest >= newest.txid))
-                        .then(|| (page_number, newest.txid, Arc::clone(&newest.page)))
+                        .then(|| (newest.txid, first, Arc::clone(&newest.page)))
                 })
                 .collect()
         };
         drop(garbage);
-        pending.sort_unstable_by_key(|(page_number, _, _)| *page_number);
+        // In the order of the commits, and of the pages within each; a run comes once.
+        pending.sort_unstable_by_key(|(txid, first, _)| (*txid, *first));
+        pending.dedup_by_key(|(txid, first, _)| (*txid, *first));
         let hook = self
             .transfer_hook
             .lock()
@@ -569,22 +617,20 @@ impl Shared {
         }
         let mut written = 0;
         let mut outcome = Ok(());
-        for (page_number, _, page) in &pending {
-            // SAFETY: see the module documentation: every open snapshot reads this page from the scratch area,
-            // where its newest version stays until the write ends, and `flushing` makes this the only write.
-            if let Err(error) = unsafe { pager.write_sealed_shared(*page_number, page.page()) } {
+        for (_, first, slots) in &pending {
+            // SAFETY: see the module documentation: every open snapshot reads these pages from the scratch area,
+            // where their versions stay until the write ends, and `flushing` makes this the only write.
+            if let Err(error) = unsafe { pager.write_run_shared(*first, slots.bytes()) } {
                 outcome = Err(error);
                 break;
             }
             written += 1;
         }
-        // The versions written, those before a failure too, leave the scratch area under one lock, unless a newer
-        // commit published another version of their page meanwhile.
+        // The versions written, those before a failure too, leave the scratch area under one lock.
         let mut state = self.lock();
-        for (page_number, txid, _) in &pending[..written] {
-            if state.versions[page_number].last().map(|v| v.txid) == Some(*txid) {
-                let versions = state.versions.remove(page_number).unwrap_or_default();
-                state.retire(versions);
+        for (txid, first, slots) in &pending[..written] {
+            for page_number in *first..*first + slots.pages() as u64 {
+                state.written(page_number, *txid, slots.pages() > 1);
             }
         }
         drop(state);
@@ -643,13 +689,13 @@ impl Shared {
         pages.sort_unstable();
         let pages_written = pages.len();
         for page_number in pages {
-            let page = &state.versions[&page_number]
+            let version = state.versions[&page_number]
                 .last()
-                .expect("a page in the scratch area has a version")
-                .page;
+                .expect("a page in the scratch area has a version");
+            let page = version.page.page_at(version.index);
             // SAFETY: `&mut self` rules out open snapshots, and with them any reference into the store's pages
             // and any other write.
-            unsafe { pager.write_sealed_shared(page_number, page.page())? };
+            unsafe { pager.write_run_shared(page_number, page)? };
             let versions = state.versions.remove(&page_number).unwrap_or_default();
             state.bytes -= versions.len() as u64 * PAGE_SIZE_U64;
         }
@@ -684,6 +730,27 @@ impl State {
             .map(|v| v.txid - 1)
             .min()
             .unwrap_or(self.last_committed)
+    }
+
+    /// Takes the versions of `page_number` out once its version of commit `txid` was written in place: all of them
+    /// when it is still the newest, and none when a newer commit published another one meanwhile; for a page of a
+    /// value run (`run`), that version and the ones before it even then, so that no snapshot finds part of the run
+    /// here and the rest in the data file (see the module documentation).
+    fn written(&mut self, page_number: u64, txid: u64, run: bool) {
+        let Some(versions) = self.versions.get_mut(&page_number) else {
+            return;
+        };
+        let Some(at) = versions.iter().position(|v| v.txid == txid) else {
+            return;
+        };
+        let gone: Vec<Version> = if at + 1 == versions.len() {
+            self.versions.remove(&page_number).unwrap_or_default()
+        } else if run {
+            versions.drain(..=at).collect()
+        } else {
+            return;
+        };
+        self.retire(gone);
     }
 
     /// Moves page versions out of `versions`; they are freed once the snapshots that may use them end.
@@ -782,6 +849,11 @@ impl<'a> Snapshot<'a> {
             .get(&page_number)
             .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid));
         if let Some(version) = version {
+            if version.page.pages() > 1 {
+                // A page of a value run is no page of its own, as in the store (D1).
+                drop(state);
+                return Err(self.scratch.pager().damaged(page_number));
+            }
             let ptr = version.page.page().as_ptr();
             drop(state);
             // SAFETY: `ptr` points to the PAGE_SIZE bytes of a slot of the temporary area owned by an `Arc` in the
@@ -797,6 +869,62 @@ impl<'a> Snapshot<'a> {
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
         // writes this page while the snapshot is open, because any newer version is newer than the snapshot.
         self.scratch.pager().page(page_number)
+    }
+
+    /// The `count` pages of the value run that starts at page `first` as this snapshot sees it, as one contiguous
+    /// sequence without copying it (V2 of the large values PRD, D5 of its execution): the run's slots in the
+    /// temporary area when this snapshot sees its version there, or else the run in the store, checked (D3). The
+    /// reference lives as long as the snapshot (D11). When what this snapshot sees in those pages is not one run of
+    /// exactly `count` pages, all here or all in the store, it is the damage class with page `first` (V7).
+    ///
+    /// # Panics
+    ///
+    /// If `first` is a header page.
+    pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        assert!(
+            first >= HEADER_PAGES,
+            "header pages are not read through Snapshot::run"
+        );
+        let pager = self.scratch.pager();
+        let end = first
+            .checked_add(count)
+            .filter(|&end| count > 0 && end <= pager.page_count());
+        let Some(end) = end else {
+            return Err(pager.damaged(first));
+        };
+        let state = self.scratch.lock();
+        let seen = |page_number: u64| {
+            state
+                .versions
+                .get(&page_number)
+                .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid))
+        };
+        let head = seen(first);
+        let whole = match head {
+            None => (first + 1..end).all(|page_number| seen(page_number).is_none()),
+            Some(head) => {
+                head.index == 0
+                    && head.page.pages() as u64 == count
+                    && (first + 1..end).zip(1..).all(|(page_number, index)| {
+                        seen(page_number)
+                            .is_some_and(|v| v.index == index && Arc::ptr_eq(&v.page, &head.page))
+                    })
+            }
+        };
+        let bytes = head.map(|head| {
+            let bytes = head.page.bytes();
+            (bytes.as_ptr(), bytes.len())
+        });
+        drop(state);
+        match bytes {
+            _ if !whole => Err(pager.damaged(first)),
+            // SAFETY: as in `Snapshot::page`: `ptr` points to the `len` bytes of the run's slots, owned by `Arc`s
+            // that the scratch area keeps while this snapshot is open, and never written again.
+            Some((ptr, len)) => Ok(unsafe { std::slice::from_raw_parts(ptr, len) }),
+            // None of these pages has a version up to this snapshot in the scratch area: as in `Snapshot::page`, the
+            // store has what it sees, and no flush writes these pages while the snapshot is open.
+            None => pager.run(first, count),
+        }
     }
 }
 
@@ -843,36 +971,52 @@ impl<'a> ScratchWriter<'a> {
         self.snapshot.scratch.demand(Demand::Flush)
     }
 
-    /// Commits `pages`, each sealed for its number: copies them into the temporary area, puts them in the
-    /// journal's queue and publishes them for the next writer (E2). Returns the number of the commit, which read
-    /// snapshots see once it is durable (E3; [`Scratch::wait_durable`]). On failure nothing is published (J12).
-    pub fn commit(&mut self, pages: &[(u64, SealedPage)]) -> Result<u64> {
-        let staged = self.stage(pages)?;
+    /// Commits `pages`, each sealed for its number, and the value `runs`, each sealed with
+    /// [`seal_run`](crate::format::seal_run) for its first page: copies them into the temporary area, puts them in
+    /// the journal's queue, a run's pages as raw entries (D5 of the large values execution), and publishes them for
+    /// the next writer (E2). Returns the number of the commit, which read snapshots see once it is durable (E3;
+    /// [`Scratch::wait_durable`]). On failure nothing is published (J12).
+    pub fn commit(&mut self, pages: &[(u64, SealedPage)], runs: &[(u64, RunBuf)]) -> Result<u64> {
+        let staged = self.stage(pages, runs)?;
         let scratch = self.snapshot.scratch;
         if let Some(journal) = &scratch.shared.journal {
             let txid = scratch.lock().last_committed + 1;
-            let refs: Vec<(u64, &[u8; PAGE_SIZE])> =
-                pages.iter().map(|(n, p)| (*n, &**p)).collect();
+            let run_pages = runs.iter().flat_map(|(first, run)| {
+                (*first..)
+                    .zip(run.as_chunks::<PAGE_SIZE>().0)
+                    .map(|(n, page)| (n | RAW_ENTRY, page))
+            });
+            let refs: Vec<(u64, &[u8; PAGE_SIZE])> = pages
+                .iter()
+                .map(|(n, p)| (*n, &**p))
+                .chain(run_pages)
+                .collect();
             journal.enqueue(scratch.pager(), txid, &refs)?;
         }
         Ok(self.publish(staged))
     }
 
-    /// Copies `pages`, each sealed for its number, into the temporary area, ready to be published (J7). Nothing
-    /// is visible yet; dropping the result gives the slots back.
+    /// Copies `pages`, each sealed for its number, and the value `runs`, each sealed for its first page, into the
+    /// temporary area, a run into contiguous slots (D5), ready to be published (J7). Nothing is visible yet;
+    /// dropping the result gives the slots back.
     ///
     /// # Panics
     ///
-    /// If a page is a header page or beyond the end of the store.
-    pub fn stage(&self, pages: &[(u64, SealedPage)]) -> Result<Staged> {
+    /// If a page is a header page or beyond the end of the store, or a run is not a whole number of pages.
+    pub fn stage(&self, pages: &[(u64, SealedPage)], runs: &[(u64, RunBuf)]) -> Result<Staged> {
         let scratch = self.snapshot.scratch;
         let pager = scratch.pager();
         let page_count = pager.page_count();
+        let entries = pages.len()
+            + runs
+                .iter()
+                .map(|(_, run)| run.len() / PAGE_SIZE)
+                .sum::<usize>();
         let mut staged = Vec::new();
         staged
-            .try_reserve_exact(pages.len())
+            .try_reserve_exact(entries)
             .map_err(|_| Error::OutOfMemory {
-                requested: (pages.len() * size_of::<(u64, Arc<Slot>)>()) as u64,
+                requested: (entries * size_of::<(u64, Arc<Slot>, usize)>()) as u64,
             })?;
         for (page_number, page) in pages {
             assert!(
@@ -880,7 +1024,20 @@ impl<'a> ScratchWriter<'a> {
                 "page {page_number} cannot be published"
             );
             let slot = scratch.shared.area.store(page, pager)?;
-            staged.push((*page_number, Arc::new(slot)));
+            staged.push((*page_number, Arc::new(slot), 0));
+        }
+        for (first, run) in runs {
+            let count = (run.len() / PAGE_SIZE) as u64;
+            assert!(
+                *first >= HEADER_PAGES && first + count <= page_count,
+                "the run of {count} pages from page {first} cannot be published"
+            );
+            let slots = Arc::new(scratch.shared.area.store_run(run, pager)?);
+            staged.extend(
+                (*first..first + count)
+                    .zip(0..)
+                    .map(|(n, i)| (n, Arc::clone(&slots), i)),
+            );
         }
         Ok(Staged(staged))
     }
@@ -892,13 +1049,13 @@ impl<'a> ScratchWriter<'a> {
         let scratch = self.snapshot.scratch;
         let mut state = scratch.lock();
         let txid = state.last_committed + 1;
-        for (page_number, page) in staged.0 {
+        for (page_number, page, index) in staged.0 {
             state.bytes += PAGE_SIZE_U64;
             state
                 .versions
                 .entry(page_number)
                 .or_default()
-                .push(Version { txid, page });
+                .push(Version { txid, page, index });
         }
         state.last_committed = txid;
         let bytes = state.bytes;
