@@ -178,3 +178,13 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   `#[doc(hidden)]`, `free_runs(tx, page, indexes)`, and `is_valid` rejects an off-leaf length of 0 (RED: damage
   reported on a value page instead of the leaf). Worker checks: fmt, clippy, `cargo test --workspace` on Windows
   (308 passed, 14 ignored), tree and krummi tests on Linux. The parent added `value_timing` to the README.
+- **L12** (RDD review 4, last slice): commits `d0be3f0`..`fa3f291` (base `9a596b2`, last assessment `medium`,
+  `under_budget`; reviewed by the CLAUDE.md closing rule). Lenses risk, reliability, readability; lineage
+  `review-6e7966cf3bbe5d18`; **approved**, acknowledged, authority burned. Seven SUGGESTION findings. Fixed in
+  `3a0b336`: R1-max-inline-value-unchecked-subtraction (`saturating_sub` again),
+  R2-value-timing-hardcoded-write-count (derived from `TOTAL / PER_WRITE`), R3-commit-failure-loop-accepts-swallowed-
+  injection (the `Ok` branch asserts the failure did not fire). Accepted without change: R2-commit-sweep-unexplained-
+  value-size (the doc comment names why 48 pages and `failures > 0` guards it), R2-cross-coupled-test-modules and
+  R2-duplicated-pattern-helper (integration tests cannot share a crate-private unit-test helper; one 4-line
+  generator per side), R3-read-may-hold-run-uses-live-page-count (a weaker guard reachable only with a crafted
+  checksum-valid leaf; wrong bytes still fail as damage).
