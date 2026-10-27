@@ -467,6 +467,108 @@ fn growing_runs_never_pile_up_in_the_temporary_area() {
     }
 }
 
+/// P10, T14 and the large values PRD, as in [`growing_runs_never_pile_up_in_the_temporary_area`]; R1 of the code
+/// follow-up review: with a read opened before the first run and kept open, a run that reuses all of a freed run's
+/// pages but its last one leaves that last page's version holding the whole earlier run. The maximum-size accounting
+/// counts every run the temporary area keeps, whole, so the writes stay within the maximum or fail with its class
+/// without applying anything, on disk and in temporary mode; once the read ends, a transfer empties the area.
+#[test]
+fn shrinking_runs_under_an_old_read_count_whole_for_the_maximum_size() {
+    // The largest chunk the temporary area adds for single pages (`MAX_CHUNK_PAGES` of `temp.rs`).
+    const NORMAL_CHUNK: u64 = 1024 * PAGE as u64;
+    let max = 64 << 20;
+    let options = OpenOptions {
+        max_size: Some(max),
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let engines = [
+        Engine::open(tmp.path(), &options).unwrap(),
+        Engine::open_temporary(&options).unwrap(),
+    ];
+    let none = Place {
+        first: 0,
+        count: 0,
+        len: 0,
+    };
+    for engine in engines {
+        engine.set_transfer_paused(true);
+        let old_read = engine.read().unwrap();
+        let mut current: Option<(Place, Vec<u8>)> = None;
+        let mut first_page = None;
+        let mut refused = false;
+        for count in (1025..=1040).rev() {
+            if let Some((old, _)) = current.take() {
+                let mut tx = engine.write(None).unwrap();
+                tx.free(old.first, old.count).unwrap();
+                keep(&mut tx, none);
+                tx.commit().unwrap();
+            }
+            let bytes = value(count * PAGE - PAGE_HEADER_SIZE, count as u8);
+            let mut tx = engine.write(None).unwrap();
+            let stored = match tx.allocate_value_run(count as u64) {
+                Ok((first, body)) => {
+                    body[..bytes.len()].copy_from_slice(&bytes);
+                    let place = Place {
+                        first,
+                        count: count as u64,
+                        len: bytes.len(),
+                    };
+                    keep(&mut tx, place);
+                    tx.commit().map(|_| place)
+                }
+                Err(error) => Err(error),
+            };
+            match stored {
+                Ok(place) => {
+                    assert_eq!(*first_page.get_or_insert(place.first), place.first);
+                    current = Some((place, bytes));
+                }
+                Err(error) => {
+                    assert_eq!(error.kind(), ErrorKind::MaxSize, "{count} pages");
+                    refused = true;
+                }
+            }
+            engine.transfer_now();
+
+            let (area, held, data) = (
+                engine.area_bytes(),
+                engine.scratch_bytes(),
+                engine.info().size_bytes,
+            );
+            if let Some(folder) = engine.folder() {
+                assert_eq!(temp_files_bytes(folder), area, "{count} pages");
+            }
+            assert!(
+                area <= held + NORMAL_CHUNK && data + area <= max,
+                "{count} pages: the temporary area holds {area} bytes, {held} counted, and the store {data}, with a \
+                 maximum of {max}"
+            );
+            let read = engine.read().unwrap();
+            match &current {
+                Some((place, bytes)) => {
+                    assert_eq!(kept(&read), Some(*place));
+                    assert_eq!(in_read(&read, *place), &bytes[..], "{count} pages");
+                }
+                None => assert_eq!(kept(&read), None, "{count} pages: nothing applied"),
+            }
+            if refused {
+                break;
+            }
+        }
+        assert!(refused, "the old read keeps more than the maximum size");
+        // A write still works, and once the old read ends a transfer gives everything back.
+        let mut tx = engine.write(None).unwrap();
+        tx.set_slot(3, 1).unwrap();
+        tx.commit().unwrap();
+        drop(old_read);
+        assert!(engine.transfer_now());
+        wait_until(|| engine.scratch_bytes() == 0);
+        let area = engine.area_bytes();
+        assert!(area <= NORMAL_CHUNK, "the area keeps {area} bytes");
+        engine.close().unwrap();
+    }
+}
+
 /// The commits of [`a_crash_at_any_point_keeps_runs_all_or_nothing`]: the value each one leaves, by generation.
 fn generation_len(generation: u64) -> usize {
     [0, 2 * PAGE, 3 * PAGE + 7, 50, 0][generation as usize]

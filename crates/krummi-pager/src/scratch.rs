@@ -29,6 +29,13 @@
 //! of the run drops the run's version and the ones before it, so that no snapshot finds part of a run here and the
 //! rest in the data file. A pass writes in the order of the commits, so an older run never overwrites a newer
 //! version of one of its pages.
+//!
+//! The bytes of the versions ([`Scratch::scratch_bytes`]) count for the maximum size (T14, P10). A page of its own
+//! counts while its version is here. A run's slots are one allocation that its last version here keeps whole, so
+//! the run counts whole from its first version until its last one leaves, by garbage collection, by a transfer or
+//! at the close: when a later run reuses all its pages but the last one while an older snapshot keeps the newer
+//! versions here, the old run still counts whole (R1 of the large values code review). Retired versions are not
+//! counted, as before value runs: only the snapshots that were open when they left can keep them.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -145,8 +152,12 @@ struct State {
     last_committed: u64,
     /// Versions of each page that are only here, oldest first.
     versions: HashMap<u64, Vec<Version>>,
-    /// Bytes taken by `versions`.
+    /// Bytes taken by `versions` (T14): a page of its own for each version of one, and the whole slots of a value run
+    /// while one of its pages keeps a version here, even when newer versions replaced the others (see
+    /// [`State::hold`]).
     bytes: u64,
+    /// Versions in `versions` of each value run, by the address of its slots.
+    run_holders: HashMap<usize, usize>,
     /// Open read snapshots by ascending sequence number; their versions never decrease along the list.
     live: Vec<Live>,
     /// The writer's snapshot, which sees commits that are not durable yet (E3).
@@ -222,6 +233,7 @@ impl Scratch {
                 last_committed: header.applied_txid,
                 versions: HashMap::new(),
                 bytes: 0,
+                run_holders: HashMap::new(),
                 live: Vec::new(),
                 writer: None,
                 next_seq: 0,
@@ -707,9 +719,11 @@ impl Shared {
             // SAFETY: `&mut self` rules out open snapshots, and with them any reference into the store's pages
             // and any other write.
             unsafe { pager.write_run_shared(page_number, page)? };
-            let versions = state.versions.remove(&page_number).unwrap_or_default();
-            state.bytes -= versions.len() as u64 * PAGE_SIZE_U64;
+            for version in state.versions.remove(&page_number).unwrap_or_default() {
+                state.release(&version);
+            }
         }
+        debug_assert_eq!(state.bytes, 0, "every version left the scratch area");
         state.retired.clear();
         // Nothing was committed since the store opened: `krummi.data` and its header are already what a close
         // would leave, so a close writes nothing, unless a header copy is damaged and the close can repair it (P6).
@@ -764,11 +778,52 @@ impl State {
         self.retire(gone);
     }
 
+    /// Counts a version that goes into `versions` in `bytes` (T14, P10): a page of its own takes its page; the first
+    /// version of a value run takes the run's whole slots, which stay counted until its last version leaves
+    /// ([`State::release`]). A run's slots are one allocation of the temporary area, kept whole while any of its
+    /// versions is, so a run whose other pages got newer versions still counts whole: the maximum-size accounting
+    /// covers every slot the versions keep (R1 of the large values code review).
+    fn hold(&mut self, version: &Version) {
+        let pages = version.page.pages();
+        if pages == 1 {
+            self.bytes += PAGE_SIZE_U64;
+            return;
+        }
+        let holders = self
+            .run_holders
+            .entry(Arc::as_ptr(&version.page).addr())
+            .or_insert(0);
+        if *holders == 0 {
+            self.bytes += pages as u64 * PAGE_SIZE_U64;
+        }
+        *holders += 1;
+    }
+
+    /// Stops counting a version that left `versions`: its page, or its run's whole slots when it was the run's last
+    /// version here ([`State::hold`]).
+    fn release(&mut self, version: &Version) {
+        let pages = version.page.pages();
+        if pages == 1 {
+            self.bytes -= PAGE_SIZE_U64;
+            return;
+        }
+        let key = Arc::as_ptr(&version.page).addr();
+        let holders = self
+            .run_holders
+            .get_mut(&key)
+            .expect("a run's version in the scratch area is counted");
+        *holders -= 1;
+        if *holders == 0 {
+            self.run_holders.remove(&key);
+            self.bytes -= pages as u64 * PAGE_SIZE_U64;
+        }
+    }
+
     /// Moves page versions out of `versions`; they are freed once the snapshots that may use them end.
     fn retire(&mut self, versions: impl IntoIterator<Item = Version>) {
         let bound = self.next_seq.saturating_sub(1);
         for version in versions {
-            self.bytes -= PAGE_SIZE_U64;
+            self.release(&version);
             self.retired.push((bound, version.page));
         }
     }
@@ -804,7 +859,9 @@ impl State {
             }
             *versions = kept;
         }
-        self.bytes -= dropped.len() as u64 * PAGE_SIZE_U64;
+        for version in &dropped {
+            self.release(version);
+        }
         dropped
     }
 
@@ -1065,12 +1122,9 @@ impl<'a> ScratchWriter<'a> {
         let mut state = scratch.lock();
         let txid = state.last_committed + 1;
         for (page_number, page, index) in staged.0 {
-            state.bytes += PAGE_SIZE_U64;
-            state
-                .versions
-                .entry(page_number)
-                .or_default()
-                .push(Version { txid, page, index });
+            let version = Version { txid, page, index };
+            state.hold(&version);
+            state.versions.entry(page_number).or_default().push(version);
         }
         state.last_committed = txid;
         let bytes = state.bytes;

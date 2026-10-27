@@ -13,7 +13,9 @@
 //! than [`MAX_CHUNK_PAGES`], or one that the free slots could hold page by page but no free range fits, gets a chunk
 //! of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. So what the area
 //! reserves so that a run is contiguous never piles up: besides the slots held, it holds at most what the
-//! page-by-page policy would, plus one shared chunk (P10, T14; R1 of the large values code review).
+//! page-by-page policy would, plus one shared chunk (P10, T14; R1 of the large values code review). A run's slots are
+//! held whole while any of its pages keeps a version, so the scratch area counts them whole for the maximum size
+//! until its last version leaves, not page by page (`State::hold` in the `scratch` module).
 //!
 //! A slot is written once, by [`TempArea::store`] or [`TempArea::store_run`], before anyone else can see it, and
 //! only read afterwards. Dropping it gives all its pages back to the area at once, merged with the free ranges next
