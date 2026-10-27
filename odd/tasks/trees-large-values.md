@@ -66,7 +66,7 @@ Decisions within *Dejado a la implementación*:
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T0 | — | inline | done | — |
-| T1 | S12 (format), pager part of S3, S8, S11 | delegated (context backstop) | pending | — |
+| T1 | S12 (format), pager part of S3, S8, S11 | delegated (context backstop) | done | `656acdf` |
 | T2 | transaction part of S3, S6, S8 | delegated (context backstop) | pending | — |
 | T3 | S1, S2, S3, S4, S5, S7, S9, S10 | delegated (context backstop) | pending | — |
 | T4 | S6, S8, S11 (tree level) | delegated (context backstop) | pending | — |
@@ -90,3 +90,21 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
 - **L3** (18:55): Engram mirror `odd/trees-large-values/tasks` pending: Engram refuses writes in this session
   (the host session was ended when VS Code closed and the resumed session cannot re-register). The task file is
   the only copy until a new session resynchronizes it.
+- **L4** (T1, ODD Worker `opus`/`high`): `seal_run`/`verify_run` (a one-page run is a sealed page), `Pager::run`,
+  `write_run`/`write_run_shared`, format 7, journal entries flagged `RAW_ENTRY` (bit 63) that recovery writes
+  without the per-page check, temporary area runs in contiguous slots (`store_run`, `Slot::bytes`/`page_at`), and
+  temporary stores in one reserved address range (`sys::Reservation`, 64 GiB without a maximum size). RED observed
+  per item (compile failures, then Damaged in recovery before the change). `rustix` gains `mm` and `windows-sys`
+  gains `Win32_System_Memory`; `Cargo.lock` unchanged. The parent fixed the format assertion of
+  `krummi-tx/tests/recovery.rs` (outside the worker's surface). Checks reported by the worker: fmt, clippy and
+  `cargo test --workspace` green on Windows and Linux; parent spot check: fmt and the recovery test pass.
+- **L5** (RDD review 1): commit `656acdf` (base `27a5e5b`), assessed `high`, raised with `--escalate-item 1`
+  (persisted format). Lenses risk, resilience, reliability; lineage `review-6ccf3988157feb31`; **approved**,
+  acknowledged, authority burned. Advisory findings, all non-blocking:
+  - R1-001, R4-fixed-reservation, R3-temporary-reservation-open-failure (WARNING): a temporary store reserves
+    64 GiB (or its maximum size) at open, which fails under an address-space limit or a very large maximum. Fix in
+    T2: reserve the smaller of the maximum size and the default, so a large maximum no longer fails at open.
+  - R4-unaligned-commit (WARNING): committing from a length that is a multiple of 8 KiB is unaligned on hosts with
+    16 or 64 KiB pages. Not a supported platform (D3 of the root: x64), but cheap: fix in T2 by committing from the
+    OS-page-aligned start.
+  - R4-first-fit-scan (SUGGESTION): one-page stores now scan the free ranges. Fix in T2 with a one-page fast path.
