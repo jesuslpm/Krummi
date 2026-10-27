@@ -84,6 +84,8 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 
 *Annotation of 2026-10-25 from trees and key operations ([trees-keys.prd.en.md](trees-keys.prd.en.md)): P5, the current format version becomes `6`; a store of format `5` is of an older format (decision A13).*
 
+*Annotation of 2026-10-27 from large values ([trees-large-values.prd.en.md](trees-large-values.prd.en.md)): P5, the current format version becomes `7`; a store of format `6` is of an earlier format (decision V9).*
+
 ### Starting state
 
 Verified on 2026-10-22:

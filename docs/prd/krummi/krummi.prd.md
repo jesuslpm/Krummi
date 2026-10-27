@@ -70,6 +70,10 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-10-25 a D11: Listar los árboles devuelve una copia propia de la aplicación, no referencias a memoria del motor (decisión A3 de [trees-keys.prd.md](trees-keys.prd.md)).*
 
+*Anotación del 2026-10-27 a D7: con los valores grandes, la versión de formato vigente pasa a ser `7` (decisión V9 de [trees-large-values.prd.md](trees-large-values.prd.md)).*
+
+*Anotación del 2026-10-27 a D11: todo valor de un árbol, también uno de hasta 256 MiB guardado fuera de su página hoja, se devuelve como una sola secuencia contigua de bytes sin copia, también en modo temporal (decisión V2 de [trees-large-values.prd.md](trees-large-values.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

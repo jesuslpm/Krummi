@@ -61,6 +61,12 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 - *A10: Quitar intervalo termina las referencias y los recorridos, y es un cambio para T10 solo si quita alguna
   entrada; pedir un recorrido y sacar entradas no los termina (decisiones R6 y R7).*
 
+*Anotaciones del 2026-10-27 desde los valores grandes ([trees-large-values.prd.md](trees-large-values.prd.md)):*
+
+- *A11 y AC-A17: el máximo provisional de 1.024 bytes queda sustituido por 268.435.456 bytes (decisión V1).*
+- *A9: un daño en las páginas de un valor guardado fuera de su hoja hace fallar a Leer, pero nunca a Guardar ni Añadir sobre su clave, Quitar, vaciar, borrar ni sobrescribir con Renombrar su árbol, que no leen esas páginas (decisión V7).*
+- *A13: la versión de formato vigente pasa a ser `7`; un almacén de formato `6` es de formato anterior (decisión V9).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

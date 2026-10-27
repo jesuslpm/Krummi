@@ -90,6 +90,11 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 
 *Anotación del 2026-10-25 desde los árboles y operaciones por clave ([trees-keys.prd.md](trees-keys.prd.md)): J3, la versión de formato vigente pasa a ser `6`; un almacén de formato `5` es de formato anterior (decisión A13).*
 
+*Anotaciones del 2026-10-27 desde los valores grandes ([trees-large-values.prd.md](trees-large-values.prd.md)):*
+
+- *J3: la versión de formato vigente pasa a ser `7`; un almacén de formato `6` es de formato anterior (decisión V9).*
+- *J7: una versión confirmada de un valor guardado fuera de su página hoja se conserva contigua en el área temporal, y la referencia de una lectura apunta a ella sin copia (decisión V2).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

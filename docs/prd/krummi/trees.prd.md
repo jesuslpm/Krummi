@@ -88,6 +88,12 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B8: tamaño no válido puede informar **prefijo** como lo que incumple su tamaño, con mínimo `0` y máximo `2048`
   (decisión R5).*
 
+*Anotaciones del 2026-10-27 desde los valores grandes ([trees-large-values.prd.md](trees-large-values.prd.md)):*
+
+- *B6: el máximo de un valor pasa a ser 268.435.456 bytes (256 MiB), para cualquier clave válida (decisión V1).*
+- *B10: todo valor se devuelve como una sola secuencia contigua de bytes sin copia, también en modo temporal (decisión V2).*
+- *Dejado a la implementación: a partir de qué tamaño un valor se guarda fuera de su página hoja sigue dejado a la implementación, que evalúa al menos dos umbrales y deja la evaluación en el informe de cierre de 5.3 (decisión V4).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

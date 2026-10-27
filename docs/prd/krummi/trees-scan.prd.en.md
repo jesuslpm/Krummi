@@ -50,6 +50,12 @@ ends. A **handle** is the one of 5.1.
 | R10 | **Format**: the change does not modify what is stored on disk (B12): the current format version remains `6`, the stores created with 5.1 are opened and scanned without conversion, and the pages that Remove range leaves pass the same consistency checks as those left by the operations of 5.1, so that a 5.1 engine reads and modifies them without risk. |
 | R11 | **Measurement** (B12): the change includes a reproducible measurement, on Windows and on Linux, on a store on disk with durable commit, on the randomly loaded store of A15 of 5.1 (1 million random keys of 16 bytes with their fixed seed and values of 100 bytes), after closing and reopening it. It measures, in a single read transaction and reading the bytes of each key and each value returned: scanning all the entries forward and then backward; and 10,000 forward scans of 100 entries from random bound keys. Then, removing all the entries with 1,000 contiguous intervals that divide the keys into random slices, the first with the lower bound open and the last with the upper bound open, one per write (A15 used 1,000 operations per write; here each write is a single Remove range). Each part of the measurement starts from a copy of the loaded store. The report includes the operating system, the processor and the disk. Its results go in the closing report. |
 
+*Annotations of 2026-10-27 from large values ([trees-large-values.prd.en.md](trees-large-values.prd.en.md)):*
+
+- *R8: damage in the pages of a value stored off its leaf makes a scan that needs its entry fail, but never Remove range, which does not read those pages (decision V7).*
+- *R10, Output and AC-R14: the current format version becomes `7`; a store of format `6`, also the one created with 5.1 and kept as test data, is of an earlier format (decision V9).*
+- *Out of scope: values of more than 1,024 bytes in scans and in Remove range arrive with large values (decisions V1 and V2).*
+
 ### Starting state
 
 Verified on 2026-10-26 in the code:

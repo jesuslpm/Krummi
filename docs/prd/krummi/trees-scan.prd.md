@@ -50,6 +50,12 @@ cualquiera de sus dos extremos. Una **apertura** es la de 5.1.
 | R10 | **Formato**: el cambio no modifica lo que se guarda en disco (B12): la versión de formato vigente sigue siendo `6`, los almacenes creados con 5.1 se abren y se recorren sin conversión, y las páginas que deja Quitar intervalo cumplen las mismas comprobaciones de consistencia que las que dejan las operaciones de 5.1, de modo que un motor de 5.1 las lee y las modifica sin riesgo. |
 | R11 | **Medición** (B12): el cambio incluye una medición reproducible, en Windows y en Linux, en un almacén en disco con confirmación durable, sobre el almacén cargado al azar de A15 de 5.1 (1 millón de claves aleatorias de 16 bytes con su semilla fija y valores de 100 bytes), tras cerrarlo y reabrirlo. Mide, en una sola transacción de lectura y leyendo los bytes de cada clave y cada valor devueltos: recorrer todas las entradas hacia delante y después hacia atrás; y 10.000 recorridos hacia delante de 100 entradas desde claves límite al azar. Después, quitar todas las entradas con 1.000 intervalos contiguos que dividen las claves en cortes al azar, el primero con el límite inferior abierto y el último con el superior abierto, uno por escritura (A15 usaba 1.000 operaciones por escritura; aquí cada escritura es un solo Quitar intervalo). Cada parte de la medición parte de una copia del almacén cargado. El informe incluye el sistema operativo, el procesador y el disco. Sus resultados van en el informe de cierre. |
 
+*Anotaciones del 2026-10-27 desde los valores grandes ([trees-large-values.prd.md](trees-large-values.prd.md)):*
+
+- *R8: un daño en las páginas de un valor guardado fuera de su hoja hace fallar a un recorrido que necesita su entrada, pero nunca a Quitar intervalo, que no lee esas páginas (decisión V7).*
+- *R10, Salida y AC-R14: la versión de formato vigente pasa a ser `7`; un almacén de formato `6`, también el creado con 5.1 y conservado como dato de prueba, es de formato anterior (decisión V9).*
+- *Fuera de alcance: los valores de más de 1.024 bytes en recorridos y en Quitar intervalo llegan con los valores grandes (decisiones V1 y V2).*
+
 ### Estado de partida
 
 Verificado el 2026-10-26 en el código:

@@ -109,6 +109,11 @@ reads end.*
   prevent committing (decisions A6 and A10).*
 - *Whole document: the current format version becomes `6` (decision A13).*
 
+*Annotations of 2026-10-27 from large values ([trees-large-values.prd.en.md](trees-large-values.prd.en.md)):*
+
+- *T16: a committed version of a value stored off its leaf page that is kept outside `krummi.data` is kept contiguous, and the reference points to it without copying (decision V2).*
+- *The whole document: the current format version becomes `7` (decision V9).*
+
 ### Starting state
 
 Verified on 2026-10-22:

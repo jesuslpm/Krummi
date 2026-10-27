@@ -85,6 +85,12 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B8: invalid size can report **prefix** as what violates its size, with minimum `0` and maximum `2048` (decision
   R5).*
 
+*Annotations of 2026-10-27 from large values ([trees-large-values.prd.en.md](trees-large-values.prd.en.md)):*
+
+- *B6: the maximum size of a value becomes 268,435,456 bytes (256 MiB), for any valid key (decision V1).*
+- *B10: every value is returned as a single contiguous sequence of bytes without copying, also in temporary mode (decision V2).*
+- *Left to the implementation: from which size a value is stored off its leaf page remains left to the implementation, which evaluates at least two thresholds and leaves the evaluation in the closing report of 5.3 (decision V4).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

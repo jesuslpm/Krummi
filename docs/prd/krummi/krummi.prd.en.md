@@ -71,6 +71,10 @@ contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-10-25 to D11: listing the trees returns a copy owned by the application, not references to engine memory (decision A3 of [trees-keys.prd.en.md](trees-keys.prd.en.md)).*
 
+*Annotation of 2026-10-27 to D7: with large values, the current format version becomes `7` (decision V9 of [trees-large-values.prd.en.md](trees-large-values.prd.en.md)).*
+
+*Annotation of 2026-10-27 to D11: every tree value, also one of up to 256 MiB stored off its leaf page, is returned as a single contiguous sequence of bytes without copying, also in temporary mode (decision V2 of [trees-large-values.prd.en.md](trees-large-values.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

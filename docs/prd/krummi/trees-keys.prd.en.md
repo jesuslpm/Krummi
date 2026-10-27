@@ -59,6 +59,12 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 - *A10: Remove range ends the references and the scans, and is a change for T10 only if it removes some entry;
   requesting a scan and taking entries from it does not end them (decisions R6 and R7).*
 
+*Annotations of 2026-10-27 from large values ([trees-large-values.prd.en.md](trees-large-values.prd.en.md)):*
+
+- *A11 and AC-A17: the provisional maximum of 1,024 bytes is replaced by 268,435,456 bytes (decision V1).*
+- *A9: damage in the pages of a value stored off its leaf makes Read fail, but never Store or Add on its key, Remove, emptying, deleting or overwriting its tree with Rename, which do not read those pages (decision V7).*
+- *A13: the current format version becomes `7`; a store of format `6` is of an earlier format (decision V9).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:

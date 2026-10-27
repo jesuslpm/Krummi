@@ -107,6 +107,11 @@ espacio se recupera al terminar las lecturas.*
   impiden confirmar (decisiones A6 y A10).*
 - *Todo el documento: la versión de formato vigente pasa a ser `6` (decisión A13).*
 
+*Anotaciones del 2026-10-27 desde los valores grandes ([trees-large-values.prd.md](trees-large-values.prd.md)):*
+
+- *T16: una versión confirmada de un valor guardado fuera de su página hoja que se conserva fuera de `krummi.data` se conserva contigua, y la referencia apunta a ella sin copia (decisión V2).*
+- *Todo el documento: la versión de formato vigente pasa a ser `7` (decisión V9).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:
