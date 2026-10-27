@@ -67,7 +67,7 @@ Decisions within *Dejado a la implementación*:
 |---|---|---|---|---|
 | T0 | — | inline | done | — |
 | T1 | S12 (format), pager part of S3, S8, S11 | delegated (context backstop) | done | `656acdf` |
-| T2 | transaction part of S3, S6, S8 | delegated (context backstop) | pending | — |
+| T2 | transaction part of S3, S6, S8 | delegated (context backstop) | done | `244548d` |
 | T3 | S1, S2, S3, S4, S5, S7, S9, S10 | delegated (context backstop) | pending | — |
 | T4 | S6, S8, S11 (tree level) | delegated (context backstop) | pending | — |
 | T5 | S13, S14 | delegated (context backstop) | pending | — |
@@ -108,3 +108,27 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
     16 or 64 KiB pages. Not a supported platform (D3 of the root: x64), but cheap: fix in T2 by committing from the
     OS-page-aligned start.
   - R4-first-fit-scan (SUGGESTION): one-page stores now scan the free ranges. Fix in T2 with a one-page fast path.
+- **L6** (T2, ODD Worker `opus`/`high`): `allocate_value_run`, `run`, `may_hold_run` on both transactions, runs as
+  one contiguous dirty buffer (`runs: BTreeMap<first, RunBuf>`, counted like pages in `memory()`), commit seals each
+  run, journals its pages as `RAW_ENTRY` references and stages it with `store_run` (one version per page with its
+  index), `Snapshot::run` returns a run only when it is whole in one slot or wholly in the store (else damage).
+  Transfer writes versions in commit order (an older run written whole could overwrite a newer run that reused its
+  pages) and retires a run as a unit. L5 fixes: (a) reservation `min(max_size, default)`, RED on Windows; (b) commit
+  from a 64 KiB-aligned start, RED on Linux (`mprotect` EINVAL); (c) dismissed with evidence: the first-fit lookup
+  already stops at the first free range for one page (every range has at least one slot), so no test can fail
+  before a fast path; a doc sentence explains it. New `krummi-tx/tests/runs.rs` (9 tests: read-back in all places,
+  references, AC-V6 variants, transfer ordering, crash/power-cut sweep, T11 at 4 points × 4 classes × 2 modes,
+  commit-time disk full and memory). The new tests were written before the API but not run RED; behavioral RED was
+  observed by reverting the ordering and whole-run retirement choices (`Damaged{page:4}`). Worker checks: fmt,
+  clippy, `cargo test --workspace` (352 passed) on Windows, crate tests on Linux; parent spot check: `runs.rs`
+  9 passed. Risk: items 1 and 4.
+- **L7** (RDD review 2): commit `244548d` (base `656acdf`), assessed `high`, raised with `--escalate-item 4`
+  (transfer ordering and shared writes). Lenses risk, resilience, reliability; lineage `review-033cd994e42cec40`;
+  **approved**, acknowledged, authority burned (a first attempt never started: the driver called WSL's `bash`).
+  Advisory findings, all non-blocking, fixed in T4:
+  - R3-read-may-hold-run-checks-first-page-only (WARNING): the read side checks only the first page, not that the
+    run ends within the used pages.
+  - R3-snapshot-run-damage-paths-untested (WARNING): wrong count, a middle page, and a range partly in the
+    temporary area and partly in the store reach the damage branches of `Snapshot::run` without a test.
+  - R3-stage-run-length-not-asserted (SUGGESTION): `stage` documents a panic for a partial page that it never
+    checks.
