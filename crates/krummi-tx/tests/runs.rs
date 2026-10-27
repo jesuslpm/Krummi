@@ -185,6 +185,9 @@ fn a_read_keeps_a_run_that_later_writes_free_and_reuse() {
         let tmp = tempfile::tempdir().unwrap();
         let new_len = if whole { PAGE } else { 100 };
         for engine in [disk(tmp.path()), temporary()] {
+            // Only the transfers this test asks for run, so the old run stays where it is until then (paused
+            // before the first commit: the background transfer could otherwise move it before the pause).
+            engine.set_transfer_paused(true);
             let old_bytes = value(2 * PAGE + 100, 1);
             let mut tx = engine.write(None).unwrap();
             let old = store(&mut tx, &old_bytes);
@@ -194,8 +197,6 @@ fn a_read_keeps_a_run_that_later_writes_free_and_reuse() {
                 assert!(engine.transfer_now());
                 wait_until(|| engine.scratch_bytes() == 0);
             }
-            // Only the transfers below run, so the old run stays where it is until then.
-            engine.set_transfer_paused(true);
             let read = engine.read().unwrap();
             let reference = in_read(&read, old);
 
