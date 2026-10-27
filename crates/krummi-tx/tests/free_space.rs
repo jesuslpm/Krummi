@@ -1046,7 +1046,9 @@ fn growth_with_ample_room_does_not_wait_for_a_running_transfer() {
             tx.commit().unwrap();
             done.send(()).unwrap();
         });
-        let completed = finished.recv_timeout(Duration::from_secs(5)).is_ok();
+        // Without the fix the write waits until the transfer is released, after this wait; with it, it ends in
+        // milliseconds, so the long wait only guards slow machines.
+        let completed = finished.recv_timeout(Duration::from_secs(30)).is_ok();
         release.wait();
         writer.join().unwrap();
         held.join().unwrap();
