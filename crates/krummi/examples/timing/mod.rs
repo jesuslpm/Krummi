@@ -4,37 +4,44 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use krummi::{OpenMode, Store, StoreOptions, TreeKind};
+use krummi::{OpenMode, Store, StoreInfo, StoreOptions, TreeKind};
 
-/// Entries per write.
+/// Entries per write of the 100-byte loads.
 pub const BATCH: usize = 1_000;
-/// Bytes of every value.
+/// Bytes of every value of the 5.1 and 5.2 measurements.
 pub const VALUE: usize = 100;
 /// The measured tree.
 pub const TREE: &str = "timing";
 /// Bytes of every key.
 pub const KEY: usize = 16;
 
-/// Stores every key, in the given order, in a new store in `folder`, in writes of [`BATCH`] entries that commit
-/// durably, and returns the time and the store's size.
-pub fn load(folder: &Path, keys: &[[u8; KEY]]) -> (Duration, u64) {
+/// Stores every key `keys[i]`, in the given order, with `value(i)`, in a new store in `folder`, in writes of
+/// `per_write` entries that commit durably, and returns the time and the store's information (P12) after the last
+/// commit.
+pub fn load<'v>(
+    folder: &Path,
+    keys: &[[u8; KEY]],
+    per_write: usize,
+    value: impl Fn(usize) -> &'v [u8],
+) -> (Duration, StoreInfo) {
     let store = Store::open(folder, &StoreOptions::default()).expect("open");
-    let value = [0x5Au8; VALUE];
     let start = Instant::now();
-    for batch in keys.chunks(BATCH) {
+    for (batch, chunk) in keys.chunks(per_write).enumerate() {
         let mut write = store.write().expect("write");
         let tree = write
             .open_tree_with(TREE, TreeKind::Normal, OpenMode::OpenOrCreate)
             .expect("open or create the tree");
-        for key in batch {
-            write.set(&tree, key, &value).expect("set");
+        for (offset, key) in chunk.iter().enumerate() {
+            write
+                .set(&tree, key, value(batch * per_write + offset))
+                .expect("set");
         }
         write.commit().expect("commit");
     }
     let elapsed = start.elapsed();
-    let size = store.info().size_bytes;
+    let info = store.info();
     store.close().expect("close");
-    (elapsed, size)
+    (elapsed, info)
 }
 
 /// `count` distinct random keys: the first 8 bytes are a bijection of the index, so no two keys are equal.

@@ -19,7 +19,6 @@
 //! child the keys before the first cell's. Integers are little-endian (V3); keys compare byte by byte as unsigned
 //! numbers, a prefix before its extensions (B5).
 
-use std::cell::Cell;
 use std::cmp::Ordering;
 
 use krummi_tx::PAYLOAD_SIZE;
@@ -31,8 +30,11 @@ pub const MAX_KEY: usize = 2048;
 /// Longest value a tree holds (V1 of the large values PRD).
 pub const MAX_VALUE: usize = 268_435_456;
 /// Longest leaf cell: half the room of a node, so that a leaf holds at least two (D4). It is the leaf's threshold
-/// (D7): a value that would make its cell longer lives off its leaf.
+/// (D7), the one the evaluation of V4 of the large values PRD chose over a full page: a value that would make its
+/// cell longer lives off its leaf.
 pub(crate) const MAX_LEAF_CELL: usize = (PAYLOAD_SIZE - HEADER) / 2 - 2;
+/// Bytes of a leaf cell before its key: the key length and the value length, 2 bytes each.
+pub(crate) const LEAF_CELL_HEADER: usize = 4;
 /// The value length of a leaf cell whose value lives off its leaf (D2).
 const OFF_LEAF: usize = 0xFFFF;
 /// Bytes that stand for a value off its leaf in its cell: the run's first page and the value's length.
@@ -49,41 +51,13 @@ const BRANCH: u8 = 2;
 // its value off its leaf, and no value kept in its leaf has the length that marks one off it.
 const _: () = assert!(HEADER + 2 * (MAX_LEAF_CELL + 2) <= PAYLOAD_SIZE);
 const _: () = assert!(HEADER + 3 * (MAX_BRANCH_CELL + 2) <= PAYLOAD_SIZE);
-const _: () = assert!(4 + MAX_KEY + RUN_REF <= MAX_LEAF_CELL);
+const _: () = assert!(LEAF_CELL_HEADER + MAX_KEY + RUN_REF <= MAX_LEAF_CELL);
 const _: () = assert!(MAX_LEAF_CELL < OFF_LEAF);
 const _: () = assert!(PAYLOAD_SIZE <= u16::MAX as usize);
 
-thread_local! {
-    /// The leaf's threshold for the operations of this thread (see [`set_inline_limit`]).
-    static INLINE_LIMIT: Cell<usize> = const { Cell::new(MAX_LEAF_CELL) };
-}
-
-/// Sets, for the operations of this thread, the longest leaf cell that keeps its value in its leaf, or restores the
-/// default, half a node, with `None`. A knob to evaluate other thresholds (V4 of the large values PRD, D7 of its
-/// execution), not part of the engine's interface. Reading never depends on it: a cell of either kind is always
-/// readable.
-///
-/// # Panics
-///
-/// If `limit` is longer than the default: a leaf must hold two of the longest cells (D4).
-#[doc(hidden)]
-pub fn set_inline_limit(limit: Option<usize>) {
-    let limit = limit.unwrap_or(MAX_LEAF_CELL);
-    assert!(
-        limit <= MAX_LEAF_CELL,
-        "an inline cell has up to {MAX_LEAF_CELL} bytes"
-    );
-    INLINE_LIMIT.with(|cell| cell.set(limit));
-}
-
-/// The longest leaf cell that keeps its value in its leaf, for the operations of this thread.
-pub(crate) fn inline_limit() -> usize {
-    INLINE_LIMIT.with(Cell::get)
-}
-
 /// Whether an entry with a key of `key` bytes keeps a value of `value` bytes in its leaf (D7).
 pub(crate) fn fits_inline(key: usize, value: usize) -> bool {
-    4 + key + value <= inline_limit()
+    LEAF_CELL_HEADER + key + value <= MAX_LEAF_CELL
 }
 
 /// The value of a leaf entry: its bytes, in the leaf, or where it lives off its leaf (D2).
@@ -129,9 +103,9 @@ pub(crate) fn fill(node: &mut [u8], level: u8, leftmost: u64, cells: &[&[u8]]) {
 
 /// Whether `node`, the payload of a page whose checksum is valid, has a consistent layout: a known kind, a leaf at
 /// level `0` and a branch above it, the offsets within the header's count, and cells within their maximum sizes,
-/// values off their leaf no longer than [`MAX_VALUE`], that fill the end of the payload exactly, without gaps or
-/// overlaps. The accessors and the algorithms of this
-/// crate stay within the page for such a node, so the tree code checks every node it reads (G6, A9).
+/// values off their leaf of 1 to [`MAX_VALUE`] bytes, that fill the end of the payload exactly, without gaps or
+/// overlaps. The accessors and the algorithms of this crate stay within the page for such a node, so the tree code
+/// checks every node it reads (G6, A9).
 pub(crate) fn is_valid(node: &[u8]) -> bool {
     let leaf = match (node[0], node[1]) {
         (LEAF, 0) => true,
@@ -143,7 +117,7 @@ pub(crate) fn is_valid(node: &[u8]) -> bool {
         return false;
     }
     let (lengths, max) = if leaf {
-        (4, MAX_LEAF_CELL)
+        (LEAF_CELL_HEADER, MAX_LEAF_CELL)
     } else {
         (2, MAX_BRANCH_CELL)
     };
@@ -162,7 +136,7 @@ pub(crate) fn is_valid(node: &[u8]) -> bool {
             || starts[at / 64] & (1 << (at % 64)) != 0
             || leaf
                 && u16_at(node, at + 2) == OFF_LEAF
-                && u64_at(node, at + len - 8) > MAX_VALUE as u64
+                && !(1..=MAX_VALUE as u64).contains(&u64_at(node, at + len - 8))
         {
             return false;
         }
@@ -222,7 +196,7 @@ pub(crate) fn used(node: &[u8]) -> usize {
 fn cell_len_at(node: &[u8], at: usize) -> usize {
     let key = u16_at(node, at);
     if is_leaf(node) {
-        4 + key + value_bytes(u16_at(node, at + 2))
+        LEAF_CELL_HEADER + key + value_bytes(u16_at(node, at + 2))
     } else {
         2 + key + 8
     }
@@ -242,14 +216,14 @@ pub(crate) fn cell(node: &[u8], index: usize) -> &[u8] {
 /// The key of cell `index`.
 pub(crate) fn key(node: &[u8], index: usize) -> &[u8] {
     let at = offset(node, index);
-    let start = at + if is_leaf(node) { 4 } else { 2 };
+    let start = at + if is_leaf(node) { LEAF_CELL_HEADER } else { 2 };
     &node[start..start + u16_at(node, at)]
 }
 
 /// The value of entry `index` of a leaf.
 pub(crate) fn value(node: &[u8], index: usize) -> Value<'_> {
     let at = offset(node, index);
-    let start = at + 4 + u16_at(node, at);
+    let start = at + LEAF_CELL_HEADER + u16_at(node, at);
     match u16_at(node, at + 2) {
         OFF_LEAF => Value::Run {
             first: u64_at(node, start),
@@ -262,7 +236,7 @@ pub(crate) fn value(node: &[u8], index: usize) -> Value<'_> {
 /// The value of entry `index` of a leaf, kept in its leaf, to change it in place.
 pub(crate) fn value_mut(node: &mut [u8], index: usize) -> &mut [u8] {
     let at = offset(node, index);
-    let start = at + 4 + u16_at(node, at);
+    let start = at + LEAF_CELL_HEADER + u16_at(node, at);
     let len = u16_at(node, at + 2);
     debug_assert_ne!(len, OFF_LEAF, "a value in its leaf");
     &mut node[start..start + len]
@@ -291,7 +265,7 @@ pub(crate) fn child(node: &[u8], index: usize) -> u64 {
 
 /// The key of a leaf cell (`leaf`) or of a branch cell, from its bytes.
 pub(crate) fn cell_key(cell: &[u8], leaf: bool) -> &[u8] {
-    let start = if leaf { 4 } else { 2 };
+    let start = if leaf { LEAF_CELL_HEADER } else { 2 };
     &cell[start..start + u16_at(cell, 0)]
 }
 
@@ -339,8 +313,8 @@ pub(crate) fn child_index(node: &[u8], key: &[u8]) -> usize {
 /// Writes a leaf cell into `buf` and returns its length.
 pub(crate) fn encode_leaf(buf: &mut [u8], key: &[u8], value: Value<'_>) -> usize {
     put_u16(buf, 0, key.len());
-    buf[4..4 + key.len()].copy_from_slice(key);
-    let start = 4 + key.len();
+    let start = LEAF_CELL_HEADER + key.len();
+    buf[LEAF_CELL_HEADER..start].copy_from_slice(key);
     match value {
         Value::Inline(value) => {
             put_u16(buf, 2, value.len());

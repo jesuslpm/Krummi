@@ -56,9 +56,10 @@ Decisions within *Dejado a la implementación*:
   per page pointing into it, so `Snapshot::run` returns it contiguously; transfer writes and retires a run as a unit.
 - **D6 — Tree.** Insert, overwrite, add, remove, remove range, empty, delete and rename-overwrite allocate and free
   runs; freeing reads leaves but never value pages (V7). Get and scans resolve a run to the value slice.
-- **D7 — Leaf threshold (V4).** A test-hooks knob selects the inline limit. Candidates: half page (a cell up to
-  4,078 bytes stays inline; the 2-way split holds) and full page (a cell up to 8,158 bytes; needs a split that may
-  produce three nodes). T3 ships the half-page threshold; T5 prototypes the full page, measures both and keeps one.
+- **D7 — Leaf threshold (V4).** Half page: an entry stays inline when `4 + key + value` is at most 4,078 bytes, so
+  every leaf holds at least two entries and the 2-way split holds; otherwise its value goes to a run. T5 evaluated
+  the full page (a cell up to 8,158 bytes, with a split into three) with a temporary knob and the V11 measurement,
+  kept the half page and removed the knob and the prototype (`odd/tasks/trees-large-values-measurements.md`).
 - **D8 — Public API.** `MAX_VALUE` = 268,435,456; signatures and lifetimes unchanged.
 
 ## Tasks
@@ -70,7 +71,7 @@ Decisions within *Dejado a la implementación*:
 | T2 | transaction part of S3, S6, S8 | delegated (context backstop) | done | `244548d` |
 | T3 | S1, S2, S3, S4, S5, S7, S9, S10, S12 (leaf part) | delegated (context backstop) | done | `9a596b2` |
 | T4 | S6, S8, S11 (tree level), L7 fixes | delegated (context backstop) | done | `d0be3f0` |
-| T5 | S13, S14 | delegated (context backstop) | pending | — |
+| T5 | S13, S14, L9 fixes | delegated (context backstop) | done | see L11 |
 | T6 | docs, checks, verification, RDD review, Codex review, closing report | inline | pending | — |
 
 Route evidence: the tasks depend on each other (pager → transaction → tree → acceptance → measurement), so there are
@@ -167,3 +168,13 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   only for a crafted checksum-valid leaf naming pages it changed; no sweep reaches it. Worker checks: fmt, clippy,
   `cargo test --workspace` on Windows (about 4 min), `-p krummi -p krummi-tx` on Linux; parent spot check: the
   AC-V8 unit tests pass. RDD: assessed `medium`, `under_budget` (pending in the slice after `9a596b2`).
+- **L11** (T5, ODD Worker `opus`/`high`): measurement example `value_timing` (V11; 3 and 6 KiB writes hold the whole
+  entries that fit in 16 MiB: 5,461 and 2,730), 70–78 s per run on each OS; results and the threshold evaluation in
+  `odd/tasks/trees-large-values-measurements.md`. Full-page prototype (+84/−38 lines and +81 test lines, 3-way split;
+  RED at `split_point`'s assertion, GREEN with 23 three-way splits in the model test) against half page: storing
+  4–6 KiB values about 80% slower on both OS, reads within noise, mixed load +3.5% pages in use. Half page kept;
+  prototype and the `set_inline_limit` knob removed. Values of exactly 8 KiB and 64 KiB take one extra page (the
+  16-byte run header), within V5. L9 fixes: names in `change_leaf`, `node::LEAF_CELL_HEADER`, test hooks
+  `#[doc(hidden)]`, `free_runs(tx, page, indexes)`, and `is_valid` rejects an off-leaf length of 0 (RED: damage
+  reported on a value page instead of the leaf). Worker checks: fmt, clippy, `cargo test --workspace` on Windows
+  (308 passed, 14 ignored), tree and krummi tests on Linux. The parent added `value_timing` to the README.

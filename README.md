@@ -80,7 +80,8 @@ layout is inconsistent is reported as damage, never trusted. Scans follow Rust's
 each included, excluded or open, and an optional prefix, consumed from the front or the back; a scan keeps the
 path from the root at each end and reads no page until it is used, and a range removal frees the subtrees wholly
 inside the interval in one descent. `cargo run --release -p krummi --example tree_timing` measures storing, reading
-and removing 1 million entries, and `--example scan_timing` scanning them and removing them by intervals.
+and removing 1 million entries, `--example scan_timing` scanning them and removing them by intervals, and
+`--example value_timing` storing and reading values from 1 KiB to 8 MiB and a mixed load.
 
 ## Layout
 

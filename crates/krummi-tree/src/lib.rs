@@ -40,7 +40,7 @@ use std::ops::Bound;
 
 use krummi_tx::{Error, PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction, run_pages};
 use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL, Value};
-pub use node::{MAX_KEY, MAX_VALUE, set_inline_limit};
+pub use node::{MAX_KEY, MAX_VALUE};
 pub use range::{Interval, Range};
 
 /// Read access to pages and meta slots, shared by read and write transactions.
@@ -198,15 +198,16 @@ fn free_run(tx: &mut WriteTransaction<'_>, first: u64, len: u64) -> Result<()> {
     tx.free(first, count)
 }
 
-/// Frees the runs of the values off their leaf among the entries of the checked leaf at `page` before index `end`,
-/// from `next`, the first of them that [`node::next_run`] found. It reads the leaf again only after freeing one, so a
-/// leaf without values off it costs no read.
+/// Frees the runs of the values off their leaf among the entries `indexes` of the checked leaf at `page`. Freeing
+/// a run needs the transaction mutably, so the leaf is looked up again after each run it frees; a leaf without
+/// values off it is looked up once.
 fn free_runs(
     tx: &mut WriteTransaction<'_>,
     page: u64,
-    mut next: Option<(usize, u64, u64)>,
-    end: usize,
+    indexes: std::ops::Range<usize>,
 ) -> Result<()> {
+    let end = indexes.end;
+    let mut next = node::next_run(tx.page(page)?, indexes);
     while let Some((index, first, len)) = next {
         free_run(tx, first, len)?;
         next = node::next_run(tx.page(page)?, index + 1..end);
@@ -231,14 +232,17 @@ fn encode_entry(
     Ok(node::encode_leaf(buf, key, Value::Run { first, len }))
 }
 
-/// The longest value that an entry with a key of `key_len` bytes keeps in its leaf, with the threshold of this
-/// thread's operations (D7); a longer one lives off its leaf (tests take the threshold from it).
+/// A test hook, not part of the engine's interface: the longest value that an entry with a key of `key_len` bytes
+/// keeps in its leaf, the leaf's threshold (D7); a longer one lives off its leaf (tests take the threshold from it).
+#[doc(hidden)]
 pub fn max_inline_value(key_len: usize) -> usize {
-    node::inline_limit().saturating_sub(4 + key_len)
+    MAX_LEAF_CELL - node::LEAF_CELL_HEADER - key_len
 }
 
-/// The value run of `key` in the tree at `root`: its first page and its number of pages, or `None` when the key is
-/// not there or its value is in its leaf (tests use it to find a value's pages).
+/// A test hook, not part of the engine's interface: the value run of `key` in the tree at `root`, its first page
+/// and its number of pages, or `None` when the key is not there or its value is in its leaf (tests use it to find a
+/// value's pages).
+#[doc(hidden)]
 pub fn run_of<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Result<Option<(u64, u64)>> {
     let (_, node) = descend(tx, root, key)?;
     Ok(
@@ -384,8 +388,7 @@ fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> 
     let node = node_at(&*tx, page, level)?;
     if node::is_leaf(node) {
         let entries = node::count(node);
-        let runs = node::next_run(node, 0..entries);
-        free_runs(tx, page, runs, entries)?;
+        free_runs(tx, page, 0..entries)?;
         tx.free(page, 1)?;
         return Ok(entries as u64);
     }
@@ -464,8 +467,7 @@ fn remove_in(
         if first >= last {
             return Ok(Outcome::Done);
         }
-        let runs = node::next_run(node, first..last);
-        free_runs(tx, page, runs, last)?;
+        free_runs(tx, page, first..last)?;
         let node = tx.page_mut(page)?;
         for _ in first..last {
             node::remove(node, first);
@@ -669,9 +671,9 @@ fn change_leaf(
         (Op::Set(value) | Op::Add(value), _) => value,
     };
     *count_changed = found.is_err();
-    let old = found.ok().map(|index| node::value(node, index));
-    if let (Ok(index), Some(Value::Inline(old))) = (found, old)
-        && old.len() == value.len()
+    let old_value = found.ok().map(|index| node::value(node, index));
+    if let (Ok(index), Some(Value::Inline(old_bytes))) = (found, old_value)
+        && old_bytes.len() == value.len()
         && node::fits_inline(key.len(), value.len())
     {
         node::value_mut(tx.page_mut(page)?, index).copy_from_slice(value);
@@ -680,23 +682,23 @@ fn change_leaf(
     let index = found.unwrap_or_else(|i| i);
     let room = node::free_space(node) + found.map_or(0, |i| node::cell(node, i).len() + 2);
     // A value off its leaf is replaced by a new run: runs never change (D6).
-    let old_run = match old {
+    let old_run = match old_value {
         Some(Value::Run { first, len }) => Some((first, len)),
         _ => None,
     };
     let mut buf = [0; MAX_LEAF_CELL];
-    let len = encode_entry(tx, &mut buf, key, value)?;
-    if let Some((first, len)) = old_run {
-        free_run(tx, first, len)?;
+    let cell_len = encode_entry(tx, &mut buf, key, value)?;
+    if let Some((old_first, old_len)) = old_run {
+        free_run(tx, old_first, old_len)?;
     }
-    if room < len + 2 {
-        return split(tx, page, index, found.is_ok(), &buf[..len]);
+    if room < cell_len + 2 {
+        return split(tx, page, index, found.is_ok(), &buf[..cell_len]);
     }
     let node = tx.page_mut(page)?;
     if found.is_ok() {
         node::remove(node, index);
     }
-    node::insert(node, index, &buf[..len]);
+    node::insert(node, index, &buf[..cell_len]);
     Ok(underfull_or_done(node))
 }
 

@@ -23,7 +23,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use krummi::{Result, Store, StoreOptions, TreeKind};
-use timing::{KEY, TREE, VALUE, header, keys, load, row, shuffled};
+use timing::{BATCH, KEY, TREE, VALUE, header, keys, load, row, shuffled};
 
 const SCANS: usize = 10_000;
 const SCAN_LEN: usize = 100;
@@ -41,8 +41,9 @@ fn main() {
 
     header();
     let loaded = tempfile::tempdir_in(&base).expect("a temporary folder");
-    let (elapsed, size) = load(loaded.path(), &keys);
-    row("store at random", entries, elapsed, Some(size));
+    let value = [0x5Au8; VALUE];
+    let (elapsed, info) = load(loaded.path(), &keys, BATCH, |_| &value);
+    row("store at random", entries, elapsed, Some(info.size_bytes));
 
     let copy = copy_of(loaded.path(), &base);
     let store = Store::open(copy.path(), &StoreOptions::default()).expect("reopen");

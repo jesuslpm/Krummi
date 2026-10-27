@@ -1,5 +1,5 @@
 //! Internal tests of the trees: a randomized model test against `BTreeMap`, with values inside and off their leaf,
-//! the extremes of a leaf, freeing a whole tree and the snapshot of an older read, and the leaf's threshold knob.
+//! the extremes of a leaf, freeing a whole tree, the snapshot of an older read, and inconsistent pages as damage.
 //! Deterministic: the random sequences come from fixed seeds.
 
 use std::collections::BTreeMap;
@@ -318,36 +318,6 @@ fn freeing_a_tree_returns_every_page() {
     }
 }
 
-/// D7: the leaf's threshold knob moves values off their leaf for the operations of its thread only; reading ignores
-/// it, so both kinds of cell stay readable whatever it says, and a limit over half a node is refused.
-#[test]
-fn the_inline_limit_knob_moves_values_off_their_leaf_and_reads_ignore_it() {
-    let engine = temporary();
-    let root = new_tree(&engine);
-    let mut tx = engine.write(None).unwrap();
-    set(&mut tx, root, b"default", &[1; 100]).unwrap();
-    set_inline_limit(Some(4 + 2 + 10));
-    assert_eq!(max_inline_value(2), 10);
-    set(&mut tx, root, b"ab", &[2; 11]).unwrap();
-    set(&mut tx, root, b"cd", &[3; 10]).unwrap();
-    set_inline_limit(None);
-    assert_eq!(max_inline_value(2), node::MAX_LEAF_CELL - 6);
-    tx.commit().unwrap();
-    for limit in [None, Some(0)] {
-        set_inline_limit(limit);
-        let read = engine.read().unwrap();
-        assert_eq!(run_of(&read, root, b"default").unwrap(), None);
-        assert_eq!(run_of(&read, root, b"ab").unwrap().map(|r| r.1), Some(1));
-        assert_eq!(run_of(&read, root, b"cd").unwrap(), None);
-        assert_eq!(get(&read, root, b"ab").unwrap(), Some(&[2; 11][..]));
-        assert_eq!(get(&read, root, b"cd").unwrap(), Some(&[3; 10][..]));
-        assert_eq!(get(&read, root, b"default").unwrap(), Some(&[1; 100][..]));
-    }
-    set_inline_limit(None);
-    let refused = std::panic::catch_unwind(|| set_inline_limit(Some(node::MAX_LEAF_CELL + 1)));
-    assert!(refused.is_err());
-}
-
 /// A read opened before a write that splits and merges pages until the height changes keeps seeing its snapshot,
 /// before and after the commit; a new read sees the write (T14, G3).
 #[test]
@@ -589,13 +559,14 @@ fn freeing_a_tree_whose_branch_names_itself_or_an_ancestor_is_damage() {
 
 /// G6, V7: a leaf whose checksum is valid but whose entry names a run that cannot be one (past the frontier, or
 /// among the store's own pages) makes reading, scanning and freeing that value fail with damage of the named page,
-/// never a panic; and a value off its leaf longer than the maximum makes the leaf inconsistent.
+/// never a panic; and a value off its leaf that is empty or longer than the maximum makes the leaf inconsistent.
 #[test]
 fn an_inconsistent_value_reference_is_damage_and_not_a_panic() {
     for (label, first, len) in [
         ("past the frontier", 1u64 << 40, 20_000u64),
         ("a header page", 1, 20_000),
         ("too long a value", 0, MAX_VALUE as u64 + 1),
+        ("an empty value", 0, 0),
     ] {
         let engine = temporary();
         let root = new_tree(&engine);
@@ -612,7 +583,8 @@ fn an_inconsistent_value_reference_is_damage_and_not_a_panic() {
         leaf[at..at + 8].copy_from_slice(&first.to_le_bytes());
         leaf[at + 8..at + 16].copy_from_slice(&len.to_le_bytes());
         tx.commit().unwrap();
-        let named = if len > MAX_VALUE as u64 { root } else { first };
+        let leaf_inconsistent = len == 0 || len > MAX_VALUE as u64;
+        let named = if leaf_inconsistent { root } else { first };
 
         let read = engine.read().unwrap();
         assert_eq!(damaged_page(get(&read, root, b"k")), named, "{label}");
@@ -626,7 +598,7 @@ fn an_inconsistent_value_reference_is_damage_and_not_a_panic() {
             },
         )
         .unwrap();
-        if len <= MAX_VALUE as u64 {
+        if !leaf_inconsistent {
             assert_eq!(scan.next().unwrap().unwrap().1, b"inline");
         }
         assert_eq!(damaged_page(scan.next().unwrap()), named, "{label}: scan");

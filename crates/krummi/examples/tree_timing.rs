@@ -26,18 +26,24 @@ fn main() {
         .next()
         .map_or(1_000_000, |s| s.parse().expect("entries"));
     let keys = keys(entries);
+    let value = [0x5Au8; VALUE];
     let mut sorted = keys.clone();
     sorted.sort_unstable();
 
     header();
 
     let ordered = tempfile::tempdir_in(&base).expect("a temporary folder");
-    let (elapsed, size) = load(ordered.path(), &sorted);
-    row("store in key order", entries, elapsed, Some(size));
+    let (elapsed, info) = load(ordered.path(), &sorted, BATCH, |_| &value);
+    row(
+        "store in key order",
+        entries,
+        elapsed,
+        Some(info.size_bytes),
+    );
 
     let random = tempfile::tempdir_in(&base).expect("a temporary folder");
-    let (elapsed, size) = load(random.path(), &keys);
-    row("store at random", entries, elapsed, Some(size));
+    let (elapsed, info) = load(random.path(), &keys, BATCH, |_| &value);
+    row("store at random", entries, elapsed, Some(info.size_bytes));
 
     let order = shuffled(entries, 0x5EED_0002);
     let store = Store::open(random.path(), &StoreOptions::default()).expect("reopen");
