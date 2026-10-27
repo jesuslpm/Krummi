@@ -72,7 +72,7 @@ Decisions within *Dejado a la implementación*:
 | T3 | S1, S2, S3, S4, S5, S7, S9, S10, S12 (leaf part) | delegated (context backstop) | done | `9a596b2` |
 | T4 | S6, S8, S11 (tree level), L7 fixes | delegated (context backstop) | done | `d0be3f0` |
 | T5 | S13, S14, L9 fixes | delegated (context backstop) | done | `899244a` |
-| T6 | docs, checks, verification, RDD review, Codex review, closing report | inline | pending | — |
+| T6 | docs, checks, verification, RDD review, Codex review, closing report | inline | done (Codex round 3 pending, L18) | `46fdd12`, `7b4286b`, `3a528ec`, `c0b8d1a`, `e1cc4ab`, `71fde57` |
 
 Route evidence: the tasks depend on each other (pager → transaction → tree → acceptance → measurement), so there are
 no parallel units; the parent context is past the long-session backstop (the PRD was written in this same session),
