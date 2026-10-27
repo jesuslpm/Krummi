@@ -236,7 +236,7 @@ fn encode_entry(
 /// keeps in its leaf, the leaf's threshold (D7); a longer one lives off its leaf (tests take the threshold from it).
 #[doc(hidden)]
 pub fn max_inline_value(key_len: usize) -> usize {
-    MAX_LEAF_CELL - node::LEAF_CELL_HEADER - key_len
+    MAX_LEAF_CELL.saturating_sub(node::LEAF_CELL_HEADER + key_len)
 }
 
 /// A test hook, not part of the engine's interface: the value run of `key` in the tree at `root`, its first page

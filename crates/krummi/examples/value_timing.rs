@@ -64,7 +64,7 @@ fn main() {
     for size in SIZES {
         let folder = tempfile::tempdir_in(&base).expect("a temporary folder");
         let per_write = PER_WRITE / size;
-        let entries = 16 * per_write;
+        let entries = TOTAL / PER_WRITE * per_write;
         let keys = keys(entries);
         let value = |i: usize| &pool[i * size..(i + 1) * size];
         let (stored, info) = load(folder.path(), &keys, per_write, value);

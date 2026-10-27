@@ -376,6 +376,12 @@ fn ac_v8_a_full_disk_or_no_memory_during_the_commit_of_values_off_their_leaf_app
             testing::reset();
             match committed {
                 Ok(()) => {
+                    // The commit succeeds only once the failure no longer fires: an injected failure is never
+                    // swallowed.
+                    assert!(
+                        !fired,
+                        "{label}: the injected failure fired and the commit succeeded"
+                    );
                     values_off_their_leaf_committed(&store);
                     let read = store.read().unwrap();
                     let other = read.open_tree("other", TreeKind::Normal).unwrap();
