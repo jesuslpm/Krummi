@@ -511,7 +511,6 @@ fn every_altered_byte_of_a_small_store_with_runs() {
             noeffect += 1
         }
         std::fs::write(&path, &original).unwrap();
-        // remove possible leftovers from a failed open
     }
     eprintln!(
         "p6: bytes={} detected={detected} noeffect={noeffect} wrong={wrong}",
