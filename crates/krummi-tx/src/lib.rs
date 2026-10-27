@@ -314,6 +314,13 @@ impl Engine {
         self.scratch.scratch_bytes()
     }
 
+    /// Bytes the temporary area holds, free slots included: the files of `krummi.temp`, or the memory of a temporary
+    /// store's versions (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn area_bytes(&self) -> u64 {
+        self.scratch.area_bytes()
+    }
+
     /// Where the bytes of a reference live, if in the store's pages or in the versions of the temporary area, not in
     /// a write's own changes (tests: AC20, AC-V3).
     #[cfg(feature = "test-hooks")]

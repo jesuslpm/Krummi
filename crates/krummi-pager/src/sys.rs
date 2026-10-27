@@ -406,6 +406,13 @@ pub(crate) fn create_temp_file(path: &Path, len: u64) -> io::Result<(File, MmapM
     }
 }
 
+/// Removes a file of the temporary area once its mapping is gone, as best effort: a released chunk cannot report a
+/// failure, so this is no fault point, and a file left behind goes with the folder at close or at the next open
+/// (J7). Not recorded, like the rest of the temporary area.
+pub(crate) fn remove_temp_file(path: &Path) {
+    let _ = fs::remove_file(path);
+}
+
 /// Removes the folder of the temporary area with everything in it; a missing folder is not an error.
 pub(crate) fn remove_temp_dir(path: &Path) -> io::Result<()> {
     before(Op::Temp, path)?;

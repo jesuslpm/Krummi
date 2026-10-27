@@ -250,6 +250,12 @@ impl Scratch {
         self.lock().bytes
     }
 
+    /// Bytes the temporary area holds, free slots included: the files of `krummi.temp`, or the memory of a temporary
+    /// store's versions (tests).
+    pub fn area_bytes(&self) -> u64 {
+        self.shared.area.capacity()
+    }
+
     /// Where `bytes` live, if in the store's pages or in the temporary area (tests: AC20, AC-V3).
     pub fn memory_of(&self, bytes: &[u8]) -> Option<Memory> {
         if self.pager().holds(bytes) {
@@ -626,14 +632,19 @@ impl Shared {
             }
             written += 1;
         }
-        // The versions written, those before a failure too, leave the scratch area under one lock.
+        // The versions written, those before a failure too, leave the scratch area under one lock; those no open
+        // snapshot can hold a reference to are freed at once, so the temporary area does not keep them until the
+        // next snapshot ends.
         let mut state = self.lock();
         for (txid, first, slots) in &pending[..written] {
             for page_number in *first..*first + slots.pages() as u64 {
                 state.written(page_number, *txid, slots.pages() > 1);
             }
         }
+        let free = state.free_retired();
         drop(state);
+        drop(pending);
+        drop(free);
         outcome
     }
 

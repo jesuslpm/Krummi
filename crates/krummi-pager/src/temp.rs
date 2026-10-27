@@ -2,15 +2,23 @@
 //! live, outside the process memory for stores on disk.
 //!
 //! The area is a set of chunks of page-sized slots. For a store on disk each chunk is a file of the `krummi.temp`
-//! subfolder, mapped for reading and writing; for a temporary store it is plain memory. Chunks are never moved or
-//! unmapped while the area lives, so a reference to a slot stays valid as long as the slot is held.
+//! subfolder, mapped for reading and writing; for a temporary store it is plain memory. A chunk is never moved, and
+//! never unmapped or freed while one of its slots is held, so a reference to a slot stays valid as long as the slot
+//! is held.
 //!
 //! A [`Slot`] holds one sealed page, or a value run in contiguous slots of one chunk, so that the run reads as one
-//! sequence (D5 of the large values execution); a run that fits in no free range of the chunks gets a new chunk of
-//! at least its size. A slot is written once, by [`TempArea::store`] or [`TempArea::store_run`], before anyone else
-//! can see it, and only read afterwards. Dropping it gives all its pages back to the area at once, merged with the
-//! free ranges next to them, and the area may hand them out again; the scratch area drops a version only when no
-//! snapshot can hold a reference to it, so a slot is never rewritten while it is borrowed.
+//! sequence (D5 of the large values execution). Shared chunks hold any slots and stay until the area is removed.
+//! They grow as they did before value runs: only when the free slots are fewer than the pages to store, by twice
+//! the last shared chunk up to [`MAX_CHUNK_PAGES`] (8 MiB), or by the run's size when it is larger. A run larger
+//! than [`MAX_CHUNK_PAGES`], or one that the free slots could hold page by page but no free range fits, gets a chunk
+//! of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. So what the area
+//! reserves so that a run is contiguous never piles up: besides the slots held, it holds at most what the
+//! page-by-page policy would, plus one shared chunk (P10, T14; R1 of the large values code review).
+//!
+//! A slot is written once, by [`TempArea::store`] or [`TempArea::store_run`], before anyone else can see it, and
+//! only read afterwards. Dropping it gives all its pages back to the area at once, merged with the free ranges next
+//! to them, and the area may hand them out again; the scratch area drops a version only when no snapshot can hold a
+//! reference to it, so a slot is never rewritten or released while it is borrowed.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -28,8 +36,8 @@ use crate::sys;
 
 /// Name of the subfolder of the temporary area in the store's folder (J2).
 pub const TEMP_DIR: &str = "krummi.temp";
-/// Slots of the first chunk; each new chunk doubles the previous one up to [`MAX_CHUNK_PAGES`] (8 MiB), so a store
-/// near a full disk never reserves much more than it needs.
+/// Slots of the first shared chunk; each new one doubles the previous one up to [`MAX_CHUNK_PAGES`] (8 MiB), so a
+/// store near a full disk never reserves much more than it needs.
 const FIRST_CHUNK_PAGES: usize = 16;
 const MAX_CHUNK_PAGES: usize = 1024;
 
@@ -41,12 +49,20 @@ pub(crate) struct TempArea {
 }
 
 struct AreaState {
-    chunks: Vec<Chunk>,
-    /// Free ranges of slots: the number of free slots from (chunk, index) on. Two ranges are never next to each
-    /// other in the same chunk: giving slots back merges them.
+    /// Chunks by number; `None` where a run's own chunk was released, a number the next new chunk takes again.
+    chunks: Vec<Option<Chunk>>,
+    /// Numbers of the released chunks.
+    vacant: Vec<usize>,
+    /// Free ranges of slots of the shared chunks: the number of free slots from (chunk, index) on. Two ranges are
+    /// never next to each other in the same chunk: giving slots back merges them.
     free: BTreeMap<(usize, usize), usize>,
     /// Slots handed out and not dropped yet, each of one or more pages.
     held: usize,
+    /// Slots of the last shared chunk, which the next one doubles; 0 before the first.
+    shared_pages: usize,
+    /// Files created in `krummi.temp` since the area began or was removed; they name the next one, so a name is
+    /// never taken again, not even after a file that could not be removed.
+    files: usize,
 }
 
 /// Memory of one chunk: `pages` slots from `ptr`.
@@ -54,12 +70,18 @@ struct Chunk {
     ptr: NonNull<u8>,
     pages: usize,
     keep: Keep,
+    /// Whether the chunk holds one run only and is released with it.
+    own: bool,
 }
 
 /// What owns the memory of a chunk.
 enum Keep {
-    /// A mapped file of `krummi.temp`; the file stays open while it is mapped.
-    File(#[allow(dead_code)] File, #[allow(dead_code)] MmapMut),
+    /// A mapped file of `krummi.temp`, with its path; the file stays open while it is mapped.
+    File(
+        #[allow(dead_code)] File,
+        #[allow(dead_code)] MmapMut,
+        PathBuf,
+    ),
     /// A heap allocation owned through `ptr` (see `Drop`).
     Heap,
 }
@@ -83,6 +105,21 @@ impl Drop for Chunk {
     }
 }
 
+impl Chunk {
+    /// Frees the chunk's memory: unmaps its file and only then removes it, since a mapped file cannot be removed on
+    /// Windows.
+    fn release(mut self) {
+        let path = match &mut self.keep {
+            Keep::File(_, _, path) => Some(std::mem::take(path)),
+            Keep::Heap => None,
+        };
+        drop(self);
+        if let Some(path) = path {
+            sys::remove_temp_file(&path);
+        }
+    }
+}
+
 impl TempArea {
     /// The temporary area of the store in `folder`, or of a temporary store. It creates nothing until a version is
     /// stored.
@@ -91,8 +128,11 @@ impl TempArea {
             dir: folder.map(|f| f.join(TEMP_DIR)),
             state: Mutex::new(AreaState {
                 chunks: Vec::new(),
+                vacant: Vec::new(),
                 free: BTreeMap::new(),
                 held: 0,
+                shared_pages: 0,
+                files: 0,
             }),
         }
     }
@@ -108,9 +148,9 @@ impl TempArea {
     }
 
     /// Copies `run`, a whole number of pages, into contiguous free slots of one chunk and returns them, growing the
-    /// area with a chunk of at least its size when no free range fits it (D5 of the large values execution). A
-    /// failure to grow the area is classified like a write of the store, with `pager` refusing writes after an I/O
-    /// failure (G12, T12).
+    /// area when no free range fits it (D5 of the large values execution; see the module documentation). A failure
+    /// to grow the area is classified like a write of the store, with `pager` refusing writes after an I/O failure
+    /// (G12, T12).
     ///
     /// # Panics
     ///
@@ -125,17 +165,14 @@ impl TempArea {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let (chunk, index) = match state.take(pages) {
             Some(slots) => slots,
-            None => {
-                self.grow(&mut state, pager, pages)?;
-                state.take(pages).expect("the area just grew")
-            }
+            None => self.grow(&mut state, pager, pages)?,
         };
-        let ptr = slot_ptr(&state.chunks[chunk], index, pages);
+        let ptr = slot_ptr(state.chunk(chunk), index, pages);
         state.held += 1;
         drop(state);
-        // SAFETY: `ptr` points to the `pages` slots of a free range of a live chunk: nobody holds a reference to them
-        // (a slot is free only once its `Slot` is dropped) and nobody else writes them (they were just taken out of
-        // the free ranges under the lock).
+        // SAFETY: `ptr` points to `pages` slots of a live chunk, taken under the lock from its free ranges or from the
+        // chunk `grow` just added: nobody holds a reference to them (a slot is free only once its `Slot` is dropped,
+        // and a new chunk was never handed out) and nobody else writes them (nobody else can take them now).
         unsafe { std::ptr::copy_nonoverlapping(run.as_ptr(), ptr.as_ptr(), run.len()) };
         Ok(Slot {
             area: Arc::clone(self),
@@ -146,14 +183,22 @@ impl TempArea {
         })
     }
 
-    /// Adds a chunk: twice the last one, up to [`MAX_CHUNK_PAGES`], and at least `pages` slots.
-    fn grow(&self, state: &mut AreaState, pager: &Pager, pages: usize) -> Result<()> {
-        let pages = state
-            .chunks
-            .last()
-            .map_or(FIRST_CHUNK_PAGES, |c| (c.pages * 2).min(MAX_CHUNK_PAGES))
-            .max(pages);
-        let bytes = pages * PAGE_SIZE;
+    /// Adds a chunk for `pages` slots that no free range fits and takes them from it, returning its number and the
+    /// first slot: a chunk of their own, of exactly `pages` slots, when they are more than [`MAX_CHUNK_PAGES`] or the
+    /// free slots could hold them page by page, so that only contiguity is missing; otherwise a shared chunk, twice
+    /// the last one up to [`MAX_CHUNK_PAGES`] and at least `pages` slots.
+    fn grow(&self, state: &mut AreaState, pager: &Pager, pages: usize) -> Result<(usize, usize)> {
+        let own = pages > MAX_CHUNK_PAGES || state.free.values().sum::<usize>() >= pages;
+        let size = if own {
+            pages
+        } else {
+            match state.shared_pages {
+                0 => FIRST_CHUNK_PAGES,
+                last => (last * 2).min(MAX_CHUNK_PAGES),
+            }
+            .max(pages)
+        };
+        let bytes = size * PAGE_SIZE;
         let chunk = match &self.dir {
             None => {
                 let memory = sys::alloc_zeroed(bytes).map_err(|_| Error::OutOfMemory {
@@ -163,32 +208,46 @@ impl TempArea {
                     .expect("Box pointers are never null");
                 Chunk {
                     ptr,
-                    pages,
+                    pages: size,
                     keep: Keep::Heap,
+                    own,
                 }
             }
             Some(dir) => {
-                if state.chunks.is_empty() {
+                if state.files == 0 {
                     // A leftover of an earlier run of this store goes first (J7).
                     sys::remove_temp_dir(dir)
                         .and_then(|()| sys::create_temp_dir(dir))
                         .map_err(|e| temp_error(pager, e, bytes as u64))?;
                 }
-                let path = dir.join(format!("scratch.{:010}", state.chunks.len() + 1));
+                let path = dir.join(format!("scratch.{:010}", state.files + 1));
                 let (file, mut map) = sys::create_temp_file(&path, bytes as u64)
                     .map_err(|e| temp_error(pager, e, bytes as u64))?;
+                state.files += 1;
                 let ptr = NonNull::new(map.as_mut_ptr()).expect("mappings are never null");
                 Chunk {
                     ptr,
-                    pages,
-                    keep: Keep::File(file, map),
+                    pages: size,
+                    keep: Keep::File(file, map, path),
+                    own,
                 }
             }
         };
-        let id = state.chunks.len();
-        state.chunks.push(chunk);
-        state.free.insert((id, 0), pages);
-        Ok(())
+        let id = match state.vacant.pop() {
+            Some(id) => id,
+            None => {
+                state.chunks.push(None);
+                state.chunks.len() - 1
+            }
+        };
+        state.chunks[id] = Some(chunk);
+        if !own {
+            state.shared_pages = size;
+            if size > pages {
+                state.free.insert((id, pages), size - pages);
+            }
+        }
+        Ok((id, 0))
     }
 
     /// Unmaps every chunk and removes `krummi.temp` (J7). While a slot is still held nothing is unmapped, so its
@@ -200,6 +259,9 @@ impl TempArea {
                 return Ok(());
             }
             state.free.clear();
+            state.vacant.clear();
+            state.shared_pages = 0;
+            state.files = 0;
             std::mem::take(&mut state.chunks)
         };
         drop(chunks);
@@ -212,21 +274,46 @@ impl TempArea {
     /// Whether `bytes` are inside one of the area's chunks (tests: AC-V3).
     pub(crate) fn holds(&self, bytes: &[u8]) -> bool {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.chunks.iter().any(|chunk| {
+        state.chunks.iter().flatten().any(|chunk| {
             let start = chunk.ptr.as_ptr() as usize;
             let at = bytes.as_ptr() as usize;
             at >= start && at + bytes.len() <= start + chunk.pages * PAGE_SIZE
         })
     }
 
+    /// Bytes of every chunk the area holds, free slots included (tests).
+    pub(crate) fn capacity(&self) -> u64 {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .chunks
+            .iter()
+            .flatten()
+            .map(|chunk| (chunk.pages * PAGE_SIZE) as u64)
+            .sum()
+    }
+
+    /// Gives back the slots of a dropped [`Slot`]: to the free ranges of a shared chunk, or by releasing the run's
+    /// own chunk. Both happen under the lock and before `held` drops, so [`TempArea::remove`] never finds a chunk
+    /// being released.
     fn release(&self, chunk: usize, index: usize, pages: usize) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.chunk(chunk).own {
+            let own = state.chunks[chunk].take().expect("a live chunk");
+            state.vacant.push(chunk);
+            own.release();
+        } else {
+            state.give(chunk, index, pages);
+        }
         state.held -= 1;
-        state.give(chunk, index, pages);
     }
 }
 
 impl AreaState {
+    /// Chunk number `chunk`, which a held slot keeps alive.
+    fn chunk(&self, chunk: usize) -> &Chunk {
+        self.chunks[chunk].as_ref().expect("a live chunk")
+    }
+
     /// Takes `pages` contiguous free slots from the first free range that has them: their chunk and first index. A
     /// single page takes the first range at once, since every free range has at least one slot.
     fn take(&mut self, pages: usize) -> Option<(usize, usize)> {
@@ -315,9 +402,10 @@ impl Slot {
 
     /// Every page in the slots, as one contiguous sequence.
     pub fn bytes(&self) -> &[u8] {
-        // SAFETY: `ptr` points to the `pages` contiguous slots of this `Slot`, inside a chunk the area keeps until it
-        // is removed, which happens only once every slot is dropped. The bytes were written before the slot was
-        // returned and are never written again while it lives.
+        // SAFETY: `ptr` points to the `pages` contiguous slots of this `Slot`, inside a chunk the area keeps while the
+        // slot lives: a shared chunk until the area is removed, which happens only once every slot is dropped, and a
+        // run's own chunk until this slot is dropped. The bytes were written before the slot was returned and are
+        // never written again while it lives.
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.pages * PAGE_SIZE) }
     }
 }
@@ -357,6 +445,7 @@ mod tests {
             .unwrap()
             .chunks
             .iter()
+            .flatten()
             .map(|c| c.pages)
             .collect()
     }
@@ -394,6 +483,72 @@ mod tests {
                     ((MAX_CHUNK_PAGES + 5) * PAGE_SIZE) as u64
                 );
             }
+        });
+    }
+
+    /// R1 of the code review: a run's own chunk, of exactly its size, goes with the run's last holder, its file
+    /// too, and its number is taken again, so runs a page larger each time never pile up chunks.
+    #[test]
+    fn a_run_s_own_chunk_is_released_with_it() {
+        both_modes(|area, pager| {
+            let single = area.store(&[1; PAGE_SIZE], pager).unwrap();
+            for extra in 1..4 {
+                let bytes = run(MAX_CHUNK_PAGES + extra, extra as u8);
+                let slot = Arc::new(area.store_run(&bytes, pager).unwrap());
+                assert_holds(&slot, &bytes);
+                let holder = Arc::clone(&slot);
+                drop(slot);
+                assert_eq!(
+                    chunks(area),
+                    vec![FIRST_CHUNK_PAGES, MAX_CHUNK_PAGES + extra],
+                    "still held"
+                );
+                drop(holder);
+                assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES]);
+                assert_eq!(area.capacity(), (FIRST_CHUNK_PAGES * PAGE_SIZE) as u64);
+                if let Some(folder) = pager.folder() {
+                    let files: Vec<_> = std::fs::read_dir(folder.join(TEMP_DIR))
+                        .unwrap()
+                        .map(|entry| entry.unwrap().file_name())
+                        .collect();
+                    assert_eq!(files, vec!["scratch.0000000001"]);
+                }
+            }
+            assert_eq!(area.state.lock().unwrap().chunks.len(), 2, "number reused");
+            assert_eq!(single.page(), &[1; PAGE_SIZE]);
+            drop(single);
+            area.remove().unwrap();
+        });
+    }
+
+    /// R1 of the code review: a run that the free slots could hold page by page, but that no free range fits, gets a
+    /// chunk of its own instead of a shared one; a run that needs more slots than are free makes the shared chunks
+    /// grow as single pages do, and that chunk stays.
+    #[test]
+    fn only_a_lack_of_free_slots_grows_the_shared_chunks() {
+        both_modes(|area, pager| {
+            // The first shared chunk with every other slot free: half of it, in single slots.
+            let all: Vec<Slot> = (0..FIRST_CHUNK_PAGES)
+                .map(|i| area.store(&[i as u8; PAGE_SIZE], pager).unwrap())
+                .collect();
+            let kept: Vec<Slot> = all
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, slot)| (i % 2 == 0).then_some(slot))
+                .collect();
+            let pair = area.store_run(&run(2, 7), pager).unwrap();
+            assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES, 2], "contiguity only");
+            drop(pair);
+            assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES]);
+            let larger = run(FIRST_CHUNK_PAGES / 2 + 1, 8);
+            let slot = area.store_run(&larger, pager).unwrap();
+            assert_holds(&slot, &larger);
+            let grown = vec![FIRST_CHUNK_PAGES, 2 * FIRST_CHUNK_PAGES];
+            assert_eq!(chunks(area), grown, "more pages than free slots");
+            drop(slot);
+            assert_eq!(chunks(area), grown, "a shared chunk stays");
+            drop(kept);
+            area.remove().unwrap();
         });
     }
 

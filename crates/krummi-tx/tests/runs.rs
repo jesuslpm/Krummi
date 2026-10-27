@@ -407,6 +407,66 @@ fn a_run_counts_against_the_maximum_size_like_its_pages() {
     assert_eq!(committed(true), committed(false));
 }
 
+/// Bytes of the files of `krummi.temp` in `folder`.
+fn temp_files_bytes(folder: &Path) -> u64 {
+    std::fs::read_dir(folder.join("krummi.temp")).map_or(0, |entries| {
+        entries
+            .map(|entry| entry.unwrap().metadata().unwrap().len())
+            .sum()
+    })
+}
+
+/// P10, T14 and the large values PRD (*Dejado a la implementación*: the memory reserved so that a run is contiguous
+/// counts for the maximum size); R1 of the code review: replacing a value with one a page larger, again and again,
+/// each over the largest chunk the temporary area grows by, never leaves the area holding more than the versions
+/// still waiting plus one such chunk, so the store and its versions stay within the maximum size, on disk and in
+/// temporary mode.
+#[test]
+fn growing_runs_never_pile_up_in_the_temporary_area() {
+    // The largest chunk the temporary area adds for single pages (`MAX_CHUNK_PAGES` of `temp.rs`).
+    const NORMAL_CHUNK: u64 = 1024 * PAGE as u64;
+    let max = 64 << 20;
+    let options = OpenOptions {
+        max_size: Some(max),
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let engines = [
+        Engine::open(tmp.path(), &options).unwrap(),
+        Engine::open_temporary(&options).unwrap(),
+    ];
+    for engine in engines {
+        engine.set_transfer_paused(true);
+        let mut old: Option<Place> = None;
+        for i in 0..16 {
+            let bytes = value((1025 + i) * PAGE - PAGE_HEADER_SIZE, i as u8);
+            let mut tx = engine.write(None).unwrap();
+            if let Some(old) = old {
+                tx.free(old.first, old.count).unwrap();
+            }
+            let place = store(&mut tx, &bytes);
+            assert_eq!(place.count, 1025 + i as u64);
+            keep(&mut tx, place);
+            tx.commit().unwrap();
+            old = Some(place);
+            assert!(engine.transfer_now());
+            wait_until(|| engine.scratch_bytes() == 0);
+
+            let area = engine.area_bytes();
+            if let Some(folder) = engine.folder() {
+                assert_eq!(temp_files_bytes(folder), area, "write {i}");
+            }
+            let data = engine.info().size_bytes;
+            assert!(
+                area <= engine.scratch_bytes() + NORMAL_CHUNK && data + area <= max,
+                "write {i}: the temporary area holds {area} bytes and the store {data}, with a maximum of {max}"
+            );
+            let read = engine.read().unwrap();
+            assert_eq!(in_read(&read, place), &bytes[..], "write {i}");
+        }
+        engine.close().unwrap();
+    }
+}
+
 /// The commits of [`a_crash_at_any_point_keeps_runs_all_or_nothing`]: the value each one leaves, by generation.
 fn generation_len(generation: u64) -> usize {
     [0, 2 * PAGE, 3 * PAGE + 7, 50, 0][generation as usize]
