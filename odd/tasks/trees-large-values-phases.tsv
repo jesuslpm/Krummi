@@ -19,3 +19,11 @@
 2026-10-27T21:22:21+00:00	mark	review	last slice assess
 2026-10-27T21:22:33+00:00	bg-start	review	RDD review 4 (last slice)
 2026-10-27T21:23:27+00:00	bg-end	review	RDD review 4 (last slice)
+2026-10-27T21:24:14+00:00	mark	checks	final checks
+2026-10-27T21:24:39+00:00	bg-start	checks	final checks Windows and Linux
+2026-10-27T21:28:12+00:00	bg-end	checks	final checks Windows and Linux
+2026-10-27T21:29:43+00:00	bg-start	checks	final checks rerun
+2026-10-27T21:35:07+00:00	bg-end	checks	final checks rerun
+2026-10-27T21:35:20+00:00	bg-start	review	codex-R1
+2026-10-27T21:42:50+00:00	bg-end	review	codex-R1
+2026-10-27T21:44:49+00:00	mark	fix	codex R1

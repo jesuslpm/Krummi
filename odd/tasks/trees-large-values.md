@@ -188,3 +188,17 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   R2-duplicated-pattern-helper (integration tests cannot share a crate-private unit-test helper; one 4-line
   generator per side), R3-read-may-hold-run-uses-live-page-count (a weaker guard reachable only with a crafted
   checksum-valid leaf; wrong bytes still fail as damage).
+- **L13** (final checks): the first run failed one test on Windows, `runs.rs::a_read_keeps_a_run_that_later_writes_free_and_reuse`
+  at its pointer comparison, and could not run on Linux (`cargo` missing from the non-login shell of the parent's
+  script). The test raced the background transfer: it paused the transfer after the first commit, so the run could
+  already be in `krummi.data`; the bytes were right, only the pointer it compared had moved. It passed 8 of 8 alone.
+  Fixed in `46fdd12` (pause before the first commit; the other pointer tests already did). Rerun: `cargo fmt --all
+  --check` ok; `cargo clippy --workspace --all-targets -- -D warnings` ok; `cargo test --workspace` 369 passed, 0
+  failed, 13 ignored on Windows and on Linux (WSL 2 Ubuntu).
+- **L14** (Codex code review, round 1): `docs/reviews/trees-large-values/2026-10-27-code.md` over `27a5e5b..46fdd12`;
+  wrapper status `findings`, `threadId` `01a17f4a-20f3-75d1-a3c4-669c5f80a8fe`, coordinator `gpt-6.1-sol`/`high`,
+  reviewer `krummi-review-critical` `gpt-6-astra`/`xhigh`. One open finding, R1 (major): a chunk of the temporary
+  area made for one oversized run is kept until close and its capacity is not counted against the maximum size, so
+  repeated slightly larger overwrites grow `krummi.temp` past `max_size`. Verified against the code (`temp.rs` grows
+  a chunk of the run's size and releases chunks only when the area is removed): a demonstrated defect against the
+  PRD's *Dejado a la implementación* (that memory counts for the maximum size). Fix delegated (ODD Worker).
