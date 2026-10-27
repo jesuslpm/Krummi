@@ -235,6 +235,11 @@ T2 changes stored data on removal (high-risk item 1), so the independent verifie
   - R3-002 (SUGGESTION): the R1 test did not prove the injected failure was armed. Fixed: it asserts that the other
     end made no reservation (`testing::count(Op::Alloc) == 0`); with `range.rs` from before `f2bb44d` the test
     fails, with it the test passes.
+- **L19** (Codex follow-up, 2026-10-27, after the merge into `main`): `-FollowUp
+  docs/reviews/trees-scan/2026-10-26-code-02.md -FixRange 760eb0c..990689b`, wrapper status `approved`, report
+  [2026-10-27-code.md](../../docs/reviews/trees-scan/2026-10-27-code.md): "Approved: R1 and R2 are verified
+  resolved; no findings remain open in the requested follow-up scope." Recorded in
+  [2026-10-26-code-02-resolutions.md](../../docs/reviews/trees-scan/2026-10-26-code-02-resolutions.md).
 
 ## Closing
 

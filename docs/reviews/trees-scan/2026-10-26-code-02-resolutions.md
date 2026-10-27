@@ -38,3 +38,13 @@ Review record: [2026-10-26-code-02.md](2026-10-26-code-02.md), wrapper status `f
   (`10000 scans of 100 from random keys | 1000000`): Windows 0.09 s, Linux (WSL 2) 0.10 s. The full tables are in
   the closing report and in `odd/tasks/trees-scan.md` (L16).
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-27 (verification)
+
+Review record: [2026-10-27-code.md](2026-10-27-code.md), wrapper status `approved`, `threadId`
+`01a17c13-249a-7bc1-84bb-fcdecd02e913`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Fix range: `760eb0c..990689b`.
+
+- R1: "verified resolved — Exhausting one scan end leaves the other able to fail and invalidate a write".
+- R2: "verified resolved — The short-scan benchmark does not always measure 100 entries per scan".
+- Verdict: "Approved: R1 and R2 are verified resolved; no findings remain open in the requested follow-up scope."

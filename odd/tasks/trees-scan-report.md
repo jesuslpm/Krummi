@@ -30,8 +30,10 @@ Codex sin pedirlo y el arreglo de su guardia). Nada se ha subido. Último commit
   [2026-10-26-code-02-resolutions.md](../../docs/reviews/trees-scan/2026-10-26-code-02-resolutions.md). Una primera
   corrida, [2026-10-26-code.md](../../docs/reviews/trees-scan/2026-10-26-code.md), encontró lo mismo pero acabó como
   violación de la guardia por la caché del registro de skills; la guardia se corrigió (`261b539`) y la revisión se
-  repitió. **El seguimiento que verifica R1 y R2 no se pudo correr:** Codex agotó su cuota de uso ("try again at
-  10:53 PM"); R1 y R2 siguen corregidos sin verificar.
+  repitió. El seguimiento que verifica R1 y R2 no se pudo correr al cerrar porque Codex agotó su cuota de uso; se
+  corrió el 2026-10-27, ya fusionada la rama en `main`:
+  [2026-10-27-code.md](../../docs/reviews/trees-scan/2026-10-27-code.md) aprueba, con R1 y R2 verificados como
+  resueltos (L19).
 - **Revisiones y verificación:** cuatro revisiones RDD aprobadas (sección Revisiones RDD); verificador independiente
   sin bloqueantes (L13), con una prueba diferencial aleatoria contra `BTreeMap` de siete semillas (hasta 85.000
   entradas quitadas por semilla, con confirmaciones, abortos y reaperturas) y sondas de T10, tamaños y precedencia.
