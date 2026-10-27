@@ -69,7 +69,7 @@ Decisions within *Dejado a la implementación*:
 | T1 | S12 (format), pager part of S3, S8, S11 | delegated (context backstop) | done | `656acdf` |
 | T2 | transaction part of S3, S6, S8 | delegated (context backstop) | done | `244548d` |
 | T3 | S1, S2, S3, S4, S5, S7, S9, S10, S12 (leaf part) | delegated (context backstop) | done | `9a596b2` |
-| T4 | S6, S8, S11 (tree level) | delegated (context backstop) | pending | — |
+| T4 | S6, S8, S11 (tree level), L7 fixes | delegated (context backstop) | done | `d0be3f0` |
 | T5 | S13, S14 | delegated (context backstop) | pending | — |
 | T6 | docs, checks, verification, RDD review, Codex review, closing report | inline | pending | — |
 
@@ -158,3 +158,12 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   - R3-crafted-run-reference-edge-cases-untested (SUGGESTION): a checksum-valid leaf naming a run of length 0 or
     overlapping a tree node is only reachable with crafted bytes. Fix in T5: `is_valid` rejects an off-leaf length
     of 0, with a test that such references end as damage.
+- **L10** (T4, ODD Worker `opus`/`high`): AC-V6 with heights 2 → ≥4 → 3 and page reuse (`value_tests.rs`), AC-V8
+  crash sweep (`tree_integrity.rs`), T11 sweep over off-leaf values with four classes (`src/tests.rs`, sampled step
+  13; full sweep `#[ignore]`, run once, passed) and disk full / memory exhausted during the commit; AC10 sample with
+  a value run (23.2 s, was 18.3 s; the full `#[ignore]` sweep, about 2 h, not run). L7 fixes: (a) read-side
+  `may_hold_run` bounds the run by the store's pages, RED observed; (b) `Snapshot::run` damage branches tested; (c)
+  `stage` asserts whole pages, RED observed (the panic came from `temp.rs`). Item 5 left: a write reports misuse
+  only for a crafted checksum-valid leaf naming pages it changed; no sweep reaches it. Worker checks: fmt, clippy,
+  `cargo test --workspace` on Windows (about 4 min), `-p krummi -p krummi-tx` on Linux; parent spot check: the
+  AC-V8 unit tests pass. RDD: assessed `medium`, `under_budget` (pending in the slice after `9a596b2`).
