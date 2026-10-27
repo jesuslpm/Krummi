@@ -1,7 +1,8 @@
 //! Crashes, power cuts and altered bytes in stores with trees, on disk (Trees and key operations PRD: AC-A16; Trees
-//! PRD: AC-B18, its first part; In-order scan PRD: AC-R12, its first part; root PRD: AC10 repeated with the trees
-//! and their scans). The failures of T11 in the middle of a split, a merge or a range removal, the second part of
-//! AC-B18 and AC-R12, need the engine's hooks: they are in `src/tests.rs`.
+//! PRD: AC-B18, its first part; In-order scan PRD: AC-R12, its first part; Large values PRD: AC-V8, its first part,
+//! and AC-V11; root PRD: AC10 repeated with the trees, their scans and a value off its leaf). The failures of T11 in
+//! the middle of a split, a merge or a range removal, or at the page operations of values off their leaf, the second
+//! part of AC-B18, AC-R12 and AC-V8, need the engine's hooks: they are in `src/tests.rs`.
 //!
 //! The crash sweeps record the file operations of a run and rebuild, for every point of the tested commit, what a
 //! power cut (the models of `POWER_CUTS`) or a crash of the process (`Model::Written`: the system keeps every write
@@ -9,26 +10,17 @@
 
 #[path = "../../krummi-tx/tests/common/mod.rs"]
 mod common;
+mod support;
 
+use std::collections::BTreeSet;
 use std::fs;
 
 use common::{POWER_CUTS, Run};
 use krummi::{ErrorKind, OpenMode, Store, StoreOptions, TreeKind, WriteTransaction};
 use krummi_pager::DATA_FILE;
+use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use krummi_pager::testing::{self, Model};
-
-const NORMAL: TreeKind = TreeKind::Normal;
-
-fn open(folder: &std::path::Path) -> Store {
-    Store::open(folder, &StoreOptions::default()).unwrap()
-}
-
-/// A key of `len` bytes that starts with `i`, so that keys sort by `i`.
-fn long_key(i: usize, len: usize) -> Vec<u8> {
-    let mut key = format!("{i:05}").into_bytes();
-    key.resize(len, b'.');
-    key
-}
+use support::{NORMAL, long_key, open};
 
 /// What the tests see of a store's trees: each tree of the list with its count and what Leer finds for every key
 /// the test used, in order.
@@ -273,6 +265,69 @@ fn ac_r12_crashes_through_the_close() {
     range_removals(true);
 }
 
+/// A value of `len` bytes, different for each `seed`, whose pages never hold the same bytes.
+fn pattern(len: usize, seed: u8) -> Vec<u8> {
+    (0..len).map(|i| (i % 251) as u8 ^ seed).collect()
+}
+
+/// The crash sweep of AC-V8: over a tree whose leaves hold values in them and off them (keys of 100 bytes keep a
+/// value of up to 3,974 bytes in its leaf), a write that stores values off their leaf, overwrites them with larger
+/// and smaller ones and with values in their leaf, overwrites values in their leaf with values off it, and removes
+/// values off their leaf.
+fn values_off_their_leaf(through_close: bool) {
+    let key = |i: usize| long_key(i, 100);
+    let keys: Vec<Vec<u8>> = (0..16).map(key).collect();
+    // Off its leaf for odd `i`, in a run of one, two or three pages.
+    let before = |i: usize| match i % 2 {
+        1 => pattern(5_000 + i / 2 % 3 * PAGE_SIZE, i as u8),
+        _ => pattern(100, i as u8),
+    };
+    crash_sweep(
+        &keys,
+        through_close,
+        |store| {
+            let mut write = store.write().unwrap();
+            let tree = write
+                .open_tree_with("t", NORMAL, OpenMode::CreateNew)
+                .unwrap();
+            for i in 0..12 {
+                write.set(&tree, &key(i), &before(i)).unwrap();
+            }
+            write.commit().unwrap();
+        },
+        |write| {
+            let tree = write.open_tree("t", NORMAL).unwrap();
+            write.set(&tree, &key(1), &pattern(20_000, 101)).unwrap();
+            write.set(&tree, &key(5), &pattern(4_500, 105)).unwrap();
+            write.set(&tree, &key(3), b"in its leaf").unwrap();
+            write.set(&tree, &key(2), &pattern(9_000, 102)).unwrap();
+            assert!(write.remove(&tree, &key(7)).unwrap());
+            assert!(write.remove(&tree, &key(9)).unwrap());
+            for i in 12..16 {
+                write
+                    .set(&tree, &key(i), &pattern(6_000 * (i - 11), i as u8))
+                    .unwrap();
+            }
+        },
+    );
+}
+
+/// AC-V8, first part (V3, G1, G5, AC-B18): interrupted at every point where its commit writes or flushes, the write
+/// of [`values_off_their_leaf`] leaves every key with its value of before or that of after, all at once, and the
+/// count matching the keys found; the tree can be read and modified, values off their leaf included.
+#[test]
+fn ac_v8_crashes_during_a_commit_with_values_off_their_leaf() {
+    values_off_their_leaf(false);
+}
+
+/// AC-V8 also at every point of the close that moves that commit, its value runs included, into `krummi.data` (see
+/// above).
+#[test]
+#[ignore = "acceptance: every point of the commit and of the close that follows it"]
+fn ac_v8_crashes_through_the_close() {
+    values_off_their_leaf(true);
+}
+
 /// The entries a scan of the whole tree returns from one end until it ends or fails: a failure must be of the
 /// damage class, after which the scan returns nothing more from either end, and every entry before it must be
 /// the next one expected from that end.
@@ -315,16 +370,20 @@ fn check_scan(
     }
 }
 
-/// AC10 of the root PRD with trees (G6, D10): every altered byte of a small store with trees, read whole through
-/// the public API, gives the damage class, "not a store" (the mark) or no observable difference: the same trees,
-/// counts and values, never different ones. The suite alters one byte in `step`; the acceptance run, every byte.
+/// AC10 of the root PRD with trees (G6, D10), and with a value off its leaf (Large values PRD: AC-V11, V7): every
+/// altered byte of a small store with trees, read whole through the public API, gives the damage class, "not a store"
+/// (the mark) or no observable difference: the same trees, counts and values, never different ones, nor a value off
+/// its leaf with a different byte. The suite alters one byte in `step`, plus the header of the value's run and the
+/// first and last byte of each of its pages; the acceptance run, every byte.
 fn ac10_trees_sweep(step: usize) {
     // The sweep checks damage detection, not durability: its flushes to disk are skipped.
     testing::skip_syncs(true);
     let tmp = tempfile::tempdir().unwrap();
     let source = tmp.path().join("source");
     let store = open(&source);
-    // A tree of two levels or more, a small one and an empty one, after a second write that frees pages.
+    // A tree of two levels or more, a small one with a value off its leaf and an empty one, after a second write that
+    // frees pages: of the first tree, and the value's run of one page, which it overwrites with a run of two pages.
+    // The store keeps the size it had without the value, so that the sample costs what it did.
     type Entries = Vec<(Vec<u8>, Vec<u8>)>;
     let mut trees: Vec<(String, Entries)> = vec![
         (
@@ -338,6 +397,7 @@ fn ac10_trees_sweep(step: usize) {
             "small".into(),
             vec![
                 (b"k".to_vec(), b"v".to_vec()),
+                (b"large".to_vec(), pattern(5_000, 1)),
                 (b"none".to_vec(), Vec::new()),
             ],
         ),
@@ -357,8 +417,14 @@ fn ac10_trees_sweep(step: usize) {
     for (key, _) in trees[0].1.drain(..12) {
         assert!(write.remove(&big, &key).unwrap());
     }
+    let small = write.open_tree("small", NORMAL).unwrap();
+    let large = pattern(PAGE_SIZE + 100, 2);
+    write.set(&small, b"large", &large).unwrap();
+    trees[2].1[1].1 = large;
     write.commit().unwrap();
     store.close().unwrap();
+    let (first, count) = support::value_run(&source, "small", b"large").unwrap();
+    assert_eq!(count, 2, "the value is off its leaf, in a run of two pages");
 
     let pristine = fs::read(source.join(DATA_FILE)).unwrap();
     let copy = tmp.path().join("copy");
@@ -367,7 +433,17 @@ fn ac10_trees_sweep(step: usize) {
     let damaged = |error: krummi::Error, offset: usize| {
         assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}: {error}");
     };
-    for offset in (0..pristine.len()).step_by(step) {
+    let run = first as usize * PAGE_SIZE..(first + count) as usize * PAGE_SIZE;
+    let edges = run
+        .clone()
+        .step_by(PAGE_SIZE)
+        .flat_map(|page| [page, page + PAGE_SIZE - 1]);
+    let offsets: BTreeSet<usize> = (0..pristine.len())
+        .step_by(step)
+        .chain(run.start..run.start + PAGE_HEADER_SIZE)
+        .chain(edges)
+        .collect();
+    for offset in offsets {
         let mut bytes = pristine.clone();
         bytes[offset] ^= 0xFF;
         fs::write(copy.join(DATA_FILE), &bytes).unwrap();

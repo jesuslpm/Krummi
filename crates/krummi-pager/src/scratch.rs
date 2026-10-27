@@ -1029,8 +1029,12 @@ impl<'a> ScratchWriter<'a> {
         for (first, run) in runs {
             let count = (run.len() / PAGE_SIZE) as u64;
             assert!(
-                *first >= HEADER_PAGES && first + count <= page_count,
-                "the run of {count} pages from page {first} cannot be published"
+                count > 0
+                    && run.len().is_multiple_of(PAGE_SIZE)
+                    && *first >= HEADER_PAGES
+                    && first + count <= page_count,
+                "the run of {} bytes from page {first} cannot be published",
+                run.len()
             );
             let slots = Arc::new(scratch.shared.area.store_run(run, pager)?);
             staged.extend(

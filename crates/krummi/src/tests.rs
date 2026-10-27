@@ -1,5 +1,6 @@
 //! What the public tests cannot reach without the engine's test hooks: a store that refuses writes (T12) while a
-//! write transaction is open.
+//! write transaction is open, and the failures of T11 at the page operations of a write (AC-B18, AC-R12, AC-R13 and,
+//! with values off their leaf, AC-V8) and during its commit.
 
 use std::io;
 use std::thread;
@@ -7,6 +8,7 @@ use std::thread;
 use krummi_pager::testing::{self, Action, Op};
 
 use super::*;
+use crate::value_tests::mixed_value;
 
 /// AC-B4 (B7, T12): once the store refuses writes, an invalid size in the open write still fails with its own
 /// class, not with the I/O class, and committing that write without changes ends without error.
@@ -65,7 +67,7 @@ fn ac_b4_an_invalid_size_in_a_store_that_refuses_writes() {
 
 /// A key of 2,048 bytes that starts with `i`: three fit in a leaf and three in a branch, so a few dozen of them
 /// build a tree of several levels.
-fn long_key(i: usize) -> Vec<u8> {
+pub(crate) fn long_key(i: usize) -> Vec<u8> {
     let mut key = format!("{i:05}").into_bytes();
     key.resize(krummi_tree::MAX_KEY, b'.');
     key
@@ -180,6 +182,7 @@ fn scan_whole(
 fn t11_sweep(step: u64) {
     t11_sweep_of(
         step,
+        named,
         splits_and_merges,
         &[Class::DiskFull, Class::MaxSize],
         700,
@@ -198,7 +201,7 @@ fn t11_sweep(step: u64) {
 /// class and applies nothing (the rest as in [`t11_sweep`]).
 fn t11_range_sweep(step: u64) {
     let classes = [Class::DiskFull, Class::MaxSize, Class::Io];
-    t11_sweep_of(step, range_removals, &classes, 500, |store| {
+    t11_sweep_of(step, named, range_removals, &classes, 500, |store| {
         let read = store.read().unwrap();
         let tree = read.open_tree("t", TreeKind::Normal).unwrap();
         assert_eq!(read.len(&tree).unwrap(), 15, "0 to 4 and 30 to 39");
@@ -207,11 +210,201 @@ fn t11_range_sweep(step: u64) {
     });
 }
 
+/// The value of entry `i` of the tree `name` before the write of [`values_off_their_leaf`]: off its leaf for odd `i`,
+/// in a run of one, two or three pages, and in its leaf for even `i`, different in each tree.
+fn mixed(name: &str, i: usize) -> Vec<u8> {
+    mixed_value(i, name.as_bytes()[0])
+}
+
+/// A value off its leaf for any `i`, in a run of one, two or three pages.
+fn off_leaf(i: usize) -> Vec<u8> {
+    mixed_value(2 * i + 1, 9)
+}
+
+/// The write of the T11 sweep with values off their leaf (Large values PRD: AC-V8), over the tree `t` of [`mixed`]:
+/// it overwrites values off their leaf with larger and smaller ones and with a value in its leaf, a value in its leaf
+/// with one off it, reads values off their leaf, adds over one (which reserves nothing, V1) and removes it, stores new
+/// ones whose leaves split, and removes an interval that holds some. It goes on after a failure (T11).
+fn values_off_their_leaf(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
+    let tree = match write.open_tree("t", TreeKind::Normal) {
+        Ok(tree) => tree,
+        Err(error) => return vec![Err(error)],
+    };
+    let mut results = Vec::new();
+    let overwrites = [
+        (1, off_leaf(2)),
+        (5, off_leaf(1)),
+        (3, b"in its leaf".to_vec()),
+        (0, off_leaf(0)),
+    ];
+    for (i, value) in overwrites {
+        results.push(write.set(&tree, &long_key(i), &value));
+    }
+    for i in [1, 7, 11] {
+        results.push(write.get(&tree, &long_key(i)).map(drop));
+    }
+    results.push(write.try_add(&tree, &long_key(9), &off_leaf(3)).map(drop));
+    results.push(write.remove(&tree, &long_key(9)).map(drop));
+    for i in 12..20 {
+        results.push(write.set(&tree, &long_key(i), &off_leaf(i)));
+    }
+    let (lower, upper) = (long_key(4), long_key(7));
+    results.push(write.remove_range(&tree, &lower[..]..&upper[..]).map(drop));
+    results
+}
+
+/// Checks the tree `t` once the write of [`values_off_their_leaf`] committed.
+fn values_off_their_leaf_committed(store: &Store) {
+    let read = store.read().unwrap();
+    let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+    assert_eq!(read.len(&tree).unwrap(), 16, "0 to 3, 7, 8, 10 to 19");
+    let get = |i: usize| read.get(&tree, &long_key(i)).unwrap().map(<[u8]>::to_vec);
+    assert_eq!(get(1), Some(off_leaf(2)));
+    assert_eq!(get(3), Some(b"in its leaf".to_vec()));
+    assert_eq!(get(5), None);
+    assert_eq!(get(7), Some(mixed("t", 7)));
+    assert_eq!(get(9), None);
+    assert_eq!(get(19), Some(off_leaf(19)));
+}
+
+/// AC-V8, second part (V8, T11, AC-B18): a failure of disk full, maximum size, memory exhausted or input and output
+/// at each point where the write of [`values_off_their_leaf`] reserves (a value run included), reads or frees a page,
+/// or where its commit writes the catalog, fails that operation; the commit fails with that class and applies
+/// nothing, and after the abort, or that failed commit, the trees and their counts are as before and a new write
+/// works (the rest as in [`t11_sweep`]).
+fn t11_values_sweep(step: u64) {
+    let classes = [
+        Class::DiskFull,
+        Class::MaxSize,
+        Class::OutOfMemory,
+        Class::Io,
+    ];
+    t11_sweep_of(
+        step,
+        mixed,
+        values_off_their_leaf,
+        &classes,
+        140,
+        values_off_their_leaf_committed,
+    );
+}
+
+/// AC-V8 at every 13th point of the write with values off their leaf.
+#[test]
+fn ac_v8_a_failure_at_a_sample_of_page_operations_with_values_off_their_leaf_applies_nothing() {
+    t11_values_sweep(13);
+}
+
+/// `cargo test -p krummi --lib -- --ignored ac_v8_a_failure_at_every`.
+#[test]
+#[ignore = "acceptance: a failure at every page operation of the write and its commit"]
+fn ac_v8_a_failure_at_every_page_operation_with_values_off_their_leaf_applies_nothing() {
+    t11_values_sweep(1);
+}
+
+/// Bytes of `len` that do not compress, different for each `seed`, so that a journal record holding them is as long.
+fn noise(len: usize, seed: u64) -> Vec<u8> {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+/// AC-V8, third part (V8, G7, P13, T11): the write of [`values_off_their_leaf`] plus, in the tree `other`, a value
+/// off its leaf larger than
+/// a journal file and than the first chunk of the temporary area, so that its commit makes the temporary area grow
+/// and creates a journal file for its record. Running out of disk where the commit grows the temporary area or creates
+/// that file (on disk), or out of memory where it reserves memory (on disk and in a temporary store), at each such
+/// point, fails the commit with that class and applies nothing, and a new write works.
+#[test]
+fn ac_v8_a_full_disk_or_no_memory_during_the_commit_of_values_off_their_leaf_applies_nothing() {
+    use krummi_pager::format::PAGE_SIZE;
+    let tmp = tempfile::tempdir().unwrap();
+    let large = noise(48 * PAGE_SIZE, 7);
+    let keys = sweep_keys();
+    for (on_disk, op, io_kind, class) in [
+        (
+            true,
+            Op::Temp,
+            io::ErrorKind::StorageFull,
+            ErrorKind::DiskFull,
+        ),
+        (
+            true,
+            Op::Reserve,
+            io::ErrorKind::StorageFull,
+            ErrorKind::DiskFull,
+        ),
+        (
+            true,
+            Op::Alloc,
+            io::ErrorKind::OutOfMemory,
+            ErrorKind::OutOfMemory,
+        ),
+        (
+            false,
+            Op::Alloc,
+            io::ErrorKind::OutOfMemory,
+            ErrorKind::OutOfMemory,
+        ),
+    ] {
+        let store = if on_disk {
+            let folder = tmp.path().join(format!("{op:?}"));
+            Store::open(&folder, &StoreOptions::default()).unwrap()
+        } else {
+            Store::open_temporary(&StoreOptions::default()).unwrap()
+        };
+        create_trees(&store, mixed);
+        let before = trees_seen(&store, &keys);
+        let mut failures = 0;
+        loop {
+            let label = format!("{op:?} on disk {on_disk}, failure {failures}");
+            let mut write = store.write().unwrap();
+            let mut results = values_off_their_leaf(&mut write);
+            let other = write.open_tree("other", TreeKind::Normal).unwrap();
+            results.push(write.set(&other, b"large", &large));
+            assert!(results.iter().all(Result::is_ok), "{label}");
+            testing::reset();
+            testing::inject(op, failures, Action::Fail(io_kind));
+            let committed = write.commit();
+            let fired = testing::count(op) > failures;
+            testing::reset();
+            match committed {
+                Ok(()) => {
+                    values_off_their_leaf_committed(&store);
+                    let read = store.read().unwrap();
+                    let other = read.open_tree("other", TreeKind::Normal).unwrap();
+                    assert!(read.get(&other, b"large").unwrap() == Some(&large[..]));
+                    break;
+                }
+                Err(error) => {
+                    assert!(fired, "{label}: {error}");
+                    assert_eq!(error.kind(), class, "{label}: {error}");
+                    assert!(
+                        trees_seen(&store, &keys) == before,
+                        "{label}: nothing applied"
+                    );
+                    a_new_write_works(&store, mixed, &label);
+                    failures += 1;
+                }
+            }
+        }
+        assert!(failures > 0, "{op:?}: the commit failed at least once");
+        store.close().unwrap();
+    }
+}
+
 /// The failures a T11 sweep injects, in turns.
 #[derive(Clone, Copy)]
 enum Class {
     DiskFull,
     MaxSize,
+    OutOfMemory,
     Io,
 }
 
@@ -225,6 +418,7 @@ impl Class {
                 max_size: 1 << 20,
                 needed: 2 << 20,
             },
+            Class::OutOfMemory => Error::OutOfMemory { requested: 1 << 20 },
             Class::Io => Error::Io {
                 folder: folder.to_path_buf(),
                 source: io::Error::other("injected"),
@@ -233,11 +427,52 @@ impl Class {
     }
 }
 
-/// The T11 sweep of the write `change` on a store with the trees `other` and `t` of 12 entries each, with the
-/// failures of `classes` in turns; the write must have more than `min_points` points, and `finished` checks the
-/// store once it commits.
+/// The value of entry `i` of the tree `name` before the write of a T11 sweep: the tree's name, in its leaf.
+fn named(name: &str, _: usize) -> Vec<u8> {
+    name.as_bytes().to_vec()
+}
+
+/// The keys the T11 sweeps look up: every key their writes use.
+fn sweep_keys() -> Vec<Vec<u8>> {
+    (0..48).chain([100]).map(long_key).collect()
+}
+
+/// Commits the trees `other` and `t` of 12 entries each, the value of entry `i` of tree `name` being `value(name, i)`.
+fn create_trees(store: &Store, value: fn(&str, usize) -> Vec<u8>) {
+    let mut write = store.write().unwrap();
+    for name in ["other", "t"] {
+        let tree = write
+            .open_tree_with(name, TreeKind::Normal, OpenMode::CreateNew)
+            .unwrap();
+        for i in 0..12 {
+            write.set(&tree, &long_key(i), &value(name, i)).unwrap();
+        }
+    }
+    write.commit().unwrap();
+}
+
+/// Checks that a new write reads, modifies and commits the tree `t` of [`create_trees`], unchanged.
+fn a_new_write_works(store: &Store, value: fn(&str, usize) -> Vec<u8>, label: &str) {
+    let mut write = store.write().unwrap();
+    let tree = write.open_tree("t", TreeKind::Normal).unwrap();
+    assert_eq!(write.len(&tree).unwrap(), 12, "{label}");
+    write.set(&tree, b"probe", b"x").unwrap();
+    let last = value("t", 11);
+    assert_eq!(
+        write.get(&tree, &long_key(11)).unwrap(),
+        Some(&last[..]),
+        "{label}"
+    );
+    assert!(write.remove(&tree, b"probe").unwrap());
+    write.commit().unwrap();
+}
+
+/// The T11 sweep of the write `change` on a store with the trees `other` and `t` of 12 entries each, the value of
+/// entry `i` of tree `name` being `value(name, i)`, with the failures of `classes` in turns; the write must have more
+/// than `min_points` points, and `finished` checks the store once it commits.
 fn t11_sweep_of(
     step: u64,
+    value: fn(&str, usize) -> Vec<u8>,
     change: fn(&mut WriteTransaction<'_>) -> Vec<Result<()>>,
     classes: &[Class],
     min_points: u64,
@@ -248,18 +483,9 @@ fn t11_sweep_of(
     let tmp = tempfile::tempdir().unwrap();
     let on_disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     let in_memory = Store::open_temporary(&StoreOptions::default()).unwrap();
-    let keys: Vec<Vec<u8>> = (0..48).chain([100]).map(long_key).collect();
+    let keys = sweep_keys();
     for store in [&on_disk, &in_memory] {
-        let mut write = store.write().unwrap();
-        for name in ["other", "t"] {
-            let tree = write
-                .open_tree_with(name, TreeKind::Normal, OpenMode::CreateNew)
-                .unwrap();
-            for i in 0..12 {
-                write.set(&tree, &long_key(i), name.as_bytes()).unwrap();
-            }
-        }
-        write.commit().unwrap();
+        create_trees(store, value);
         let before = trees_seen(store, &keys);
         let mut points = 0;
         loop {
@@ -299,13 +525,7 @@ fn t11_sweep_of(
                 trees_seen(store, &keys) == before,
                 "{label}: nothing applied"
             );
-            let mut write = store.write().unwrap();
-            let tree = write.open_tree("t", TreeKind::Normal).unwrap();
-            assert_eq!(write.len(&tree).unwrap(), 12, "{label}");
-            write.set(&tree, b"probe", b"x").unwrap();
-            assert_eq!(write.get(&tree, &long_key(11)).unwrap(), Some(&b"t"[..]));
-            assert!(write.remove(&tree, b"probe").unwrap());
-            write.commit().unwrap();
+            a_new_write_works(store, value, &label);
             points += step;
         }
         assert!(points > min_points, "{points} points");

@@ -5,7 +5,7 @@ use std::io;
 
 use super::*;
 use crate::error::ErrorKind;
-use crate::format::seal_page;
+use crate::format::{seal_page, seal_run};
 use crate::pager::OpenOptions;
 use crate::sys::Op;
 use crate::sys::faults::{self, Action};
@@ -202,6 +202,60 @@ fn a_snapshot_can_run_out_of_memory() {
         faults::reset();
         assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "a");
     });
+}
+
+/// A run of `count` pages from page `first`, sealed (D1 of the large values execution), whose content is `fill`.
+fn sealed_run(first: u64, count: u64, fill: u8) -> RunBuf {
+    let mut run = alloc_run(count).unwrap();
+    run[PAGE_HEADER_SIZE..].fill(fill);
+    seal_run(first, &mut run);
+    run
+}
+
+/// V7 of the large values PRD, D5 of its execution: a snapshot reads a run only whole and from one place. Asking for
+/// a published run with fewer or more pages than it has, from one of its middle pages, or over a range that starts
+/// in the store and ends in the run's versions of the temporary area, is the damage class with the first page asked
+/// for; the run itself reads back whole.
+#[test]
+fn a_run_is_read_only_whole_and_from_one_place() {
+    both_modes(|scratch| {
+        let first = PAGE + 2;
+        scratch.pager().ensure_pages(first + 4).unwrap();
+        let mut writer = scratch.begin_write().unwrap();
+        let staged = writer
+            .stage(&[], &[(first, sealed_run(first, 3, 7))])
+            .unwrap();
+        writer.publish(staged);
+        drop(writer);
+        let snapshot = scratch.snapshot().unwrap();
+        let run = snapshot.run(first, 3).unwrap();
+        assert_eq!(run.len(), 3 * PAGE_SIZE);
+        assert!(run[PAGE_HEADER_SIZE..].iter().all(|&b| b == 7));
+        let damaged = |at: u64, count: u64| match snapshot.run(at, count) {
+            Err(Error::Damaged { page, .. }) => page,
+            other => panic!("expected damage, got {other:?}"),
+        };
+        assert_eq!(damaged(first, 2), Some(first), "fewer pages than the run");
+        assert_eq!(damaged(first, 4), Some(first), "more pages than the run");
+        assert_eq!(damaged(first + 1, 2), Some(first + 1), "a middle page");
+        assert_eq!(
+            damaged(first - 1, 4),
+            Some(first - 1),
+            "partly in the store and partly in the temporary area"
+        );
+    });
+}
+
+/// The run that [`ScratchWriter::stage`] gets must be whole pages, as its documentation says: part of a page is a
+/// misuse that panics before anything is staged.
+#[test]
+#[should_panic(expected = "cannot be published")]
+fn staging_a_run_that_is_not_whole_pages_panics() {
+    let scratch = store(None);
+    scratch.pager().ensure_pages(PAGE + 3).unwrap();
+    let writer = scratch.begin_write().unwrap();
+    let run: RunBuf = vec![0; PAGE_SIZE + 1].into_boxed_slice();
+    let _ = writer.stage(&[], &[(PAGE + 1, run)]);
 }
 
 #[test]

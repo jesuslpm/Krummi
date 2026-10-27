@@ -332,6 +332,34 @@ fn a_run_freed_in_its_own_write_is_dropped_and_its_pages_are_not_pages() {
     });
 }
 
+/// G6, V7: a read, like a write, takes a run named in a leaf as one that may hold data only when the whole run lies
+/// within the pages it can see: a run that starts in the store and ends beyond it, or whose end overflows, cannot.
+#[test]
+fn a_run_that_only_partly_fits_in_the_store_cannot_hold_data() {
+    both(|engine| {
+        let place = with_run(engine);
+        let read = engine.read().unwrap();
+        let pages = engine.info().page_count;
+        assert!(read.may_hold_run(place.first, place.count));
+        assert!(read.may_hold_run(pages - 1, 1), "the last page");
+        assert!(
+            !read.may_hold_run(pages - 1, 2),
+            "one page beyond the store"
+        );
+        assert!(
+            !read.may_hold_run(place.first, pages),
+            "it ends beyond the store"
+        );
+        assert!(
+            !read.may_hold_run(place.first, u64::MAX),
+            "its end overflows"
+        );
+        assert!(!read.may_hold_run(place.first, 0), "no pages");
+        let tx = engine.write(None).unwrap();
+        assert!(!tx.may_hold_run(place.first, pages), "as the write sees it");
+    });
+}
+
 /// T14, P10: a run counts against the maximum size exactly as the same number of pages does, while the write holds
 /// it and once it is committed.
 #[test]

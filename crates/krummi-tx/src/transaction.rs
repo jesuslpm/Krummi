@@ -53,9 +53,12 @@ impl<'e> ReadTransaction<'e> {
     }
 
     /// Whether a value run of `count` pages from page `first` may hold data of the layers above, as
-    /// [`may_hold_data`](Self::may_hold_data) for each of its pages.
+    /// [`may_hold_data`](Self::may_hold_data) for each of its pages: the whole run lies within the store's pages.
     pub fn may_hold_run(&self, first: u64, count: u64) -> bool {
-        count > 0 && first.checked_add(count).is_some() && self.may_hold_data(first)
+        let page_count = self.snapshot.scratch().pager().page_count();
+        first
+            .checked_add(count)
+            .is_some_and(|end| count > 0 && self.may_hold_data(first) && end <= page_count)
     }
 
     /// Slot `slot` of the meta page as this transaction sees it; `0` if it was never set.

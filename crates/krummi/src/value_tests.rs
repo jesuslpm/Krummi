@@ -1,15 +1,17 @@
 //! Large values where the public tests cannot see without the engine's test hooks: where the reference to a value
-//! off its leaf points (AC-V3) and a value that goes to the frontier because the free pages are scattered (AC-V9).
+//! off its leaf points (AC-V3), the tree's height and the value runs while a read keeps its values and writes free
+//! and reuse their pages (AC-V6), and a value that goes to the frontier because the free pages are scattered (AC-V9).
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use krummi_tx::Memory;
 
 use super::*;
+use crate::tests::long_key;
 
 const NORMAL: TreeKind = TreeKind::Normal;
 
 /// A value of `len` bytes, different for each `seed`, whose pages never hold the same bytes.
-fn pattern(len: usize, seed: u8) -> Vec<u8> {
+pub(crate) fn pattern(len: usize, seed: u8) -> Vec<u8> {
     (0..len).map(|i| (i % 251) as u8 ^ seed).collect()
 }
 
@@ -111,6 +113,191 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
     let bytes = get(&read, b"k");
     assert!(bytes == &value[..]);
     assert_eq!(store.engine.memory_of(bytes), Some(Memory::Data));
+}
+
+/// The value of entry `i` of generation `seed`: off its leaf for odd `i`, in a run of one, two or three pages, and in
+/// its leaf for even `i`. With [`long_key`], three entries fit in a leaf and three in a branch whatever their values
+/// (an entry off its leaf keeps its key in the leaf), so a few dozen make a tree of several levels.
+pub(crate) fn mixed_value(i: usize, seed: u8) -> Vec<u8> {
+    let len = if i % 2 == 1 {
+        3_000 + (i / 2 % 3) * PAGE_SIZE
+    } else {
+        100 + i
+    };
+    pattern(len, seed ^ i as u8)
+}
+
+/// The root of the tree `t` in `write`, with the write's changes: the catalog has it only once the write commits.
+fn root_in(write: &WriteTransaction<'_>) -> u64 {
+    let trees = write.trees.borrow();
+    trees.0.iter().find(|tree| tree.name == "t").unwrap().root
+}
+
+/// The height of the tree `t` committed as `read` sees it.
+fn height_in_read(read: &ReadTransaction<'_>) -> u8 {
+    let root = catalog::lookup(&read.inner, "t").unwrap().unwrap().root;
+    krummi_tree::height(&read.inner, root).unwrap()
+}
+
+/// The height of the tree `t` in `write`, with its changes.
+fn height_in_write(write: &WriteTransaction<'_>) -> u8 {
+    krummi_tree::height(&write.inner, root_in(write)).unwrap()
+}
+
+type Model = std::collections::BTreeMap<Vec<u8>, Vec<u8>>;
+
+/// Checks that `read` sees exactly `model` in the tree `t`: through Leer of every key of the model and of `absent`,
+/// its count, and a scan of the whole tree.
+#[track_caller]
+fn check_snapshot(read: &ReadTransaction<'_>, model: &Model, absent: &[Vec<u8>], label: &str) {
+    let tree = read.open_tree("t", NORMAL).unwrap();
+    for (key, value) in model {
+        let found = read.get(&tree, key).unwrap();
+        assert!(found == Some(&value[..]), "{label}: {} bytes", value.len());
+    }
+    for key in absent.iter().filter(|key| !model.contains_key(*key)) {
+        assert_eq!(read.get(&tree, key).unwrap(), None, "{label}");
+    }
+    assert_eq!(read.len(&tree).unwrap(), model.len() as u64, "{label}");
+    let scanned: Vec<(Vec<u8>, Vec<u8>)> = read
+        .range(&tree, ..)
+        .unwrap()
+        .map(|entry| entry.map(|(k, v)| (k.to_vec(), v.to_vec())).unwrap())
+        .collect();
+    assert!(
+        scanned == model.clone().into_iter().collect::<Vec<_>>(),
+        "{label}: the scan"
+    );
+}
+
+/// Whether two runs, as (first page, pages), share a page.
+fn overlap((a, m): (u64, u64), (b, n): (u64, u64)) -> bool {
+    a < b + n && b < a + m
+}
+
+/// AC-V6 (V2, G3, T14, T16, AC-B17): a read holds references to values off their leaf, and a scan half consumed,
+/// while a write overwrites and removes those values and splits and merges leaves holding values in and off them
+/// until the tree's height changes, and commits; another write then reuses the pages the first one freed (F6). The
+/// read's references keep their bytes, and it keeps reading and scanning exactly its snapshot, also once the writes
+/// are transferred; a new read sees the writes' values. With keys of 2,048 bytes, three to a leaf and to a branch, 6
+/// entries make two levels, 90 at least four, and the 14 left at the end fewer.
+#[test]
+fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_their_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    for store in [
+        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        Store::open_temporary(&StoreOptions::default()).unwrap(),
+    ] {
+        let engine = &store.engine;
+        let keys: Vec<Vec<u8>> = (0..90).chain(200..230).map(long_key).collect();
+        let snapshot: Model = (0..6).map(|i| (long_key(i), mixed_value(i, 1))).collect();
+        let mut write = store.write().unwrap();
+        let tree = write
+            .open_tree_with("t", NORMAL, OpenMode::CreateNew)
+            .unwrap();
+        for (key, value) in &snapshot {
+            write.set(&tree, key, value).unwrap();
+        }
+        write.commit().unwrap();
+        // In `krummi.data` or the temporary store's memory, where reusing their pages writes over them.
+        assert!(engine.transfer_now());
+
+        let read = store.read().unwrap();
+        let rtree = read.open_tree("t", NORMAL).unwrap();
+        let references: Vec<&[u8]> = snapshot
+            .keys()
+            .map(|key| read.get(&rtree, key).unwrap().unwrap())
+            .collect();
+        let old_runs: Vec<(u64, u64)> = (1..6)
+            .step_by(2)
+            .map(|i| run_of(&read.inner, &long_key(i)))
+            .collect();
+        let start = height_in_read(&read);
+        assert_eq!(start, 2);
+        let mut half = read.range(&rtree, ..).unwrap();
+        let mut scanned: Vec<(Vec<u8>, Vec<u8>)> = half
+            .by_ref()
+            .take(2)
+            .map(|entry| entry.map(|(k, v)| (k.to_vec(), v.to_vec())).unwrap())
+            .collect();
+
+        let mut model = snapshot.clone();
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        let changes: [(usize, Option<Vec<u8>>); 4] = [
+            (0, Some(mixed_value(1, 2))),
+            (1, Some(pattern(3 * PAGE_SIZE, 2))),
+            (3, Some(b"in its leaf now".to_vec())),
+            (5, None),
+        ];
+        for (i, value) in changes {
+            match value {
+                Some(value) => {
+                    write.set(&tree, &long_key(i), &value).unwrap();
+                    model.insert(long_key(i), value);
+                }
+                None => {
+                    assert!(write.remove(&tree, &long_key(i)).unwrap());
+                    model.remove(&long_key(i));
+                }
+            }
+        }
+        for i in 6..90 {
+            write.set(&tree, &long_key(i), &mixed_value(i, 2)).unwrap();
+        }
+        let tallest = height_in_write(&write);
+        assert!(tallest >= 4, "{tallest} levels");
+        check_snapshot(&read, &snapshot, &keys, "while the tree grows");
+        for i in 6..90 {
+            if i % 9 == 0 {
+                model.insert(long_key(i), mixed_value(i, 2));
+            } else {
+                assert!(write.remove(&tree, &long_key(i)).unwrap());
+            }
+        }
+        let end = height_in_write(&write);
+        assert!(end < tallest && end != start, "{start}, {tallest}, {end}");
+        write.commit().unwrap();
+
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("t", NORMAL).unwrap();
+        let mut new_runs = Vec::new();
+        for i in 200..230 {
+            let value = mixed_value(2 * i + 1, 3);
+            write.set(&tree, &long_key(i), &value).unwrap();
+            let root = root_in(&write);
+            new_runs.push(
+                krummi_tree::run_of(&write.inner, root, &long_key(i))
+                    .unwrap()
+                    .unwrap(),
+            );
+            model.insert(long_key(i), value);
+        }
+        assert!(
+            old_runs
+                .iter()
+                .any(|&old| new_runs.iter().any(|&new| overlap(old, new))),
+            "the pages of the read's values are reused: {old_runs:?} {new_runs:?}"
+        );
+        write.commit().unwrap();
+
+        for transfer in [false, true] {
+            if transfer {
+                assert!(engine.transfer_now());
+            }
+            for (reference, value) in references.iter().zip(snapshot.values()) {
+                assert!(*reference == &value[..], "a reference changed");
+            }
+            check_snapshot(&read, &snapshot, &keys, "the old read");
+            check_snapshot(&store.read().unwrap(), &model, &keys, "a new read");
+        }
+        scanned.extend(half.map(|entry| entry.map(|(k, v)| (k.to_vec(), v.to_vec())).unwrap()));
+        assert!(scanned == snapshot.clone().into_iter().collect::<Vec<_>>());
+        drop(read);
+        assert!(engine.transfer_now());
+        check_snapshot(&store.read().unwrap(), &model, &keys, "after the read");
+        store.close().unwrap();
+    }
 }
 
 /// The pages of the value AC-V9 stores: more than any hole the scattered free pages leave.
