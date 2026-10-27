@@ -145,3 +145,16 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   crate tests on Linux; parent spot check: `tree_values` 7 passed. Note for T4: `WriteTransaction::run` reports
   misuse, not damage, for a checksum-valid leaf that names pages the write changed or freed (only reachable with a
   crafted leaf).
+- **L9** (RDD review 3): commit `9a596b2` (base `244548d`), assessed `high`, raised with `--escalate-item 1`
+  (stored values written and freed). Lenses risk, reliability, readability; lineage `review-27cf815bcee22c3d`;
+  **approved**, acknowledged, authority burned. Advisory findings, all non-blocking:
+  - R1-free-subtree-now-reads-leaves and R3-free-subtree-now-reads-every-leaf (WARNING): emptying, deleting,
+    removing an inner subtree or rename-overwriting a tree now reads every leaf, so a damaged leaf makes them fail
+    where the baseline read only branches. Accepted: A9 lets those operations fail with damage on any page of the
+    tree and V7 protects only value pages; a per-tree "has off-leaf values" marker would be a format addition for a
+    damaged-store case, out of this PRD. Recorded for the closing report.
+  - R2-change-leaf-len-shadowing (WARNING), R2-duplicated-cell-header-constant, R2-test-hooks-in-public-api and
+    R2-free-runs-split-protocol (SUGGESTION): readability. Fix in T5, which changes the same code.
+  - R3-crafted-run-reference-edge-cases-untested (SUGGESTION): a checksum-valid leaf naming a run of length 0 or
+    overlapping a tree node is only reachable with crafted bytes. Fix in T5: `is_valid` rejects an off-leaf length
+    of 0, with a test that such references end as damage.
