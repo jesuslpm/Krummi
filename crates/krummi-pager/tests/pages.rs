@@ -1,5 +1,6 @@
 //! Pages, growth, maximum size, temporary mode and zero-copy reads (Pager PRD: P10–P13, P15; AC-P10–AC-P14,
-//! AC-P17; parent AC10, AC14, AC20).
+//! AC-P17; parent AC10, AC14, AC20), and the value runs of the large values PRD in the Pager (its part of AC-V3 and
+//! AC-V11: contiguous reads without a copy, also across a growth in temporary mode, and damage).
 
 mod common;
 
@@ -7,7 +8,9 @@ use std::fs;
 use std::process::Command;
 
 use common::{file_bytes, open};
-use krummi_pager::format::{HEADER_PAGES, MARK, PAGE_PAYLOAD_SIZE, PAGE_SIZE};
+use krummi_pager::format::{
+    HEADER_PAGES, MARK, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, seal_run,
+};
 use krummi_pager::{DATA_FILE, Error, ErrorKind, INITIAL_SIZE, OpenOptions, Pager};
 
 const PAGE: u64 = PAGE_SIZE as u64;
@@ -165,7 +168,7 @@ fn ac_p14_a_temporary_store_works_and_respects_its_maximum_size() {
     assert!(info.temporary);
     assert_eq!(
         (info.format_version, info.page_size, info.size_bytes),
-        (6, 8192, INITIAL_SIZE)
+        (7, 8192, INITIAL_SIZE)
     );
     let mut page = HEADER_PAGES;
     let error = loop {
@@ -275,6 +278,131 @@ fn ac20_page_reads_point_into_the_mapping_without_copying() {
         PAGE_SIZE,
         "consecutive pages are consecutive in the mapping"
     );
+}
+
+/// A run of `pages` pages sealed for `first`: a value of all its bytes but the last 100, which stay zero.
+fn sealed_run(first: u64, pages: usize) -> Vec<u8> {
+    let mut run = vec![0; pages * PAGE_SIZE];
+    let end = run.len() - 100;
+    for (i, b) in run[PAGE_HEADER_SIZE..end].iter_mut().enumerate() {
+        *b = (i as u64 * 13 + first) as u8;
+    }
+    seal_run(first, &mut run);
+    run
+}
+
+/// Page 2 sealed, then a run of 5 pages at pages 6 to 10, reserved by the growth from the initial 8 pages: the run
+/// starts in the memory the store had and ends in the memory the growth added.
+fn store_with_a_run_across_a_growth(pager: &mut Pager) -> Vec<u8> {
+    write(pager, 2).unwrap();
+    assert_eq!(pager.page_count(), INITIAL_SIZE / PAGE);
+    pager.ensure_pages(11).unwrap();
+    let run = sealed_run(6, 5);
+    pager.write_run(6, &run).unwrap();
+    run
+}
+
+/// The run at page 6 is one contiguous sequence in the store's memory, without a copy: where page 2 is plus four
+/// pages, and the same memory on every read.
+fn assert_run_in_place(pager: &Pager, run: &[u8]) {
+    let read = pager.run(6, 5).unwrap();
+    assert_eq!(read, run);
+    let page_2 = pager.page(2).unwrap().as_ptr() as usize - PAGE_HEADER_SIZE;
+    assert_eq!(read.as_ptr() as usize, page_2 + 4 * PAGE_SIZE);
+    assert_eq!(pager.run(6, 5).unwrap().as_ptr(), read.as_ptr());
+}
+
+/// AC-V3, Pager part (D3): a run reads back as one contiguous sequence inside the store's memory, on disk and in
+/// temporary mode, also when its pages were reserved by a growth and would have straddled two chunks of memory;
+/// the reference survives later growths unchanged.
+#[test]
+fn ac_v3_a_run_reads_back_contiguously_and_without_a_copy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut on_disk = open(tmp.path());
+    let mut temporary = Pager::open_temporary(&OpenOptions::default()).unwrap();
+    for pager in [&mut on_disk, &mut temporary] {
+        let run = store_with_a_run_across_a_growth(pager);
+        assert_run_in_place(pager, &run);
+        let held = pager.run(6, 5).unwrap();
+        for _ in 0..4 {
+            pager.ensure_pages(pager.page_count() + 1).unwrap();
+        }
+        assert_eq!(held, &run[..]);
+        assert_run_in_place(pager, &run);
+    }
+    on_disk.close().unwrap();
+    let pager = open(tmp.path());
+    assert_run_in_place(&pager, &sealed_run(6, 5));
+}
+
+/// AC-V7 and AC-V11, Pager part (G6, V7): a run read with another first page or another length, or beyond the end
+/// of the store, is damage reported with its first page, as is a run whose first, interior or last page has an
+/// altered byte; reading it again fails the same way.
+#[test]
+fn ac_v11_a_damaged_run_is_reported_with_its_first_page() {
+    let damaged = |result: Result<&[u8], Error>| match result {
+        Err(Error::Damaged { page, .. }) => page,
+        other => panic!("expected damage, got {:?}", other.map(<[u8]>::len)),
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let mut pager = open(tmp.path());
+    let run = store_with_a_run_across_a_growth(&mut pager);
+    assert_eq!(damaged(pager.run(7, 4)), Some(7));
+    assert_eq!(damaged(pager.run(6, 4)), Some(6));
+    assert_eq!(damaged(pager.run(6, 6)), Some(6));
+    let beyond = pager.page_count() - 2;
+    assert_eq!(damaged(pager.run(beyond, 3)), Some(beyond));
+    pager.close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let pristine = file_bytes(&data);
+    let file = fs::OpenOptions::new().write(true).open(&data).unwrap();
+    let start = 6 * PAGE_SIZE;
+    for offset in [
+        start + 3,
+        start + 2 * PAGE_SIZE + 77,
+        start + 5 * PAGE_SIZE - 1,
+    ] {
+        write_byte(&file, offset, pristine[offset] ^ 0x01);
+        let pager = open(tmp.path());
+        assert_eq!(damaged(pager.run(6, 5)), Some(6), "offset {offset}");
+        assert_eq!(damaged(pager.run(6, 5)), Some(6), "offset {offset}, again");
+        assert_eq!(pager.page(2).unwrap(), &payload(2)[..]);
+        drop(pager);
+        write_byte(&file, offset, pristine[offset]);
+    }
+    assert_eq!(open(tmp.path()).run(6, 5).unwrap(), &run[..]);
+}
+
+/// AC10 for a run (AC-V11, Pager part), sampled: the run's header and every 251st byte of its pages, one at a time:
+/// each flip is a damage error on the run's first page, and the sealed page next to it still reads.
+#[test]
+fn ac10_sample_no_damaged_byte_of_a_run_returns_wrong_data() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut pager = open(tmp.path());
+    let run = store_with_a_run_across_a_growth(&mut pager);
+    pager.close().unwrap();
+    let data = tmp.path().join(DATA_FILE);
+    let pristine = file_bytes(&data);
+    let file = fs::OpenOptions::new().write(true).open(&data).unwrap();
+    let run_bytes = 6 * PAGE_SIZE..11 * PAGE_SIZE;
+    for offset in run_bytes
+        .clone()
+        .filter(|o| *o < run_bytes.start + PAGE_HEADER_SIZE || o % 251 == 0)
+    {
+        write_byte(&file, offset, pristine[offset] ^ 0x01);
+        let pager = open(tmp.path());
+        match pager.run(6, 5) {
+            Err(Error::Damaged { page: Some(6), .. }) => {}
+            Err(e) => panic!("offset {offset}: unexpected error {e}"),
+            Ok(read) => panic!(
+                "offset {offset}: a damaged run was returned ({})",
+                read == run
+            ),
+        }
+        assert_eq!(pager.page(2).unwrap(), &payload(2)[..], "offset {offset}");
+        drop(pager);
+        write_byte(&file, offset, pristine[offset]);
+    }
 }
 
 #[test]

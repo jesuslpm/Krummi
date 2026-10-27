@@ -364,6 +364,54 @@ fn an_impossible_growth_is_a_maximum_size_error() {
     assert_eq!(pager.info().size_bytes, INITIAL_SIZE);
 }
 
+/// D3: a temporary store's memory is one reserved range, of its maximum size or else [`TEMPORARY_RESERVATION`];
+/// growing beyond it is the out-of-memory class (P13) and leaves the store as it was and usable.
+#[test]
+fn growing_a_temporary_store_beyond_its_reservation_is_out_of_memory() {
+    let mut pager = Pager::open_temporary(&options()).unwrap();
+    pager.write_page(2, b"kept").unwrap();
+    let error = pager
+        .ensure_pages(TEMPORARY_RESERVATION / PAGE_SIZE_U64 + 1)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    assert_eq!(pager.info().size_bytes, INITIAL_SIZE);
+    assert_eq!(&pager.page(2).unwrap()[..4], b"kept");
+    pager.ensure_pages(pager.page_count() + 1).unwrap();
+
+    let max = 1 << 20;
+    let pager = Pager::open_temporary(&OpenOptions {
+        max_size: Some(max),
+    })
+    .unwrap();
+    pager.ensure_pages(max / PAGE_SIZE_U64).unwrap();
+    assert_eq!(pager.info().size_bytes, max);
+    // Only recovery grows a store beyond its maximum size, and it never runs in temporary mode; the reservation
+    // stops it anyway.
+    let error = pager
+        .ensure_pages_unbounded(max / PAGE_SIZE_U64 + 1)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    assert_eq!(pager.info().size_bytes, max);
+}
+
+/// D3: the growths of a temporary store keep the growth steps (P11) and report the committed memory as its size
+/// (P12), with every page zeroed until written.
+#[test]
+fn a_temporary_store_grows_by_the_growth_steps_and_reads_zeroed_pages() {
+    let pager = Pager::open_temporary(&options()).unwrap();
+    let mut len = INITIAL_SIZE;
+    for _ in 0..4 {
+        pager.ensure_pages(len / PAGE_SIZE_U64 + 1).unwrap();
+        len = growth_target(len, len + PAGE_SIZE_U64);
+        assert_eq!(pager.info().size_bytes, len);
+    }
+    for page in HEADER_PAGES..pager.page_count() {
+        assert!(pager.page_is_blank(page), "page {page}");
+    }
+}
+
 #[cfg(windows)]
 #[test]
 fn store_file_names_are_case_insensitive_on_windows() {

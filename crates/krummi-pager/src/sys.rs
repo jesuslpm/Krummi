@@ -930,6 +930,169 @@ pub(crate) fn alloc_zeroed(len: usize) -> io::Result<Box<[u8]>> {
     Ok(bytes.into_boxed_slice())
 }
 
+/// An address range reserved for the pages of a temporary store, whose first bytes are committed, zeroed, as the
+/// store grows (D3 of the large values execution). The range never moves, so the store's pages are contiguous and
+/// stay where they are while it lives. Reserving takes address space but no memory; committing takes memory, and
+/// is where its lack shows up.
+pub(crate) struct Reservation {
+    ptr: std::ptr::NonNull<u8>,
+    len: usize,
+    committed: usize,
+}
+
+// SAFETY: a `Reservation` owns its range exclusively, like a `Box<[u8]>` owns its memory; who reads and writes the
+// committed bytes, and when, is the Pager's business (see `Pager::raw_pages` and `Pager::write_run_shared`).
+unsafe impl Send for Reservation {}
+// SAFETY: see `Send`; the reservation itself only hands out its pointer.
+unsafe impl Sync for Reservation {}
+
+impl Reservation {
+    /// Reserves `len` bytes of address space, a multiple of the system's page size, with nothing committed.
+    pub(crate) fn new(len: usize) -> io::Result<Reservation> {
+        if len == 0 {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        let ptr = reserve_range(len)?;
+        Ok(Reservation {
+            ptr,
+            len,
+            committed: 0,
+        })
+    }
+
+    /// The start of the range.
+    pub(crate) fn ptr(&self) -> std::ptr::NonNull<u8> {
+        self.ptr
+    }
+
+    /// Bytes reserved.
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Bytes committed, from the start of the range.
+    pub(crate) fn committed(&self) -> usize {
+        self.committed
+    }
+
+    /// Commits the range up to byte `len`, zeroed, after the fault point of a reservation of memory. On failure
+    /// nothing more is committed.
+    ///
+    /// # Panics
+    ///
+    /// If `len` is beyond the range, or not past what is committed.
+    pub(crate) fn commit(&mut self, len: usize) -> io::Result<()> {
+        assert!(
+            self.committed < len && len <= self.len,
+            "cannot commit up to {len} bytes of {} with {} committed",
+            self.len,
+            self.committed
+        );
+        alloc_point()?;
+        // SAFETY: `committed < len <= self.len`, so the offset is inside the reserved range.
+        let start = unsafe { self.ptr.as_ptr().add(self.committed) };
+        // SAFETY: `start..start + (len - committed)` is a part of the range this reservation owns that is not
+        // committed yet: nobody holds a reference into it.
+        unsafe { commit_range(start, len - self.committed) }?;
+        self.committed = len;
+        Ok(())
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        // SAFETY: the range was reserved by `reserve_range` with `len` bytes and is released only here, once; the
+        // Pager that owns the reservation drops it only with itself, when no reference into it can be alive.
+        unsafe { release_range(self.ptr.as_ptr(), self.len) };
+    }
+}
+
+#[cfg(windows)]
+fn reserve_range(len: usize) -> io::Result<std::ptr::NonNull<u8>> {
+    use windows_sys::Win32::System::Memory::{MEM_RESERVE, PAGE_NOACCESS, VirtualAlloc};
+    // SAFETY: a null address lets the system choose where; reserving only takes address space.
+    let ptr = unsafe { VirtualAlloc(std::ptr::null(), len, MEM_RESERVE, PAGE_NOACCESS) };
+    std::ptr::NonNull::new(ptr.cast()).ok_or_else(io::Error::last_os_error)
+}
+
+/// Commits `len` bytes from `start`, readable and writable and zeroed.
+///
+/// # Safety
+///
+/// `start..start + len` must be inside a range reserved by `reserve_range` and not committed yet.
+#[cfg(windows)]
+unsafe fn commit_range(start: *mut u8, len: usize) -> io::Result<()> {
+    use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_READWRITE, VirtualAlloc};
+    // SAFETY: the caller guarantees that the bytes are reserved by this process and not in use.
+    let ptr = unsafe { VirtualAlloc(start.cast(), len, MEM_COMMIT, PAGE_READWRITE) };
+    if ptr.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Gives back a range reserved by `reserve_range`.
+///
+/// # Safety
+///
+/// `start` and `len` must be those of a reserved range, which nobody uses any more.
+#[cfg(windows)]
+unsafe fn release_range(start: *mut u8, _len: usize) {
+    use windows_sys::Win32::System::Memory::{MEM_RELEASE, VirtualFree};
+    // SAFETY: the caller guarantees that `start` is the base of a reservation nobody uses any more; MEM_RELEASE
+    // takes a size of 0 and releases the whole reservation.
+    unsafe { VirtualFree(start.cast(), 0, MEM_RELEASE) };
+}
+
+#[cfg(unix)]
+fn reserve_range(len: usize) -> io::Result<std::ptr::NonNull<u8>> {
+    use rustix::mm::{MapFlags, ProtFlags, mmap_anonymous};
+    // SAFETY: a null address lets the system choose where. A private mapping without access takes address space
+    // but is not charged as memory; `commit_range` makes its pages accessible.
+    let ptr = unsafe {
+        mmap_anonymous(
+            std::ptr::null_mut(),
+            len,
+            ProtFlags::empty(),
+            MapFlags::PRIVATE,
+        )
+    }?;
+    std::ptr::NonNull::new(ptr.cast()).ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))
+}
+
+/// Commits `len` bytes from `start`, readable and writable and zeroed.
+///
+/// # Safety
+///
+/// `start..start + len` must be inside a range reserved by `reserve_range` and not committed yet.
+#[cfg(unix)]
+unsafe fn commit_range(start: *mut u8, len: usize) -> io::Result<()> {
+    use rustix::mm::{MprotectFlags, mprotect};
+    // SAFETY: the caller guarantees that the bytes belong to a private anonymous mapping of this process that
+    // nobody uses yet; making them writable is when the system charges them as memory, and anonymous pages read
+    // as zeros.
+    unsafe {
+        mprotect(
+            start.cast(),
+            len,
+            MprotectFlags::READ | MprotectFlags::WRITE,
+        )
+    }?;
+    Ok(())
+}
+
+/// Gives back a range reserved by `reserve_range`.
+///
+/// # Safety
+///
+/// `start` and `len` must be those of a reserved range, which nobody uses any more.
+#[cfg(unix)]
+unsafe fn release_range(start: *mut u8, len: usize) {
+    // SAFETY: the caller guarantees that the mapping is the whole reservation and that nobody uses it any more.
+    let _ = unsafe { rustix::mm::munmap(start.cast(), len) };
+}
+
 /// The point where registering a snapshot can fail for lack of memory; only tests make it fail.
 pub(crate) fn snapshot_point() -> io::Result<()> {
     before(Op::Snapshot, Path::new(""))

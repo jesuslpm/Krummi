@@ -7,7 +7,8 @@
 //!   record was written, J9), page count, flags, stored and raw payload lengths, payload checksum and header
 //!   checksum;
 //! - the payload: the commit's pages as (page number, sealed page) pairs, compressed with LZ4 when that makes it
-//!   smaller (J16).
+//!   smaller (J16). The pages of a value run are not sealed one by one: their number carries [`RAW_ENTRY`] (D5 of
+//!   the large values execution).
 //!
 //! Records are appended to the current file. A file is created when a record needs it, with its final size
 //! ([`DEFAULT_FILE_LIMIT`], or more for a record that does not fit in it) reserved on disk, and its name and size
@@ -51,6 +52,10 @@ const MAGIC: u64 = u64::from_le_bytes(*b"KrummiJ1");
 const FLAG_COMPRESSED: u32 = 1;
 /// Bytes of one page in a raw payload: its number and the sealed page.
 pub(crate) const PAGE_ENTRY: usize = 8 + PAGE_SIZE;
+/// Flag of the page number of an entry whose page is part of a value run (D5 of the large values execution): it is
+/// not sealed on its own, so recovery writes it without checking it, and the record's checksum covers it. Its run
+/// is checked as a whole when it is read (D1).
+pub(crate) const RAW_ENTRY: u64 = 1 << 63;
 
 /// The name of journal file number `number`.
 pub(crate) fn file_name(number: u64) -> String {
@@ -423,6 +428,9 @@ impl Journal {
     /// Reserves the place of commit `txid` in a journal file and puts its record in the queue: everything that can
     /// fail without the store refusing writes happens before, so after this the commit cannot be undone (E2, E7).
     /// Waits, first, while the queue is full; fails with the I/O class if the store stops accepting writes.
+    ///
+    /// Each entry is a page number and a whole page: sealed for that number, or a page of a value run, whose number
+    /// carries [`RAW_ENTRY`].
     pub(crate) fn enqueue(
         &self,
         pager: &Pager,

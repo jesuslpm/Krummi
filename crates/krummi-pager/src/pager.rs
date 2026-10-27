@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +26,13 @@ pub const MIN_MAX_SIZE: u64 = 1 << 20;
 pub const INITIAL_SIZE: u64 = 64 * 1024;
 /// Largest growth step: below it the store doubles on each growth (P11).
 pub const MAX_GROWTH_STEP: u64 = 1 << 30;
+/// Address space a temporary store without a maximum size reserves for its pages, and so the most it can grow to
+/// (D3 of the large values execution; beyond it a growth is the out-of-memory class, P13). Reserving takes address
+/// space but no memory: 64 GiB is far more than a temporary store, meant for tests, holds in memory, and 2,048 of
+/// them fit in the 128 TiB of address space of a process on x86-64 Windows and Linux, far more than the stores the
+/// tests of the engine keep open at once. A store with a maximum size reserves that size instead, so a maximum
+/// beyond the address space the system grants fails the opening with the out-of-memory class.
+pub const TEMPORARY_RESERVATION: u64 = 64 << 30;
 
 /// The size a store of `len` bytes grows to when it needs `needed` bytes, before any limit: it doubles, by at most
 /// [`MAX_GROWTH_STEP`], or takes what it needs when that is more (P11).
@@ -65,10 +71,10 @@ pub struct Info {
 
 /// An open store.
 ///
-/// References returned by [`Pager::page`] borrow the Pager, so the compiler keeps them from outliving it (P15).
-/// Growing the store takes `&self` and keeps every reference valid. Writing a page takes `&mut self`, so no
-/// reference can be alive while a page changes, except through the scratch area (module 2), which writes one page
-/// while others are borrowed and guarantees that nobody holds a reference to the page it writes.
+/// References returned by [`Pager::page`] and [`Pager::run`] borrow the Pager, so the compiler keeps them from
+/// outliving it (P15). Growing the store takes `&self` and keeps every reference valid. Writing a page takes
+/// `&mut self`, so no reference can be alive while a page changes, except through the scratch area (module 2),
+/// which writes pages while others are borrowed and guarantees that nobody holds a reference to the pages it writes.
 pub struct Pager {
     folder: Option<PathBuf>,
     storage: Storage,
@@ -105,7 +111,9 @@ impl HeaderState {
 
 enum Storage {
     File(FileStorage),
-    Memory(Mutex<MemoryState>),
+    /// The pages of a temporary store: one reserved range, committed up to the size of the store, so that any
+    /// range of pages is contiguous and no page ever moves (D3 of the large values execution).
+    Memory(Mutex<sys::Reservation>),
 }
 
 struct FileStorage {
@@ -120,53 +128,6 @@ struct FileState {
     /// Every mapping made since the store opened; the last one covers `len`. Older mappings stay alive until
     /// the store closes, so references into them remain valid after a growth.
     maps: Vec<Mmap>,
-}
-
-struct MemoryState {
-    /// Size in bytes, a multiple of the page size.
-    len: u64,
-    /// Chunks of memory, by the byte offset each one starts at. A growth adds a chunk and never moves the
-    /// existing ones.
-    chunks: Vec<Chunk>,
-}
-
-/// A zeroed allocation of a temporary store, owned through a raw pointer: after it is allocated no `&mut` to the
-/// whole chunk is ever created, so one page can be written while other pages of the chunk are borrowed.
-struct Chunk {
-    start: u64,
-    ptr: NonNull<u8>,
-    len: usize,
-}
-
-// SAFETY: a Chunk owns its allocation like a `Box<[u8]>` does. Its bytes are only read through `Pager::raw_page`
-// and written through `Pager::write_sealed_at`, whose rules keep a page from being written while it is borrowed.
-unsafe impl Send for Chunk {}
-// SAFETY: see `Send`; shared access only reads bytes, under the same rules.
-unsafe impl Sync for Chunk {}
-
-impl Chunk {
-    fn new(start: u64, bytes: Box<[u8]>) -> Chunk {
-        let len = bytes.len();
-        let ptr =
-            NonNull::new(Box::into_raw(bytes).cast::<u8>()).expect("Box pointers are never null");
-        Chunk { start, ptr, len }
-    }
-
-    /// Pointer to byte `offset` of the chunk.
-    fn at(&self, offset: usize) -> *mut u8 {
-        assert!(offset < self.len);
-        // SAFETY: `offset` is inside the allocation, as just checked.
-        unsafe { self.ptr.as_ptr().add(offset) }
-    }
-}
-
-impl Drop for Chunk {
-    fn drop(&mut self) {
-        let bytes = std::ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len);
-        // SAFETY: `ptr` and `len` come from `Box::into_raw` of a `Box<[u8]>` of `len` bytes in `Chunk::new`, and
-        // the allocation is freed only here, once.
-        drop(unsafe { Box::from_raw(bytes) });
-    }
 }
 
 impl Pager {
@@ -211,17 +172,26 @@ impl Pager {
     }
 
     /// Opens a store that lives only in memory (G9).
+    ///
+    /// Its pages live in one range of address space, reserved for its maximum size or else for
+    /// [`TEMPORARY_RESERVATION`] bytes, and committed as it grows.
     pub fn open_temporary(options: &OpenOptions) -> Result<Pager> {
         let max_size = effective_max_size(options)?;
-        let chunk = sys::alloc_zeroed(INITIAL_SIZE as usize).map_err(|_| Error::OutOfMemory {
-            requested: INITIAL_SIZE,
-        })?;
+        let reserved = max_size.unwrap_or(TEMPORARY_RESERVATION);
+        let mut memory = usize::try_from(reserved)
+            .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))
+            .and_then(sys::Reservation::new)
+            .map_err(|_| Error::OutOfMemory {
+                requested: reserved,
+            })?;
+        memory
+            .commit(INITIAL_SIZE as usize)
+            .map_err(|_| Error::OutOfMemory {
+                requested: INITIAL_SIZE,
+            })?;
         Ok(Pager {
             folder: None,
-            storage: Storage::Memory(Mutex::new(MemoryState {
-                len: INITIAL_SIZE,
-                chunks: vec![Chunk::new(0, chunk)],
-            })),
+            storage: Storage::Memory(Mutex::new(memory)),
             max_size,
             writes_disabled: Arc::new(AtomicBool::new(false)),
             data_syncs: AtomicU64::new(0),
@@ -297,7 +267,7 @@ impl Pager {
     fn len(&self) -> u64 {
         match &self.storage {
             Storage::File(f) => f.state.lock().unwrap().len,
-            Storage::Memory(m) => m.lock().unwrap().len,
+            Storage::Memory(m) => m.lock().unwrap().committed() as u64,
         }
     }
 
@@ -311,58 +281,73 @@ impl Pager {
             page_number >= HEADER_PAGES,
             "header pages are not read through Pager::page"
         );
-        let Some(page) = self.raw_page(page_number) else {
-            return Err(self.damaged(page_number));
-        };
-        if !format::verify_page(page_number, page) {
-            return Err(self.damaged(page_number));
+        Ok(&self.run(page_number, 1)?[PAGE_HEADER_SIZE..])
+    }
+
+    /// The `count` pages of the run that starts at page `first`, as one contiguous sequence without copying it
+    /// (D3 of the large values execution, V2 of the large values PRD), after checking the run's integrity (D1, G6).
+    /// A damaged run, or one that does not fit in the store, is the damage class with its first page (V7).
+    ///
+    /// # Panics
+    ///
+    /// If `first` is a header page.
+    pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        assert!(
+            first >= HEADER_PAGES,
+            "header pages are not read through Pager::run"
+        );
+        match self.raw_pages(first, count) {
+            Some(run) if format::verify_run(first, run) => Ok(run),
+            _ => Err(self.damaged(first)),
         }
-        Ok(&page[PAGE_HEADER_SIZE..])
     }
 
     /// Whether every byte of page `page_number` is zero: a page reserved by a growth and never written. `false`
     /// for a page beyond the end of the store.
     pub fn page_is_blank(&self, page_number: u64) -> bool {
-        self.raw_page(page_number)
+        self.raw_pages(page_number, 1)
             .is_some_and(|page| page.iter().all(|&b| b == 0))
     }
 
-    /// The bytes of page `page_number`, without checking them, or `None` beyond the end of the store.
-    fn raw_page(&self, page_number: u64) -> Option<&[u8]> {
+    /// The bytes of the `count` pages from page `first`, contiguous and without checking them, or `None` when they
+    /// do not all exist.
+    pub(crate) fn raw_pages(&self, first: u64, count: u64) -> Option<&[u8]> {
+        let end = first.checked_add(count)?;
+        let len = usize::try_from(count.checked_mul(PAGE_SIZE_U64)?).ok()?;
         match &self.storage {
             Storage::File(f) => {
                 let state = f.state.lock().unwrap();
-                if page_number >= state.len / PAGE_SIZE_U64 {
+                if end > state.len / PAGE_SIZE_U64 {
                     return None;
                 }
                 let map = state
                     .maps
                     .last()
                     .expect("a file store always has a mapping");
-                let offset = (page_number * PAGE_SIZE_U64) as usize;
-                let ptr = map[offset..offset + PAGE_SIZE].as_ptr();
+                let offset = (first * PAGE_SIZE_U64) as usize;
+                let ptr = map[offset..offset + len].as_ptr();
                 drop(state);
-                // SAFETY: `ptr` points to PAGE_SIZE bytes inside a mapping owned by `self`. Mappings are only
-                // dropped with the Pager, and pushing new ones moves the `Mmap` handles but not the mapped memory,
-                // so the bytes stay valid for the lifetime of `&self`. They are not modified while the returned
-                // reference lives: page writes take `&mut self`, or go through `write_sealed_shared`, whose caller
-                // guarantees that no reference to that page is alive; other programs modifying the file while the
-                // store is open is outside the scope of the PRD (P16).
-                Some(unsafe { std::slice::from_raw_parts(ptr, PAGE_SIZE) })
+                // SAFETY: `ptr` points to `len` bytes inside a mapping owned by `self`. Mappings are only dropped
+                // with the Pager, and pushing new ones moves the `Mmap` handles but not the mapped memory, so the
+                // bytes stay valid for the lifetime of `&self`. They are not modified while the returned reference
+                // lives: page writes take `&mut self`, or go through `write_run_shared`, whose caller guarantees
+                // that no reference to those pages is alive; other programs modifying the file while the store is
+                // open is outside the scope of the PRD (P16).
+                Some(unsafe { std::slice::from_raw_parts(ptr, len) })
             }
             Storage::Memory(m) => {
-                let state = m.lock().unwrap();
-                if page_number >= state.len / PAGE_SIZE_U64 {
+                let memory = m.lock().unwrap();
+                if end > memory.committed() as u64 / PAGE_SIZE_U64 {
                     return None;
                 }
-                let (chunk, offset) = locate(&state.chunks, page_number);
-                let ptr = state.chunks[chunk].at(offset);
-                drop(state);
-                // SAFETY: `ptr` points to PAGE_SIZE bytes of a chunk owned by `self` (pages never straddle chunks,
-                // which are multiples of the page size). Chunks are only freed with the Pager and never move, so
-                // the bytes stay valid for the lifetime of `&self`. They are only written through `&mut self` or
-                // `write_sealed_shared`, whose caller guarantees that no reference to that page is alive.
-                Some(unsafe { std::slice::from_raw_parts(ptr, PAGE_SIZE) })
+                // SAFETY: the pages end within the committed part of the reservation, as just checked.
+                let ptr = unsafe { memory.ptr().as_ptr().add((first * PAGE_SIZE_U64) as usize) };
+                drop(memory);
+                // SAFETY: `ptr` points to `len` committed bytes of the reservation owned by `self`, which never
+                // moves, never shrinks and is only released with the Pager, so the bytes stay valid for the
+                // lifetime of `&self`. They are only written through `&mut self` or `write_run_shared`, whose
+                // caller guarantees that no reference to those pages is alive.
+                Some(unsafe { std::slice::from_raw_parts(ptr, len) })
             }
         }
     }
@@ -388,9 +373,20 @@ impl Pager {
         self.check_writable()?;
         let mut page = Box::new([0u8; PAGE_SIZE]);
         format::seal_page(page_number, payload, &mut page);
+        self.write_sealed(page_number, &page)
+    }
+
+    /// Writes `run`, whole pages already sealed with [`format::seal_run`] for page `first`, as pages `first` on
+    /// (value runs, D1 and D3 of the large values execution). A failure other than a lack of space makes the store
+    /// refuse writes until it is reopened (G12).
+    ///
+    /// # Panics
+    ///
+    /// If `run` is not a whole number of pages, or its pages are header pages or go beyond the end of the store
+    /// (call [`Pager::ensure_pages`] first).
+    pub fn write_run(&mut self, first: u64, run: &[u8]) -> Result<()> {
         // SAFETY: `&mut self` rules out any reference into the store's pages and any other write.
-        let result = unsafe { self.write_sealed_at(page_number, &page) };
-        result.map_err(|e| self.write_failed(e, PAGE_SIZE_U64))
+        unsafe { self.write_run_shared(first, run) }
     }
 
     /// Writes `page`, already sealed for `page_number` (recovery, J8 of the Journal PRD). A failure other than a
@@ -409,8 +405,7 @@ impl Pager {
     ///
     /// # Safety
     ///
-    /// No reference returned by [`Pager::page`] for `page_number` may be alive, and no other write to the same
-    /// page may run at the same time.
+    /// As [`Pager::write_run_shared`] for this one page.
     ///
     /// # Panics
     ///
@@ -420,34 +415,58 @@ impl Pager {
         page_number: u64,
         page: &[u8; PAGE_SIZE],
     ) -> Result<()> {
-        assert!(
-            page_number >= HEADER_PAGES && page_number < self.page_count(),
-            "page {page_number} cannot be written"
-        );
-        self.check_writable()?;
-        // SAFETY: the caller guarantees what `write_sealed_at` requires.
-        let result = unsafe { self.write_sealed_at(page_number, page) };
-        result.map_err(|e| self.write_failed(e, PAGE_SIZE_U64))
+        // SAFETY: the caller guarantees what `write_run_shared` requires for this page.
+        unsafe { self.write_run_shared(page_number, page) }
     }
 
-    /// Stores the sealed bytes of a page.
+    /// Writes the bytes of whole pages as pages `first` on, as they are, while other pages of the store may be
+    /// borrowed: a sealed page, a sealed run, or pages of a run whose interior pages carry no header (the transfer
+    /// of value runs, D5 of the large values execution). A failure other than a lack of space makes the store
+    /// refuse writes until it is reopened (G12).
     ///
     /// # Safety
     ///
-    /// As [`Pager::write_sealed_shared`].
-    unsafe fn write_sealed_at(&self, page_number: u64, page: &[u8; PAGE_SIZE]) -> io::Result<()> {
+    /// No reference returned by [`Pager::page`] or [`Pager::run`] that covers any of these pages may be alive, and
+    /// no other write to them may run at the same time.
+    ///
+    /// # Panics
+    ///
+    /// If `pages` is not a whole number of pages, or they are header pages or go beyond the end of the store.
+    pub(crate) unsafe fn write_run_shared(&self, first: u64, pages: &[u8]) -> Result<()> {
+        let count = (pages.len() / PAGE_SIZE) as u64;
+        assert!(
+            !pages.is_empty()
+                && pages.len().is_multiple_of(PAGE_SIZE)
+                && first >= HEADER_PAGES
+                && first
+                    .checked_add(count)
+                    .is_some_and(|end| end <= self.page_count()),
+            "{count} pages from page {first} cannot be written"
+        );
+        self.check_writable()?;
+        // SAFETY: the caller guarantees what `write_at` requires.
+        let result = unsafe { self.write_at(first, pages) };
+        result.map_err(|e| self.write_failed(e, pages.len() as u64))
+    }
+
+    /// Stores the bytes of whole pages from page `first`, which exist.
+    ///
+    /// # Safety
+    ///
+    /// As [`Pager::write_run_shared`].
+    unsafe fn write_at(&self, first: u64, pages: &[u8]) -> io::Result<()> {
         match &self.storage {
-            Storage::File(f) => {
-                sys::write_at(&f.file, &f.path, page_number * PAGE_SIZE_U64, &page[..])
-            }
+            Storage::File(f) => sys::write_at(&f.file, &f.path, first * PAGE_SIZE_U64, pages),
             Storage::Memory(m) => {
-                let state = m.lock().unwrap();
-                let (chunk, offset) = locate(&state.chunks, page_number);
-                let target = state.chunks[chunk].at(offset);
-                // SAFETY: `target` points to PAGE_SIZE bytes of a live chunk (pages never straddle chunks), and
-                // the caller guarantees that nobody reads or writes those bytes meanwhile; the chunk is reached
-                // through its raw pointer, so no reference to other pages is invalidated.
-                unsafe { std::ptr::copy_nonoverlapping(page.as_ptr(), target, PAGE_SIZE) };
+                let memory = m.lock().unwrap();
+                // SAFETY: the pages exist, so they are inside the committed part of the reservation.
+                let target = unsafe { memory.ptr().as_ptr().add((first * PAGE_SIZE_U64) as usize) };
+                drop(memory);
+                // SAFETY: `target` points to `pages.len()` committed bytes of the reservation, which never moves
+                // or shrinks while the Pager lives, and the caller guarantees that nobody reads or writes those
+                // bytes meanwhile; they are reached through the raw pointer, so no reference to other pages is
+                // invalidated.
+                unsafe { std::ptr::copy_nonoverlapping(pages.as_ptr(), target, pages.len()) };
                 Ok(())
             }
         }
@@ -539,17 +558,26 @@ impl Pager {
                 state.len = new_len;
             }
             Storage::Memory(m) => {
-                let mut state = m.lock().unwrap();
-                if needed <= state.len {
+                let mut memory = m.lock().unwrap();
+                let len = memory.committed() as u64;
+                if needed <= len {
                     return Ok(());
                 }
-                let new_len = self.next_size(state.len, needed, limit, bounded)?;
-                let requested = new_len - state.len;
-                let chunk = sys::alloc_zeroed(requested as usize)
-                    .map_err(|_| Error::OutOfMemory { requested })?;
-                let start = state.len;
-                state.chunks.push(Chunk::new(start, chunk));
-                state.len = new_len;
+                let new_len = self.next_size(len, needed, limit, bounded)?;
+                // The reservation is the maximum size when there is one, so only a store without one, or a growth
+                // that ignores it, reaches its end: there is no more memory for the store (P13).
+                let reserved = memory.len() as u64;
+                if needed > reserved {
+                    return Err(Error::OutOfMemory {
+                        requested: needed - len,
+                    });
+                }
+                let new_len = new_len.min(reserved);
+                memory
+                    .commit(new_len as usize)
+                    .map_err(|_| Error::OutOfMemory {
+                        requested: new_len - len,
+                    })?;
             }
         }
         Ok(())
@@ -664,13 +692,6 @@ impl Pager {
             page: Some(page),
         }
     }
-}
-
-/// Chunk index and byte offset inside it of `page_number`.
-fn locate(chunks: &[Chunk], page_number: u64) -> (usize, usize) {
-    let byte = page_number * PAGE_SIZE_U64;
-    let chunk = chunks.partition_point(|c| c.start <= byte) - 1;
-    (chunk, (byte - chunks[chunk].start) as usize)
 }
 
 fn effective_max_size(options: &OpenOptions) -> Result<Option<u64>> {

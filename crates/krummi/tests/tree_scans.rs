@@ -3,7 +3,8 @@
 //! with scans). Crashes, power cuts and altered bytes (AC-R12, root AC10) are in `tree_integrity.rs`, running out of
 //! memory (AC-R12, AC-R13) in `tree_memory.rs`, the failures of T11 and of input and output in the middle of a range
 //! removal or a scan (AC-R12, AC-R13) in the library's own tests, and what must not compile (AC-R8) in
-//! `trees_compile.rs`.
+//! `trees_compile.rs`. AC-R14, the 5.1 store kept as test data, gave way to AC-V12 of the large values PRD (its
+//! format `6` is now a previous one), which stays here next to that data.
 //!
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the
 //! store's files, which run on disk only. Expected results come from `std::collections::BTreeMap`, whose order
@@ -1226,62 +1227,31 @@ fn ac_r7_scans_keep_their_snapshot_while_a_write_changes_the_tree() {
     assert!(height(tmp.path()) < tall, "the write lowered the tree");
 }
 
-/// The keys and values of the 5.1 fixture `tests/data/store-5.1`, made by the 5.1 version: the tree `t` with keys
-/// 0 to 399 of 300 bytes and the tree `small` with `k` → `v`.
-fn fixture_key(i: usize) -> Vec<u8> {
-    let mut key = format!("{i:05}").into_bytes();
-    key.resize(300, b'.');
-    key
-}
-
-fn fixture_entries(keys: impl Iterator<Item = usize>) -> Entries {
-    keys.map(|i| (fixture_key(i), format!("v51-{i}").into_bytes()))
-        .collect()
-}
-
-/// AC-R14 (R10): a store created and filled with the 5.1 version opens with this one at format version `6` and
-/// scans without error; after range removals that merge pages and lower its tree, a commit and a reopening, a
-/// whole scan and a read of every key do not fail with damage. That the 5.1 version then reads and modifies the
-/// store is an execution check, in the closing report.
+/// AC-V12 (V9, AC-B12; it replaces AC-R14 of 5.2): the store of format `6` kept as test data, created and filled
+/// with the 5.1 version in `tests/data/store-5.1`, is refused with the different-format class as a previous format
+/// and is left byte-identical, with nothing added to its folder; a new store reports format `7`.
 #[test]
-fn ac_r14_a_store_of_5_1_scans_and_keeps_its_format_after_range_removals() {
+fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_format_7() {
     let tmp = tempfile::tempdir().unwrap();
     let fixture =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/store-5.1/krummi.data");
-    std::fs::copy(fixture, tmp.path().join(krummi_pager::DATA_FILE)).unwrap();
-    let tall = height(tmp.path());
-    let store = open(tmp.path());
-    assert_eq!(store.info().format_version, 6);
-    let read = store.read().unwrap();
-    let tree = tree_t(&read);
-    assert_eq!(
-        forward(read.range(&tree, ..).unwrap()),
-        fixture_entries(0..400)
-    );
-    assert_eq!(read.len(&tree).unwrap(), 400);
-    drop(read);
-    let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
-    let (lower, upper) = (fixture_key(10), fixture_key(390));
-    assert_eq!(
-        write.remove_range(&tree, &lower[..]..&upper[..]).unwrap(),
-        380
-    );
-    assert_eq!(write.remove_range_prefix(&tree, b"0039", ..).unwrap(), 10);
-    write.commit().unwrap();
-    store.close().unwrap();
-    assert!(height(tmp.path()) < tall, "the removals lowered the tree");
-    let store = open(tmp.path());
-    let read = store.read().unwrap();
-    let tree = tree_t(&read);
-    assert_eq!(
-        forward(read.range(&tree, ..).unwrap()),
-        fixture_entries(0..10)
-    );
-    for i in 0..400 {
-        let found = read.get(&tree, &fixture_key(i)).unwrap();
-        assert_eq!(found.is_some(), i < 10, "key {i}");
+    let data = tmp.path().join(krummi_pager::DATA_FILE);
+    std::fs::copy(fixture, &data).unwrap();
+    let before = std::fs::read(&data).unwrap();
+    match Store::open(tmp.path(), &krummi::StoreOptions::default()).err() {
+        Some(krummi::Error::DifferentFormat {
+            found, expected, ..
+        }) => assert_eq!((found, expected), (6, 7)),
+        other => panic!("expected a previous format, got {other:?}"),
     }
-    let small = read.open_tree("small", NORMAL).unwrap();
-    assert_eq!(read.get(&small, b"k").unwrap(), Some(&b"v"[..]));
+    assert_eq!(std::fs::read(&data).unwrap(), before);
+    let entries: Vec<_> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, vec![krummi_pager::DATA_FILE]);
+    let new = tempfile::tempdir().unwrap();
+    let store = open(new.path());
+    assert_eq!(store.info().format_version, 7);
+    store.close().unwrap();
 }

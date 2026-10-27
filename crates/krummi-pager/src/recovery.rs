@@ -10,8 +10,9 @@
 //!   later ones; otherwise the journal is damaged and the opening fails without touching the store.
 //!
 //! Pass 2 writes the pages of the commits that apply, flushes `krummi.data`, records the last one in both header
-//! copies and removes the journal and the temporary area. An interruption at any point leaves what the next
-//! opening needs to do the same again.
+//! copies and removes the journal and the temporary area. Each sealed page is checked before anything is written;
+//! the pages of a value run travel as raw entries, which the record's checksum covers. An interruption at any point
+//! leaves what the next opening needs to do the same again.
 
 use std::fs::{self, File};
 use std::io;
@@ -20,7 +21,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 use crate::format::{HEADER_PAGES, Header, PAGE_SIZE, verify_page};
 use crate::journal::{
-    ALIGN, PAGE_ENTRY, RECORD_HEADER, RecordHeader, decode_payload, parse_file_name,
+    ALIGN, PAGE_ENTRY, RAW_ENTRY, RECORD_HEADER, RecordHeader, decode_payload, parse_file_name,
 };
 use crate::pager::Pager;
 use crate::sys;
@@ -244,20 +245,26 @@ fn decide<'a>(found: &'a [Found], applied: u64, folder: &Path) -> Result<Vec<&'a
 }
 
 /// Writes the pages of one commit's raw payload into `krummi.data`, growing it as needed even beyond the maximum
-/// size (J8).
+/// size (J8). A sealed page must verify; a page of a value run, marked with [`RAW_ENTRY`], is written as it is: the
+/// record's checksum covered it, and its run is checked as a whole when it is read (D5 of the large values
+/// execution).
 fn apply_pages(pager: &mut Pager, raw: &[u8], folder: &Path) -> Result<()> {
+    let entries = || {
+        raw.as_chunks::<PAGE_ENTRY>().0.iter().map(|entry| {
+            let number = u64::from_le_bytes(entry[..8].try_into().expect("8 bytes"));
+            let page: &[u8; PAGE_SIZE] = entry[8..].try_into().expect("a whole page");
+            (number & !RAW_ENTRY, number & RAW_ENTRY != 0, page)
+        })
+    };
     let mut highest = 0;
-    for entry in raw.as_chunks::<PAGE_ENTRY>().0 {
-        let number = u64::from_le_bytes(entry[..8].try_into().expect("8 bytes"));
-        if number < HEADER_PAGES || !verify_page(number, &entry[8..]) {
+    for (number, raw_entry, page) in entries() {
+        if number < HEADER_PAGES || !(raw_entry || verify_page(number, page)) {
             return Err(damaged(folder));
         }
         highest = highest.max(number);
     }
     pager.ensure_pages_unbounded(highest + 1)?;
-    for entry in raw.as_chunks::<PAGE_ENTRY>().0 {
-        let number = u64::from_le_bytes(entry[..8].try_into().expect("8 bytes"));
-        let page: &[u8; PAGE_SIZE] = entry[8..].try_into().expect("a whole page");
+    for (number, _, page) in entries() {
         pager.write_sealed(number, page)?;
     }
     Ok(())
@@ -324,6 +331,98 @@ mod tests {
         // 6 is missing; 7 was written before 6 was durable (deferred commits after a power cut).
         let found = [record(5, 4), record(7, 5), record(8, 5)];
         assert_eq!(txids(&found, 4).unwrap(), vec![5]);
+    }
+
+    /// D5 of the large values execution (AC-V8, Pager part): a commit whose record holds a sealed page and the pages
+    /// of a run as raw entries, recovered after a process crash or a power cut at every point of its journal
+    /// write, applies whole or not at all: the run reads back intact in one piece, or the commit is not there.
+    #[test]
+    fn raw_entries_of_a_run_recover_whole_or_not_at_all_after_a_crash_or_a_power_cut() {
+        use crate::format::{PAGE_HEADER_SIZE, seal_page, seal_run};
+        use crate::journal::{Journal, RAW_ENTRY};
+        use crate::pager::OpenOptions;
+        use crate::sys::faults::{self, Model};
+
+        let base = tempfile::tempdir().unwrap();
+        Pager::open(base.path(), &OpenOptions::default())
+            .unwrap()
+            .close()
+            .unwrap();
+        let data = base.path().join(crate::pager::DATA_FILE);
+        let mut page = [0u8; PAGE_SIZE];
+        seal_page(2, b"sealed", &mut page);
+        let mut run = vec![0u8; 3 * PAGE_SIZE];
+        for (i, b) in run[PAGE_HEADER_SIZE..].iter_mut().enumerate() {
+            *b = (i % 251) as u8;
+        }
+        seal_run(3, &mut run);
+        let mut entries = vec![(2, &page)];
+        for (i, run_page) in run.as_chunks::<PAGE_SIZE>().0.iter().enumerate() {
+            entries.push(((3 + i as u64) | RAW_ENTRY, run_page));
+        }
+
+        let source = tempfile::tempdir().unwrap();
+        fs::copy(&data, source.path().join(crate::pager::DATA_FILE)).unwrap();
+        let mut pager = Pager::open(source.path(), &OpenOptions::default()).unwrap();
+        let journal = Journal::start(source.path(), &pager).unwrap();
+        let recovered = recover(&mut pager, source.path()).unwrap();
+        journal.begin(recovered.last_txid, recovered.next_number);
+        faults::reset();
+        faults::start_recording();
+        journal.enqueue(&pager, 1, &entries).unwrap();
+        journal.make_durable(&pager).unwrap();
+        let ops = faults::take_recording();
+        // The crash: nothing reaches `krummi.data`, the journal holds the commit.
+        drop(journal);
+        drop(pager);
+
+        let mut applied = 0;
+        for cut in 0..=ops.len() {
+            for model in [
+                Model::Flushed,
+                Model::TornFirst,
+                Model::SkipFirst,
+                Model::Written,
+            ] {
+                let target = tempfile::tempdir().unwrap();
+                fs::copy(&data, target.path().join(crate::pager::DATA_FILE)).unwrap();
+                faults::materialize(&ops, cut, source.path(), target.path(), model);
+                let mut pager = Pager::open(target.path(), &OpenOptions::default()).unwrap();
+                let recovered = recover(&mut pager, target.path()).unwrap();
+                let at = format!("cut {cut} of {}, {model:?}", ops.len());
+                if recovered.last_txid == 1 {
+                    applied += 1;
+                    assert_eq!(&pager.page(2).unwrap()[..6], b"sealed", "{at}");
+                    assert_eq!(pager.run(3, 3).unwrap(), &run[..], "{at}");
+                } else {
+                    assert_eq!(recovered.last_txid, 0, "{at}");
+                    assert!((2..6).all(|n| pager.page_is_blank(n)), "{at}");
+                }
+            }
+        }
+        assert!(applied > 0, "the durable commit was recovered");
+    }
+
+    /// D5: only raw entries skip the check of their page; a sealed entry that does not verify is damage, and a raw
+    /// entry for a header page too.
+    #[test]
+    fn only_raw_entries_skip_the_check_of_their_page() {
+        use crate::journal::{PAGE_ENTRY, RAW_ENTRY};
+        use crate::pager::OpenOptions;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut pager = Pager::open(tmp.path(), &OpenOptions::default()).unwrap();
+        let entry = |number: u64| {
+            let mut entry = vec![7u8; PAGE_ENTRY];
+            entry[..8].copy_from_slice(&number.to_le_bytes());
+            entry
+        };
+        apply_pages(&mut pager, &entry(3 | RAW_ENTRY), tmp.path()).unwrap();
+        assert!(pager.raw_pages(3, 1).unwrap().iter().all(|&b| b == 7));
+        for damaged in [entry(4), entry(1 | RAW_ENTRY)] {
+            let error = apply_pages(&mut pager, &damaged, tmp.path()).unwrap_err();
+            assert_eq!(error.kind(), crate::ErrorKind::Damaged);
+        }
     }
 
     #[test]

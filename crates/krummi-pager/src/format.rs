@@ -13,6 +13,11 @@
 //!
 //! Every other page starts with a 16-byte page header (checksum, page number) followed by its payload. The
 //! checksum covers the page number and the payload, so a page written at the wrong position is also detected.
+//!
+//! Format 7 (D1 of the large values execution, V3 and V9 of the large values PRD) adds value runs: a value that
+//! does not fit in its leaf lives in a run of contiguous pages whose first 16 bytes are the only header, with the
+//! same layout as a page header but for the whole run: the xxh3-64 of bytes `8..` of the run, then the number of
+//! its first page, both little endian. Its interior pages carry no header. A run of one page is a sealed page.
 
 use xxhash_rust::xxh3::xxh3_64;
 use zerocopy::little_endian::{U32, U64};
@@ -23,8 +28,9 @@ pub const PAGE_SIZE: usize = 8192;
 /// [`PAGE_SIZE`] as a `u64`, for file offsets.
 pub const PAGE_SIZE_U64: u64 = PAGE_SIZE as u64;
 /// Format version written by this version of the engine (P5; `5` since the free-space map, F11; `6` since the catalog
-/// and the trees, A13 of the trees and key operations PRD).
-pub const FORMAT_VERSION: u32 = 6;
+/// and the trees, A13 of the trees and key operations PRD; `7` since the values outside their leaf, V9 of the large
+/// values PRD).
+pub const FORMAT_VERSION: u32 = 7;
 /// Identification mark at the start of `krummi.data` (P4). The `\r\n`, `\x1a` and `\n` bytes detect text-mode
 /// transfers that would corrupt the file, as in the PNG signature.
 pub const MARK: [u8; 16] = *b"\x89Krummi\r\n\x1a\n\0\0\0\0\0";
@@ -203,8 +209,9 @@ pub fn header_copies(start: &[u8]) -> [Option<Header>; 2] {
     ]
 }
 
-fn page_checksum(page: &[u8]) -> u64 {
-    xxh3_64(&page[8..PAGE_SIZE])
+/// The checksum of a page or a run: of everything after the checksum itself.
+fn checksum(run: &[u8]) -> u64 {
+    xxh3_64(&run[8..])
 }
 
 /// Fills `page` with the page header and `payload`; the rest of the payload area is zeroed.
@@ -214,18 +221,39 @@ pub fn seal_page(page_number: u64, payload: &[u8], page: &mut [u8; PAGE_SIZE]) {
         "payload of {} bytes does not fit in a page",
         payload.len()
     );
-    page[8..16].copy_from_slice(&page_number.to_le_bytes());
     page[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + payload.len()].copy_from_slice(payload);
     page[PAGE_HEADER_SIZE + payload.len()..].fill(0);
-    let checksum = page_checksum(page);
-    page[..8].copy_from_slice(&checksum.to_le_bytes());
+    seal_run(page_number, page);
 }
 
 /// Whether `page` is intact and was written as page `page_number` (G6).
 pub fn verify_page(page_number: u64, page: &[u8]) -> bool {
-    page.len() == PAGE_SIZE
-        && page[8..16] == page_number.to_le_bytes()
-        && page[..8] == page_checksum(page).to_le_bytes()
+    page.len() == PAGE_SIZE && verify_run(page_number, page)
+}
+
+/// Writes the header of a run of `run.len() / PAGE_SIZE` pages starting at page `first`: its first page number and
+/// the checksum of the whole run. Its content, after the header, is the caller's, who zeroes what it does not use.
+///
+/// # Panics
+///
+/// If `run` is empty or not a whole number of pages.
+pub fn seal_run(first: u64, run: &mut [u8]) {
+    assert!(
+        !run.is_empty() && run.len().is_multiple_of(PAGE_SIZE),
+        "a run of {} bytes is not a whole number of pages",
+        run.len()
+    );
+    run[8..16].copy_from_slice(&first.to_le_bytes());
+    let checksum = checksum(run);
+    run[..8].copy_from_slice(&checksum.to_le_bytes());
+}
+
+/// Whether `run` is an intact run written at page `first`, with exactly its length (G6, V7).
+pub fn verify_run(first: u64, run: &[u8]) -> bool {
+    !run.is_empty()
+        && run.len().is_multiple_of(PAGE_SIZE)
+        && run[8..16] == first.to_le_bytes()
+        && run[..8] == checksum(run).to_le_bytes()
 }
 
 #[cfg(test)]
@@ -245,7 +273,7 @@ mod tests {
             read_header_pages(&pages),
             HeaderRead::Found(Header::new_store())
         );
-        assert_eq!(Header::new_store().format_version, 6);
+        assert_eq!(Header::new_store().format_version, 7);
     }
 
     #[test]
@@ -333,6 +361,71 @@ mod tests {
             flipped[byte] ^= 0x01;
             assert!(!verify_page(5, &flipped), "byte {byte}");
         }
+    }
+
+    /// A run of `pages` pages sealed for `first`, with a recognizable value after its header.
+    fn sealed_run(first: u64, pages: usize) -> Vec<u8> {
+        let mut run = vec![0; pages * PAGE_SIZE];
+        let value_len = run.len() - PAGE_HEADER_SIZE - 100;
+        for (i, b) in run[PAGE_HEADER_SIZE..PAGE_HEADER_SIZE + value_len]
+            .iter_mut()
+            .enumerate()
+        {
+            *b = (i * 7 + 3) as u8;
+        }
+        seal_run(first, &mut run);
+        run
+    }
+
+    #[test]
+    fn a_sealed_run_verifies_and_a_flipped_byte_in_any_of_its_pages_does_not() {
+        let run = sealed_run(9, 3);
+        assert!(verify_run(9, &run));
+        assert_eq!(
+            run[8..16],
+            9u64.to_le_bytes(),
+            "the first page number, little endian"
+        );
+        assert!(
+            !verify_run(10, &run),
+            "a run read at the wrong position is damage"
+        );
+        assert!(
+            !verify_run(9, &run[..2 * PAGE_SIZE]),
+            "a run read shorter is damage"
+        );
+        for byte in [
+            0,
+            7,
+            8,
+            15,
+            16,
+            PAGE_SIZE - 1,
+            PAGE_SIZE + 123,
+            2 * PAGE_SIZE,
+            3 * PAGE_SIZE - 1,
+        ] {
+            let mut flipped = run.clone();
+            flipped[byte] ^= 0x01;
+            assert!(!verify_run(9, &flipped), "byte {byte}");
+        }
+    }
+
+    #[test]
+    fn a_one_page_run_is_a_sealed_page() {
+        let run = sealed_run(5, 1);
+        assert!(verify_page(5, &run));
+        let mut page = [0; PAGE_SIZE];
+        seal_page(5, b"hello", &mut page);
+        assert!(verify_run(5, &page));
+    }
+
+    #[test]
+    fn an_empty_or_partial_run_does_not_verify() {
+        assert!(!verify_run(3, &[]));
+        let run = sealed_run(3, 2);
+        assert!(!verify_run(3, &run[..PAGE_SIZE + 10]));
+        assert!(!verify_run(3, &vec![0; 2 * PAGE_SIZE]));
     }
 
     #[test]
