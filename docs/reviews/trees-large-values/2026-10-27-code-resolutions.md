@@ -38,3 +38,41 @@ probes kept as regression tests; not part of R1). Reviewed head of the original 
 **Review record**: [2026-10-27-code.md](2026-10-27-code.md), wrapper status `findings`, `threadId`
 `01a17f4a-20f3-75d1-a3c4-669c5f80a8fe`, coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review-critical`
 `gpt-6-astra`/`xhigh` (from the wrapper's telemetry).
+
+## 2026-10-27 (verification)
+
+[2026-10-27-code-02.md](2026-10-27-code-02.md), wrapper status `findings`, `threadId`
+`01a17f6b-d5fe-7253-84c4-532b728e477f`, coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review-critical`
+`gpt-6-astra`/`xhigh`. Its verdict, quoted: "Changes requested — R1 remains open." Per ID: R1 — "Still open;
+original scenario verified fixed, overall finding unresolved." (retained partial runs: a slightly smaller run that
+reuses all pages but the last of a freed run left the whole old allocation alive, uncounted, while an old read
+blocked the transfer).
+
+## 2026-10-27 (round 2)
+
+Fix commit: `e1cc4ab`.
+
+### R1 — major: retained partial runs still bypass the configured maximum size
+
+- Disposition: fixed.
+- Evidence: verified against the code: a run's pages share one `Arc<Slot>` owning the whole allocation, and
+  `collect_garbage` subtracted each superseded page version from the scratch byte count while the surviving tail
+  entry kept the whole allocation alive; `WriteTransaction::memory` charges that count.
+- Fix (`e1cc4ab`): `State::hold` and `State::release` in `crates/krummi-pager/src/scratch.rs` are now the only
+  places that change the count. A run is charged its whole `pages × PAGE_SIZE` when its first version entry
+  arrives and released when its last entry leaves (`run_holders`, per allocation); publish, garbage collection,
+  retirement and close go through them. Single-page versions are counted as before.
+- Regression: `crates/krummi-tx/tests/runs.rs::shrinking_runs_under_an_old_read_count_whole_for_the_maximum_size`
+  (the follow-up's scenario, on disk and in temporary mode). RED before the fix at the second run: "the temporary
+  area holds 17162240 bytes, 8536064 counted, and the store 8552448, with a maximum of 67108864". GREEN: the area
+  minus the counted bytes stays at 114,688 bytes (free slots of the first shared chunk), the seventh run fails with
+  the maximum-size class and applies nothing, and after the old read closes the count returns to 0 and the area to
+  its small size.
+- Checks: fmt, clippy, `cargo test --workspace` on Windows (377 passed, 0 failed, 14 ignored), `-p krummi-pager -p
+  krummi-tx -p krummi` on Linux (361 passed), and the ignored AC-V8 sweeps pass.
+- RDD review 6 of `3a528ec..e1cc4ab` approved it (lineage `review-713a431a84a3734d`). Its advisory finding
+  R3-retired-runs-uncounted (WARNING): a run whose versions were retired after their transfer is no longer counted
+  while a snapshot open at retirement still holds it. Not changed: retired versions are already in `krummi.data`,
+  which the maximum size counts, and retired single pages were never counted either (T14 counts the versions that
+  are only in memory); the follow-up review can confirm or reject this reading.
+- Status: claimed fixed, unverified until a follow-up review.
