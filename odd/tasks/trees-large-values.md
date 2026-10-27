@@ -68,7 +68,7 @@ Decisions within *Dejado a la implementación*:
 | T0 | — | inline | done | — |
 | T1 | S12 (format), pager part of S3, S8, S11 | delegated (context backstop) | done | `656acdf` |
 | T2 | transaction part of S3, S6, S8 | delegated (context backstop) | done | `244548d` |
-| T3 | S1, S2, S3, S4, S5, S7, S9, S10 | delegated (context backstop) | pending | — |
+| T3 | S1, S2, S3, S4, S5, S7, S9, S10, S12 (leaf part) | delegated (context backstop) | done | `9a596b2` |
 | T4 | S6, S8, S11 (tree level) | delegated (context backstop) | pending | — |
 | T5 | S13, S14 | delegated (context backstop) | pending | — |
 | T6 | docs, checks, verification, RDD review, Codex review, closing report | inline | pending | — |
@@ -132,3 +132,16 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
     temporary area and partly in the store reach the damage branches of `Snapshot::run` without a test.
   - R3-stage-run-length-not-asserted (SUGGESTION): `stage` documents a panic for a partial page that it never
     checks.
+- **L8** (T3, ODD Worker `opus`/`high`): leaf cells with value length `0xFFFF` hold the run's first page and the
+  value length (LE); `node::value` returns `Value::Inline` or `Value::Run`; `MAX_VALUE` 268,435,456; half-page
+  threshold (`MAX_LEAF_CELL` 4,078: an entry stays inline when `4 + key + value` fits); `set_inline_limit` knob
+  (thread-local, can only lower the limit, reads ignore it) for T5. Overwrite writes a new run and frees the old one;
+  Add on an existing key reserves nothing; Remove, Remove range, `free_subtree` (now always reads leaves) and
+  `free_all` free runs without reading value pages. RED: compile failures, then with stubs every new test failed at
+  the first value over 1,024 bytes. GREEN: `tree_values.rs` (S1, S2, S4, S5, S7, S10, S12 leaf part) and the unit
+  tests `crates/krummi/src/value_tests.rs` (S3, S9: they need engine hooks). Existing tests changed: the maximum
+  (AC-A17 now stores 1,024 and 1,025 bytes), and two precedence tests (`ac_a13`, `ac_r11`) damage a value page
+  instead of a leaf, which deleting now reads. Worker checks: fmt, clippy, `cargo test --workspace` on Windows,
+  crate tests on Linux; parent spot check: `tree_values` 7 passed. Note for T4: `WriteTransaction::run` reports
+  misuse, not damage, for a checksum-valid leaf that names pages the write changed or freed (only reachable with a
+  crafted leaf).
