@@ -3,6 +3,12 @@
 //! of `krummi-tx`. A tree is known by its root page; the layers above keep it (the catalog in a meta slot, each
 //! tree in the catalog, see [`catalog`]).
 //!
+//! A value whose entry would not fit twice in a leaf lives off its leaf, in a value run of contiguous pages that the
+//! transaction reserves for it (D2, D6 and D7 of the large values execution). Runs are never changed: overwriting
+//! such a value stores a new run and frees the old one, in the same write. Reading returns a run's value as one
+//! sequence without copying it (V2). Freeing a value reads its leaf, never its run (V7), so a damaged value can
+//! always be removed, replaced, or dropped with its tree.
+//!
 //! A changed node keeps its page number, because the transaction copies a page on its first change (T14), so no
 //! path is copied. An insertion that overflows a node splits it by bytes into halves, up to a new root; a removal
 //! or an overwrite that leaves a node under a quarter full merges it with a sibling when both fit in one page, and
@@ -32,9 +38,9 @@ mod tests;
 
 use std::ops::Bound;
 
-use krummi_tx::{Error, PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction};
-use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL};
-pub use node::{MAX_KEY, MAX_VALUE};
+use krummi_tx::{Error, PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction, run_pages};
+use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL, Value};
+pub use node::{MAX_KEY, MAX_VALUE, set_inline_limit};
 pub use range::{Interval, Range};
 
 /// Read access to pages and meta slots, shared by read and write transactions.
@@ -42,11 +48,19 @@ pub trait PageSource {
     /// The payload of page `page_number` as the transaction sees it, without copying it (D11).
     fn page(&self, page_number: u64) -> Result<&[u8]>;
 
+    /// The content of the value run of `count` pages from page `first` as the transaction sees it, after the run's
+    /// header, as one sequence without copying it (V2).
+    fn run(&self, first: u64, count: u64) -> Result<&[u8]>;
+
     /// Meta slot `slot` as the transaction sees it.
     fn slot(&self, slot: usize) -> Result<u64>;
 
     /// Whether page `page_number` may hold a tree's data, checked before following a page number read from a page.
     fn may_hold_data(&self, page_number: u64) -> bool;
+
+    /// Whether the value run of `count` pages from page `first` may hold a tree's data, checked before reading or
+    /// freeing a run named in a leaf.
+    fn may_hold_run(&self, first: u64, count: u64) -> bool;
 
     /// The damage error of page `page_number`, inconsistent although its checksum is valid; in a write it is the
     /// transaction's failure (T11).
@@ -61,12 +75,20 @@ impl PageSource for ReadTransaction<'_> {
         ReadTransaction::page(self, page_number)
     }
 
+    fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        ReadTransaction::run(self, first, count)
+    }
+
     fn slot(&self, slot: usize) -> Result<u64> {
         ReadTransaction::slot(self, slot)
     }
 
     fn may_hold_data(&self, page_number: u64) -> bool {
         ReadTransaction::may_hold_data(self, page_number)
+    }
+
+    fn may_hold_run(&self, first: u64, count: u64) -> bool {
+        ReadTransaction::may_hold_run(self, first, count)
     }
 
     fn damaged(&self, page_number: u64) -> Error {
@@ -83,12 +105,20 @@ impl PageSource for WriteTransaction<'_> {
         WriteTransaction::page(self, page_number)
     }
 
+    fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        WriteTransaction::run(self, first, count)
+    }
+
     fn slot(&self, slot: usize) -> Result<u64> {
         WriteTransaction::slot(self, slot)
     }
 
     fn may_hold_data(&self, page_number: u64) -> bool {
         WriteTransaction::may_hold_data(self, page_number)
+    }
+
+    fn may_hold_run(&self, first: u64, count: u64) -> bool {
+        WriteTransaction::may_hold_run(self, first, count)
     }
 
     fn damaged(&self, page_number: u64) -> Error {
@@ -143,6 +173,82 @@ fn child_level(branch: &[u8]) -> Option<u8> {
     Some(node::level(branch) - 1)
 }
 
+/// The bytes of a leaf entry's value: in its leaf, or its run's, without copying them (V2). A run named in a leaf
+/// that cannot be one, or whose pages are damaged, fails with the damage class and the run's first page (G6, V7).
+pub(crate) fn resolve<'t, S: PageSource + ?Sized>(tx: &'t S, value: Value<'t>) -> Result<&'t [u8]> {
+    match value {
+        Value::Inline(bytes) => Ok(bytes),
+        Value::Run { first, len } => {
+            let count = run_pages(len);
+            if !tx.may_hold_run(first, count) {
+                return Err(tx.damaged(first));
+            }
+            // A checked leaf names values of up to `MAX_VALUE` bytes, which their run holds.
+            Ok(&tx.run(first, count)?[..len as usize])
+        }
+    }
+}
+
+/// Frees the run of a value off its leaf, from page `first` with `len` bytes, without reading it (V7).
+fn free_run(tx: &mut WriteTransaction<'_>, first: u64, len: u64) -> Result<()> {
+    let count = run_pages(len);
+    if !tx.may_hold_run(first, count) {
+        return Err(tx.damaged(first));
+    }
+    tx.free(first, count)
+}
+
+/// Frees the runs of the values off their leaf among the entries of the checked leaf at `page` before index `end`,
+/// from `next`, the first of them that [`node::next_run`] found. It reads the leaf again only after freeing one, so a
+/// leaf without values off it costs no read.
+fn free_runs(
+    tx: &mut WriteTransaction<'_>,
+    page: u64,
+    mut next: Option<(usize, u64, u64)>,
+    end: usize,
+) -> Result<()> {
+    while let Some((index, first, len)) = next {
+        free_run(tx, first, len)?;
+        next = node::next_run(tx.page(page)?, index + 1..end);
+    }
+    Ok(())
+}
+
+/// Writes the leaf cell of `key` and `value` into `buf` and returns its length: with the value, when the cell fits
+/// under the leaf's threshold, or else with the place of a new value run that holds it (D2, D7).
+fn encode_entry(
+    tx: &mut WriteTransaction<'_>,
+    buf: &mut [u8],
+    key: &[u8],
+    value: &[u8],
+) -> Result<usize> {
+    if node::fits_inline(key.len(), value.len()) {
+        return Ok(node::encode_leaf(buf, key, Value::Inline(value)));
+    }
+    let len = value.len() as u64;
+    let (first, run) = tx.allocate_value_run(run_pages(len))?;
+    run[..value.len()].copy_from_slice(value);
+    Ok(node::encode_leaf(buf, key, Value::Run { first, len }))
+}
+
+/// The longest value that an entry with a key of `key_len` bytes keeps in its leaf, with the threshold of this
+/// thread's operations (D7); a longer one lives off its leaf (tests take the threshold from it).
+pub fn max_inline_value(key_len: usize) -> usize {
+    node::inline_limit().saturating_sub(4 + key_len)
+}
+
+/// The value run of `key` in the tree at `root`: its first page and its number of pages, or `None` when the key is
+/// not there or its value is in its leaf (tests use it to find a value's pages).
+pub fn run_of<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Result<Option<(u64, u64)>> {
+    let (_, node) = descend(tx, root, key)?;
+    Ok(
+        match node::search(node, key).map(|i| node::value(node, i)) {
+            Ok(Value::Run { first, len }) => Some((first, run_pages(len))),
+            _ => None,
+        },
+    )
+}
+
 /// What an operation that may change a tree did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Update {
@@ -166,7 +272,10 @@ pub fn get<'t, S: PageSource + ?Sized>(
     key: &[u8],
 ) -> Result<Option<&'t [u8]>> {
     let (_, node) = descend(tx, root, key)?;
-    Ok(node::search(node, key).ok().map(|i| node::value(node, i)))
+    match node::search(node, key) {
+        Ok(index) => resolve(tx, node::value(node, index)).map(Some),
+        Err(_) => Ok(None),
+    }
 }
 
 /// The page of the leaf of the tree at `root` where `key` is or would be (tests use it to damage a known page).
@@ -205,7 +314,10 @@ pub fn for_each<S: PageSource + ?Sized>(
 ) -> Result<()> {
     leaves(tx, root, None, &mut |_, leaf| {
         for index in 0..node::count(leaf) {
-            visit(node::key(leaf, index), node::value(leaf, index));
+            visit(
+                node::key(leaf, index),
+                resolve(tx, node::value(leaf, index))?,
+            );
         }
         Ok(())
     })
@@ -261,45 +373,32 @@ pub fn remove(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8]) -> Result<Up
     update(tx, root, key, Op::Remove)
 }
 
-/// Frees every page of the tree at `root`, reading only its branch pages and the root (D4).
+/// Frees every page of the tree at `root` and the runs of its values, reading its nodes but never its runs (V7).
 pub fn free_all(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
-    free_subtree(tx, root, None, false).map(|_| ())
+    free_subtree(tx, root, None).map(|_| ())
 }
 
-/// Frees every page of the subtree at `page`, a node of `level` when given. When `count` is set it also reads the
-/// leaves below the node and returns how many entries the subtree had; otherwise it reads only the branch pages
-/// and the node itself, and returns the entries of the node when it is a leaf.
-fn free_subtree(
-    tx: &mut WriteTransaction<'_>,
-    page: u64,
-    level: Option<u8>,
-    count: bool,
-) -> Result<u64> {
+/// Frees every page of the subtree at `page`, a node of `level` when given, and the runs of its values, and returns
+/// how many entries it had. It reads every node of the subtree, the leaves to find their runs, but no run (V7).
+fn free_subtree(tx: &mut WriteTransaction<'_>, page: u64, level: Option<u8>) -> Result<u64> {
     let node = node_at(&*tx, page, level)?;
-    let mut entries = 0;
+    if node::is_leaf(node) {
+        let entries = node::count(node);
+        let runs = node::next_run(node, 0..entries);
+        free_runs(tx, page, runs, entries)?;
+        tx.free(page, 1)?;
+        return Ok(entries as u64);
+    }
     let mut children = Vec::new();
-    let below = if node::is_leaf(node) {
-        entries = node::count(node) as u64;
-        None
-    } else {
-        reserve(&*tx, &mut children, node::count(node) + 1)?;
-        children.extend((0..=node::count(node)).map(|i| node::child(node, i)));
-        child_level(node)
-    };
+    reserve(&*tx, &mut children, node::count(node) + 1)?;
+    children.extend((0..=node::count(node)).map(|i| node::child(node, i)));
+    let below = child_level(node);
     // A node is freed before its children, so a child that names the node itself, an ancestor or a page freed
     // before it no longer may hold data and is reported as damage instead of being freed twice.
     tx.free(page, 1)?;
+    let mut entries = 0;
     for child in children {
-        if below != Some(0) {
-            entries += free_subtree(tx, child, below, count)?;
-        } else if count {
-            entries += node::count(node_at(&*tx, child, below)?) as u64;
-            tx.free(child, 1)?;
-        } else if tx.may_hold_data(child) {
-            tx.free(child, 1)?;
-        } else {
-            return Err(tx.damaged(child));
-        }
+        entries += free_subtree(tx, child, below)?;
     }
     Ok(entries)
 }
@@ -365,6 +464,8 @@ fn remove_in(
         if first >= last {
             return Ok(Outcome::Done);
         }
+        let runs = node::next_run(node, first..last);
+        free_runs(tx, page, runs, last)?;
         let node = tx.page_mut(page)?;
         for _ in first..last {
             node::remove(node, first);
@@ -394,7 +495,7 @@ fn remove_in(
     let left_outcome = remove_in(tx, left, below, interval, removed)?;
     let right_outcome = remove_in(tx, right, below, interval, removed)?;
     for &child in &inner {
-        *removed += free_subtree(tx, child, below, true)?;
+        *removed += free_subtree(tx, child, below)?;
     }
     if *removed == before {
         return Ok(Outcome::Done);
@@ -551,9 +652,13 @@ fn change_leaf(
     let node = tx.page(page)?;
     let found = node::search(node, key);
     let value = match (op, found) {
+        // Adding over an existing key reserves nothing, whatever the value's size (V1, A10).
         (Op::Add(_), Ok(_)) | (Op::Remove, Err(_)) => return Ok(Outcome::Done),
         (Op::Remove, Ok(index)) => {
             *count_changed = true;
+            if let Value::Run { first, len } = node::value(node, index) {
+                free_run(tx, first, len)?;
+            }
             let node = tx.page_mut(page)?;
             node::remove(node, index);
             if node::count(node) == 0 {
@@ -564,17 +669,27 @@ fn change_leaf(
         (Op::Set(value) | Op::Add(value), _) => value,
     };
     *count_changed = found.is_err();
-    if let Ok(index) = found
-        && node::value(node, index).len() == value.len()
+    let old = found.ok().map(|index| node::value(node, index));
+    if let (Ok(index), Some(Value::Inline(old))) = (found, old)
+        && old.len() == value.len()
+        && node::fits_inline(key.len(), value.len())
     {
         node::value_mut(tx.page_mut(page)?, index).copy_from_slice(value);
         return Ok(Outcome::Done);
     }
-    let mut buf = [0; MAX_LEAF_CELL];
-    let len = node::encode_leaf(&mut buf, key, value);
     let index = found.unwrap_or_else(|i| i);
-    let replaced = found.map_or(0, |i| node::cell(node, i).len() + 2);
-    if node::free_space(node) + replaced < len + 2 {
+    let room = node::free_space(node) + found.map_or(0, |i| node::cell(node, i).len() + 2);
+    // A value off its leaf is replaced by a new run: runs never change (D6).
+    let old_run = match old {
+        Some(Value::Run { first, len }) => Some((first, len)),
+        _ => None,
+    };
+    let mut buf = [0; MAX_LEAF_CELL];
+    let len = encode_entry(tx, &mut buf, key, value)?;
+    if let Some((first, len)) = old_run {
+        free_run(tx, first, len)?;
+    }
+    if room < len + 2 {
         return split(tx, page, index, found.is_ok(), &buf[..len]);
     }
     let node = tx.page_mut(page)?;

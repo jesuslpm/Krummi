@@ -68,8 +68,11 @@ map pages travel through the journal like any other page; the engine reads them 
 and the store information reports the free pages without reading them. `cargo run --release -p krummi-tx --example
 free_space_timing` measures reservations on a store of 1 million pages.
 
-Trees are B+ trees of slotted 8 KiB pages, with keys of 1 to 2,048 bytes in byte order and, for now, values of up
-to 1,024 bytes. A catalog, itself a B+ tree, maps each tree's name to its identity, kind, root page and number of
+Trees are B+ trees of slotted 8 KiB pages, with keys of 1 to 2,048 bytes in byte order and values of up to 256 MiB.
+A value whose entry would not fit twice in a leaf lives off it, in a run of contiguous pages of its own that is never
+changed: overwriting it writes a new run and frees the old one, and removing it, or emptying or deleting its tree,
+frees the run without reading it, so a damaged value can always be removed. Reads and scans return every value as
+one contiguous sequence without copying it, also in a temporary store. A catalog, itself a B+ tree, maps each tree's name to its identity, kind, root page and number of
 entries; it takes no page until the first tree is created. A changed node keeps its page number, so a write needs no
 path copying, and reads return values without copying them. Opening and creating follow .NET's `FileMode` (open,
 create new, open or create, create or empty, empty), and the key operations follow a .NET `Dictionary`. A page whose

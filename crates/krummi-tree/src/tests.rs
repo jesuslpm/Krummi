@@ -1,5 +1,6 @@
-//! Internal tests of the trees: a randomized model test against `BTreeMap`, the extremes of A11, freeing a whole
-//! tree and the snapshot of an older read. Deterministic: the random sequences come from fixed seeds.
+//! Internal tests of the trees: a randomized model test against `BTreeMap`, with values inside and off their leaf,
+//! the extremes of a leaf, freeing a whole tree and the snapshot of an older read, and the leaf's threshold knob.
+//! Deterministic: the random sequences come from fixed seeds.
 
 use std::collections::BTreeMap;
 
@@ -38,8 +39,10 @@ impl Rng {
         key
     }
 
+    /// A value of up to 1,024 bytes, or one time in eight of up to three pages, mostly off its leaf.
     fn value(&mut self) -> Vec<u8> {
-        let len = self.below(MAX_VALUE as u64 + 1) as usize;
+        let max = if self.below(8) == 0 { 3 * 8192 } else { 1024 };
+        let len = self.below(max + 1) as usize;
         let byte = self.next() as u8;
         (0..len).map(|i| byte.wrapping_add(i as u8)).collect()
     }
@@ -220,8 +223,9 @@ fn random_operations_match_a_btreemap_while_the_tree_grows_and_shrinks() {
     assert!(entries(&read, root).is_empty());
 }
 
-/// The extremes of A11: 2,048-byte keys with 1,024-byte values, enough of them for several levels, empty values,
-/// keys of every byte and keys that are prefixes of others, in the order of B5.
+/// The extremes of a leaf: 2,048-byte keys with the longest values kept in their leaf, enough of them for several
+/// levels, and one byte longer, off their leaf; empty values, keys of every byte and keys that are prefixes of
+/// others, in the order of B5.
 #[test]
 fn extreme_sizes_and_byte_order() {
     let engine = temporary();
@@ -231,7 +235,8 @@ fn extreme_sizes_and_byte_order() {
     for i in 0..60u8 {
         let mut key = vec![i.wrapping_mul(37); MAX_KEY];
         key[MAX_KEY - 1] = i;
-        let value = vec![i; MAX_VALUE];
+        // Every other entry keeps its value in its leaf, at the threshold; the others are one byte over it.
+        let value = vec![i; max_inline_value(MAX_KEY) + usize::from(i % 2)];
         root = set(&mut tx, root, &key, &value).unwrap().root;
         model.insert(key, value);
     }
@@ -311,6 +316,36 @@ fn freeing_a_tree_returns_every_page() {
         tx.commit().unwrap();
         assert_eq!(in_use(&engine), before);
     }
+}
+
+/// D7: the leaf's threshold knob moves values off their leaf for the operations of its thread only; reading ignores
+/// it, so both kinds of cell stay readable whatever it says, and a limit over half a node is refused.
+#[test]
+fn the_inline_limit_knob_moves_values_off_their_leaf_and_reads_ignore_it() {
+    let engine = temporary();
+    let root = new_tree(&engine);
+    let mut tx = engine.write(None).unwrap();
+    set(&mut tx, root, b"default", &[1; 100]).unwrap();
+    set_inline_limit(Some(4 + 2 + 10));
+    assert_eq!(max_inline_value(2), 10);
+    set(&mut tx, root, b"ab", &[2; 11]).unwrap();
+    set(&mut tx, root, b"cd", &[3; 10]).unwrap();
+    set_inline_limit(None);
+    assert_eq!(max_inline_value(2), node::MAX_LEAF_CELL - 6);
+    tx.commit().unwrap();
+    for limit in [None, Some(0)] {
+        set_inline_limit(limit);
+        let read = engine.read().unwrap();
+        assert_eq!(run_of(&read, root, b"default").unwrap(), None);
+        assert_eq!(run_of(&read, root, b"ab").unwrap().map(|r| r.1), Some(1));
+        assert_eq!(run_of(&read, root, b"cd").unwrap(), None);
+        assert_eq!(get(&read, root, b"ab").unwrap(), Some(&[2; 11][..]));
+        assert_eq!(get(&read, root, b"cd").unwrap(), Some(&[3; 10][..]));
+        assert_eq!(get(&read, root, b"default").unwrap(), Some(&[1; 100][..]));
+    }
+    set_inline_limit(None);
+    let refused = std::panic::catch_unwind(|| set_inline_limit(Some(node::MAX_LEAF_CELL + 1)));
+    assert!(refused.is_err());
 }
 
 /// A read opened before a write that splits and merges pages until the height changes keeps seeing its snapshot,
@@ -511,7 +546,6 @@ fn an_inconsistent_node_layout_is_damage_and_not_a_panic() {
                 let result = match op {
                     0 => set(&mut tx, root, &key, b"new").map(|_| ()),
                     1 => remove(&mut tx, root, &key).map(|_| ()),
-                    _ if on_leaf => continue,
                     _ => free_all(&mut tx, root),
                 };
                 assert_eq!(damaged_page(result), named, "{label}: operation {op}");
@@ -550,6 +584,64 @@ fn freeing_a_tree_whose_branch_names_itself_or_an_ancestor_is_damage() {
             target,
             "T11, ancestor: {ancestor}"
         );
+    }
+}
+
+/// G6, V7: a leaf whose checksum is valid but whose entry names a run that cannot be one (past the frontier, or
+/// among the store's own pages) makes reading, scanning and freeing that value fail with damage of the named page,
+/// never a panic; and a value off its leaf longer than the maximum makes the leaf inconsistent.
+#[test]
+fn an_inconsistent_value_reference_is_damage_and_not_a_panic() {
+    for (label, first, len) in [
+        ("past the frontier", 1u64 << 40, 20_000u64),
+        ("a header page", 1, 20_000),
+        ("too long a value", 0, MAX_VALUE as u64 + 1),
+    ] {
+        let engine = temporary();
+        let root = new_tree(&engine);
+        let mut tx = engine.write(None).unwrap();
+        set(&mut tx, root, b"a", b"inline").unwrap();
+        set(&mut tx, root, b"k", &[5; 20_000]).unwrap();
+        let (real, _) = run_of(&tx, root, b"k").unwrap().unwrap();
+        // The reference is the 16 bytes after the key: the run's first page and the value's length.
+        let leaf = tx.page_mut(root).unwrap();
+        let mut reference = real.to_le_bytes().to_vec();
+        reference.extend_from_slice(&20_000u64.to_le_bytes());
+        let at = leaf.windows(16).position(|w| w == reference).unwrap();
+        let first = if first == 0 { real } else { first };
+        leaf[at..at + 8].copy_from_slice(&first.to_le_bytes());
+        leaf[at + 8..at + 16].copy_from_slice(&len.to_le_bytes());
+        tx.commit().unwrap();
+        let named = if len > MAX_VALUE as u64 { root } else { first };
+
+        let read = engine.read().unwrap();
+        assert_eq!(damaged_page(get(&read, root, b"k")), named, "{label}");
+        let mut scan = Range::new(
+            &read,
+            root,
+            Interval {
+                prefix: b"",
+                lower: Bound::Unbounded,
+                upper: Bound::Unbounded,
+            },
+        )
+        .unwrap();
+        if len <= MAX_VALUE as u64 {
+            assert_eq!(scan.next().unwrap().unwrap().1, b"inline");
+        }
+        assert_eq!(damaged_page(scan.next().unwrap()), named, "{label}: scan");
+        drop(scan);
+        drop(read);
+        for op in 0..3 {
+            let mut tx = engine.write(None).unwrap();
+            let result = match op {
+                0 => set(&mut tx, root, b"k", b"new").map(|_| ()),
+                1 => remove(&mut tx, root, b"k").map(|_| ()),
+                _ => free_all(&mut tx, root),
+            };
+            assert_eq!(damaged_page(result), named, "{label}: operation {op}");
+            assert_eq!(damaged_page(tx.commit()), named, "{label}: T11");
+        }
     }
 }
 

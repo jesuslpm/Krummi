@@ -81,7 +81,9 @@ pub fn lookup<S: PageSource + ?Sized>(tx: &S, name: &str) -> Result<Option<Entry
     }
     let (page, leaf) = crate::descend(tx, root, name.as_bytes())?;
     match node::search(leaf, name.as_bytes()) {
-        Ok(index) => Entry::decode_in(tx, page, node::value(leaf, index)).map(Some),
+        Ok(index) => {
+            Entry::decode_in(tx, page, crate::resolve(tx, node::value(leaf, index))?).map(Some)
+        }
         Err(_) => Ok(None),
     }
 }
@@ -94,7 +96,8 @@ pub fn list<S: PageSource + ?Sized>(tx: &S) -> Result<Vec<(String, TreeKind)>> {
     if root != 0 {
         crate::leaves(tx, root, None, &mut |page, leaf| {
             for index in 0..node::count(leaf) {
-                let entry = Entry::decode_in(tx, page, node::value(leaf, index))?;
+                let entry =
+                    Entry::decode_in(tx, page, crate::resolve(tx, node::value(leaf, index))?)?;
                 // Names are stored from `str`; a name that is not UTF-8, which only foreign bytes can make, is
                 // shown with replacement characters, a copy that stays infallible.
                 let name = String::from_utf8(crate::copy(tx, node::key(leaf, index))?)

@@ -8,7 +8,9 @@
 //! grows, and [`StoreInfo`] reports how many pages are free. Module 5 adds named trees: inside a transaction an
 //! application opens a tree by its name and kind, stores, adds, reads and removes entries by key, and creates,
 //! empties, renames, lists and deletes trees. It scans a tree in key order from both ends, between two bounds and
-//! with an optional prefix, and removes every entry of an interval at once.
+//! with an optional prefix, and removes every entry of an interval at once. Keys have 1 to 2,048 bytes and values 0
+//! to 268,435,456 (256 MiB); reads and scans return every value, whatever its size, as one contiguous slice of the
+//! engine's memory, without copying it.
 //!
 //! ```
 //! use krummi::{OpenMode, Store, StoreOptions, TreeKind};
@@ -45,6 +47,8 @@ const MAX_NAME: usize = 1024;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod value_tests;
 
 /// Options for opening a store.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -471,7 +475,10 @@ impl<'s> WriteTransaction<'s> {
         )?))
     }
 
-    /// Stores `value` under `key` in `tree`, replacing the value if the key is there.
+    /// Stores `value` under `key` in `tree`, replacing the value if the key is there. Fails with
+    /// [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes, or the value is longer than
+    /// 268,435,456 bytes, after checking the key. A large value is copied into pages of its own that the commit
+    /// writes whole, so it takes memory until then and counts against the maximum size.
     pub fn set(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<()> {
         self.folder.check_key(key)?;
         self.folder.check_value(value)?;
@@ -482,7 +489,8 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// Stores `value` under `key` in `tree` only if the key is not there, and returns whether it did. The sizes
-    /// are checked first, also when the key is there.
+    /// are checked first, as [`set`](Self::set) does, also when the key is there; then a key that is there reserves
+    /// nothing, so it never fails for the value's size.
     pub fn try_add(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<bool> {
         self.folder.check_key(key)?;
         self.folder.check_value(value)?;

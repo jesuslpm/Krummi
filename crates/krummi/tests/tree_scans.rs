@@ -570,7 +570,10 @@ fn ac_r11_handle_failures_win_over_damage() {
     let store = open(tmp.path());
     let all = numbered(60, 1000);
     fill(&store, "t", &all);
+    // A value off its leaf, whose run deleting the tree never reads (V7 of the large values PRD).
+    commit_tree(&store, "t", &[(all[30].clone(), vec![7; 10_000])]);
     store.close().unwrap();
+    let (run, _) = value_run(tmp.path(), "t", &all[30]).unwrap();
     let leaf = leaf_page(tmp.path(), Some("t"), &all[30]);
     assert_ne!(
         leaf,
@@ -579,8 +582,8 @@ fn ac_r11_handle_failures_win_over_damage() {
     );
     let root = root_page(tmp.path(), "t");
 
-    // A handle of a deleted tree whose leaf is damaged (deleting reads only the branch pages).
-    damage(tmp.path(), leaf);
+    // A handle of a deleted tree whose value page is damaged (deleting reads every node, but no value's run).
+    damage(tmp.path(), run);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
     let tree = write.open_tree("t", NORMAL).unwrap();
@@ -590,8 +593,8 @@ fn ac_r11_handle_failures_win_over_damage() {
     write.abort();
     store.close().unwrap();
 
-    // A handle of another read, with the root damaged (the leaf repaired: flipping the byte again restores it).
-    damage(tmp.path(), leaf);
+    // A handle of another read, with the root damaged (the value repaired: flipping the byte again restores it).
+    damage(tmp.path(), run);
     damage(tmp.path(), root);
     let store = open(tmp.path());
     let old = store.read().unwrap();

@@ -16,10 +16,10 @@ use krummi::{
 
 pub const NORMAL: TreeKind = TreeKind::Normal;
 // The size limits are written out on purpose instead of taken from the engine: they pin the PRDs' limits (B4, B5,
-// A11), so a change in the engine's constants fails these tests.
+// V1 of the large values PRD, which replaced A11), so a change in the engine's constants fails these tests.
 pub const MAX_NAME: usize = 1024;
 pub const MAX_KEY: usize = 2048;
-pub const MAX_VALUE: usize = 1024;
+pub const MAX_VALUE: usize = 268_435_456;
 
 /// Runs `test` on a store on disk and on a temporary one; `folder` is the store's folder, `None` when temporary.
 pub fn stores(test: impl Fn(&Store, Option<&Path>)) {
@@ -172,6 +172,15 @@ pub fn leaf_page(folder: &Path, tree: Option<&str>, key: &[u8]) -> u64 {
             None => read.slot(catalog::ROOT_SLOT).unwrap(),
         };
         krummi_tree::leaf_of(read, root, key).unwrap()
+    })
+}
+
+/// The value run of `key` in the tree `tree` of the closed store: its first page and its number of pages, or `None`
+/// when the value is in its leaf.
+pub fn value_run(folder: &Path, tree: &str, key: &[u8]) -> Option<(u64, u64)> {
+    inspect(folder, |read| {
+        let root = catalog::lookup(read, tree).unwrap().unwrap().root;
+        krummi_tree::run_of(read, root, key).unwrap()
     })
 }
 

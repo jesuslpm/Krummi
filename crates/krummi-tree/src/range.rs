@@ -10,14 +10,14 @@
 //! A [`Range`] scans an interval from both ends. Each end keeps the path from the root to its leaf, the page and
 //! the child or entry index at every level, and finds its first entry on its first step, so a range reads no page
 //! until it is used. An end stops at the bound, or before the other end's last entry, so that each entry comes out
-//! once. Every node is read with the checks of the tree code (damage with its page number, G6). After any failure
-//! both ends stop.
+//! once. Every node is read with the checks of the tree code (damage with its page number, G6), and a value off its
+//! leaf is read from its run when its entry comes out (V2, V7). After any failure both ends stop.
 
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
 use krummi_tx::Result;
 
-use crate::{MAX_KEY, PageSource, child_level, copy, node, node_at, reserve};
+use crate::{MAX_KEY, PageSource, child_level, copy, node, node_at, reserve, resolve};
 
 /// An interval of keys, borrowed: the bounds and the prefix of a scan or a removal.
 #[derive(Debug, Clone, Copy)]
@@ -245,9 +245,10 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                 if !interval.before_upper(key) || self.back.last.is_some_and(|last| key >= last) {
                     return Ok(None);
                 }
+                let value = resolve(self.tx, node::value(leaf, index))?;
                 self.front.path.last_mut().expect("a leaf").1 += 1;
                 self.front.last = Some(key);
-                return Ok(Some((key, node::value(leaf, index))));
+                return Ok(Some((key, value)));
             }
             // The next leaf: up to the first branch with a child to the right, then down its leftmost children.
             self.front.path.pop();
@@ -292,9 +293,10 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                 if !interval.after_lower(key) || self.front.last.is_some_and(|last| key <= last) {
                     return Ok(None);
                 }
+                let value = resolve(self.tx, node::value(leaf, index))?;
                 self.back.path.last_mut().expect("a leaf").1 = index;
                 self.back.last = Some(key);
-                return Ok(Some((key, node::value(leaf, index))));
+                return Ok(Some((key, value)));
             }
             // The previous leaf: up to the first branch with a child to the left, then down its rightmost children.
             self.back.path.pop();

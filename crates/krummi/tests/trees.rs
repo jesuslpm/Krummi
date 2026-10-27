@@ -15,6 +15,9 @@ use krummi::{
 };
 use support::*;
 
+/// The provisional maximum of a value in 5.1 (A11): no longer a limit (V1), still a value that fills leaves fast.
+const OLD_MAX: usize = 1024;
+
 /// The 2026-10-25 annotation (B1 exception): a handle of another transaction of the same class, also of one that
 /// ended, fails with misuse without effect, and the transaction stays usable; the invalid size wins over it (A7).
 #[test]
@@ -353,10 +356,12 @@ fn ac_a8_key_operations() {
         assert_eq!(write.get(&tree, b"e").unwrap(), Some(&b""[..]));
         assert!(write.remove(&tree, b"k").unwrap());
         assert!(!write.remove(&tree, b"k").unwrap());
-        let error = write.try_add(&tree, b"n", &[0; MAX_VALUE + 1]).unwrap_err();
+        let error = write
+            .try_add(&tree, b"n", &vec![0; MAX_VALUE + 1])
+            .unwrap_err();
         assert_eq!(
             invalid_size(error, folder),
-            (SizeSubject::Value, 1025, 0, 1024)
+            (SizeSubject::Value, 268_435_457, 0, 268_435_456)
         );
         assert_eq!(write.len(&tree).unwrap(), 2);
         write.commit().unwrap();
@@ -723,23 +728,20 @@ fn ac_a13_precedence() {
     drop(read);
     store.close().unwrap();
 
-    // A handle of a deleted tree whose page is damaged: deleting reads only the branch pages.
+    // A handle of a deleted tree whose page is damaged: the page of a value off its leaf, which deleting never reads
+    // (V7 of the large values PRD; deleting reads every node of the tree).
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
     let key = |i: usize| long_key(i, 1000);
     let mut write = store.write().unwrap();
     let tree = create(&mut write, "t");
     for i in 0..60 {
-        write.set(&tree, &key(i), b"value").unwrap();
+        let value: &[u8] = if i == 30 { &[7; 10_000] } else { b"value" };
+        write.set(&tree, &key(i), value).unwrap();
     }
     write.commit().unwrap();
     store.close().unwrap();
-    let page = leaf_page(tmp.path(), Some("t"), &key(30));
-    assert_ne!(
-        page,
-        leaf_page(tmp.path(), Some("t"), &key(0)),
-        "the tree has several leaves"
-    );
+    let (page, _) = value_run(tmp.path(), "t", &key(30)).unwrap();
     damage(tmp.path(), page);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
@@ -815,11 +817,14 @@ fn ac_a15_deleting_or_emptying_a_tree_gives_its_pages_back() {
     });
 }
 
+/// AC-A17 as the large values PRD annotates it: the provisional maximum of 1,024 bytes gave way to V1's, so values of
+/// 1,024 and 1,025 bytes are stored with a 2,048-byte key; the new maximum and the size past it are AC-V1's, in
+/// `tree_values.rs`.
 #[test]
-fn ac_a17_ac_b3_values_up_to_the_provisional_maximum() {
-    stores(|store, folder| {
+fn ac_a17_ac_b3_values_past_the_provisional_maximum() {
+    stores(|store, _| {
         let key = vec![b'k'; MAX_KEY];
-        let max = vec![0xAB; MAX_VALUE];
+        let max = vec![0xAB; OLD_MAX];
         let mut write = store.write().unwrap();
         let tree = create(&mut write, "t");
         write.set(&tree, &key, &max).unwrap();
@@ -827,24 +832,21 @@ fn ac_a17_ac_b3_values_up_to_the_provisional_maximum() {
         let mut empty_key = key.clone();
         empty_key[0] = b'e';
         write.set(&tree, &empty_key, b"").unwrap();
-        let error = write.set(&tree, b"over", &[0; MAX_VALUE + 1]).unwrap_err();
-        assert_eq!(
-            invalid_size(error, folder),
-            (SizeSubject::Value, 1025, 0, 1024)
-        );
-        assert_eq!(write.get(&tree, b"over").unwrap(), None, "nothing stored");
+        let over = vec![0xEF; OLD_MAX + 1];
+        write.set(&tree, b"over", &over).unwrap();
         write.commit().unwrap();
         let read = store.read().unwrap();
         let tree = read.open_tree("t", NORMAL).unwrap();
         assert_eq!(read.get(&tree, &key).unwrap(), Some(&max[..]));
         assert_eq!(read.get(&tree, &empty_key).unwrap(), Some(&b""[..]));
-        assert_eq!(read.len(&tree).unwrap(), 3);
+        assert_eq!(read.get(&tree, b"over").unwrap(), Some(&over[..]));
+        assert_eq!(read.len(&tree).unwrap(), 4);
     });
     // On disk, also after reopening.
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
     let key = vec![b'k'; MAX_KEY];
-    let max = vec![0xCD; MAX_VALUE];
+    let max = vec![0xCD; OLD_MAX];
     let mut write = store.write().unwrap();
     let tree = create(&mut write, "t");
     write.set(&tree, &key, &max).unwrap();
@@ -861,7 +863,7 @@ fn ac_a17_ac_b3_values_up_to_the_provisional_maximum() {
 #[test]
 fn ac_b1_keys_of_1_to_2048_bytes() {
     stores(|store, folder| {
-        let max = [7; MAX_VALUE];
+        let max = [7; OLD_MAX];
         let keys = [vec![1], vec![2; 1025], vec![3; MAX_KEY]];
         let mut write = store.write().unwrap();
         let tree = create(&mut write, "t");
@@ -969,7 +971,7 @@ fn ac_b4_validation_failures_do_not_prevent_the_commit() {
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
         let tree = write.open_tree("t", NORMAL).unwrap();
-        assert!(write.set(&tree, b"k", &[0; MAX_VALUE + 1]).is_err());
+        assert!(write.set(&tree, b"k", &vec![0; MAX_VALUE + 1]).is_err());
         assert!(write.remove(&tree, b"").is_err());
         assert!(
             write
@@ -1005,11 +1007,7 @@ fn ac_b5_a_max_size_failure_wins_over_invalid_sizes() {
                 invalid(&mut write);
             }
             let failure = (0..10_000)
-                .find_map(|i| {
-                    write
-                        .set(&tree, &long_key(i, MAX_KEY), &[1; MAX_VALUE])
-                        .err()
-                })
+                .find_map(|i| write.set(&tree, &long_key(i, MAX_KEY), &[1; OLD_MAX]).err())
                 .unwrap();
             assert_eq!(failure.kind(), ErrorKind::MaxSize);
             if !invalid_first {
