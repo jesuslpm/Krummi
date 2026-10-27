@@ -222,3 +222,13 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   R1), R4-release-syscalls-under-lock (SUGGESTION: unmap and delete outside the area lock), R3-001 (WARNING: the
   regression test's exact file-bytes equality could fail if Windows keeps a released file open, e.g. an antivirus
   scan) and R3-003 (SUGGESTION: the probes hard-code the threshold sizes).
+- **L17** (Codex follow-up, round 2): `docs/reviews/trees-large-values/2026-10-27-code-02.md`, wrapper status
+  `findings`, `threadId` `01a17f6b-d5fe-7253-84c4-532b728e477f`. R1 "Still open; original scenario verified fixed,
+  overall finding unresolved": a run reused for a slightly smaller one left the whole old allocation alive and
+  uncounted under an old read. Fixed in `e1cc4ab` (a run is charged whole while any version references it; RED at
+  the second run: 17,162,240 bytes held, 8,536,064 counted). RDD review 6 (`3a528ec..e1cc4ab`, lineage
+  `review-713a431a84a3734d`): **approved**, acknowledged; advisory R3-retired-runs-uncounted (WARNING) recorded in
+  the resolutions and not changed (retired versions are in `krummi.data`; retired single pages were never counted).
+- **L18** (Codex follow-up, round 3): wrapper status `error` (usage limit until 2026-10-28 02:35), `threadId`
+  `01a17f7f-413f-75b1-b21d-21c23a84c773`, no report. Not an approval: the round-2 fix of R1 is unverified by Codex
+  and the loop's last round is still owed. Closing report: [trees-large-values-report.md](trees-large-values-report.md).

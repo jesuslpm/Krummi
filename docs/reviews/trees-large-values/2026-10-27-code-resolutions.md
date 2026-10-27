@@ -76,3 +76,10 @@ Fix commit: `e1cc4ab`.
   which the maximum size counts, and retired single pages were never counted either (T14 counts the versions that
   are only in memory); the follow-up review can confirm or reject this reading.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-27 (round 3 not run)
+
+The third and last follow-up review (`-FollowUp 2026-10-27-code.md -FixRange 46fdd12..57dc55b`) ended with
+wrapper status `error`: Codex usage limit, retry after 2026-10-28 02:35; `threadId`
+`01a17f7f-413f-75b1-b21d-21c23a84c773`; no report, no changes. It is not an approval: the round-2 fix of R1
+(`e1cc4ab`) stays claimed, unverified by Codex.
