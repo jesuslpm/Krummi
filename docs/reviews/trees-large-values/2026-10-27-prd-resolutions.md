@@ -60,3 +60,18 @@ wrapper status or `threadId`. The reviewer's model and effort were not stated. T
 same day ended with wrapper status `error` (Codex usage limit, retry after 11:36), `threadId`
 `01a17c68-188d-7a33-bb80-63e40d09cd78`, with no report and no changes. It is not an approval. Its telemetry
 showed coordinator `gpt-6.1-sol`/`high` and reviewer `krummi-review-critical` `gpt-6-astra`/`xhigh`.
+
+## 2026-10-28 (verification)
+
+Report: [2026-10-28-prd.md](2026-10-28-prd.md), follow-up of the fixes. The PRD bytes reviewed match the SHA-256
+recorded above, and they are the bytes committed in `27a5e5b`. Its verdict, quoted: "Ready for implementation within
+the requested follow-up scope."
+
+- R1: verified resolved.
+- R2: verified resolved.
+- R3: verified resolved.
+- R4: verified resolved. The report checked each section against `render_section`.
+- No new findings and no open product questions.
+
+Review record: wrapper status `approved`, `threadId` `01a182ee-7b66-7171-887e-dea4d26e99f5`. The telemetry reports
+coordinator `gpt-6.1-sol`/`high` and reviewer `krummi-review-critical` `gpt-6-astra`/`xhigh`.

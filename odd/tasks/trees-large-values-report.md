@@ -28,7 +28,9 @@ Rama `feat/trees-large-values`, sin fusionar en `main` y sin push. Último commi
   con valores en la hoja, idéntica byte a byte en disco y en modo temporal; revisión de Codex en cinco rondas (la
   cuarta y la quinta, autorizadas por el usuario por encima del límite de tres): R1 *major* verificado como
   resuelto en la ronda 4, que abrió R2 *major*, corregido en `7584790` y verificado como resuelto en la ronda 5
-  ([informe](../../docs/reviews/trees-large-values/2026-10-28-code-03.md), aprobada, sin hallazgos abiertos).
+  ([informe](../../docs/reviews/trees-large-values/2026-10-28-code-03.md), aprobada, sin hallazgos abiertos). Las
+  correcciones R1–R4 del PRD, verificadas por Codex en su
+  [revisión de seguimiento](../../docs/reviews/trees-large-values/2026-10-28-prd.md).
 - **Hallazgos corregidos por el camino:** R1 de Codex, en tres partes: los trozos del área temporal hechos para un
   único rango grande no se liberaban ni contaban para el tamaño máximo (`7b4286b`), un rango retenido a medias
   seguía contando solo sus páginas vivas (`e1cc4ab`) y un rango retirado que retenía un lector más nuevo dejaba de
@@ -216,9 +218,6 @@ máximo, y la transferencia escribe por orden de confirmación. La evaluación d
 
 ## Pendiente (no bloqueante)
 
-- **Revisión de seguimiento del PRD:** las correcciones R1–R4 de la revisión del PRD
-  ([resoluciones](../../docs/reviews/trees-large-values/2026-10-27-prd-resolutions.md)) siguen sin una revisión de
-  seguimiento.
 - **Hallazgos consultivos aceptados:** con el área temporal fragmentada, cada rango pequeño sin hueco contiguo crea
   su propio archivo mientras un lector lo retiene (descriptores y latencia, no corrección); liberar un trozo propio
   hace llamadas al sistema bajo el cerrojo del área; la prueba de regresión de R1 exige igualdad exacta de bytes de
