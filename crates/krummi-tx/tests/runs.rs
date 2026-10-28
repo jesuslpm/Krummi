@@ -407,6 +407,12 @@ fn a_run_counts_against_the_maximum_size_like_its_pages() {
     assert_eq!(committed(true), committed(false));
 }
 
+/// The largest chunk the temporary area adds for single pages (`MAX_CHUNK_PAGES` of `temp.rs`).
+const NORMAL_CHUNK: u64 = 1024 * PAGE as u64;
+
+/// The maximum size of the tests that pile runs up in the temporary area.
+const RUNS_MAX: u64 = 64 << 20;
+
 /// Bytes of the files of `krummi.temp` in `folder`.
 fn temp_files_bytes(folder: &Path) -> u64 {
     std::fs::read_dir(folder.join("krummi.temp")).map_or(0, |entries| {
@@ -416,6 +422,24 @@ fn temp_files_bytes(folder: &Path) -> u64 {
     })
 }
 
+/// Checks that the maximum-size accounting covers what the temporary area holds, but for one chunk of single pages,
+/// and that the store and its versions stay within [`RUNS_MAX`]; on disk, the area is the files of `krummi.temp`.
+fn within_maximum(engine: &Engine, step: &str) {
+    let (area, held, data) = (
+        engine.area_bytes(),
+        engine.scratch_bytes(),
+        engine.info().size_bytes,
+    );
+    if let Some(folder) = engine.folder() {
+        assert_eq!(temp_files_bytes(folder), area, "{step}");
+    }
+    assert!(
+        area <= held + NORMAL_CHUNK && data + area <= RUNS_MAX,
+        "{step}: the temporary area holds {area} bytes, {held} counted, and the store {data}, with a maximum of \
+         {RUNS_MAX}"
+    );
+}
+
 /// P10, T14 and the large values PRD (*Dejado a la implementación*: the memory reserved so that a run is contiguous
 /// counts for the maximum size); R1 of the code review: replacing a value with one a page larger, again and again,
 /// each over the largest chunk the temporary area grows by, never leaves the area holding more than the versions
@@ -423,11 +447,8 @@ fn temp_files_bytes(folder: &Path) -> u64 {
 /// temporary mode.
 #[test]
 fn growing_runs_never_pile_up_in_the_temporary_area() {
-    // The largest chunk the temporary area adds for single pages (`MAX_CHUNK_PAGES` of `temp.rs`).
-    const NORMAL_CHUNK: u64 = 1024 * PAGE as u64;
-    let max = 64 << 20;
     let options = OpenOptions {
-        max_size: Some(max),
+        max_size: Some(RUNS_MAX),
     };
     let tmp = tempfile::tempdir().unwrap();
     let engines = [
@@ -450,21 +471,96 @@ fn growing_runs_never_pile_up_in_the_temporary_area() {
             old = Some(place);
             assert!(engine.transfer_now());
             wait_until(|| engine.scratch_bytes() == 0);
-
-            let area = engine.area_bytes();
-            if let Some(folder) = engine.folder() {
-                assert_eq!(temp_files_bytes(folder), area, "write {i}");
-            }
-            let data = engine.info().size_bytes;
-            assert!(
-                area <= engine.scratch_bytes() + NORMAL_CHUNK && data + area <= max,
-                "write {i}: the temporary area holds {area} bytes and the store {data}, with a maximum of {max}"
-            );
+            within_maximum(&engine, &format!("write {i}"));
             let read = engine.read().unwrap();
             assert_eq!(in_read(&read, place), &bytes[..], "write {i}");
         }
         engine.close().unwrap();
     }
+}
+
+/// The run that the meta page keeps in the shrinking runs tests, with its bytes, and the first page every run reuses.
+#[derive(Default)]
+struct Shrinking {
+    current: Option<(Place, Vec<u8>)>,
+    first_page: Option<u64>,
+}
+
+impl Shrinking {
+    /// Replaces the current run with one of `count` pages that reuses all its pages but its last one: frees it in a
+    /// commit of its own, so that its pages can be reused, then stores the new one in another and has a transfer run.
+    /// Checks [`within_maximum`] and that a new read sees the new run, or nothing when its write failed with the
+    /// maximum-size class, which then applied nothing. Returns whether it failed.
+    fn replace(&mut self, engine: &Engine, count: usize) -> bool {
+        let none = Place {
+            first: 0,
+            count: 0,
+            len: 0,
+        };
+        if let Some((old, _)) = self.current.take() {
+            let mut tx = engine.write(None).unwrap();
+            tx.free(old.first, old.count).unwrap();
+            keep(&mut tx, none);
+            tx.commit().unwrap();
+        }
+        let bytes = value(count * PAGE - PAGE_HEADER_SIZE, count as u8);
+        let mut tx = engine.write(None).unwrap();
+        let stored = match tx.allocate_value_run(count as u64) {
+            Ok((first, body)) => {
+                body[..bytes.len()].copy_from_slice(&bytes);
+                let place = Place {
+                    first,
+                    count: count as u64,
+                    len: bytes.len(),
+                };
+                keep(&mut tx, place);
+                tx.commit().map(|_| place)
+            }
+            // The write ends without applying anything.
+            Err(error) => {
+                drop(tx);
+                Err(error)
+            }
+        };
+        let refused = match stored {
+            Ok(place) => {
+                assert_eq!(*self.first_page.get_or_insert(place.first), place.first);
+                self.current = Some((place, bytes));
+                false
+            }
+            Err(error) => {
+                assert_eq!(error.kind(), ErrorKind::MaxSize, "{count} pages");
+                true
+            }
+        };
+        engine.transfer_now();
+
+        within_maximum(engine, &format!("{count} pages"));
+        let read = engine.read().unwrap();
+        match &self.current {
+            Some((place, bytes)) => {
+                assert_eq!(kept(&read), Some(*place));
+                assert_eq!(in_read(&read, *place), &bytes[..], "{count} pages");
+            }
+            None => assert_eq!(kept(&read), None, "{count} pages: nothing applied"),
+        }
+        refused
+    }
+}
+
+/// The engines of the shrinking runs tests, on disk in `folder` and in temporary mode, with transfers paused.
+fn shrinking_engines(folder: &Path) -> [Engine; 2] {
+    let options = OpenOptions {
+        max_size: Some(RUNS_MAX),
+    };
+    let engines = [
+        Engine::open(folder, &options).unwrap(),
+        Engine::open_temporary(&options).unwrap(),
+    ];
+    for engine in &engines {
+        engine.set_transfer_paused(true);
+    }
+    engines
 }
 
 /// P10, T14 and the large values PRD, as in [`growing_runs_never_pile_up_in_the_temporary_area`]; R1 of the code
@@ -474,93 +570,57 @@ fn growing_runs_never_pile_up_in_the_temporary_area() {
 /// without applying anything, on disk and in temporary mode; once the read ends, a transfer empties the area.
 #[test]
 fn shrinking_runs_under_an_old_read_count_whole_for_the_maximum_size() {
-    // The largest chunk the temporary area adds for single pages (`MAX_CHUNK_PAGES` of `temp.rs`).
-    const NORMAL_CHUNK: u64 = 1024 * PAGE as u64;
-    let max = 64 << 20;
-    let options = OpenOptions {
-        max_size: Some(max),
-    };
     let tmp = tempfile::tempdir().unwrap();
-    let engines = [
-        Engine::open(tmp.path(), &options).unwrap(),
-        Engine::open_temporary(&options).unwrap(),
-    ];
-    let none = Place {
-        first: 0,
-        count: 0,
-        len: 0,
-    };
-    for engine in engines {
-        engine.set_transfer_paused(true);
+    for engine in shrinking_engines(tmp.path()) {
         let old_read = engine.read().unwrap();
-        let mut current: Option<(Place, Vec<u8>)> = None;
-        let mut first_page = None;
-        let mut refused = false;
-        for count in (1025..=1040).rev() {
-            if let Some((old, _)) = current.take() {
-                let mut tx = engine.write(None).unwrap();
-                tx.free(old.first, old.count).unwrap();
-                keep(&mut tx, none);
-                tx.commit().unwrap();
-            }
-            let bytes = value(count * PAGE - PAGE_HEADER_SIZE, count as u8);
-            let mut tx = engine.write(None).unwrap();
-            let stored = match tx.allocate_value_run(count as u64) {
-                Ok((first, body)) => {
-                    body[..bytes.len()].copy_from_slice(&bytes);
-                    let place = Place {
-                        first,
-                        count: count as u64,
-                        len: bytes.len(),
-                    };
-                    keep(&mut tx, place);
-                    tx.commit().map(|_| place)
-                }
-                Err(error) => Err(error),
-            };
-            match stored {
-                Ok(place) => {
-                    assert_eq!(*first_page.get_or_insert(place.first), place.first);
-                    current = Some((place, bytes));
-                }
-                Err(error) => {
-                    assert_eq!(error.kind(), ErrorKind::MaxSize, "{count} pages");
-                    refused = true;
-                }
-            }
-            engine.transfer_now();
-
-            let (area, held, data) = (
-                engine.area_bytes(),
-                engine.scratch_bytes(),
-                engine.info().size_bytes,
-            );
-            if let Some(folder) = engine.folder() {
-                assert_eq!(temp_files_bytes(folder), area, "{count} pages");
-            }
-            assert!(
-                area <= held + NORMAL_CHUNK && data + area <= max,
-                "{count} pages: the temporary area holds {area} bytes, {held} counted, and the store {data}, with a \
-                 maximum of {max}"
-            );
-            let read = engine.read().unwrap();
-            match &current {
-                Some((place, bytes)) => {
-                    assert_eq!(kept(&read), Some(*place));
-                    assert_eq!(in_read(&read, *place), &bytes[..], "{count} pages");
-                }
-                None => assert_eq!(kept(&read), None, "{count} pages: nothing applied"),
-            }
-            if refused {
-                break;
-            }
-        }
+        let mut runs = Shrinking::default();
+        let refused = (1025..=1040)
+            .rev()
+            .any(|count| runs.replace(&engine, count));
         assert!(refused, "the old read keeps more than the maximum size");
         // A write still works, and once the old read ends a transfer gives everything back.
         let mut tx = engine.write(None).unwrap();
         tx.set_slot(3, 1).unwrap();
         tx.commit().unwrap();
         drop(old_read);
+        assert!(engine.transfer_now());
+        wait_until(|| engine.scratch_bytes() == 0);
+        let area = engine.area_bytes();
+        assert!(area <= NORMAL_CHUNK, "the area keeps {area} bytes");
+        engine.close().unwrap();
+    }
+}
+
+/// P10, T14 and the large values PRD, as in [`shrinking_runs_under_an_old_read_count_whole_for_the_maximum_size`];
+/// R1 of the third code follow-up review: once the old read ends, a transfer writes the runs it kept in place and
+/// retires them, but a newer read that holds a reference to the current run keeps their slots allocated until it
+/// ends. They stay counted for the maximum size until they are freed, so further replacements stay within the
+/// maximum or fail with its class without applying anything, the newer read's reference keeps its bytes, and once
+/// it ends a transfer empties the area, on disk and in temporary mode.
+#[test]
+fn shrinking_runs_retired_under_a_newer_read_count_until_freed() {
+    let tmp = tempfile::tempdir().unwrap();
+    for engine in shrinking_engines(tmp.path()) {
+        let old_read = engine.read().unwrap();
+        let mut runs = Shrinking::default();
+        for count in (1035..=1040).rev() {
+            assert!(!runs.replace(&engine, count), "{count} pages fit");
+        }
+        let (place, bytes) = runs.current.clone().unwrap();
+        let new_read = engine.read().unwrap();
+        let held = in_read(&new_read, place);
+        drop(old_read);
+        assert!(engine.transfer_now());
+        within_maximum(&engine, "the old read ended");
+        for count in (1030..=1034).rev() {
+            runs.replace(&engine, count);
+            assert_eq!(
+                held,
+                &bytes[..],
+                "{count} pages: the newer read's reference"
+            );
+        }
+        drop(new_read);
         assert!(engine.transfer_now());
         wait_until(|| engine.scratch_bytes() == 0);
         let area = engine.area_bytes();

@@ -31,11 +31,13 @@
 //! version of one of its pages.
 //!
 //! The bytes of the versions ([`Scratch::scratch_bytes`]) count for the maximum size (T14, P10). A page of its own
-//! counts while its version is here. A run's slots are one allocation that its last version here keeps whole, so
-//! the run counts whole from its first version until its last one leaves, by garbage collection, by a transfer or
-//! at the close: when a later run reuses all its pages but the last one while an older snapshot keeps the newer
-//! versions here, the old run still counts whole (R1 of the large values code review). Retired versions are not
-//! counted, as before value runs: only the snapshots that were open when they left can keep them.
+//! counts while its version is here; once retired it is a copy of the page in the data file, whose bytes count
+//! already, so it stops counting, as before value runs. A run's slots are one allocation that any of its versions
+//! keeps whole, here or retired, so the run counts whole from its first version until the last one is freed: when a
+//! later run reuses all its pages but the last one, the old run's other pages are no longer in the data file, and
+//! its slots are memory the engine reserved so that the run is contiguous, which counts for the maximum size (large
+//! values PRD, *Dejado a la implementación*). That holds while an older snapshot keeps the newer versions here and
+//! while a newer snapshot keeps the retired run allocated (R1 of the large values code review and its follow-ups).
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -152,11 +154,11 @@ struct State {
     last_committed: u64,
     /// Versions of each page that are only here, oldest first.
     versions: HashMap<u64, Vec<Version>>,
-    /// Bytes taken by `versions` (T14): a page of its own for each version of one, and the whole slots of a value run
-    /// while one of its pages keeps a version here, even when newer versions replaced the others (see
-    /// [`State::hold`]).
+    /// Bytes taken by `versions` and `retired` (T14): a page of its own for each version of one in `versions`, and the
+    /// whole slots of a value run while one of its pages keeps a version in either, even when newer versions replaced
+    /// the others (see [`State::hold`]).
     bytes: u64,
-    /// Versions in `versions` of each value run, by the address of its slots.
+    /// Versions in `versions` and in `retired` of each value run, by the address of its slots.
     run_holders: HashMap<usize, usize>,
     /// Open read snapshots by ascending sequence number; their versions never decrease along the list.
     live: Vec<Live>,
@@ -720,11 +722,12 @@ impl Shared {
             // and any other write.
             unsafe { pager.write_run_shared(page_number, page)? };
             for version in state.versions.remove(&page_number).unwrap_or_default() {
-                state.release(&version);
+                state.release(&version.page);
             }
         }
+        // No snapshot is open, so every retired version is freed.
+        drop(state.free_retired());
         debug_assert_eq!(state.bytes, 0, "every version left the scratch area");
-        state.retired.clear();
         // Nothing was committed since the store opened: `krummi.data` and its header are already what a close
         // would leave, so a close writes nothing, unless a header copy is damaged and the close can repair it (P6).
         let unchanged = pages_written == 0
@@ -778,20 +781,21 @@ impl State {
         self.retire(gone);
     }
 
-    /// Counts a version that goes into `versions` in `bytes` (T14, P10): a page of its own takes its page; the first
-    /// version of a value run takes the run's whole slots, which stay counted until its last version leaves
-    /// ([`State::release`]). A run's slots are one allocation of the temporary area, kept whole while any of its
-    /// versions is, so a run whose other pages got newer versions still counts whole: the maximum-size accounting
-    /// covers every slot the versions keep (R1 of the large values code review).
-    fn hold(&mut self, version: &Version) {
-        let pages = version.page.pages();
+    /// Counts in `bytes` a version, held in `page`, that goes into `versions` (T14, P10): a page of its own takes its
+    /// page; the first version of a value run takes the run's whole slots, which stay counted until its last version
+    /// is freed, from `versions` or from `retired` ([`State::release`]). A run's slots are one allocation of the
+    /// temporary area, kept whole while any of its versions is, so a run whose other pages got newer versions, or
+    /// were written in place and retired, still counts whole: the maximum-size accounting covers every slot the
+    /// versions keep (R1 of the large values code review).
+    fn hold(&mut self, page: &Arc<Slot>) {
+        let pages = page.pages();
         if pages == 1 {
             self.bytes += PAGE_SIZE_U64;
             return;
         }
         let holders = self
             .run_holders
-            .entry(Arc::as_ptr(&version.page).addr())
+            .entry(Arc::as_ptr(page).addr())
             .or_insert(0);
         if *holders == 0 {
             self.bytes += pages as u64 * PAGE_SIZE_U64;
@@ -799,19 +803,20 @@ impl State {
         *holders += 1;
     }
 
-    /// Stops counting a version that left `versions`: its page, or its run's whole slots when it was the run's last
-    /// version here ([`State::hold`]).
-    fn release(&mut self, version: &Version) {
-        let pages = version.page.pages();
+    /// Stops counting a version, held in `page`, that leaves the accounting: a page of its own when it leaves
+    /// `versions`, and a run's version when it is freed; the run's whole slots stop counting with its last version
+    /// ([`State::hold`]).
+    fn release(&mut self, page: &Arc<Slot>) {
+        let pages = page.pages();
         if pages == 1 {
             self.bytes -= PAGE_SIZE_U64;
             return;
         }
-        let key = Arc::as_ptr(&version.page).addr();
+        let key = Arc::as_ptr(page).addr();
         let holders = self
             .run_holders
             .get_mut(&key)
-            .expect("a run's version in the scratch area is counted");
+            .expect("a run's version in the scratch area or retired is counted");
         *holders -= 1;
         if *holders == 0 {
             self.run_holders.remove(&key);
@@ -819,11 +824,15 @@ impl State {
         }
     }
 
-    /// Moves page versions out of `versions`; they are freed once the snapshots that may use them end.
+    /// Moves page versions out of `versions`; they are freed once the snapshots that may use them end. A page of its
+    /// own stops counting now, and a run's version when it is freed ([`State::free_retired`]), so that the run's
+    /// slots count while they stay allocated (see the module documentation).
     fn retire(&mut self, versions: impl IntoIterator<Item = Version>) {
         let bound = self.next_seq.saturating_sub(1);
         for version in versions {
-            self.release(&version);
+            if !counted_while_retired(&version.page) {
+                self.release(&version.page);
+            }
             self.retired.push((bound, version.page));
         }
     }
@@ -860,7 +869,7 @@ impl State {
             *versions = kept;
         }
         for version in &dropped {
-            self.release(version);
+            self.release(&version.page);
         }
         dropped
     }
@@ -879,8 +888,21 @@ impl State {
             .into_iter()
             .partition(|(bound, _)| *bound < oldest);
         self.retired = keep;
-        free.into_iter().map(|(_, page)| page).collect()
+        free.into_iter()
+            .map(|(_, page)| {
+                if counted_while_retired(&page) {
+                    self.release(&page);
+                }
+                page
+            })
+            .collect()
     }
+}
+
+/// Whether a retired version, held in `page`, still counts for the maximum size: a run's version does, since its
+/// slots may hold more than the data file does (see the module documentation); a page of its own does not.
+fn counted_while_retired(page: &Slot) -> bool {
+    page.pages() > 1
 }
 
 /// A view of the store as it was when the snapshot opened (G3). It can be sent to and shared between threads
@@ -1122,8 +1144,8 @@ impl<'a> ScratchWriter<'a> {
         let mut state = scratch.lock();
         let txid = state.last_committed + 1;
         for (page_number, page, index) in staged.0 {
+            state.hold(&page);
             let version = Version { txid, page, index };
-            state.hold(&version);
             state.versions.entry(page_number).or_default().push(version);
         }
         state.last_committed = txid;
