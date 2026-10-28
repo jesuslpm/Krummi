@@ -170,3 +170,9 @@ Fix commit: `7584790`.
   (SUGGESTION): dismissed with evidence: `shrinking_runs_retired_under_a_newer_read_count_until_freed` keeps a read
   open across the flushes of every replacement and checks its reference keeps its bytes.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-28 (round 5 not run)
+
+The fifth follow-up, authorized by the user, ended with wrapper status `error`: Codex usage limit, retry after
+11:48; `threadId` `01a1817f-8340-73e2-b867-5dc932ab8937`; no report, no changes. It is not an approval: the R2 fix
+(`7584790`) stays claimed, unverified by Codex.

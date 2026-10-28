@@ -246,3 +246,5 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   25608192 }`). RDD review 8 (`45c1bf2..7584790`, lineage `review-48af2c09d934d928`): **approved**, acknowledged;
   its two WARNING on the borrow argument and its SUGGESTION dismissed with evidence. Verifying R2 needs a fifth
   Codex round, which only the user can authorize.
+- **L21** (2026-10-28, Codex follow-up, round 5, authorized by the user): wrapper status `error` (usage limit until
+  11:48), `threadId` `01a1817f-8340-73e2-b867-5dc932ab8937`, no report. The R2 fix stays unverified by Codex.
