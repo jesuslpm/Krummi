@@ -15,8 +15,9 @@ Rama `feat/trees-large-values`, sin fusionar en `main` y sin push. Último commi
   con 379 pruebas superadas, 0 fallidas y 14 ignoradas; en Linux (WSL 2 Ubuntu), `-p krummi-pager -p krummi-tx -p
   krummi` con 363 superadas, 0 fallidas y 14 ignoradas (cifras del worker del último arreglo, `7584790`). Los barridos completos de AC-V8 que están ignorados
   (`ac_v8_a_failure_at_every_page_operation…` y `ac_v8_crashes_through_the_close`) pasan. El barrido completo de AC10
-  byte a byte (unas 2 h) no se ejecutó; corren su muestra y la sonda de bytes alterados del verificador sobre 6.893
-  bytes (4.841 detectados, 2.052 sin efecto, 0 datos erróneos).
+  byte a byte con un valor fuera de su hoja pasó en la CI (run `40654101766` sobre `3c4d536`, paso de árboles:
+  13 min 22 s en Linux y 10 min 39 s en Windows; la estimación local de unas 2 h era errónea). La sonda de bytes
+  alterados del verificador sobre 6.893 bytes dio 4.841 detectados, 2.052 sin efecto y 0 datos erróneos.
 - **Aceptación:** la medición de V11 en Windows y en Linux, con los dos umbrales candidatos; datos en
   [trees-large-values-measurements.md](trees-large-values-measurements.md). Con el umbral elegido (media hoja),
   guardar y leer 256 MiB de valores: 1 KiB, 6,24 s / 1,22 s en Windows y 5,58 s / 1,24 s en Linux; 8 MiB,
@@ -54,7 +55,7 @@ El documento de ejecución traza cada S# a sus pruebas (L4–L16); el verificado
 | AC-V8 | `tree_integrity.rs::ac_v8_…`; `tests.rs::ac_v8_…` (muestra y barrido completo ignorado) | PASS |
 | AC-V9 | `value_tests.rs::ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier`; `runs.rs::growing_runs_…`, `shrinking_runs_…` | PASS |
 | AC-V10 | `tree_values.rs::ac_v10_writes_that_change_nothing_with_large_values` | PASS |
-| AC-V11 | `tree_integrity.rs::ac10_sample_of_altered_bytes_with_trees`; `pages.rs::ac_v11_…` | PASS (muestra; barrido completo no ejecutado) |
+| AC-V11 | `tree_integrity.rs::ac10_sample_of_altered_bytes_with_trees`; `pages.rs::ac_v11_…` | PASS (muestra en local; barrido completo en la CI, run `40654101766`) |
 | AC-V12 | `tree_scans.rs::ac_v12_…`; `tree_values.rs::ac_v12_the_entry_of_a_value_off_its_leaf_is_little_endian` | PASS |
 | AC-V13 | este informe y [trees-large-values-measurements.md](trees-large-values-measurements.md) | PASS |
 | AC-V14 | evaluación de V4 en [trees-large-values-measurements.md](trees-large-values-measurements.md) | PASS |
@@ -227,7 +228,8 @@ máximo, y la transferencia escribe por orden de confirmación. La evaluación d
   hoja dañada falla con daño (A9 lo permite).
 - **Límite del modo temporal:** sin tamaño máximo, un almacén temporal no crece más allá de 64 GiB y, con un límite
   de espacio de direcciones (`ulimit -v`), puede fallar al abrir con memoria agotada.
-- **No ejecutado:** el barrido completo de AC10 byte a byte (unas 2 h); corren su muestra y la sonda de 6.893 bytes.
+- **CI:** hasta `3c4d536` la CI no ejecutaba el barrido completo de fallos T11 con valores fuera de la hoja
+  (`ac_v8_a_failure_at_every_page_operation…`); se añadió al paso de árboles después del cierre.
 - **Copia en Engram:** pendiente: Engram rechaza escrituras en esta sesión (L3); el documento de ejecución es la
   única copia.
 

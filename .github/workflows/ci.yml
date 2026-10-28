@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -59,14 +59,14 @@ jobs:
           cargo test -p krummi-tx --test commit -- --ignored ac10
           cargo test -p krummi-tx --test recovery -- --ignored ac10
           cargo test -p krummi-tx --test free_space -- --ignored ac10
-      # Trees: every byte of a 128 KiB store with trees (AC10), crashes at every point of a commit and of the
-      # close that follows it (AC-A16, AC-B18, AC-R12), and a failure at every page operation of splits and merges
-      # and of range removals and scans.
-      - name: Tree acceptance sweeps (AC10, AC-A16, AC-B18, AC-R12)
+      # Trees: every byte of a 128 KiB store with trees and a value off its leaf (AC10), crashes at every point of a
+      # commit and of the close that follows it (AC-A16, AC-B18, AC-R12, AC-V8), and a failure at every page
+      # operation of splits and merges, of range removals and scans, and of writes of values off their leaf.
+      - name: Tree acceptance sweeps (AC10, AC-A16, AC-B18, AC-R12, AC-V8)
         timeout-minutes: 60
         run: |
           cargo test -p krummi --test tree_integrity -- --ignored
-          cargo test -p krummi --lib -- --ignored ac_b18 ac_r12
+          cargo test -p krummi --lib -- --ignored ac_b18 ac_r12 ac_v8
       - name: Free-space model with 100,000 operations (AC-F16)
         timeout-minutes: 30
         run: cargo test --release -p krummi-tx --test free_space -- --ignored ac_f16
