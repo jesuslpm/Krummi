@@ -261,11 +261,18 @@ fn closing_a_store_nobody_changed_leaves_it_byte_identical() {
 /// S3 of the journal follow-ups (J5): deferred commits alone, without any durable one, still reach `krummi.data`
 /// once enough of them are pending, so the versions waiting in `krummi.temp` stay bounded. The bound follows the
 /// growth of the temporary area from which a transfer pass starts at once, lowered here from 32 MiB to 256 KiB.
+/// The transfer moves only durable versions, and the ones still in the journal's queue are bounded by the queue,
+/// lowered the same way from 8 MiB. The journal runs slow, as on a slow disk: with the default queue every commit
+/// of the loop could wait in it, and the bound would depend on the machine.
 #[test]
 fn deferred_commits_alone_do_not_pile_up_in_the_temporary_area() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
     engine.set_transfer_pacing(std::time::Duration::from_millis(200), 256 * 1024);
+    engine.set_journal_queue_limit(256 * 1024);
+    engine.set_journal_sync_hook(Some(std::sync::Arc::new(|| {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    })));
     let mut x = 0x9E37_79B9_7F4A_7C15u64;
     let mut most = 0;
     for _ in 0..400 {
@@ -281,6 +288,7 @@ fn deferred_commits_alone_do_not_pile_up_in_the_temporary_area() {
         most = most.max(engine.scratch_bytes());
     }
     assert!(most < 2 << 20, "{most} bytes waited in the temporary area");
+    engine.set_journal_sync_hook(None);
     engine.close().unwrap();
 }
 

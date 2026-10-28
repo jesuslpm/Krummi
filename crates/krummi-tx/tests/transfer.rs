@@ -266,6 +266,10 @@ fn a_transfer_failing_without_refusing_writes_is_retried() {
     let engine = disk(tmp.path());
     let page = new_page(&engine, "a");
     wait_until(|| engine.scratch_bytes() == 0);
+    // Faults are shared with the store's threads, and a commit wakes the transfer before the journal writes it: a
+    // pass with nothing to write would arm the fault for the journal's write of "b". Paused, the first pass to run
+    // is the one that writes "b".
+    engine.set_transfer_paused(true);
     let armed = AtomicBool::new(true);
     engine.set_transfer_hook(Some(Arc::new(move || {
         if armed.swap(false, Ordering::SeqCst) {
@@ -278,6 +282,7 @@ fn a_transfer_failing_without_refusing_writes_is_retried() {
     })));
     let before = engine.transfer_passes();
     set(&engine, page, "b");
+    engine.set_transfer_paused(false);
     wait_until(|| engine.transfer_passes() > before);
     assert!(engine.scratch_bytes() > 0, "the full disk kept the version");
     set(&engine, page, "c");
