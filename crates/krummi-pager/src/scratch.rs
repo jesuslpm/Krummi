@@ -5,7 +5,9 @@
 //! them as the newest version of each page. A version stays here while an open snapshot still needs the version
 //! before it, which may be the one in the data file; once no snapshot is older than it, it is written in place and
 //! leaves the scratch area. A version that leaves stays allocated until every snapshot that may hold a reference
-//! to it has ended, so references returned by [`Snapshot::page`] stay valid for the whole snapshot (D11).
+//! to it has ended, so references returned by [`Snapshot::page`] stay valid for the whole snapshot (D11); the
+//! writer's own flush ([`ScratchWriter::flush`]) does not wait for the writer's snapshot, whose references borrow
+//! the writer and so end before it (T8).
 //!
 //! With the journal's queue (E2, E3 of the grouped journal PRD), a commit is published for the next writer when it
 //! passes its point of no return, and read snapshots see it only once it is durable: a read snapshot sees up to the
@@ -166,7 +168,7 @@ struct State {
     writer: Option<Live>,
     next_seq: u64,
     /// Versions that left `versions`, with the newest sequence number issued when they left: they are freed
-    /// once no open snapshot has a sequence number up to that one.
+    /// once no open snapshot has a sequence number up to that one, or no read snapshot at the writer's own flush.
     retired: Vec<(u64, Arc<Slot>)>,
 }
 
@@ -876,14 +878,27 @@ impl State {
 
     /// Frees the retired versions that no open snapshot, the writer's included, can hold a reference to.
     fn free_retired(&mut self) -> Vec<Arc<Slot>> {
-        let oldest = self
-            .live
-            .first()
-            .map(|l| l.seq)
-            .into_iter()
-            .chain(self.writer.map(|w| w.seq))
-            .min()
-            .unwrap_or(u64::MAX);
+        let writer = self.writer.map_or(u64::MAX, |w| w.seq);
+        self.free_retired_before(self.oldest_read().min(writer))
+    }
+
+    /// Frees, for the writer's own flush ([`ScratchWriter::flush`]), the retired versions that no open read
+    /// snapshot can hold a reference to, whatever the writer's snapshot read: the writer's snapshot returns
+    /// references that borrow the writer, and the flush borrows it mutably, so none of them is alive (T8 of the
+    /// Transactions PRD). Otherwise a run that the write's own flush retires would stay allocated and counted until
+    /// the write ends, and the write could fail with the maximum-size class because of versions no read needs (J7
+    /// of the Journal PRD; R2 of the fourth large values code follow-up review).
+    fn free_retired_by_writer(&mut self) -> Vec<Arc<Slot>> {
+        self.free_retired_before(self.oldest_read())
+    }
+
+    /// The sequence number of the oldest open read snapshot, or `u64::MAX` with none.
+    fn oldest_read(&self) -> u64 {
+        self.live.first().map_or(u64::MAX, |l| l.seq)
+    }
+
+    /// Frees the retired versions whose bound is below `oldest`, releasing a run's share of the charge.
+    fn free_retired_before(&mut self, oldest: u64) -> Vec<Arc<Slot>> {
         let (free, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retired)
             .into_iter()
             .partition(|(bound, _)| *bound < oldest);
@@ -950,8 +965,9 @@ impl<'a> Snapshot<'a> {
             // scratch area; the area keeps a slot's memory while the slot is held.
             // The scratch area keeps that `Arc` while this snapshot is open: a version leaves `versions` only by
             // being retired with a bound at least this snapshot's sequence number, and retired versions are freed
-            // only once no open snapshot has a sequence number up to their bound. Published pages are never
-            // written again.
+            // only once no open snapshot has a sequence number up to their bound, but for the writer's snapshot,
+            // whose retired versions its own flush frees: the flush borrows the writer mutably, which ends this
+            // reference first ([`State::free_retired_by_writer`]). Published pages are never written again.
             let page = unsafe { std::slice::from_raw_parts(ptr, PAGE_SIZE) };
             return Ok(&page[PAGE_HEADER_SIZE..]);
         }
@@ -1057,8 +1073,14 @@ impl<'a> ScratchWriter<'a> {
     /// Has the transfer thread write in place every newest version that no open snapshot is older than, making
     /// the journal durable first (J5), and waits for it. Versions written before a failure leave the scratch area;
     /// the rest stay for a later flush.
+    /// Then it frees the retired versions that only the writer's snapshot kept, so that a write that flushes to make
+    /// room gets it (J7): `&mut self` ends every reference the writer's snapshot returned.
     pub fn flush(&mut self) -> Result<()> {
-        self.snapshot.scratch.demand(Demand::Flush)
+        let scratch = self.snapshot.scratch;
+        let outcome = scratch.demand(Demand::Flush);
+        let free = scratch.lock().free_retired_by_writer();
+        drop(free);
+        outcome
     }
 
     /// Commits `pages`, each sealed for its number, and the value `runs`, each sealed with

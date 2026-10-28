@@ -423,8 +423,8 @@ fn temp_files_bytes(folder: &Path) -> u64 {
 }
 
 /// Checks that the maximum-size accounting covers what the temporary area holds, but for one chunk of single pages,
-/// and that the store and its versions stay within [`RUNS_MAX`]; on disk, the area is the files of `krummi.temp`.
-fn within_maximum(engine: &Engine, step: &str) {
+/// and that the store and its versions stay within `max`; on disk, the area is the files of `krummi.temp`.
+fn within_maximum(engine: &Engine, max: u64, step: &str) {
     let (area, held, data) = (
         engine.area_bytes(),
         engine.scratch_bytes(),
@@ -434,9 +434,9 @@ fn within_maximum(engine: &Engine, step: &str) {
         assert_eq!(temp_files_bytes(folder), area, "{step}");
     }
     assert!(
-        area <= held + NORMAL_CHUNK && data + area <= RUNS_MAX,
+        area <= held + NORMAL_CHUNK && data + area <= max,
         "{step}: the temporary area holds {area} bytes, {held} counted, and the store {data}, with a maximum of \
-         {RUNS_MAX}"
+         {max}"
     );
 }
 
@@ -471,7 +471,7 @@ fn growing_runs_never_pile_up_in_the_temporary_area() {
             old = Some(place);
             assert!(engine.transfer_now());
             wait_until(|| engine.scratch_bytes() == 0);
-            within_maximum(&engine, &format!("write {i}"));
+            within_maximum(&engine, RUNS_MAX, &format!("write {i}"));
             let read = engine.read().unwrap();
             assert_eq!(in_read(&read, place), &bytes[..], "write {i}");
         }
@@ -535,7 +535,7 @@ impl Shrinking {
         };
         engine.transfer_now();
 
-        within_maximum(engine, &format!("{count} pages"));
+        within_maximum(engine, RUNS_MAX, &format!("{count} pages"));
         let read = engine.read().unwrap();
         match &self.current {
             Some((place, bytes)) => {
@@ -611,7 +611,7 @@ fn shrinking_runs_retired_under_a_newer_read_count_until_freed() {
         let held = in_read(&new_read, place);
         drop(old_read);
         assert!(engine.transfer_now());
-        within_maximum(&engine, "the old read ended");
+        within_maximum(&engine, RUNS_MAX, "the old read ended");
         for count in (1030..=1034).rev() {
             runs.replace(&engine, count);
             assert_eq!(
@@ -626,6 +626,61 @@ fn shrinking_runs_retired_under_a_newer_read_count_until_freed() {
         let area = engine.area_bytes();
         assert!(area <= NORMAL_CHUNK, "the area keeps {area} bytes");
         engine.close().unwrap();
+    }
+}
+
+/// J7, T8 and R2 of the fourth code follow-up review: a write that frees a run and a later write that stores one of
+/// the same pages again, with transfers paused, leave the store, its old run and the new one over the maximum size
+/// until the later write's reservation transfers the old run in place. No read needs that run and, by T8, no
+/// reference of the write points to it, so the reservation frees it and fits: the write commits within the maximum
+/// on the same pages, without growing the data area, on disk and in temporary mode, with no read open and with a
+/// read opened before the first run and ended before the later write.
+#[test]
+fn a_write_s_own_transfer_frees_the_runs_no_read_needs() {
+    let max = 24 << 20;
+    let options = OpenOptions {
+        max_size: Some(max),
+    };
+    let none = Place {
+        first: 0,
+        count: 0,
+        len: 0,
+    };
+    for early_read in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let engines = [
+            Engine::open(tmp.path(), &options).unwrap(),
+            Engine::open_temporary(&options).unwrap(),
+        ];
+        for engine in engines {
+            engine.set_transfer_paused(true);
+            let step = |what: &str| format!("{what}, read before the first run: {early_read}");
+            let read = early_read.then(|| engine.read().unwrap());
+            let mut tx = engine.write(None).unwrap();
+            let old = store(&mut tx, &value(1040 * PAGE - PAGE_HEADER_SIZE, 1));
+            keep(&mut tx, old);
+            tx.commit().unwrap();
+            let mut tx = engine.write(None).unwrap();
+            tx.free(old.first, old.count).unwrap();
+            keep(&mut tx, none);
+            tx.commit().unwrap();
+            drop(read);
+            let data = engine.info().size_bytes;
+
+            let bytes = value(1040 * PAGE - PAGE_HEADER_SIZE, 2);
+            let mut tx = engine.write(None).unwrap();
+            let place = store(&mut tx, &bytes);
+            assert_eq!(place.first, old.first, "{}", step("the same pages"));
+            keep(&mut tx, place);
+            tx.commit().unwrap();
+            assert_eq!(engine.info().size_bytes, data, "{}", step("the data area"));
+            within_maximum(&engine, max, &step("the later write"));
+            let read = engine.read().unwrap();
+            assert_eq!(kept(&read), Some(place));
+            assert_eq!(in_read(&read, place), &bytes[..], "{}", step("the new run"));
+            drop(read);
+            engine.close().unwrap();
+        }
     }
 }
 
