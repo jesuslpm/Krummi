@@ -4,17 +4,20 @@ An embedded, transactional storage engine in Rust, inspired by [Voron](https://g
 the storage engine of RavenDB. The name follows Voron's: *voron* is Russian for raven, and *krummi* is the
 Icelandic nickname for the raven.
 
-Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.md)), module 2, the
-**transactions** ([PRD](docs/prd/krummi/transactions.prd.md)), and module 3, the **journal and recovery**
-([PRD](docs/prd/krummi/journal.prd.md)), with grouped and direct journal writes
-([PRD](docs/prd/krummi/journal-group-commit.prd.md)), module 4, **free space**
-([PRD](docs/prd/krummi/free-space.prd.md)), and the first two parts of module 5, **trees and key operations** and
-**in-order scan and prefix search** ([module PRD](docs/prd/krummi/trees.prd.md),
-[PRD](docs/prd/krummi/trees-keys.prd.md), [PRD](docs/prd/krummi/trees-scan.prd.md)). An application can create, open, inspect and close stores, on disk or in
-memory, and open read transactions from any number of threads and one write transaction at a time, which the others
-wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after a
-crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key, scans them in key
-order from both ends, by interval and by prefix, and removes whole intervals. The product and its split into modules are in the [root PRD](docs/prd/krummi/krummi.prd.md).
+Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.en.md)), module 2, the
+**transactions** ([PRD](docs/prd/krummi/transactions.prd.en.md)), and module 3, the **journal and recovery**
+([PRD](docs/prd/krummi/journal.prd.en.md)), with grouped and direct journal writes
+([PRD](docs/prd/krummi/journal-group-commit.prd.en.md)), module 4, **free space**
+([PRD](docs/prd/krummi/free-space.prd.en.md)), and the first three parts of module 5, **trees and key operations**,
+**in-order scan and prefix search** and **large values** ([module PRD](docs/prd/krummi/trees.prd.en.md),
+[PRD](docs/prd/krummi/trees-keys.prd.en.md), [PRD](docs/prd/krummi/trees-scan.prd.en.md),
+[PRD](docs/prd/krummi/trees-large-values.prd.en.md)). An application can create, open, inspect and close stores, on disk
+or in memory, and open read transactions from any number of threads and one write transaction at a time, which the
+others wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after
+a crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key,
+with values of up to 256 MiB that reads return as one sequence of bytes without copying them, scans them in key order
+from both ends, by interval and by prefix, and removes whole intervals. The product and its split into modules are in
+the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
 
 ```rust
@@ -31,6 +34,9 @@ store.make_durable()?; // waits until every commit made so far is durable
 let mut write = store.write()?;
 let tree = write.open_tree_with("orders", TreeKind::Normal, OpenMode::OpenOrCreate)?; // like .NET's FileMode
 write.set(&tree, b"order-1", b"two ravens")?; // like a Dictionary: set, try_add, get, remove, len
+write.set(&tree, b"order-2", &vec![7u8; 8 << 20])?; // values up to 256 MiB, kept in contiguous pages
+let big = write.get(&tree, b"order-2")?.unwrap(); // the whole 8 MiB as one slice, not copied
+assert_eq!(big.len(), 8 << 20);
 for entry in write.range_prefix(&tree, b"order-", ..)?.rev() { // like BTreeMap::range, from either end
     let (key, value) = entry?; // borrowed from the engine, not copied
     println!("{key:?} {value:?}");
