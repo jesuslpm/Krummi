@@ -83,3 +83,19 @@ The third and last follow-up review (`-FollowUp 2026-10-27-code.md -FixRange 46f
 wrapper status `error`: Codex usage limit, retry after 2026-10-28 02:35; `threadId`
 `01a17f7f-413f-75b1-b21d-21c23a84c773`; no report, no changes. It is not an approval: the round-2 fix of R1
 (`e1cc4ab`) stays claimed, unverified by Codex.
+
+## 2026-10-28 (verification, round 3)
+
+Two earlier attempts of the third follow-up produced no report: wrapper status `error` (`threadId`
+`01a1812c-3ad2-7e40-8730-a4e8d0bcb7f8`, the CLI's ChatGPT login did not offer `gpt-6.1-sol`) and `error` (`threadId`
+`01a18144-178d-72f3-9b74-f3b1fe8a0386`, content flagged as a possible cybersecurity risk while the reviewer wrote a
+reproduction under `target/`). The third attempt saved
+[2026-10-28-code.md](2026-10-28-code.md): wrapper status `violation`, `unexpectedChanges: ["codex-models.json"]`,
+`threadId` `01a18149-b10f-7bc1-9cc0-d8cb8e0ce554`, coordinator `gpt-6.1-sol`/`high`, reviewer
+`krummi-review-critical` `gpt-6-astra`/`xhigh`. The unexpected change was the user's: they deleted the untracked
+`codex-models.json` (a model catalog they had generated) from the repository root during the run, as they
+confirmed on 2026-10-28. Its verdict, quoted: "Changes requested — R1 remains open." Per ID: R1 — "Still open;
+both earlier scenarios verified fixed, retirement accounting unresolved." The round-2 rationale for leaving
+`R3-retired-runs-uncounted` unchanged was rebutted with a two-reader reproduction (93,396,992 bytes of temporary
+area under a 67,108,864-byte maximum): overlapping, shrinking runs make a retired allocation extra capacity, not a
+copy of `krummi.data`. The user authorized a fourth round beyond the three-round limit on 2026-10-28.
