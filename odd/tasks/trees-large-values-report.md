@@ -1,4 +1,4 @@
-# Valores grandes (5.3) implementados y verificados; queda una ronda de Codex pendiente
+# Valores grandes (5.3) implementados y verificados, con la revisión de Codex aprobada
 
 Informe de cierre de `trees-large-values` (2026-10-27). Enfoque de ejecución: ODD.
 Fuente de producto: [trees-large-values.prd.md](../../docs/prd/krummi/trees-large-values.prd.md). Documento de
@@ -25,9 +25,10 @@ Rama `feat/trees-large-values`, sin fusionar en `main` y sin push. Último commi
   0,43 s en Windows; 44,69 s, 4,68 s y 0,23 s en Linux; 107.046 páginas en uso en los dos.
 - **Revisiones y verificación:** ocho revisiones RDD aprobadas (tabla abajo); verificador independiente (`sonnet`,
   `high`) sin bloqueos, con S1–S12 cumplidas y una comparación con la base `27a5e5b` de 15.480 líneas de operaciones
-  con valores en la hoja, idéntica byte a byte en disco y en modo temporal; revisión de Codex en cuatro rondas (la
-  cuarta, autorizada por el usuario por encima del límite de tres): R1 *major* verificado como resuelto en la
-  ronda 4, que abrió R2 *major*, corregido en `7584790` y sin verificación de Codex (haría falta una quinta ronda).
+  con valores en la hoja, idéntica byte a byte en disco y en modo temporal; revisión de Codex en cinco rondas (la
+  cuarta y la quinta, autorizadas por el usuario por encima del límite de tres): R1 *major* verificado como
+  resuelto en la ronda 4, que abrió R2 *major*, corregido en `7584790` y verificado como resuelto en la ronda 5
+  ([informe](../../docs/reviews/trees-large-values/2026-10-28-code-03.md), aprobada, sin hallazgos abiertos).
 - **Hallazgos corregidos por el camino:** R1 de Codex, en tres partes: los trozos del área temporal hechos para un
   único rango grande no se liberaban ni contaban para el tamaño máximo (`7b4286b`), un rango retenido a medias
   seguía contando solo sus páginas vivas (`e1cc4ab`) y un rango retirado que retenía un lector más nuevo dejaba de
@@ -99,7 +100,8 @@ la revisión llamó al `bash` de WSL, y un archivo sin seguimiento pedía selecc
 - **2026-10-28, continuación (no medida por fase):** las rondas 3 y 4 de Codex y los arreglos `098e621` y `7584790`
   se hicieron en una sesión posterior que no marcó el registro de fases, así que su tiempo no está en las tablas
   de abajo; sus commits van de `373208f` a `1c072c3`. Incluye esperas por el usuario para restaurar el inicio de
-  sesión de la CLI de Codex.
+  sesión de la CLI de Codex. La ronda 5, que aprobó el arreglo de R2, se lanzó sobre `88f76ce`
+  (2026-10-28) y tampoco está en el registro de fases.
 
 ### Tiempo por fase
 
@@ -214,10 +216,6 @@ máximo, y la transferencia escribe por orden de confirmación. La evaluación d
 
 ## Pendiente (no bloqueante)
 
-- **Necesita tu decisión: quinta ronda de Codex.** R1 está verificado como resuelto (ronda 4), pero el arreglo de
-  R2 (`7584790`) no lo verificó Codex: haría falta una quinta ronda, más allá del límite del método, con
-  `-FollowUp docs/reviews/trees-large-values/2026-10-27-code.md -FixRange 46fdd12..HEAD`. No bloquea porque la
-  prueba de regresión del escenario de Codex pasa y RDD 8 aprobó el arreglo, pero la verificación externa falta.
 - **Revisión de seguimiento del PRD:** las correcciones R1–R4 de la revisión del PRD
   ([resoluciones](../../docs/reviews/trees-large-values/2026-10-27-prd-resolutions.md)) siguen sin una revisión de
   seguimiento.

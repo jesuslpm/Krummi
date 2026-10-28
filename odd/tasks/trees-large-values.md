@@ -248,3 +248,7 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   Codex round, which only the user can authorize.
 - **L21** (2026-10-28, Codex follow-up, round 5, authorized by the user): wrapper status `error` (usage limit until
   11:48), `threadId` `01a1817f-8340-73e2-b867-5dc932ab8937`, no report. The R2 fix stays unverified by Codex.
+- **L22** (2026-10-28, Codex follow-up, round 5 retried, `-FixRange 1c072c3..HEAD`): first, R2's regression test,
+  fmt, clippy and `cargo test --workspace` (379 passed, 0 failed, 14 ignored) were run and recorded in the
+  resolutions. `docs/reviews/trees-large-values/2026-10-28-code-03.md`, wrapper status **`approved`**: R2 verified
+  resolved, no open or new findings. The coordinator used 2.20M input tokens, against 2.49M–3.03M in rounds 2–4.

@@ -176,3 +176,43 @@ Fix commit: `7584790`.
 The fifth follow-up, authorized by the user, ended with wrapper status `error`: Codex usage limit, retry after
 11:48; `threadId` `01a1817f-8340-73e2-b867-5dc932ab8937`; no report, no changes. It is not an approval: the R2 fix
 (`7584790`) stays claimed, unverified by Codex.
+
+## 2026-10-28 (round 5, checks before the follow-up)
+
+No code changed since round 4 reviewed `1c072c3`: `1c072c3..88f76ce` holds only docs, CI and the review skill. Before
+the follow-up, on Windows at `88f76ce`:
+
+- R2 regression `crates/krummi-tx/tests/runs.rs::a_write_s_own_transfer_frees_the_runs_no_read_needs`: passes.
+- `cargo fmt --all --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+- `cargo test --workspace`: 379 passed, 0 failed, 14 ignored.
+
+These checks only spare Codex repeating them; they are not a verification of the fix.
+
+## 2026-10-28 (verification, round 5)
+
+Report: [2026-10-28-code-03.md](2026-10-28-code-03.md), follow-up of `1c072c3..88f76ce`. Its verdict, quoted:
+"Approved — R2 verified resolved; no open findings in the requested follow-up scope."
+
+- R2: verified resolved. The report reproduced the original 24 MiB case and a writer reread after a forced
+  transfer at 32 MiB, in disk and temporary modes.
+- R1: stays verified resolved; its regressions passed again as dependencies of the R2 fix.
+- The RDD dismissal of `R3-missing-open-read-boundary-test` was confirmed, with a precision correction, quoted: "The
+  test does not explicitly assert that every attempted replacement fails; its assertions establish the size bound and
+  reference preservation."
+- No new findings.
+
+Review record: wrapper status `approved`; `threadId` `01a182d1-3748-7972-8c07-2154a75336ac`. The telemetry reports
+coordinator `gpt-6.1-sol`/`high` and reviewer `krummi-review-critical` `gpt-6-astra`/`xhigh`.
+
+Coordinator token use, from the `events.jsonl` of each run (follow-up rounds only):
+
+| Round | Input tokens | Of them cached | Output tokens |
+|---|---|---|---|
+| 2 | 2,491,132 | 2,380,160 | 12,585 |
+| 3 | 2,820,902 | 2,694,912 | 11,853 |
+| 4 | 3,026,621 | 2,896,000 | 12,010 |
+| 5 | 2,203,969 | 2,106,880 | 12,370 |
+
+Round 5 was the first follow-up run with the scoped `-FixRange` and recorded checks. Codex reran the targeted tests
+and an independent probe, and did not repeat the full workspace suite. It still read the earlier reports and
+reproductions.
