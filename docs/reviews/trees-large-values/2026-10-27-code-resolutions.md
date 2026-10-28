@@ -99,3 +99,36 @@ both earlier scenarios verified fixed, retirement accounting unresolved." The ro
 `R3-retired-runs-uncounted` unchanged was rebutted with a two-reader reproduction (93,396,992 bytes of temporary
 area under a 67,108,864-byte maximum): overlapping, shrinking runs make a retired allocation extra capacity, not a
 copy of `krummi.data`. The user authorized a fourth round beyond the three-round limit on 2026-10-28.
+
+## 2026-10-28 (round 3)
+
+Fix commit: `098e621`.
+
+### R1 — major: retired contiguous run allocations still bypass the configured maximum size
+
+- Disposition: fixed.
+- Evidence: verified against the code: `State::retire` released a run's whole charge when its last entry left
+  `versions`, while the allocation stayed alive in `retired` until `free_retired` dropped it; the round-3 rebuttal
+  holds, because overlapping, shrinking runs make that allocation extra capacity rather than a copy of
+  `krummi.data`.
+- Fix (`098e621`): `run_holders` counts a run's entries in both `versions` and `retired`; retiring a run version
+  moves its share of the charge without changing the count, and `free_retired` releases it, so the whole charge goes
+  only when the run's last holder in either place goes, just before the allocation is dropped. Retired single pages
+  stay uncounted (`counted_while_retired`): they copy pages of `krummi.data`. Close frees retired versions with
+  `free_retired` before its zero-count debug assertion. Consequence near the limit: runs that a write's own flush
+  retires stay counted until that write ends, so that write can now fail with the maximum-size class; the next one
+  gets the room back.
+- Regression: `crates/krummi-tx/tests/runs.rs::shrinking_runs_retired_under_a_newer_read_count_until_freed` (the
+  round-3 two-reader scenario, on disk and in temporary mode). RED before the fix: at "the old read ended", area
+  51,126,272 bytes, counted 0, store 8,552,448, maximum 67,108,864 (a probe matched the review's figures up to
+  93,396,992 / 42,287,104 at 1,030 pages). GREEN: counted 50,995,200 against the same area after the transfer, every
+  replacement from 1,034 to 1,030 pages fails with the maximum-size class and applies nothing, the reference keeps
+  its bytes, and the area empties after the second read ends.
+- Checks: fmt, clippy, `cargo test --workspace` on Windows (378 passed, 0 failed, 14 ignored), `-p krummi-pager -p
+  krummi-tx -p krummi` on Linux (362 passed), and the ignored AC-V8 sweeps pass.
+- RDD review 7 of `373208f..098e621` approved it (lineage `review-aba90cc61b80a4bb`). R3-001 (WARNING, close might
+  keep retired runs and trip the zero-count assertion): dismissed with evidence: with no snapshot and no writer open
+  `free_retired` takes `oldest = u64::MAX` (`crates/krummi-pager/src/scratch.rs:879-886`), so every retired entry is
+  freed at close. R3-002 (SUGGESTION, a direct assertion on the count while the newer read is open): accepted without
+  change; the test already requires every replacement to fail with the maximum-size class.
+- Status: claimed fixed, unverified until a follow-up review.

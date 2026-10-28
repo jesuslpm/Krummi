@@ -232,3 +232,10 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
 - **L18** (Codex follow-up, round 3): wrapper status `error` (usage limit until 2026-10-28 02:35), `threadId`
   `01a17f7f-413f-75b1-b21d-21c23a84c773`, no report. Not an approval: the round-2 fix of R1 is unverified by Codex
   and the loop's last round is still owed. Closing report: [trees-large-values-report.md](trees-large-values-report.md).
+- **L19** (2026-10-28, Codex follow-up, round 3, after the user restored the CLI login): two attempts without a
+  report (the ChatGPT login did not offer `gpt-6.1-sol`; content flagged as a possible cybersecurity risk), then
+  `docs/reviews/trees-large-values/2026-10-28-code.md` with wrapper status `violation` caused by the user deleting
+  `codex-models.json` (user, 2026-10-28: "Lo borré yo. Adelante y nueva revisión codex."). R1 still open: retired
+  runs kept by a newer read were uncounted. Fixed in `098e621` (RED: 51,126,272 bytes held, 0 counted). RDD review 7
+  (`373208f..098e621`, lineage `review-aba90cc61b80a4bb`): **approved**, acknowledged; R3-001 dismissed with
+  evidence, R3-002 accepted. The user authorized a fourth Codex round.
