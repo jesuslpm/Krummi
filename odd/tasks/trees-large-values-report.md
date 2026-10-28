@@ -4,16 +4,16 @@ Informe de cierre de `trees-large-values` (2026-10-27). Enfoque de ejecución: O
 Fuente de producto: [trees-large-values.prd.md](../../docs/prd/krummi/trees-large-values.prd.md). Documento de
 ejecución: [trees-large-values.md](trees-large-values.md).
 
-Rama `feat/trees-large-values`, sin fusionar en `main` y sin push. Último commit de código `e1cc4ab`; el informe va
-en el commit que cierra la ejecución.
+Rama `feat/trees-large-values`, sin fusionar en `main` y sin push. Último commit de código `7584790`
+(2026-10-28); el informe va en el commit que cierra la ejecución.
 
 ## Resultado
 
 - **Especificación:** las catorce especificaciones S1–S14 (AC-V1–AC-V14, con AC-B3, AC-B12, AC-B17, AC-B18, AC10 y
   AC20 dentro) están cubiertas por pruebas. Comprobaciones finales tras el último arreglo, en Windows: `cargo fmt
   --all --check` correcto, `cargo clippy --workspace --all-targets -- -D warnings` limpio y `cargo test --workspace`
-  con 377 pruebas superadas, 0 fallidas y 14 ignoradas; en Linux (WSL 2 Ubuntu), `-p krummi-pager -p krummi-tx -p
-  krummi` con 361 superadas, 0 fallidas y 14 ignoradas. Los barridos completos de AC-V8 que están ignorados
+  con 379 pruebas superadas, 0 fallidas y 14 ignoradas; en Linux (WSL 2 Ubuntu), `-p krummi-pager -p krummi-tx -p
+  krummi` con 363 superadas, 0 fallidas y 14 ignoradas (cifras del worker del último arreglo, `7584790`). Los barridos completos de AC-V8 que están ignorados
   (`ac_v8_a_failure_at_every_page_operation…` y `ac_v8_crashes_through_the_close`) pasan. El barrido completo de AC10
   byte a byte (unas 2 h) no se ejecutó; corren su muestra y la sonda de bytes alterados del verificador sobre 6.893
   bytes (4.841 detectados, 2.052 sin efecto, 0 datos erróneos).
@@ -22,14 +22,17 @@ en el commit que cierra la ejecución.
   guardar y leer 256 MiB de valores: 1 KiB, 6,24 s / 1,22 s en Windows y 5,58 s / 1,24 s en Linux; 8 MiB,
   0,64 s / 0,10 s y 0,82 s / 0,04 s. Carga mixta (1 millón de claves): guardar 33,17 s, leer 4,79 s y recorrer
   0,43 s en Windows; 44,69 s, 4,68 s y 0,23 s en Linux; 107.046 páginas en uso en los dos.
-- **Revisiones y verificación:** seis revisiones RDD aprobadas (tabla abajo); verificador independiente (`sonnet`,
+- **Revisiones y verificación:** ocho revisiones RDD aprobadas (tabla abajo); verificador independiente (`sonnet`,
   `high`) sin bloqueos, con S1–S12 cumplidas y una comparación con la base `27a5e5b` de 15.480 líneas de operaciones
-  con valores en la hoja, idéntica byte a byte en disco y en modo temporal; revisión de Codex con un hallazgo
-  *major* (R1) corregido en dos rondas, cuya última verificación no pudo correr (límite de uso de Codex).
-- **Hallazgos corregidos por el camino:** R1 de Codex, en dos partes: los trozos del área temporal hechos para un
-  único rango grande no se liberaban ni contaban para el tamaño máximo (`7b4286b`), y un rango retenido a medias
-  seguía contando solo sus páginas vivas (`e1cc4ab`); en las dos, la prueba de regresión reproducía las cifras de
-  Codex antes del arreglo. Una prueba de T2 que comparaba punteros competía con la transferencia en segundo plano
+  con valores en la hoja, idéntica byte a byte en disco y en modo temporal; revisión de Codex en cuatro rondas (la
+  cuarta, autorizada por el usuario por encima del límite de tres): R1 *major* verificado como resuelto en la
+  ronda 4, que abrió R2 *major*, corregido en `7584790` y sin verificación de Codex (haría falta una quinta ronda).
+- **Hallazgos corregidos por el camino:** R1 de Codex, en tres partes: los trozos del área temporal hechos para un
+  único rango grande no se liberaban ni contaban para el tamaño máximo (`7b4286b`), un rango retenido a medias
+  seguía contando solo sus páginas vivas (`e1cc4ab`) y un rango retirado que retenía un lector más nuevo dejaba de
+  contar (`098e621`); R2 de Codex, una regresión de ese último arreglo: una escritura fallaba con tamaño máximo por
+  rangos que solo retenía su propia instantánea, contra J7 (`7584790`). En los cuatro, la prueba de regresión
+  reproducía las cifras de Codex antes del arreglo. Una prueba de T2 que comparaba punteros competía con la transferencia en segundo plano
   (`46fdd12`). De las revisiones RDD: la reserva del modo temporal limitada por el máximo y alineada a la página del
   sistema (RED en Linux, `mprotect` EINVAL), la comprobación de lectura de un rango en todo su tamaño, el aserto de
   páginas enteras al publicar un rango, la longitud 0 rechazada en una referencia fuera de la hoja y varios
@@ -65,7 +68,9 @@ El documento de ejecución traza cada S# a sus pruebas (L4–L16); el verificado
 | `244548d..9a596b2` (T3) | risk, reliability, readability | aprobada | Dos WARNING: vaciar o borrar un árbol ahora lee sus hojas, así que una hoja dañada lo impide; aceptado (A9 lo permite, V7 protege las páginas del valor). Legibilidad (WARNING y SUGGESTION) y referencia de longitud 0 (SUGGESTION): corregidos en T5. | `review-27cf815bcee22c3d` |
 | `9a596b2..fa3f291` (último tramo) | risk, reliability, readability | aprobada | Siete SUGGESTION: tres corregidas en `3a0b336` (resta saturada, número de escrituras derivado, el bucle de fallos al confirmar comprueba que el fallo no se tragó); cuatro aceptadas (tamaño del valor del barrido explicado, ayudantes de prueba duplicados entre pruebas de integración y unitarias, cota de lectura por páginas actuales solo alcanzable con una hoja manipulada). | `review-6e7966cf3bbe5d18` |
 | `62f7571..3a528ec` (arreglo R1) | risk, resilience, reliability | aprobada | SUGGESTION de comentario sin código: corregida en `c0b8d1a`. Aceptadas como trabajo posterior: WARNING de un archivo por rango pequeño con el área fragmentada, SUGGESTION de llamadas al sistema bajo el cerrojo, WARNING de igualdad exacta de bytes en la prueba, SUGGESTION de tamaños fijos en las sondas. | `review-695b76ad34d5b00d` |
-| `3a528ec..e1cc4ab` (arreglo R1, ronda 2) | risk, resilience, reliability | aprobada | WARNING: un rango ya retirado tras su traslado no cuenta mientras lo retiene un lector; aceptado (ya está en `krummi.data`, y las páginas retiradas nunca contaron). | `review-713a431a84a3734d` |
+| `3a528ec..e1cc4ab` (arreglo R1, ronda 2) | risk, resilience, reliability | aprobada | WARNING: un rango ya retirado tras su traslado no cuenta mientras lo retiene un lector; aceptado al principio, Codex lo refutó en la ronda 3 y se corrigió en `098e621`. | `review-713a431a84a3734d` |
+| `373208f..098e621` (arreglo R1, ronda 3) | risk, resilience, reliability | aprobada | WARNING: el cierre podría dejar rangos retirados y romper el aserto de cuenta cero; descartado con evidencia (sin lectores ni escritor, `oldest = u64::MAX` libera todo). SUGGESTION de aserción directa en la prueba: aceptada sin cambio. | `review-aba90cc61b80a4bb` |
+| `45c1bf2..7584790` (arreglo R2) | risk, resilience, reliability | aprobada | Dos WARNING: la liberación en el vaciado del escritor depende de que sus referencias tomen prestado al escritor; descartados con evidencia (`ScratchWriter::snapshot(&self) -> &Snapshot<'a>` y `Snapshot::page`/`run(&self)` atan el resultado al préstamo). SUGGESTION de prueba con un lector abierto durante el vaciado: descartada (ya la cubre `shrinking_runs_retired_under_a_newer_read_count_until_freed`). | `review-48af2c09d934d928` |
 
 Sin revisión propia: `d0be3f0` (T4, `medium`, `under_budget`; revisado dentro del último tramo) y los commits solo de
 documentación y del registro de fases posteriores a `e1cc4ab`. Dos intentos no llegaron a empezar (el script de
@@ -89,7 +94,11 @@ la revisión llamó al `bash` de WSL, y un archivo sin seguimiento pedía selecc
 - **Duración activa desde el arranque: 3 h 56 min**, por debajo del mínimo de la estimación (66 %). La mayor parte
   fue código y pruebas (2 h 32 min), hecho por workers uno tras otro; las correcciones de los dos hallazgos de Codex
   sumaron 36 min. Las esperas de Codex y del verificador corrieron en paralelo con otras tareas.
-- Esperas por el usuario: ninguna.
+- Esperas por el usuario: ninguna dentro de la ejecución del 2026-10-27.
+- **2026-10-28, continuación (no medida por fase):** las rondas 3 y 4 de Codex y los arreglos `098e621` y `7584790`
+  se hicieron en una sesión posterior que no marcó el registro de fases, así que su tiempo no está en las tablas
+  de abajo; sus commits van de `373208f` a `1c072c3`. Incluye esperas por el usuario para restaurar el inicio de
+  sesión de la CLI de Codex.
 
 ### Tiempo por fase
 
@@ -204,18 +213,18 @@ máximo, y la transferencia escribe por orden de confirmación. La evaluación d
 
 ## Pendiente (no bloqueante)
 
-- **Necesita tu decisión: última ronda de Codex.** La segunda corrección de R1 (`e1cc4ab`) no está verificada por
-  Codex: la ronda 3 terminó con `error` por el límite de uso, hasta el 2026-10-28 02:35. Se puede repetir con
+- **Necesita tu decisión: quinta ronda de Codex.** R1 está verificado como resuelto (ronda 4), pero el arreglo de
+  R2 (`7584790`) no lo verificó Codex: haría falta una quinta ronda, más allá del límite del método, con
   `-FollowUp docs/reviews/trees-large-values/2026-10-27-code.md -FixRange 46fdd12..HEAD`. No bloquea porque la
-  prueba de regresión del escenario de Codex pasa y RDD 6 aprobó el arreglo, pero la verificación externa falta.
+  prueba de regresión del escenario de Codex pasa y RDD 8 aprobó el arreglo, pero la verificación externa falta.
 - **Revisión de seguimiento del PRD:** las correcciones R1–R4 de la revisión del PRD
   ([resoluciones](../../docs/reviews/trees-large-values/2026-10-27-prd-resolutions.md)) siguen sin una revisión de
   seguimiento.
 - **Hallazgos consultivos aceptados:** con el área temporal fragmentada, cada rango pequeño sin hueco contiguo crea
   su propio archivo mientras un lector lo retiene (descriptores y latencia, no corrección); liberar un trozo propio
   hace llamadas al sistema bajo el cerrojo del área; la prueba de regresión de R1 exige igualdad exacta de bytes de
-  `krummi.temp`, que un antivirus que retenga un archivo en Windows podría romper; un rango retirado retenido por un
-  lector no cuenta para el máximo; vaciar o borrar un árbol con una hoja dañada falla con daño (A9 lo permite).
+  `krummi.temp`, que un antivirus que retenga un archivo en Windows podría romper; vaciar o borrar un árbol con una
+  hoja dañada falla con daño (A9 lo permite).
 - **Límite del modo temporal:** sin tamaño máximo, un almacén temporal no crece más allá de 64 GiB y, con un límite
   de espacio de direcciones (`ulimit -v`), puede fallar al abrir con memoria agotada.
 - **No ejecutado:** el barrido completo de AC10 byte a byte (unas 2 h); corren su muestra y la sonda de 6.893 bytes.
