@@ -34,7 +34,7 @@ python -I .claude/skills/closing-report/scripts/phase_times.py bg-end <log> revi
 | PRD | `-Prd docs/prd/krummi/<name>.prd.md -Feature <slug>` |
 | Code | `-Range <base>..<head> -Feature <slug>` |
 | Follow-up of a PRD review | `-FollowUp docs/reviews/<slug>/<date>-prd.md` (always the chain's original report), plus `-FixRange <base>..<head>` when the fixes are committed |
-| Follow-up of a code review | `-FollowUp docs/reviews/<slug>/<date>-code.md -FixRange <last reviewed head>..HEAD` |
+| Follow-up of a code review | `-FollowUp docs/reviews/<slug>/<date>-code.md -FixRange <last reviewed head>..HEAD`, where the last reviewed head is the head the previous round reviewed, never the chain's base |
 
 `<slug>` is the feature's PRD or task slug. Every run uses the `workspace-write` sandbox: Codex needs it to run
 the cargo checks and to save its report.
@@ -53,7 +53,8 @@ Codex when it does not load `.codex/config.toml` (worktree copies are not truste
 
 ## The loop
 
-At most three rounds (one review and two follow-ups) unless the user sets another limit.
+Three rounds (one review and two follow-ups) is the limit of automatic runs; a further round runs only when the
+user authorizes it. Reaching the limit never approves anything: open findings stay open or `pending`.
 
 1. **Round 1, independent.** Run the review before reading or discussing anything with Codex. Pass only the
    target; never add context, rationale or summaries, and do not edit the prompt the wrapper builds.
@@ -66,13 +67,19 @@ At most three rounds (one review and two follow-ups) unless the user sets anothe
    - **Product decision: leave it `pending`.** In a PRD, anything that changes behavior, messages or scope; any
      open question. Do not edit the requirement; keep it for the user.
 3. **Record the round** in the chain's resolutions file (below).
-4. **Follow-up.** Run the follow-up target. Codex checks only the pending findings, the dismissals and the
-   regressions of the fixes. Append its outcome to the resolutions file.
+4. **Follow-up.** Before it, for a code review, run each fixed finding's reproduction or regression test and the
+   checks from `CLAUDE.md`, and record them in the resolutions. If any fails, fix it first and do not call Codex.
+   Then run the follow-up target. Codex checks the pending findings, the dismissals and the regressions of the
+   fixes, including the invariants and code that depend on them outside the diff. `-FixRange` starts at the head
+   the previous round reviewed, but Codex still reads the earlier reports, resolutions and reproductions of the
+   findings that stay open. Your recorded checks only spare Codex needless repetition; Codex may rerun any of them,
+   the whole suite included. Append its outcome to the resolutions file.
 5. **Repeat** from step 2 while findings remain and rounds are left.
 
 Stop and report as **Needs your decision**:
 
-- The round limit was reached with open findings: list them with their reports.
+- The round limit was reached with open findings: list them with their reports. They stay open; ask the user
+  whether to authorize another round.
 - A dismissal Codex still rejects after verifying it, when the point matters: do not dismiss it again. Give the
   user both sides: Codex's finding and rebuttal, quoted from the reports, and your evidence.
 - `pending` product questions: ask them one at a time, after the loop.

@@ -168,6 +168,10 @@ Describe 'Invoke-CodexReview' {
         $log = Get-FakeLog
         $log | Should Match 'Claude lo ha corregido: docs/reviews/feat/2026-10-01-code-resolutions\.md'
         $log | Should Match 'verifica solo los hallazgos que siguen pendientes'
+        $log | Should Match 'incluidos los invariantes y el código que dependen de ellas, aunque estén fuera del diff'
+        $log | Should Match 'consulta sus informes anteriores, las resoluciones y sus reproducciones'
+        $log | Should Match 'no sustituyen tu verificación independiente'
+        $log | Should Match 'también la suite completa'
         $log | Should Match 'Correcciones en HEAD\.\.HEAD'
     }
 

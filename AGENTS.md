@@ -79,7 +79,8 @@ Explicit user model choices take precedence.
 | Critical review of `unsafe`, concurrency, crash recovery, durability or on-disk invariants | `gpt-6-astra` | `xhigh` |
 
 Choose the critical assignment when the reviewed requirements or changed behavior affect those invariants,
-not merely because a file mentions them. Use `max` only for a concrete unresolved reasoning problem after
+not merely because a file mentions them. In a follow-up, choose it by the findings still open and the fix commits,
+never by the round number. Use `max` only for a concrete unresolved reasoning problem after
 the critical review; do not make it the default. More effort is not evidence that a finding is correct.
 Sol is the routine balance of capability and cost; Astra reserves the more capable model for the highest-risk
 storage behavior. Reassess this assignment using real review outcomes.

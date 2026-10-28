@@ -227,10 +227,19 @@ try {
             }
             $result.resolutions = $resolutionsRel
             $request = "Claude lo ha corregido: $resolutionsRel. Revisión de seguimiento de ${originalRel}: verifica solo " +
-                "los hallazgos que siguen pendientes y las regresiones causadas por sus correcciones. Las resoluciones " +
+                "los hallazgos que siguen pendientes y las regresiones causadas por sus correcciones, incluidos los " +
+                "invariantes y el código que dependen de ellas, aunque estén fuera del diff. Para cada hallazgo " +
+                "pendiente, consulta sus informes anteriores, las resoluciones y sus reproducciones. Las resoluciones " +
                 "'dismissed with evidence' también se verifican: confirma o rebate su evidencia."
             if ($kind -eq 'code' -and -not $FixRange) {
                 throw 'A code follow-up needs -FixRange <base>..<head> with the fix commits.'
+            }
+            # The skill runs the regression tests and the CLAUDE.md checks before a code follow-up and records them in
+            # the resolutions: information to avoid needless repetition, never a substitute for Codex's own checks.
+            if ($kind -eq 'code') {
+                $request += " Las pruebas y comprobaciones que Claude ejecutó constan en las resoluciones: úsalas para " +
+                    "no repetir trabajo innecesario, pero no sustituyen tu verificación independiente; repite " +
+                    "cualquier prueba, también la suite completa, cuando lo consideres necesario."
             }
             # Optional for a PRD follow-up (fixes may be uncommitted), but never ignored when given.
             if ($FixRange) {
