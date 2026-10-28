@@ -239,3 +239,10 @@ so each task goes to one bounded ODD Worker (`opus`, `high`), one after another.
   runs kept by a newer read were uncounted. Fixed in `098e621` (RED: 51,126,272 bytes held, 0 counted). RDD review 7
   (`373208f..098e621`, lineage `review-aba90cc61b80a4bb`): **approved**, acknowledged; R3-001 dismissed with
   evidence, R3-002 accepted. The user authorized a fourth Codex round.
+- **L20** (2026-10-28, Codex follow-up, round 4, authorized by the user beyond the three-round limit):
+  `docs/reviews/trees-large-values/2026-10-28-code-02.md`, wrapper status `findings`. R1 verified resolved. New R2
+  (major), introduced by `098e621`: a write's own flush kept runs only its snapshot retained, so a write failed with
+  the maximum size without any read (against J7). Fixed in `7584790` (RED: `MaxSize { max_size: 25165824, needed:
+  25608192 }`). RDD review 8 (`45c1bf2..7584790`, lineage `review-48af2c09d934d928`): **approved**, acknowledged;
+  its two WARNING on the borrow argument and its SUGGESTION dismissed with evidence. Verifying R2 needs a fifth
+  Codex round, which only the user can authorize.

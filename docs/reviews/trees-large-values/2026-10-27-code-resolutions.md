@@ -132,3 +132,41 @@ Fix commit: `098e621`.
   freed at close. R3-002 (SUGGESTION, a direct assertion on the count while the newer read is open): accepted without
   change; the test already requires every replacement to fail with the maximum-size class.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-28 (verification, round 4)
+
+[2026-10-28-code-02.md](2026-10-28-code-02.md), wrapper status `findings`, `threadId`
+`01a18164-ea2a-7a81-b2f0-cc836a1af0c5`, coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review-critical`
+`gpt-6-astra`/`xhigh`. Its verdict, quoted: "Changes requested — R1 verified resolved; R2 remains open." R1 is
+verified resolved. New R2 (major): "A writer's own flush causes a maximum-size failure without readers", introduced
+by `098e621`, against J7 ("una escritura nunca falla por tamaño máximo a causa de versiones que ninguna lectura
+necesita: antes se trasladan").
+
+## 2026-10-28 (round 4)
+
+Fix commit: `7584790`.
+
+### R2 — major: a writer's own flush causes a maximum-size failure without readers
+
+- Disposition: fixed.
+- Evidence: verified against the code: `WriteTransaction::reserve` flushes and re-checks the budget, but
+  `free_retired` kept every retired entry whose bound was not below `min(oldest read, writer seq)`, so a run retired
+  by the writer's own flush stayed charged until the write ended.
+- Fix (`7584790`): `ScratchWriter::flush(&mut self)` now frees the retired entries no open read can reference
+  (`free_retired_by_writer`, bound `oldest_read()`), ignoring the writer's own sequence; the transfer thread, snapshot
+  end and close keep the earlier rule. It is safe because every reference the writer's snapshot returns borrows the
+  writer: `ScratchWriter::snapshot(&self) -> &Snapshot<'a>` (`crates/krummi-pager/src/scratch.rs:1069`), and
+  `Snapshot::page`/`Snapshot::run` take `&self` and return a slice of that borrow (`:950`, `:989`), so `flush(&mut
+  self)` cannot run while one is alive (T8); the compiler enforces it for every internal caller.
+- Regression: `crates/krummi-tx/tests/runs.rs::a_write_s_own_transfer_frees_the_runs_no_read_needs` (the report's
+  scenario with a 24 MiB maximum, no read, and with a read that ended before the third write; disk and temporary).
+  RED: `MaxSize { max_size: 25165824, needed: 25608192 }` at the third write's reservation. GREEN: the same first
+  page, the commit succeeds, the data size is unchanged.
+- Checks: fmt, clippy, `cargo test --workspace` on Windows (379 passed, 0 failed, 14 ignored), `-p krummi-pager -p
+  krummi-tx -p krummi` on Linux (363 passed), the ignored AC-V8 sweeps and `ac_j18_…` pass.
+- RDD review 8 of `45c1bf2..7584790` approved it (lineage `review-48af2c09d934d928`). R1-writer-flush-frees-under-
+  unsafe-invariant and R3-writer-flush-lifetime-assumption (WARNING, the safety depends on writer references
+  borrowing the writer): dismissed with evidence, the signatures above. R3-missing-open-read-boundary-test
+  (SUGGESTION): dismissed with evidence: `shrinking_runs_retired_under_a_newer_read_count_until_freed` keeps a read
+  open across the flushes of every replacement and checks its reference keeps its bytes.
+- Status: claimed fixed, unverified until a follow-up review.
