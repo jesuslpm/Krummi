@@ -15,7 +15,7 @@
 //!   `zipf` and `oscillating` (all by default), so that a run can be split.
 //! - `--values <count>`: values per load (1,000,000 by default, as M15 sets); the skewed load spreads them over a
 //!   tenth as many keys and the oscillating load makes a tenth as many operations, so the default is M15's load.
-//!   A set size above the count is skipped.
+//!   A set size above the count is skipped, and one that does not divide it takes the whole sets that fit.
 //! - `--quick`: a smoke test, the same as `--values 10000`.
 //!
 //! Every store is on disk and commits durably; keys and values are random 16-byte strings with fixed seeds. Before
@@ -341,8 +341,13 @@ fn usage(error: &str) -> ! {
     std::process::exit(if error.is_empty() { 0 } else { 2 })
 }
 
-/// The keys and values of a load by set size or of the skewed load, with `count` values.
+/// The keys and values of a load by set size or of the skewed load, with `count` values; by set size, only the whole
+/// sets that fit in `count`.
 fn data(load: Load, count: usize) -> Data {
+    let count = match load {
+        Load::SetSize(n) => count / n * n,
+        _ => count,
+    };
     let values = timing::keys(count);
     let (key_count, owner): (usize, Vec<u32>) = match load {
         Load::SetSize(n) => (count / n, (0..count).map(|j| (j / n) as u32).collect()),
