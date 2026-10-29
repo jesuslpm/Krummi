@@ -1,6 +1,6 @@
 # Base de datos documental embebida sobre Krummi — PRD (borrador)
 
-**Versión**: 0.1 (borrador)
+**Versión**: 0.2 (borrador)
 **Fecha**: 2026-10-29
 **Documento padre**: ninguno (PRD raíz de un producto aparte)
 **Estado**: borrador aparcado con preguntas abiertas. Se retoma cuando esté cerrado el producto Krummi
@@ -32,6 +32,7 @@ Acordadas con el usuario en la conversación del 2026-10-29:
 | DD7 | **Interfaz para otros lenguajes**: una interfaz binaria en C, estable y pequeña. Cada lenguaje (por ejemplo .NET) ofrece su propia API fluida que construye el árbol de consulta, lo serializa y lo envía en una sola llamada. Por esa interfaz, los documentos se entregan como copias en JSON, nunca como referencias a memoria del motor. |
 | DD8 | **Resultados por cursor.** Una consulta devuelve sus resultados de uno en uno, sin cargarlos todos en memoria. |
 | DD9 | **Volcado legible del árbol de consulta**, solo de salida, para logs y depuración. No se puede volver a leer como consulta. |
+| DD10 | **Plan elegido por costo, con conteos exactos de los índices.** El planificador estima cuántos documentos devuelve cada plan posible y elige el más barato, también cuando recorrer toda la colección cuesta menos que un índice poco selectivo que no cubre la consulta. Las estimaciones no salen de estadísticas aparte, sino de los propios índices, que están siempre al día (DD3): una igualdad cuenta los documentos de su valor, y un rango suma los de cada valor distinto del rango, sin leer ningún documento. Contar un rango se detiene al llegar al número de coincidencias a partir del cual conviene recorrer la colección, así que contar nunca cuesta más que ese umbral. La colección lleva su número de documentos al día en cada transacción. |
 
 ### Estado de partida
 
@@ -80,13 +81,16 @@ volcado legible (DD9).
 - Los valores grandes de Krummi (5.3) para los documentos que no caben en una página.
 - Los árboles multivalor de Krummi (5.4) para los índices secundarios (valor de un campo → documentos que lo
   tienen), o las tablas con índices secundarios (módulo 7), según la pregunta Q2.
+- El número de valores de cada clave que guardan los árboles multivalor (5.4), y su recorrido de claves, que
+  devuelve cada clave con ese número sin leer sus valores: son los conteos con los que el planificador estima el
+  costo de cada plan (DD10).
 
 ## Preguntas abiertas
 
 | ID | Pregunta |
 |---|---|
 | Q1 | **Nombre del producto.** "Base de datos documental sobre Krummi" es provisional. |
-| Q2 | **Base sobre la que se construye**: directamente sobre árboles y árboles multivalor (disponibles antes), o sobre las tablas con clave primaria e índices secundarios de Krummi (módulo 7), como hace RavenDB con Voron. Decide cuándo puede empezar este producto. |
+| Q2 | **Base sobre la que se construye**: directamente sobre árboles y árboles multivalor (disponibles antes), o sobre las tablas con clave primaria e índices secundarios de Krummi (módulo 7), como hace RavenDB con Voron. Decide cuándo puede empezar este producto. La base elegida tiene que dar el número de documentos de cada valor de un índice sin recorrerlos (DD10); los árboles multivalor lo dan. |
 | Q3 | **Formato de serialización del árbol de consulta** en la interfaz en C: uno simple y sin esquema, o uno con esquema y generación de código para cada lenguaje. |
 | Q4 | **Primer binding**: ¿.NET? ¿Hay más en la primera versión? |
 | Q5 | **Operadores de la primera versión**: igualdad, rangos, prefijo, pertenencia a una lista, `y`/`o`/`no`, orden, límite, proyección. ¿Cuáles entran? |
@@ -98,12 +102,18 @@ volcado legible (DD9).
 | Q11 | **Actualizaciones parciales**: ¿se reemplaza siempre el documento entero, o hay operaciones sobre campos? |
 | Q12 | **Lectura del formato binario desde los bindings**: ¿se descarta o queda como mejora posterior a DD7? |
 | Q13 | **Herramienta de línea de comandos** para inspeccionar documentos y consultas: ¿entra en este producto? |
+| Q14 | **Índices de cobertura**: ¿un índice puede guardar además otros campos del documento, para responder una consulta que solo pide esos campos sin leer el documento? |
+| Q15 | **Combinar índices**: ¿el planificador de la primera versión puede usar varios índices en una misma consulta (intersección para `y`, unión para `o`), o uno solo como máximo? |
+| Q16 | **Explicar el plan**: ¿el desarrollador puede pedir el plan elegido y sus conteos, como parte del volcado legible (DD9)? |
+| Q17 | **Selectividad media de un índice** (valores totales entre claves totales), para planificar sin conocer el valor del parámetro, como en un plan reutilizado entre consultas de la misma forma (DD6), y volver a planificar cuando el conteo exacto del valor real se aleja de la media. Los árboles multivalor ya dan el número total de claves, pero no el total de valores, que el 5.4 deja fuera de alcance. Anotado el 2026-10-29: un PRD posterior de Krummi lo añadiría como un contador del árbol que se mantiene en cada escritura; no entra en el 5.4. |
 
 ## Fuera de alcance
 
 - Un lenguaje de consulta en texto: RQL, SQL o el dialecto de MongoDB (DD4).
 - Compatibilidad con RavenDB o con MongoDB, en formato o en API.
 - Índices asíncronos (DD3).
+- Estadísticas guardadas aparte de los índices, como histogramas o muestreos: el costo sale de los conteos exactos
+  de los índices (DD10).
 - Servidor de red, replicación y clústeres.
 - Índices de texto completo.
 - Todo lo que Krummi ya deja fuera de alcance y este producto no añade, como el acceso desde varios procesos.
@@ -128,6 +138,6 @@ Medido con el historial de la sesión de Claude Code. Si la persona tarda más d
 
 | Sesión | Inicio | Reloj | Descartado | Activo | Agente | Persona | Intervenciones |
 |---|---|---|---|---|---|---|---|
-| 42d35e66 | 2026-10-29 09:51 UTC+00:00 | 21 min | 0 min | 21 min | 3 min | 18 min | 5 |
+| 42d35e66 | 2026-10-29 09:51 UTC+00:00 | 8 h 52 min | 7 h 40 min | 1 h 12 min | 7 min | 1 h 4 min | 13 |
 
-<!-- prd-time: [{"session": "42d35e66-27b3-40a4-a47e-68ef0d63ff8b", "start": "2026-10-29T09:51:10.546000+00:00", "wall": 1264, "discarded": 0, "agent": 206, "human": 1058, "interventions": 5, "idle_minutes": 10}] -->
+<!-- prd-time: [{"session": "42d35e66-27b3-40a4-a47e-68ef0d63ff8b", "start": "2026-10-29T09:51:10.546000+00:00", "wall": 31902, "discarded": 27601, "agent": 434, "human": 3866, "interventions": 13, "idle_minutes": 10}] -->
