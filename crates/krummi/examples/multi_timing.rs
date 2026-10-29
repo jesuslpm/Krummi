@@ -16,12 +16,13 @@
 //! - `--values <count>`: values per load (1,000,000 by default, as M15 sets); the skewed load spreads them over a
 //!   tenth as many keys and the oscillating load makes a tenth as many operations, so the default is M15's load.
 //!   A set size above the count is skipped, and one that does not divide it takes the whole sets that fit.
-//! - `--key-size <bytes>`: the length of the keys, from 16 to 2,032 bytes, so that the baseline's key, the key
-//!   followed by the value, is at most 2,048 (16 by default, as M15 sets). The values stay of 16 bytes.
+//! - `--key-size <bytes>`: the length of the keys, at least 16 bytes (16 by default, as M15 sets).
+//! - `--value-size <bytes>`: the length of the values, at least 8 bytes (16 by default, as M15 sets). The baseline's
+//!   key is the key followed by the value, so the two together are at most 2,048 bytes.
 //! - `--quick`: a smoke test, the same as `--values 10000`.
 //!
-//! Every store is on disk and commits durably; keys and values are random strings with fixed seeds, the values of 16
-//! bytes and the keys of 16 or of `--key-size` bytes. Before
+//! Every store is on disk and commits durably; keys and values are random strings with fixed seeds, of 16 bytes or of
+//! the lengths the options give. The measurement is run by hand: neither the tests nor the CI run it. Before
 //! each load the thresholds are set with the measurement hook of the engine (D7). The loads (M15):
 //!
 //! - **By set size**: the values spread over keys of N values each, for N = 1, 10, 100, 1,000, 10,000, 100,000 and
@@ -110,7 +111,7 @@ impl Load {
 /// The values of a load and the key of each.
 struct Data {
     keys: Vec<Vec<u8>>,
-    values: Vec<[u8; KEY]>,
+    values: Vec<Vec<u8>>,
     /// The index in `keys` of the key of each value.
     owner: Vec<u32>,
     /// The indexes of the keys with values, in the keys' byte order, and their number of values.
@@ -169,8 +170,8 @@ fn main() {
         std::env::consts::ARCH
     );
     println!(
-        "- Values per load: {}; writes of {BATCH}; keys of {} bytes and values of {KEY} bytes; MAX_PROMOTION = {MAX_PROMOTION}.",
-        options.values, options.key_size
+        "- Values per load: {}; writes of {BATCH}; keys of {} bytes and values of {} bytes; MAX_PROMOTION = {MAX_PROMOTION}.",
+        options.values, options.key_size, options.value_size
     );
     println!(
         "- Pairs (promotion:demotion): {}.",
@@ -188,7 +189,7 @@ fn main() {
                 );
             }
             Load::SetSize(_) | Load::Zipf => {
-                let data = data(load, options.values, options.key_size);
+                let data = data(load, options.values, options.key_size, options.value_size);
                 println!(
                     "## Load {}: {} values, keys with values: {}",
                     load.name(),
@@ -220,8 +221,12 @@ fn main() {
                 println!("|---|---|---|---|---|---|");
                 for &(promotion, demotion) in &options.pairs {
                     set_multi_thresholds(promotion, demotion);
-                    let (at_threshold, elapsed, size, subtree) =
-                        oscillate(&options.folder, operations, options.key_size);
+                    let (at_threshold, elapsed, size, subtree) = oscillate(
+                        &options.folder,
+                        operations,
+                        options.key_size,
+                        options.value_size,
+                    );
                     println!(
                         "| {promotion}:{demotion} | {at_threshold} | {} | {:.2} | {size} | {} |",
                         ms(elapsed),
@@ -241,6 +246,7 @@ struct Options {
     loads: Vec<Load>,
     values: usize,
     key_size: usize,
+    value_size: usize,
 }
 
 impl Options {
@@ -254,6 +260,7 @@ impl Options {
             loads: all_loads(),
             values: VALUES,
             key_size: KEY,
+            value_size: KEY,
         };
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
@@ -273,21 +280,32 @@ impl Options {
                         .unwrap_or_else(|| usage("--values takes a positive count"));
                 }
                 "--key-size" => {
-                    options.key_size = value()
+                    options.key_size =
+                        value()
+                            .parse()
+                            .ok()
+                            .filter(|&k| k >= KEY)
+                            .unwrap_or_else(|| {
+                                usage(&format!("--key-size takes at least {KEY} bytes"))
+                            });
+                }
+                "--value-size" => {
+                    options.value_size = value()
                         .parse()
                         .ok()
-                        .filter(|&k| (KEY..=MAX_KEY - KEY).contains(&k))
-                        .unwrap_or_else(|| {
-                            usage(&format!(
-                                "--key-size takes {KEY} to {} bytes",
-                                MAX_KEY - KEY
-                            ))
-                        });
+                        .filter(|&v| v >= 8)
+                        .unwrap_or_else(|| usage("--value-size takes at least 8 bytes"));
                 }
                 "--quick" => options.values = QUICK,
                 "--help" | "-h" => usage(""),
                 other => usage(&format!("unknown option {other}")),
             }
+        }
+        if options.key_size + options.value_size > MAX_KEY {
+            usage(&format!(
+                "a key and a value of {} bytes in all exceed the {MAX_KEY} of the baseline's key",
+                options.key_size + options.value_size
+            ));
         }
         options
     }
@@ -345,7 +363,7 @@ fn usage(error: &str) -> ! {
         eprintln!("error: {error}");
     }
     eprintln!(
-        "usage: multi_timing [--folder <path>] [--pairs <p:d,...>] [--loads <name,...>] [--values <count>] [--key-size <bytes>] [--quick]"
+        "usage: multi_timing [--folder <path>] [--pairs <p:d,...>] [--loads <name,...>] [--values <count>] [--key-size <bytes>] [--value-size <bytes>] [--quick]"
     );
     eprintln!(
         "loads: {}",
@@ -359,13 +377,13 @@ fn usage(error: &str) -> ! {
 }
 
 /// The keys and values of a load by set size or of the skewed load, with `count` values; by set size, only the whole
-/// sets that fit in `count`; the keys have `key_size` bytes.
-fn data(load: Load, count: usize, key_size: usize) -> Data {
+/// sets that fit in `count`; the keys have `key_size` bytes and the values `value_size`.
+fn data(load: Load, count: usize, key_size: usize, value_size: usize) -> Data {
     let count = match load {
         Load::SetSize(n) => count / n * n,
         _ => count,
     };
-    let values = timing::keys(count);
+    let values = random_values(count, value_size);
     let (key_count, owner): (usize, Vec<u32>) = match load {
         Load::SetSize(n) => (count / n, (0..count).map(|j| (j / n) as u32).collect()),
         Load::Zipf => {
@@ -391,6 +409,26 @@ fn data(load: Load, count: usize, key_size: usize) -> Data {
         owner,
         used,
     }
+}
+
+/// `count` distinct random values of `size` bytes, at least 8: with 16 or more, [`timing::keys`] followed by random
+/// bytes; with fewer, their first bytes, a bijection of the index. With 16 bytes they are those of M15's runs.
+fn random_values(count: usize, size: usize) -> Vec<Vec<u8>> {
+    timing::keys(count)
+        .into_iter()
+        .enumerate()
+        .map(|(i, start)| {
+            let mut value = start[..size.min(KEY)].to_vec();
+            let mut state = (i as u64).wrapping_add(0x5EED_0106);
+            while value.len() < size {
+                let word = splitmix(state).to_be_bytes();
+                let take = word.len().min(size - value.len());
+                value.extend_from_slice(&word[..take]);
+                state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            }
+            value
+        })
+        .collect()
 }
 
 /// `count` distinct random keys of `size` bytes, at least 16, other than the values that [`timing::keys`] gives: the
@@ -589,7 +627,7 @@ fn measure(base: &Path, data: &Data, shape: Shape) -> Measured {
 }
 
 /// The key of the baseline for `value` of `key`: the key followed by the value.
-fn composite(key: &[u8], value: &[u8; KEY]) -> Vec<u8> {
+fn composite(key: &[u8], value: &[u8]) -> Vec<u8> {
     [key, value].concat()
 }
 
@@ -621,14 +659,19 @@ fn pages_per_contains(folder: &Path, data: &Data, shape: Shape) -> f64 {
 /// Runs the oscillating load in a new store inside `base`, with the thresholds in force: returns the values of the
 /// key at the threshold, the time of the `operations`, the store's size after the last commit and whether the key
 /// ends in a subtree.
-fn oscillate(base: &Path, operations: usize, key_size: usize) -> (usize, Duration, u64, bool) {
+fn oscillate(
+    base: &Path,
+    operations: usize,
+    key_size: usize,
+    value_size: usize,
+) -> (usize, Duration, u64, bool) {
     let (promotion, _) = multi_thresholds();
     let mut at_threshold = 0;
-    while volume(key_size, std::iter::repeat_n(KEY, at_threshold + 1)) <= promotion {
+    while volume(key_size, std::iter::repeat_n(value_size, at_threshold + 1)) <= promotion {
         at_threshold += 1;
     }
     let key = random_keys(1, key_size).remove(0);
-    let values = timing::keys(at_threshold + operations.div_ceil(2));
+    let values = random_values(at_threshold + operations.div_ceil(2), value_size);
 
     let folder = tempfile::tempdir_in(base).expect("a temporary folder");
     let store = Store::open(folder.path(), &StoreOptions::default()).expect("open");
