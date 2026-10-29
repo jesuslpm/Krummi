@@ -51,7 +51,7 @@ pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result, SizeSubject,
 use krummi_tree::catalog::{self, Entry};
 use krummi_tree::{Interval, PageSource, RangeUpdate, multi};
 
-use sealed::{AsReadTree, AsWriteTree};
+use sealed::{AsReadTree, AsWriteTree, Token};
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
 const MAX_NAME: usize = 1024;
@@ -274,14 +274,20 @@ pub struct ReadMultiTree<'s>(ReadTree<'s>);
 /// deleted. It takes only the operations of multi-value trees.
 pub struct WriteMultiTree<'s>(WriteTree<'s>);
 
-/// The handles of both kinds of tree share one mechanism: a multi-value handle wraps the normal one.
+/// The handles of both kinds of tree share one mechanism: a multi-value handle wraps the normal one. The traits
+/// cannot be named outside this crate, and their method takes a [`Token`](sealed::Token) that only this crate can
+/// build, so a public bound such as [`WriteHandle`] gives an application no way to reach the normal tree inside a
+/// multi-value handle (M4).
 mod sealed {
+    /// Proof that the caller is this crate.
+    pub struct Token(pub(crate) ());
+
     pub trait AsReadTree {
-        fn as_tree(&self) -> &super::ReadTree<'_>;
+        fn as_tree(&self, token: Token) -> &super::ReadTree<'_>;
     }
 
     pub trait AsWriteTree {
-        fn as_tree(&self) -> &super::WriteTree<'_>;
+        fn as_tree(&self, token: Token) -> &super::WriteTree<'_>;
     }
 }
 
@@ -294,25 +300,25 @@ pub trait ReadHandle: AsReadTree {}
 pub trait WriteHandle: AsWriteTree {}
 
 impl AsReadTree for ReadTree<'_> {
-    fn as_tree(&self) -> &ReadTree<'_> {
+    fn as_tree(&self, _: Token) -> &ReadTree<'_> {
         self
     }
 }
 
 impl AsReadTree for ReadMultiTree<'_> {
-    fn as_tree(&self) -> &ReadTree<'_> {
+    fn as_tree(&self, _: Token) -> &ReadTree<'_> {
         &self.0
     }
 }
 
 impl AsWriteTree for WriteTree<'_> {
-    fn as_tree(&self) -> &WriteTree<'_> {
+    fn as_tree(&self, _: Token) -> &WriteTree<'_> {
         self
     }
 }
 
 impl AsWriteTree for WriteMultiTree<'_> {
-    fn as_tree(&self) -> &WriteTree<'_> {
+    fn as_tree(&self, _: Token) -> &WriteTree<'_> {
         &self.0
     }
 }
@@ -405,7 +411,7 @@ impl<'s> ReadTransaction<'s> {
     /// The number of entries of `tree` in the snapshot, counted without walking the tree: of a multi-value tree, its
     /// number of keys.
     pub fn len(&self, tree: &impl ReadHandle) -> Result<u64> {
-        let tree = tree.as_tree();
+        let tree = tree.as_tree(Token(()));
         self.check_handle(tree)?;
         Ok(tree.count)
     }
@@ -664,7 +670,7 @@ impl<'s> WriteTransaction<'s> {
     /// The number of entries of `tree`, with this transaction's changes, counted without walking the tree: of a
     /// multi-value tree, its number of keys.
     pub fn len(&self, tree: &impl WriteHandle) -> Result<u64> {
-        Ok(self.live(tree.as_tree())?.1)
+        Ok(self.live(tree.as_tree(Token(())))?.1)
     }
 
     /// A scan of `tree` within `bounds`, with this transaction's changes, as [`ReadTransaction::range`] describes.

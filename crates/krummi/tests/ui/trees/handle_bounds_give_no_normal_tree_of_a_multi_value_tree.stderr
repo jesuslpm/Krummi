@@ -1,0 +1,29 @@
+error[E0603]: module `sealed` is private
+  --> tests/ui/trees/handle_bounds_give_no_normal_tree_of_a_multi_value_tree.rs:18:26
+   |
+18 |     tree.as_tree(krummi::sealed::Token(()))
+   |                          ^^^^^^  ----- tuple struct `Token` is not publicly re-exported
+   |                          |
+   |                          private module
+   |
+note: the module `sealed` is defined here
+  --> src/lib.rs
+   |
+   | mod sealed {
+   | ^^^^^^^^^^
+
+error[E0061]: this method takes 1 argument but 0 arguments were supplied
+  --> tests/ui/trees/handle_bounds_give_no_normal_tree_of_a_multi_value_tree.rs:11:10
+   |
+11 |     tree.as_tree()
+   |          ^^^^^^^-- argument #1 of type `krummi::sealed::Token` is missing
+   |
+note: method defined here
+  --> src/lib.rs
+   |
+   |         fn as_tree(&self, token: Token) -> &super::WriteTree<'_>;
+   |            ^^^^^^^
+help: provide the argument
+   |
+11 |     tree.as_tree(/* Token */)
+   |                  +++++++++++
