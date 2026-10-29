@@ -191,3 +191,6 @@ for the long-session backstop: the parent context already holds the PRD session 
   away from multi-value entries); lenses risk/reliability: approved, lineage `review-b2683ba3440bc7f9`,
   acknowledged (authority burned). Advisory: R3-set-size-truncation-no-automated-regression (suggestion): kept; the
   example has no test target that `cargo test --workspace` runs, and the reproduction command is in the resolutions.
+- **L19** (T5, Codex follow-up of `c455c3e..d5dc52a`): `approved`, report
+  `docs/reviews/trees-multivalue/2026-10-29-code-02.md`: R1 and R2 verified resolved, no regressions. The loop ends
+  after two rounds.
