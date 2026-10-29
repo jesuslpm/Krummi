@@ -13,3 +13,5 @@
 2026-10-29T14:03:59+00:00	bg-start	acceptance	M15 measurement Windows+Linux
 2026-10-29T18:55:31+00:00	bg-end	acceptance	M15 measurement Windows+Linux
 2026-10-29T18:57:09+00:00	mark	checks	T5 test edits and README
+2026-10-29T19:02:06+00:00	bg-start	acceptance	M15 Windows rerun
+2026-10-29T20:04:27+00:00	bg-end	acceptance	M15 Windows rerun

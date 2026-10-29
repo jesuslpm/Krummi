@@ -70,7 +70,7 @@ Decisions within *Dejado a la implementación*:
 | T1 | S1, S3–S7 (engine part) | delegated (context backstop) | done | `8b5a7c8` |
 | T2 | S1–S10, S16–S18 | delegated (context backstop) | done | `cd7b815`, `182e461` |
 | T3 | S11–S15 | delegated (context backstop) | done | `2f7b39c` |
-| T4 | S19–S20 | inline + background runs | pending | — |
+| T4 | S19–S20 | inline + background runs | done | `5a6df2b`, `c44fe75`, T4 close below |
 | T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
 
 T1: engine module in `krummi-tree` (blob encoding, both representations, transitions with hysteresis, value and
@@ -147,3 +147,20 @@ for the long-session backstop: the parent context already holds the PRD session 
   tests are separate crates with no shared test module, kept), R3-off-leaf-case-confounded (warning; to fix in T5:
   the off-leaf case also has an over-long element), R2-duplicated-scan-checker, R2-test-blob-layout-literals
   (suggestions, to look at in T5), R2-placeholder-commit-ref (fixed here).
+- **L12** (T4, measurement): full M15 run, Windows then Linux, 2026-10-29 14:04–18:55. Linux consistent: Add
+  about the same in both representations (multi 40–48 µs, composite 38–44 µs per value), Contains 3.1–5.6 µs
+  against 3.7–4.0 µs, multi 28–52% fewer pages in use except n1 (+11%); the 12–15 µs of L7 was not reproduced.
+  Windows discarded: the composite rows took 85–108 µs per random add against 27 µs measured by 5.2 on this machine,
+  and the last loads came back to about 28–30 µs, so something outside the engine slowed it down; rerun at once.
+  Evaluation in `trees-multivalue-measurements.md`: 2048:1024 stays.
+- **L13** (T5): R3-off-leaf-case-confounded rebuilt with a consistent 5,000-byte blob; the key scan then returned the
+  off-leaf entry's count instead of damage (RED: `inconsistent_blobs_are_damage_of_their_leaf`). Fixed in
+  `decode_scanned` (a scanned blob that does not fit in a leaf is damage, M1, which also covers the key range
+  removal); R2-test-blob-layout-literals fixed (the tests use `INLINE`/`SUBTREE`). Commit `d605cc3`; README
+  `003a703`. Checks: fmt, clippy clean; `cargo test --workspace` 408 passed, 0 failed. Risk: item 6 not applicable
+  (pinned by the test); item 1, low (reads of persisted pages: a stricter damage check, nothing written changes).
+- **L14** (T4 close): Windows rerun 19:02–20:04, consistent (composite 26–34 µs per random add, as 5.2's 27 µs). Both
+  systems agree: 512 wastes space (n100 ×2.9 pages), 4,074 saves 5% of pages and 2–6% of Add time in zipf only and
+  costs up to 70% more per operation at the threshold; the two demotion thresholds do not separate. 2048:1024 stays
+  as the default (S20); the measurement with both systems and the machine data is in
+  `trees-multivalue-measurements.md` (S19).

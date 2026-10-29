@@ -49,7 +49,7 @@
 //! | Promotion | Values inline at most | Demotion close (7/8) | Demotion about half |
 //! |---|---|---|---|
 //! | 512, low | 27 | 448 | 256 |
-//! | 2,048, intermediate (the provisional default) | 112 | 1,792 | 1,024 |
+//! | 2,048, intermediate (the default) | 112 | 1,792 | 1,024 |
 //! | [`MAX_PROMOTION`] (4,074), high: an inline entry fills the longest leaf cell | 225 | 3,564 | 2,037 |
 //!
 //! The low promotion moves keys of 100 values to subtrees and keeps keys of 10 inline; the intermediate and the high
