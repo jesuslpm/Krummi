@@ -25,7 +25,9 @@ after adding (the store's pages minus its free pages, as AC-A15 takes them; the 
 grows by doubling) and the **pages per Contains**, the average number of pages a Contains reads, computed from the
 height of the parent and of each key's subtree. Each load also has a **composite** row, the baseline asked in L8: a
 normal tree whose 32-byte keys are the key followed by the value, with an empty value, using Try add, Get, a prefix
-scan and Remove; it has no key scan with counts.
+scan and Remove; it has no key scan with counts. The scan of each key's values opens the tree once per key inside
+the timed loop, in both representations, so that column includes one catalog lookup per key (most visible in n1,
+with 1,000,000 keys); the comparison between the representations is not affected.
 
 Runs: Windows with the built binary and the stores in `%TEMP%\krummi-m15`; Linux in WSL 2, built from
 `/mnt/c/projects/Krummi` with `CARGO_TARGET_DIR=~/krummi-t5-target`, the stores in `~/krummi-m15-stores` (ext4).
@@ -106,8 +108,8 @@ which is at most the promotion threshold, and how few entries a parent leaf may 
   against 3.4–3.5 µs on Windows, and Add 28.3–28.6 µs against 23.2–23.4 µs on Windows (the same on Linux). In zipf,
   6,288 pages against 4,400 (+43%).
 - **4,074 against 2,048**: 5% fewer pages in zipf (4,188 against 4,400) and 4.11 pages per Contains against 4.17; Add
-  in zipf 2–6% faster (Windows 30.8 µs against 32.2–32.8 µs; Linux 42.8–44.3 µs against 43.8–44.2 µs), no difference
-  beyond the noise elsewhere. In the oscillating load, each operation at the threshold costs more the larger the
+  in zipf 4–6% faster on Windows (30.8 µs against 32.2–32.8 µs) and no different on Linux, where the ranges overlap
+  (42.8–44.3 µs against 43.8–44.2 µs); no difference beyond the noise elsewhere. In the oscillating load, each operation at the threshold costs more the larger the
   inline blob it rewrites: with 2,048, 10.7–11.6 µs on Linux and 1.5–1.6 µs on Windows; with 4,074, 11.9–15.5 µs and
   2.6–2.7 µs (+70% on Windows); with 512, 10.2–10.4 µs and 1.1–1.2 µs.
 - In the other loads (n1, n10, n1000 and above) every pair keeps the same representation for every key, so pages and
@@ -117,7 +119,7 @@ which is at most the promotion threshold, and how few entries a parent leaf may 
   pair and never crosses either demotion threshold; the sizes are the same and the times within the noise.
 
 **Chosen: 2,048:1,024**, the provisional defaults, which stay. 512 wastes space for keys of a few hundred values;
-4,074 saves 5% of pages and 2–6% of Add time in the skewed load and nothing elsewhere, at a higher cost per operation
+4,074 saves 5% of pages in the skewed load, and 4–6% of Add time there on Windows only, and nothing elsewhere, at a higher cost per operation
 near the threshold and with leaves of as few as two entries. Between the two demotion thresholds the data does not choose, so the
 simpler one is taken, half the promotion threshold, which also leaves the widest gap against keys that move back
 and forth by more than one value.

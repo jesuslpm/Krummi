@@ -160,7 +160,14 @@ for the long-session backstop: the parent context already holds the PRD session 
   `003a703`. Checks: fmt, clippy clean; `cargo test --workspace` 408 passed, 0 failed. Risk: item 6 not applicable
   (pinned by the test); item 1, low (reads of persisted pages: a stricter damage check, nothing written changes).
 - **L14** (T4 close): Windows rerun 19:02–20:04, consistent (composite 26–34 µs per random add, as 5.2's 27 µs). Both
-  systems agree: 512 wastes space (n100 ×2.9 pages), 4,074 saves 5% of pages and 2–6% of Add time in zipf only and
+  systems agree: 512 wastes space (n100 ×2.9 pages), 4,074 saves 5% of pages in zipf only (and 4–6% of Add time there on Windows) and
   costs up to 70% more per operation at the threshold; the two demotion thresholds do not separate. 2048:1024 stays
   as the default (S20); the measurement with both systems and the machine data is in
   `trees-multivalue-measurements.md` (S19).
+- **L15** (RDD): review 4, last slice `2f7b39c..fe52cc9` (composite baseline `c44fe75`, PRD draft `ab0d944`, fix
+  `d605cc3`, README `003a703`, thresholds `fe52cc9`), assessed medium and `under_budget`, reviewed as the last slice;
+  lenses resilience/readability/reliability: approved, lineage `review-e827cc5980447c65`, acknowledged (authority
+  burned); reviewed boundary now `fe52cc9`. Advisory findings: R2-zipf-add-claim-contradicts-linux-table (warning)
+  and R3-zipf-add-gain-overstated (suggestion): fixed, the 4–6% Add gain of 4,074 in zipf is Windows only;
+  R2-tree-open-inside-timed-values-loop (warning): kept and documented in the measurement (the values-scan column
+  includes one tree opening per key in both representations; a rerun would take 2.5 h and not change the comparison).
