@@ -31,7 +31,13 @@
 //!   system's cache, check every value at random with Contains in a single read transaction, scan the keys of the
 //!   whole tree, and scan the values of every key, reading every byte, each in its own read transaction; and remove
 //!   every value at random with Remove value, in writes of 1,000. It also prints the store's size after the
-//!   removals.
+//!   removals, the pages in use after the adds (the store's pages but the free ones, finer than the size, which
+//!   grows in steps), and the pages a Contains reads on average: each lookup reads one page per level of the tree, and for
+//!   a key in a subtree one more per level of the subtree, so the average comes from the heights of the closed store.
+//!
+//!   Each of these loads also has a baseline row, `composite`: the same values in a normal tree whose keys are the
+//!   key followed by the value, with empty values, added with Try add, checked with Get, scanned with a prefix scan
+//!   per key and removed with Remove. It has no key scan.
 //! - **Oscillating**: in a new store, one key with the most values whose volume does not exceed the promotion
 //!   threshold, so that the next Add exceeds it; then a tenth as many operations as values (100,000), alternating,
 //!   from an Add, an Add of a new value and a Remove value of that same value, in writes of 1,000 operations: the
@@ -63,7 +69,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use krummi::{OpenMode, Store, StoreOptions};
-use krummi_tree::multi::{MAX_PROMOTION, multi_thresholds, set_multi_thresholds, volume};
+use krummi_tree::catalog;
+use krummi_tree::multi::{self, MAX_PROMOTION, multi_thresholds, set_multi_thresholds, volume};
+use krummi_tx::{Engine, OpenOptions as EngineOptions};
 use timing::{BATCH, KEY, TREE, shuffled, splitmix};
 
 /// Values per load, as M15 sets them.
@@ -106,15 +114,46 @@ struct Data {
     used: Vec<(usize, u64)>,
 }
 
-/// What a load by set size or the skewed load measures with one pair.
+/// How a load is stored.
+#[derive(Clone, Copy, PartialEq)]
+enum Shape {
+    /// In a multi-value tree, with the thresholds in force.
+    Multi,
+    /// The baseline: in a normal tree whose keys are the key followed by the value, with empty values.
+    Composite,
+}
+
+/// What a load by set size or the skewed load measures with one pair, or with the baseline.
 struct Measured {
     add: Duration,
     size: u64,
+    /// The store's pages but the free ones after the adds: the size grows in steps, these tell the space finely.
+    in_use: u64,
+    pages: f64,
     contains: Duration,
-    keys: Duration,
+    /// The key scan; the baseline has none.
+    keys: Option<Duration>,
     values: Duration,
     remove: Duration,
     emptied: u64,
+}
+
+impl Measured {
+    fn row(&self, label: &str, count: usize) {
+        println!(
+            "| {label} | {} | {:.2} | {} | {} | {:.2} | {} | {} | {} | {} | {} |",
+            ms(self.add),
+            self.add.as_secs_f64() * 1e6 / count as f64,
+            self.size,
+            self.in_use,
+            self.pages,
+            ms(self.contains),
+            self.keys.map_or("—".into(), ms),
+            ms(self.values),
+            ms(self.remove),
+            self.emptied,
+        );
+    }
 }
 
 fn main() {
@@ -155,24 +194,16 @@ fn main() {
                 );
                 println!();
                 println!(
-                    "| Promotion:demotion | Add (ms) | µs per add | Size after add (bytes) | Contains (ms) | Scan keys (ms) | Scan values (ms) | Remove (ms) | Size after remove (bytes) |"
+                    "| Promotion:demotion | Add (ms) | µs per add | Size after add (bytes) | Pages in use after add | Pages per Contains | Contains (ms) | Scan keys (ms) | Scan values (ms) | Remove (ms) | Size after remove (bytes) |"
                 );
-                println!("|---|---|---|---|---|---|---|---|---|");
+                println!("|---|---|---|---|---|---|---|---|---|---|---|");
                 for &(promotion, demotion) in &options.pairs {
                     set_multi_thresholds(promotion, demotion);
-                    let m = measure(&options.folder, &data);
-                    println!(
-                        "| {promotion}:{demotion} | {} | {:.2} | {} | {} | {} | {} | {} | {} |",
-                        ms(m.add),
-                        m.add.as_secs_f64() * 1e6 / data.values.len() as f64,
-                        m.size,
-                        ms(m.contains),
-                        ms(m.keys),
-                        ms(m.values),
-                        ms(m.remove),
-                        m.emptied,
-                    );
+                    measure(&options.folder, &data, Shape::Multi)
+                        .row(&format!("{promotion}:{demotion}"), data.values.len());
                 }
+                measure(&options.folder, &data, Shape::Composite)
+                    .row("composite", data.values.len());
             }
             Load::Oscillating => {
                 let operations = options.values / 10;
@@ -374,45 +405,75 @@ fn zipf(keys: usize, samples: usize, seed: u64) -> Vec<u32> {
         .collect()
 }
 
-/// Runs a load by set size or the skewed load in a new store inside `base`, with the thresholds in force.
-fn measure(base: &Path, data: &Data) -> Measured {
+/// Runs a load by set size or the skewed load in a new store inside `base`, as `shape` says, with the thresholds in
+/// force.
+fn measure(base: &Path, data: &Data, shape: Shape) -> Measured {
     let folder = tempfile::tempdir_in(base).expect("a temporary folder");
     let count = data.values.len();
     let key_of = |j: usize| &data.keys[data.owner[j] as usize];
+    let composite_of = |j: usize| composite(key_of(j), &data.values[j]);
 
     let store = Store::open(folder.path(), &StoreOptions::default()).expect("open");
     let order = shuffled(count, 0x5EED_0104);
     let start = Instant::now();
     for chunk in order.chunks(BATCH) {
         let mut write = store.write().expect("write");
-        let tree = write
-            .open_multi_tree_with(TREE, OpenMode::OpenOrCreate)
-            .expect("open or create the tree");
-        for &j in chunk {
-            let added = write.add(&tree, key_of(j), &data.values[j]).expect("add");
-            assert!(added, "value {j} is new");
+        match shape {
+            Shape::Multi => {
+                let tree = write
+                    .open_multi_tree_with(TREE, OpenMode::OpenOrCreate)
+                    .expect("open or create the tree");
+                for &j in chunk {
+                    let added = write.add(&tree, key_of(j), &data.values[j]).expect("add");
+                    assert!(added, "value {j} is new");
+                }
+            }
+            Shape::Composite => {
+                let tree = write
+                    .open_tree_with(TREE, OpenMode::OpenOrCreate)
+                    .expect("open or create the tree");
+                for &j in chunk {
+                    let added = write
+                        .try_add(&tree, &composite_of(j), b"")
+                        .expect("try add");
+                    assert!(added, "value {j} is new");
+                }
+            }
         }
         write.commit().expect("commit");
     }
     let add = start.elapsed();
-    let size = store.info().size_bytes;
+    let info = store.info();
+    let (size, in_use) = (info.size_bytes, info.page_count - info.free_pages);
     store.close().expect("close");
+    let pages = pages_per_contains(folder.path(), data, shape);
 
     let store = Store::open(folder.path(), &StoreOptions::default()).expect("reopen");
     let contains = {
         let read = store.read().expect("read");
-        let tree = read.open_multi_tree(TREE).expect("open the tree");
         let order = shuffled(count, 0x5EED_0105);
         let start = Instant::now();
-        for &j in &order {
-            let found = read
-                .contains(&tree, key_of(j), &data.values[j])
-                .expect("contains");
-            assert!(found, "value {j} is there");
+        match shape {
+            Shape::Multi => {
+                let tree = read.open_multi_tree(TREE).expect("open the tree");
+                for &j in &order {
+                    let found = read
+                        .contains(&tree, key_of(j), &data.values[j])
+                        .expect("contains");
+                    assert!(found, "value {j} is there");
+                }
+            }
+            Shape::Composite => {
+                let tree = read.open_tree(TREE).expect("open the tree");
+                for &j in &order {
+                    let found = read.get(&tree, &composite_of(j)).expect("get");
+                    assert!(found.is_some(), "value {j} is there");
+                }
+            }
         }
         start.elapsed()
     };
-    let keys = {
+    let keys = (shape == Shape::Multi).then(|| {
         let read = store.read().expect("read");
         let tree = read.open_multi_tree(TREE).expect("open the tree");
         let start = Instant::now();
@@ -427,20 +488,29 @@ fn measure(base: &Path, data: &Data) -> Measured {
         std::hint::black_box(sum);
         assert_eq!((scanned, values), (data.used.len(), count as u64));
         elapsed
-    };
+    });
     let values = {
         let read = store.read().expect("read");
-        let tree = read.open_multi_tree(TREE).expect("open the tree");
         let start = Instant::now();
         let mut sum = 0u64;
         for &(k, expected) in &data.used {
+            let key = &data.keys[k];
             let mut scanned = 0;
-            for value in read
-                .values(&tree, &data.keys[k], ..)
-                .expect("scan the values")
-            {
-                sum = checksum(sum, value.expect("a value"));
-                scanned += 1;
+            match shape {
+                Shape::Multi => {
+                    let tree = read.open_multi_tree(TREE).expect("open the tree");
+                    for value in read.values(&tree, key, ..).expect("scan the values") {
+                        sum = checksum(sum, value.expect("a value"));
+                        scanned += 1;
+                    }
+                }
+                Shape::Composite => {
+                    let tree = read.open_tree(TREE).expect("open the tree");
+                    for entry in read.range_prefix(&tree, key, ..).expect("scan the prefix") {
+                        sum = checksum(sum, &entry.expect("an entry").0[KEY..]);
+                        scanned += 1;
+                    }
+                }
             }
             assert_eq!(scanned, expected, "the values of key {k}");
         }
@@ -453,12 +523,23 @@ fn measure(base: &Path, data: &Data) -> Measured {
     let start = Instant::now();
     for chunk in order.chunks(BATCH) {
         let mut write = store.write().expect("write");
-        let tree = write.open_multi_tree(TREE).expect("open the tree");
-        for &j in chunk {
-            let removed = write
-                .remove_value(&tree, key_of(j), &data.values[j])
-                .expect("remove value");
-            assert!(removed, "value {j} was there");
+        match shape {
+            Shape::Multi => {
+                let tree = write.open_multi_tree(TREE).expect("open the tree");
+                for &j in chunk {
+                    let removed = write
+                        .remove_value(&tree, key_of(j), &data.values[j])
+                        .expect("remove value");
+                    assert!(removed, "value {j} was there");
+                }
+            }
+            Shape::Composite => {
+                let tree = write.open_tree(TREE).expect("open the tree");
+                for &j in chunk {
+                    let removed = write.remove(&tree, &composite_of(j)).expect("remove");
+                    assert!(removed, "value {j} was there");
+                }
+            }
         }
         write.commit().expect("commit");
     }
@@ -469,12 +550,47 @@ fn measure(base: &Path, data: &Data) -> Measured {
     Measured {
         add,
         size,
+        in_use,
+        pages,
         contains,
         keys,
         values,
         remove,
         emptied,
     }
+}
+
+/// The key of the baseline for `value` of `key`: the key followed by the value.
+fn composite(key: &[u8; KEY], value: &[u8; KEY]) -> [u8; 2 * KEY] {
+    let mut composite = [0; 2 * KEY];
+    composite[..KEY].copy_from_slice(key);
+    composite[KEY..].copy_from_slice(value);
+    composite
+}
+
+/// The pages a Contains reads on average over every value of the closed store in `folder`: one per level of the tree,
+/// and, for a value of a key in a subtree, one more per level of the subtree.
+fn pages_per_contains(folder: &Path, data: &Data, shape: Shape) -> f64 {
+    let engine = Engine::open(folder, &EngineOptions::default()).expect("open the engine");
+    let read = engine.read().expect("read");
+    let root = catalog::lookup(&read, TREE)
+        .expect("the catalog")
+        .expect("the tree")
+        .root;
+    let mut levels =
+        u64::from(krummi_tree::height(&read, root).expect("the height")) * data.values.len() as u64;
+    if shape == Shape::Multi {
+        for &(k, n) in &data.used {
+            if let Some(subtree) =
+                multi::subtree_of(&read, root, &data.keys[k]).expect("the subtree")
+            {
+                levels += n * u64::from(krummi_tree::height(&read, subtree).expect("the height"));
+            }
+        }
+    }
+    drop(read);
+    engine.close().expect("close the engine");
+    levels as f64 / data.values.len() as f64
 }
 
 /// Runs the oscillating load in a new store inside `base`, with the thresholds in force: returns the values of the

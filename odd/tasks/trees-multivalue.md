@@ -69,7 +69,7 @@ Decisions within *Dejado a la implementación*:
 | T0 | — | inline | done: exploration (explorer `opus`/`medium`), design D1–D7 | — |
 | T1 | S1, S3–S7 (engine part) | delegated (context backstop) | done | `8b5a7c8` |
 | T2 | S1–S10, S16–S18 | delegated (context backstop) | done | `cd7b815`, `182e461` |
-| T3 | S11–S15 | delegated (context backstop) | done | (T3 commit) |
+| T3 | S11–S15 | delegated (context backstop) | done | `2f7b39c` |
 | T4 | S19–S20 | inline + background runs | pending | — |
 | T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
 
@@ -140,3 +140,10 @@ for the long-session backstop: the parent context already holds the PRD session 
   Ignored runs: crashes through the close 13.9 s, every page operation 53.7 s, every byte 2,637 s. Parent spot check:
   fmt, clippy clean; `cargo test --workspace` 408 passed, 0 failed, 17 ignored. Risk: item 5 (CI) and item 3, low
   (shared test helpers refactored, existing tests pass).
+- **L11** (RDD): review 3, `182e461..2f7b39c` (T4 example `5a6df2b` and T3), assessed high (process and CI
+  signals), lenses resilience/readability/reliability: approved, lineage `review-296029a3f7646019`, acknowledged
+  (authority burned); the reviewed boundary is now `2f7b39c`. Advisory findings: R4-blob-order-check-dropped
+  (warning; the user's decision L9, kept), R2-duplicated-multi-seen (warning; the lib tests and the integration
+  tests are separate crates with no shared test module, kept), R3-off-leaf-case-confounded (warning; to fix in T5:
+  the off-leaf case also has an over-long element), R2-duplicated-scan-checker, R2-test-blob-layout-literals
+  (suggestions, to look at in T5), R2-placeholder-commit-ref (fixed here).
