@@ -59,10 +59,28 @@ impl Interval<'_> {
         bound || self.prefix >= key
     }
 
+    /// Whether `item` is in the interval: between the bounds and starting with the prefix.
+    pub fn contains(&self, item: &[u8]) -> bool {
+        self.after_lower(item) && self.before_upper(item)
+    }
+
     /// Whether no valid key (1 to [`MAX_KEY`] bytes) that starts with the prefix lies between the bounds (R3). It
     /// is decided from the arguments alone: the smallest such key after the lower bound is compared with the upper
     /// bound. The bounds and the prefix must be valid sizes.
     pub fn is_empty(&self) -> bool {
+        self.is_empty_from(&[0])
+    }
+
+    /// Whether no valid value of a multi-value tree (0 to [`MAX_KEY`] bytes, the empty value the least, D4 of the
+    /// multi-value trees execution) that starts with the prefix lies between the bounds (R3, M7), decided as
+    /// [`Interval::is_empty`] does. The bounds may be the empty value.
+    pub fn is_empty_of_values(&self) -> bool {
+        self.is_empty_from(&[])
+    }
+
+    /// Whether the interval is empty among the items from `least`, the smallest valid one, up to [`MAX_KEY`]
+    /// bytes, ordered byte by byte.
+    fn is_empty_from(&self, least: &[u8]) -> bool {
         /// The smallest candidate key.
         enum Least<'k> {
             /// This key.
@@ -71,7 +89,7 @@ impl Interval<'_> {
             After(&'k [u8]),
         }
         let least = match self.lower {
-            Unbounded if self.prefix.is_empty() => Least::Key(&[0]),
+            Unbounded if self.prefix.is_empty() => Least::Key(least),
             Unbounded => Least::Key(self.prefix),
             Included(lower) | Excluded(lower) if lower.starts_with(self.prefix) => {
                 if matches!(self.lower, Included(_)) {
@@ -111,15 +129,31 @@ fn is_successor(key: &[u8], next: &[u8]) -> bool {
     }
 }
 
-/// An [`Interval`] copied, so that a [`Range`] does not borrow its caller's bounds.
-struct OwnedInterval {
+/// An [`Interval`] copied, so that a scan does not borrow its caller's bounds.
+pub(crate) struct OwnedInterval {
     prefix: Vec<u8>,
     lower: Bound<Vec<u8>>,
     upper: Bound<Vec<u8>>,
 }
 
 impl OwnedInterval {
-    fn borrow(&self) -> Interval<'_> {
+    /// A copy of `interval`, reserved as [`reserve`] does.
+    pub(crate) fn new<S: PageSource + ?Sized>(tx: &S, interval: Interval<'_>) -> Result<Self> {
+        let owned = |bound: Bound<&[u8]>| -> Result<Bound<Vec<u8>>> {
+            Ok(match bound {
+                Included(key) => Included(copy(tx, key)?),
+                Excluded(key) => Excluded(copy(tx, key)?),
+                Unbounded => Unbounded,
+            })
+        };
+        Ok(OwnedInterval {
+            prefix: copy(tx, interval.prefix)?,
+            lower: owned(interval.lower)?,
+            upper: owned(interval.upper)?,
+        })
+    }
+
+    pub(crate) fn borrow(&self) -> Interval<'_> {
         Interval {
             prefix: &self.prefix,
             lower: self.lower.as_ref().map(Vec::as_slice),
@@ -163,19 +197,8 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
     /// A scan of `interval` in the tree at `root`. It copies the interval, which may fail for lack of memory, and
     /// reads no page; an empty interval (R3) gives an empty scan.
     pub fn new(tx: &'t S, root: u64, interval: Interval<'_>) -> Result<Self> {
-        let owned = |bound: Bound<&[u8]>| -> Result<Bound<Vec<u8>>> {
-            Ok(match bound {
-                Included(key) => Included(copy(tx, key)?),
-                Excluded(key) => Excluded(copy(tx, key)?),
-                Unbounded => Unbounded,
-            })
-        };
         let empty = interval.is_empty();
-        let interval = OwnedInterval {
-            prefix: copy(tx, interval.prefix)?,
-            lower: owned(interval.lower)?,
-            upper: owned(interval.upper)?,
-        };
+        let interval = OwnedInterval::new(tx, interval)?;
         let mut range = Range {
             tx,
             root,
@@ -446,6 +469,50 @@ mod tests {
         assert!(empty(b"a", Excluded(&longest), Unbounded));
         longest[5] = 0;
         assert!(!empty(b"a", Excluded(&longest), Unbounded));
+    }
+
+    fn empty_of_values(prefix: &[u8], lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> bool {
+        Interval {
+            prefix,
+            lower,
+            upper,
+        }
+        .is_empty_of_values()
+    }
+
+    /// D4 of the multi-value trees execution: among values the empty value is the least, so it is a valid bound and
+    /// the interval up to it holds it, while the same intervals of keys keep their meaning.
+    #[test]
+    fn the_empty_value_is_the_least_value() {
+        assert!(!empty_of_values(b"", Unbounded, Excluded(&[0])));
+        assert!(empty(b"", Unbounded, Excluded(&[0])));
+        assert!(!empty_of_values(b"", Unbounded, Included(b"")));
+        assert!(empty_of_values(b"", Unbounded, Excluded(b"")));
+        assert!(!empty_of_values(b"", Included(b""), Included(b"")));
+        assert!(empty_of_values(b"", Excluded(b""), Included(b"")));
+        assert!(empty_of_values(b"", Excluded(b""), Excluded(&[0])));
+        assert!(!empty_of_values(b"", Excluded(b""), Included(&[0])));
+        assert!(empty_of_values(b"a", Unbounded, Included(b"")));
+        assert!(!empty_of_values(b"a", Included(b""), Unbounded));
+        assert!(empty_of_values(b"", Included(b"b"), Included(b"a")));
+        let all = Interval {
+            prefix: b"",
+            lower: Unbounded,
+            upper: Unbounded,
+        };
+        assert!(all.contains(b"") && all.contains(&[0xFF]));
+        let after = Interval {
+            prefix: b"",
+            lower: Excluded(b""),
+            upper: Unbounded,
+        };
+        assert!(!after.contains(b"") && after.contains(&[0]));
+        let prefixed = Interval {
+            prefix: b"a",
+            lower: Unbounded,
+            upper: Unbounded,
+        };
+        assert!(!prefixed.contains(b"") && prefixed.contains(b"ab") && !prefixed.contains(b"b"));
     }
 
     #[test]

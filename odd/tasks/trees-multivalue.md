@@ -1,0 +1,89 @@
+# Multi-value trees (5.4) — ODD execution document
+
+Objective: implement [trees-multivalue.prd.md](../../docs/prd/krummi/trees-multivalue.prd.md) (decisions M1–M15,
+criteria AC-M1–AC-M20), with its ancestry (trees.prd.md, krummi.prd.md) and siblings 5.1–5.3.
+Branch: `feat/trees-multivalue` (PRD commit `9a50bd3`). Delivery: work-unit commits on the branch, unmerged.
+Test runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 5 h – 8 h. Real start:
+2026-10-29 10:20:06 +0000.
+
+## Specs
+
+Each S# quotes one acceptance criterion of the PRD verbatim (Spanish, authoritative). The decisions M1–M15 of the
+PRD are part of every spec; *Fuera de alcance* limits them and *Dejado a la implementación* is the only room for
+the design choices below.
+
+- **S1** — **AC-M1** — Dado un árbol multivalor vacío, cuando se añaden a claves de 1 y de 2.048 bytes, en orden aleatorio, valores vacíos, de 1 byte y de 2.048 bytes, con bytes de `0x00` a `0xFF` y valores que son prefijo de otros, entonces cada Añadir devuelve que añadió la primera vez y que no añadió la segunda, sin cambiar nada; Contiene los encuentra y no encuentra los que no se añadieron; el número de valores de cada clave coincide con los añadidos, y es `0` para una clave que no está; el número de entradas es el número de claves; y el recorrido de valores de cada clave los devuelve ordenados byte a byte sin signo, con el vacío primero y cada valor que es prefijo de otro antes que él, en la misma escritura, en una lectura posterior y, en disco, tras reabrir (M1, M5, M6, AC-B7).
+- **S2** — **AC-M2** — Dado un árbol multivalor, cuando se añade, se quita, se comprueba, o se usa como límite de un recorrido de valores o de Quitar intervalo de valores, un valor de 2.049 bytes, entonces falla sin efecto con la clase de tamaño no válido, como valor, con el tamaño recibido `2049`, mínimo `0` y máximo `2048`, y la transacción sigue utilizable; cuando cada operación de este PRD que recibe una clave la recibe vacía o de 2.049 bytes, también el número de valores y Quitar clave, entonces falla igual como clave, con mínimo `1` y máximo `2048`; con una clave y un valor de 2.049 bytes, el error es de la clave; con un límite inferior y un prefijo fuera de tamaño, del límite inferior; y con un prefijo de 2.049 bytes, del prefijo, con mínimo `0` y máximo `2048` (M1, M6, M7, M12, AC-B15).
+- **S3** — **AC-M3** — Dada una clave con valores, cuando se le quitan uno a uno con Quitar valor, entonces cada uno devuelve que estaba la primera vez y que no estaba la segunda; al quitar el último, la clave desaparece: Contiene, el número de valores (`0`), el recorrido de claves y el número de entradas lo reflejan; y cuando se le vuelve a añadir un valor, la clave reaparece con un solo valor (M5, M6).
+- **S4** — **AC-M4** — Dadas una clave con un valor, otra con varios valores en su entrada y otra con valores en un subárbol, cuando se quita cada una con Quitar clave, entonces devuelve su número de valores (`1` para la primera) y la clave desaparece; y con una clave que no está, devuelve `0` sin fallar (M6, M2).
+- **S5** — **AC-M5** — Dada una clave, con los dos umbrales que la prueba toma de la implementación, cuando se le añaden valores, uno a uno, hasta pasar el umbral de subida, y después se le quitan hasta quedar por debajo del de bajada, con el valor vacío entre ellos y sin él, en escrituras separadas y en la misma escritura, entonces tras cada paso Contiene, el número de valores y el recorrido de valores, hacia delante y hacia atrás, coinciden con los valores añadidos y no quitados, en la misma escritura, en una lectura posterior y, en disco, tras reabrir; los valores pasan al subárbol justo al superar el umbral de subida, siguen en él mientras están entre los dos umbrales y vuelven a la entrada justo al quedar por debajo del de bajada; con Quitar intervalo de valores que salta de una vez de por encima del de subida a por debajo del de bajada, vuelven a la entrada en esa operación; y el valor vacío conserva su lugar al pasar de una representación a la otra (M2, M8, M1).
+- **S6** — **AC-M6** — Dado un árbol multivalor con claves con valores en su entrada y en un subárbol, cuando se recorren sus claves y los valores de cada clave con límites incluidos, excluidos y abiertos, con el valor vacío como límite incluido y excluido, con prefijos (también vacío y acabado en bytes `0xFF`), y alternando los dos extremos, entonces cada recorrido devuelve exactamente lo que dicen R1 a R4 aplicados a las claves o a los valores, cada clave con su número de valores; el recorrido de valores de una clave que no está, y el de claves de un árbol vacío o que se quedó sin claves, no devuelven nada; con límites invertidos, el intervalo está vacío, también con la página de la entrada de la clave dañada (en disco); y cuando una escritura modifica el árbol a través de otra apertura, seguir usando un recorrido anterior no compila (M7, R1–R4, R6).
+- **S7** — **AC-M7** — Dado un árbol multivalor, cuando se quitan intervalos de valores de una clave en su entrada y en un subárbol, también todos los de la clave, entonces cada Quitar intervalo de valores devuelve cuántos quitó, y la clave que se queda sin valores desaparece; y cuando se quitan intervalos de claves, también con claves con subárbol, entonces devuelve cuántas claves quitó, el número de entradas baja en esa cantidad y un recorrido de claves devuelve las demás con su número de valores (M8, M6).
+- **S8** — **AC-M8** — Dado un almacén con un árbol multivalor ya creado, que se mantiene dentro de una sola región del espacio libre, tomando las páginas en uso como en AC-A15: cuando se crea un árbol multivalor vacío, se confirma, se toma el valor, se le añaden claves con valores en su entrada y en subárboles y se confirma, y después se le quitan todas las claves con cada una de estas formas en pruebas separadas (Quitar valor, Quitar clave, Quitar intervalo de valores, Quitar intervalo de claves y vaciarlo), entonces el valor final es el tomado con el árbol vacío; cuando a una clave con subárbol se le quitan valores hasta volver a su entrada y se confirma, entonces las páginas en uso son las mismas que con un árbol al que se le añadieron esos mismos valores sin que la clave llegara nunca al subárbol (las pruebas lo preparan sabiendo la implementación); y cuando el árbol se borra o se sobrescribe con Renombrar, el valor final es el de antes de crearlo cuando su entrada no hizo crecer el catálogo, como en AC-A15 (M10, A2, A3).
+- **S9** — **AC-M9** — Dado el código de una aplicación de prueba, cuando usa Guardar, Añadir, Leer o Quitar de 5.1, un recorrido o Quitar intervalo de 5.2 con la apertura de un árbol multivalor, o una operación de este PRD con la de un árbol normal, o Añadir, Quitar valor, Quitar clave o Quitar intervalo en una transacción de lectura, o usa una referencia o un recorrido después de una de las operaciones de M9 que falló sin efecto, o pasa a otro hilo la apertura de un árbol multivalor de una escritura o un recorrido suyo, entonces no compila; y pasar a otro hilo la de una lectura y sus recorridos compila; y Contiene, el número de valores y los recorridos no terminan las referencias ni los recorridos anteriores (M4, M9, B1, R9, AC-B11).
+- **S10** — **AC-M10** — Dado un árbol normal y otro multivalor, cuando se abren o se crean con su nombre como el otro tipo, en cada modo de A1, entonces falla con la clase de tipo de árbol distinto, con el nombre, el tipo que tiene y el tipo pedido, y el árbol queda intacto; falla igual con una página propia del árbol dañada y el catálogo intacto; y borrarlo sin pedir tipo nunca falla con esa clase; dada una escritura con cambios hechos antes y después de una operación que falla por tipo de árbol distinto, cuando se confirma, entonces termina sin error y aplica todos esos cambios; dada una transacción de lectura, cuando una apertura falla por tipo de árbol distinto, entonces sigue leyendo; dado un almacén que no acepta escrituras (T12), cuando una apertura falla por tipo de árbol distinto, entonces falla con esa clase y no con la de entrada y salida, y confirmar esa escritura sin cambios termina sin error; dado un árbol normal que se borra, cuando se crea otro con su nombre como multivalor, entonces se crea; Listar informa cada árbol con su tipo; y Renombrar con sobrescritura borra el árbol de destino sea del tipo que sea, también un multivalor con subárboles (M4, M12, AC-B4, AC-B6, AC-B8, A3).
+- **S11** — **AC-M11** — Dada una escritura con un árbol multivalor abierto dos veces, y otra transacción del mismo almacén, cuando lo borra a través de una apertura y usa la otra con cada operación de este PRD, también tras crear otro árbol con el mismo nombre, entonces falla sin efecto con árbol no encontrado y el último nombre del árbol; cuando usa la apertura en la otra transacción, entonces falla sin efecto con uso incorrecto; y con además un argumento fuera de su tamaño, en los dos casos, el error es de tamaño no válido (M4, M12, A6, A7, AC-B14).
+- **S12** — **AC-M12** — Dado un árbol multivalor en disco, en pruebas separadas, con la página raíz dañada del subárbol de una clave (un subárbol de al menos dos niveles) y con una página dañada en la parte del árbol que lleva a otra clave, cuando se añade, se quita o se comprueba un valor, también uno que ya está o que no está, o se recorren los valores de esas claves, entonces cada operación que necesita la página falla con la clase de daño y su número, y vuelve a fallar igual al repetirla; el recorrido de valores termina tras el fallo, sus valores anteriores son correctos y en una lectura un recorrido nuevo vuelve a fallar igual; las demás claves se leen y se modifican sin error; el número de valores de la clave con el subárbol dañado y el recorrido de claves no fallan; y cuando una escritura quita la clave con el subárbol dañado con Quitar clave, le quita valores hasta que vuelve a su entrada, quita un intervalo de claves que la contiene, vacía el árbol, lo borra o lo sobrescribe con Renombrar, entonces falla con la clase de daño y el número de una página del subárbol, y la escritura sigue T11 (M11, A9, R8, G6, F9).
+- **S13** — **AC-M13** — Dada una transacción de lectura abierta y una escritura que, con Añadir y Quitar valor, hace pasar claves de su entrada a un subárbol y de vuelta, y divide y fusiona páginas del árbol y de los subárboles hasta cambiar su altura, cuando la lectura lee todas las claves, sus valores, su número de valores y el número de entradas antes y después de que la escritura se confirme, entonces ve exactamente los de su instantánea; y una lectura nueva ve los de la escritura (G3, T14, AC-B17).
+- **S14** — **AC-M14** — Dada una escritura que añade y quita valores pasando claves de una representación a otra y que divide y fusiona páginas, cuando se provoca una caída del proceso y simulada de corriente en cada punto en que su confirmación escribe o lleva datos al disco, entonces al reabrir el árbol está entero como antes de la escritura o entero como después: cada clave con sus valores y su número de valores, y el número de entradas; y cuando se simula un fallo de T11 distinto de entrada y salida en cada punto en que una operación reserva, lee o libera páginas, también al pasar los valores de una clave a un subárbol y de vuelta, entonces confirmar falla con la clase del primer fallo y no aplica nada, y tras abortar la escritura el árbol, sus claves, sus valores y el número de entradas están como antes y una escritura nueva funciona sin error (G1, G5, T11, AC-B18).
+- **S15** — **AC-M15** — Dado un almacén pequeño con un árbol multivalor con claves con valores en su entrada y en un subárbol, cuando se altera cada uno de sus bytes por separado, se abre y se leen todos sus valores, entonces cada alteración se detecta como daño o no tiene efecto, con las reglas de AC10 de la raíz y sus anotaciones; nunca se devuelve un valor con un byte distinto (M11, G6, AC10).
+- **S16** — **AC-M16** — Dadas las claves y los valores que devuelven el recorrido de claves y el recorrido de valores, de claves con valores en su entrada y en un subárbol, cuando se leen, entonces las referencias están dentro de la memoria del motor que fija T16 y no en una copia, en disco y en modo temporal, y usar una referencia después de terminar la transacción no compila (M7, AC20).
+- **S17** — **AC-M17** — Dada una escritura en disco que solo hace Añadir de valores que ya están, Quitar valor de valores que no están, Quitar clave de claves que no están, Quitar intervalo de claves y de valores que no quitan nada, Contiene, el número de valores, recorridos, y operaciones que fallan por tamaño no válido o por tipo de árbol distinto, cuando se confirma, entonces termina sin error y los archivos del almacén quedan idénticos byte a byte (M9, T10).
+- **S18** — **AC-M18** — Dado un almacén de formato `7` que la ejecución crea con la versión de 5.3, compilada aparte, y conserva como dato de prueba, y el de formato `6` de 5.1, cuando se abren, entonces fallan con la clase de formato distinto como formato anterior y no se modifican; un almacén nuevo informa la versión de formato `8`; y leyendo en disco los bytes de la entrada de una clave con subárbol, con el conocimiento de la implementación, su número de valores y la página de su subárbol están en little endian (M14, AC-B12).
+- **S19** — **AC-M19** — Dado el informe de cierre, cuando se revisa, entonces contiene la medición de M15 con sus tiempos, por fase, y los tamaños del almacén para cada carga y cada pareja de umbrales candidata, y los datos del equipo, en Windows y en Linux (M15).
+- **S20** — **AC-M20** — Dado el informe de cierre, cuando se revisa, entonces contiene la evaluación de M3 con al menos las seis parejas de umbrales candidatas que nombra, los datos de la medición de cada una, la complejidad que añade cada una, la elegida y por qué, justificada con esos datos (M3).
+
+## Design
+
+Decisions within *Dejado a la implementación*:
+
+- **D1 — Parent tree and entry blob.** A multi-value tree is a normal B+ tree (the parent) whose leaf value for a
+  key is a blob. Inline blob: tag `0`, value count (u16 LE), then each value as length (u16 LE) and bytes, sorted
+  byte-wise, the empty value as a zero-length element. Subtree blob: tag `1`, flags (bit 0: has the empty value),
+  value count (u64 LE), inline-encoded bytes of all values (u64 LE), subtree root (u64 LE). The subtree is a normal
+  tree whose keys are the non-empty values, each with an empty value; it never holds an empty key (user
+  preference recorded in the PRD).
+- **D2 — Threshold unit.** The volume of a key is its key length plus the length of its inline blob. Promotion
+  when an Add makes the volume exceed the promotion threshold; demotion when a removal leaves it below the
+  demotion threshold. The promotion threshold is at most 4,074 bytes (`MAX_LEAF_CELL` − cell header), so an inline
+  entry always fits its leaf and never goes off-leaf (M1). Candidates for M3 are set by T5's measurement; the
+  defaults are fixed there.
+- **D3 — Counts.** The tree's entry count is its number of keys (catalog count). The per-key value count is read
+  from the blob, never from the subtree (M11).
+- **D4 — Value intervals.** Value bounds and prefixes are evaluated with value semantics (the empty value is the
+  least). In a subtree the interval is translated to non-empty keys and the empty value is handled from the flag.
+  The empty-interval check for values does not assume a least key of `[0]`.
+- **D5 — Public API.** Each type has its own handles and openings: `open_tree(name)` / `open_tree_with(name,
+  mode)` for normal trees (the kind argument goes away) and `open_multi_tree` / `open_multi_tree_with` for
+  multi-value trees, returning `ReadMultiTree` / `WriteMultiTree`. `TreeKind` gains `MultiValue` (catalog kind
+  byte `2`) for Listar and the type error. Operation names follow Rust conventions (padre, *Dejado*).
+- **D6 — Freeing.** Empty, delete, rename-overwrite, remove key and remove key range free every subtree of the
+  affected keys before freeing the parent pages.
+- **D7 — Thresholds for measurement.** The thresholds live in the engine with a hidden setter used only by the
+  measurement example, so the tests always use the defaults.
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit |
+|---|---|---|---|---|
+| T0 | — | inline | done: exploration (explorer `opus`/`medium`), design D1–D7 | — |
+| T1 | S1, S3–S7 (engine part) | delegated (context backstop) | pending | — |
+| T2 | S1–S10, S16–S18 | delegated (context backstop) | pending | — |
+| T3 | S11–S15 | delegated (context backstop) | pending | — |
+| T4 | S19–S20 | inline + background runs | pending | — |
+| T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
+
+T1: engine module in `krummi-tree` (blob encoding, both representations, transitions with hysteresis, value and
+key scans, removals, freeing) with a model test against an in-memory map. T2: public API, catalog kind, format `8`,
+fixture of format `7`, and the integration and compile tests. T3: damage, snapshot, crash, fault and byte-alteration
+tests for multi-value trees. T4: measurement example, runs on Windows and WSL, evaluation and default thresholds.
+
+Route evidence: the units are sequential (T2 needs T1, T3 needs T2), so no parallel writers. They are delegated
+for the long-session backstop: the parent context already holds the PRD session and the exploration.
+
+## Log
+
+- **L1** (2026-10-29, user): "Haz el commit del los archivos que has tocado y empieza la implementación con ODD"
+- **L2** (2026-10-29): estimate 5 h – 8 h confirmed by the user ("Sí"); real start 10:20:06 +0000; phase log
+  `odd/tasks/trees-multivalue-phases.tsv`. RDD on (global).
+- **L3** (T0): exploration mapped the tree engine, catalog, public API, tests and measurements; design D1–D7.

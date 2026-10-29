@@ -31,6 +31,9 @@
 //! range, a misuse of the engine.
 
 pub mod catalog;
+pub mod multi;
+#[cfg(test)]
+mod multi_tests;
 mod node;
 mod range;
 #[cfg(test)]
