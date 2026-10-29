@@ -71,7 +71,7 @@ Decisions within *Dejado a la implementación*:
 | T2 | S1–S10, S16–S18 | delegated (context backstop) | done | `cd7b815`, `182e461` |
 | T3 | S11–S15 | delegated (context backstop) | done | `2f7b39c` |
 | T4 | S19–S20 | inline + background runs | done | `5a6df2b`, `c44fe75`, T4 close below |
-| T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
+| T5 | all | inline: docs, checks, verification, RDD, Codex, closing | done | `d605cc3`–`4f1e083`, report |
 
 T1: engine module in `krummi-tree` (blob encoding, both representations, transitions with hysteresis, value and
 key scans, removals, freeing) with a model test against an in-memory map. T2: public API, catalog kind, format `8`,
@@ -194,3 +194,5 @@ for the long-session backstop: the parent context already holds the PRD session 
 - **L19** (T5, Codex follow-up of `c455c3e..d5dc52a`): `approved`, report
   `docs/reviews/trees-multivalue/2026-10-29-code-02.md`: R1 and R2 verified resolved, no regressions. The loop ends
   after two rounds.
+- **L20** (T5 close): closing report [trees-multivalue-report.md](trees-multivalue-report.md). T5 done. The branch
+  stays unmerged and unpushed.
