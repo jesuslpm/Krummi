@@ -171,3 +171,23 @@ for the long-session backstop: the parent context already holds the PRD session 
   and R3-zipf-add-gain-overstated (suggestion): fixed, the 4–6% Add gain of 4,074 in zipf is Windows only;
   R2-tree-open-inside-timed-values-loop (warning): kept and documented in the measurement (the values-scan column
   includes one tree opening per key in both representations; a rerun would take 2.5 h and not change the comparison).
+- **L16** (T5, ODD Verify `sonnet`/`high`, on `fe52cc9` in a scratch clone): no blockers; S1–S18 met with test
+  evidence; S19–S20 partially met until the closing report carries the measurement. Probes: an empty-value-only
+  subtree of a 2,048-byte key, a random model of the public API against a `BTreeMap` (3 seeds), and a normal-tree
+  workload compared with the baseline `97887ef`, identical except the format-version header bytes. Checks in the clone:
+  fmt, clippy clean; `cargo test --workspace` 408 passed, 0 failed, 17 ignored. Advisories: S14/S15 every-point and
+  every-byte sweeps taken from L10, not rerun; `set_multi_thresholds` is process-global (only the example calls it);
+  the `open_tree(name)` API change (D5); `cd7b815` had no RDD review (L6), covered by this verification and Codex.
+  Scratch removed by the parent.
+- **L17** (T5, Codex code review R1 of `97887ef..c455c3e`): `findings`, report
+  `docs/reviews/trees-multivalue/2026-10-29-code.md`. R1 (blocker): the public bounds `ReadHandle`/`WriteHandle`
+  exposed `as_tree()` of their sealed supertraits, so a generic function reached the normal handle of a multi-value
+  tree and normal `set` persisted a blob later read as damage; fixed in `4ecf488` (the method takes a crate-only
+  token; compile-fail regression, RED observed). R2 (minor): `--values` not divisible by a set size panicked in the
+  example; fixed in `dc317ec` (whole sets only). Resolutions in `2026-10-29-code-resolutions.md`. Checks: 408 passed,
+  0 failed.
+- **L18** (RDD): review 5, `fe52cc9..` the Codex fixes (`4ecf488`, `dc317ec`, the report and its resolutions),
+  assessed medium and `under_budget`, raised to high with item 2 (the type-level guard that keeps normal operations
+  away from multi-value entries); lenses risk/reliability: approved, lineage in the acknowledgement below,
+  acknowledged (authority burned). Advisory: R3-set-size-truncation-no-automated-regression (suggestion): kept; the
+  example has no test target that `cargo test --workspace` runs, and the reproduction command is in the resolutions.
