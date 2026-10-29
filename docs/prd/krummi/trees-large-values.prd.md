@@ -50,6 +50,11 @@ en páginas propias del almacén; su entrada sigue en la hoja, con su clave.
 | V10 | **Valores muy grandes**: el máximo de V1 se admite y se prueba (AC-V1), pero no se optimiza. Se acepta para ellos que el valor se escriba dos veces, en el diario y en `krummi.data`, y la memoria que la confirmación necesita para escribirlo en el diario. La medición (V11) no incluye valores de más de 8 MiB. |
 | V11 | **Medición** (B12, sin umbral por D5): el cambio incluye una medición reproducible, en Windows y en Linux, en un almacén en disco con confirmación durable, con claves aleatorias de 16 bytes y valores de bytes aleatorios, que no se comprimen, los dos con semilla fija. Para cada tamaño de valor de 1, 2, 3, 4, 6 y 8 KiB, 64 KiB, 1 MiB y 8 MiB, en un almacén nuevo con 256 MiB de valores en total: guardarlos al azar, en escrituras de 16 MiB de valores (16.384 entradas por escritura con 1 KiB, 2 con 8 MiB); tras cerrarlo y reabrirlo, sin vaciar la caché del sistema, leerlos todos al azar en una sola transacción de lectura, leyendo los bytes de cada valor devuelto; y el tamaño del almacén en bytes que da su información (P12) tras la última confirmación de la carga. Además, en otro almacén nuevo, una carga mixta de 1 millón de claves, el 90% con valores de 100 bytes y el 10% con valores de 2 a 8 KiB, con el tamaño elegido al azar con la misma probabilidad para cada número de bytes de ese intervalo y las entradas grandes repartidas al azar entre las demás, en escrituras de 1.000 entradas, en la que mide guardarlas, leerlas todas al azar, recorrer el árbol entero hacia delante y el tamaño del almacén. El informe incluye el sistema operativo, el procesador y el disco. Sus resultados van en el informe de cierre y alimentan la evaluación de V4. |
 
+*Anotaciones del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)):*
+
+- *V9, Salida y AC-V12: la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
+- *Fuera de alcance: los árboles multivalor no tienen valores fuera de su hoja; cada valor es de 0 a 2.048 bytes (decisión M1).*
+
 ### Estado de partida
 
 Verificado el 2026-10-27 en el código:

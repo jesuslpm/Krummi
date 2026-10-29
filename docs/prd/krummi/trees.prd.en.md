@@ -91,6 +91,13 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B10: every value is returned as a single contiguous sequence of bytes without copying, also in temporary mode (decision V2).*
 - *Left to the implementation: from which size a value is stored off its leaf page remains left to the implementation, which evaluates at least two thresholds and leaves the evaluation in the closing report of 5.3 (decision V4).*
 
+*Annotations of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)):*
+
+- *B3: the subtrees of the keys of a multi-value tree are not catalog trees; each type is opened with its own handle, and using an operation of one type with the handle of a tree of another type does not compile (decisions M2 and M4).*
+- *B6: in multi-value trees, each value is 0 to 2,048 bytes; the empty value is valid and comes first (decision M1).*
+- *B11: there is no artificial maximum of values per key in a multi-value tree either (decision M13).*
+- *Left to the implementation: the promotion and demotion thresholds of multi-value trees are left to the implementation, which chooses them with measurements and records the evaluation in the closing report of 5.4 (decision M3).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

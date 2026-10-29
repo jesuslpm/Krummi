@@ -95,6 +95,8 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 - *J3: la versión de formato vigente pasa a ser `7`; un almacén de formato `6` es de formato anterior (decisión V9).*
 - *J7: una versión confirmada de un valor guardado fuera de su página hoja se conserva contigua en el área temporal, y la referencia de una lectura apunta a ella sin copia (decisión V2).*
 
+*Anotación del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)): J3, la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

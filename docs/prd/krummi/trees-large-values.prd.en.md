@@ -51,6 +51,11 @@ its own in the store; its entry stays in the leaf, with its key.
 | V10 | **Very large values**: the maximum of V1 is supported and tested (AC-V1), but not optimized. For them it is accepted that the value is written twice, in the journal and in `krummi.data`, and the memory that the commit needs to write it in the journal. The measurement (V11) does not include values of more than 8 MiB. |
 | V11 | **Measurement** (B12, no threshold by D5): the change includes a reproducible measurement, on Windows and on Linux, on a store on disk with durable commit, with random keys of 16 bytes and values of random bytes, which do not compress, both with a fixed seed. For each value size of 1, 2, 3, 4, 6 and 8 KiB, 64 KiB, 1 MiB and 8 MiB, in a new store with 256 MiB of values in total: storing them at random, in writes of 16 MiB of values (16,384 entries per write with 1 KiB, 2 with 8 MiB); after closing and reopening it, without emptying the system cache, reading them all at random in a single read transaction, reading the bytes of each value returned; and the size of the store in bytes that its information gives (P12) after the last commit of the load. In addition, in another new store, a mixed load of 1 million keys, 90% with values of 100 bytes and 10% with values of 2 to 8 KiB, with the size chosen at random with the same probability for each number of bytes in that interval and the large entries spread at random among the others, in writes of 1,000 entries, which measures storing them, reading them all at random, scanning the whole tree forward and the size of the store. The report includes the operating system, the processor and the disk. Its results go in the closing report and feed the evaluation of V4. |
 
+*Annotations of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)):*
+
+- *V9, Output and AC-V12: the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
+- *Out of scope: multi-value trees have no values off their leaf; each value is 0 to 2,048 bytes (decision M1).*
+
 ### Starting state
 
 Verified on 2026-10-27 in the code:

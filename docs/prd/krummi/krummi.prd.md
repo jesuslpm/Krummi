@@ -74,6 +74,8 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-10-27 a D11: todo valor de un árbol, también uno de hasta 256 MiB guardado fuera de su página hoja, se devuelve como una sola secuencia contigua de bytes sin copia, también en modo temporal (decisión V2 de [trees-large-values.prd.md](trees-large-values.prd.md)).*
 
+*Anotación del 2026-10-29 a D7: con los árboles multivalor, la versión de formato vigente pasa a ser `8` (decisión M14 de [trees-multivalue.prd.md](trees-multivalue.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

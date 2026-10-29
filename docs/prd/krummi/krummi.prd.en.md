@@ -75,6 +75,8 @@ contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-10-27 to D11: every tree value, also one of up to 256 MiB stored off its leaf page, is returned as a single contiguous sequence of bytes without copying, also in temporary mode (decision V2 of [trees-large-values.prd.en.md](trees-large-values.prd.en.md)).*
 
+*Annotation of 2026-10-29 to D7: with multi-value trees, the current format version becomes `8` (decision M14 of [trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

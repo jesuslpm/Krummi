@@ -65,6 +65,14 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 - *A9: damage in the pages of a value stored off its leaf makes Read fail, but never Store or Add on its key, Remove, emptying, deleting or overwriting its tree with Rename, which do not read those pages (decision V7).*
 - *A13: the current format version becomes `7`; a store of format `6` is of an earlier format (decision V9).*
 
+*Annotations of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)):*
+
+- *A1: each type is opened with its own handle, with the same modes; Store, Add, Read and Remove do not compile with the handle of a multi-value tree (decision M4).*
+- *A5: in a multi-value tree, the number of entries is its number of keys (decision M6).*
+- *A9: in a multi-value tree, the operations that free the whole subtree of a key may fail with damage in any page of that subtree (decision M11).*
+- *A10: Add, Remove value, Remove key and the two Remove range operations of multi-value trees end the references even if they change nothing or fail, and are changes for T10 only when they add or remove some value or some key; catalog operations and open modes follow this decision unchanged, and emptying a multi-value tree is always a change, as A2 says (decision M9).*
+- *A13: the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:

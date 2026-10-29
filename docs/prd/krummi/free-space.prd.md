@@ -55,6 +55,8 @@ encabezado, la de metadatos y las del mapa.
 
 *Anotación del 2026-10-27 desde los valores grandes ([trees-large-values.prd.md](trees-large-values.prd.md)): F11, la versión de formato vigente pasa a ser `7`; un almacén de formato `6` es de formato anterior (decisión V9).*
 
+*Anotación del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)): F11, la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en el código público de Voron v6.0:

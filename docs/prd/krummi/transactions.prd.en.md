@@ -114,6 +114,8 @@ reads end.*
 - *T16: a committed version of a value stored off its leaf page that is kept outside `krummi.data` is kept contiguous, and the reference points to it without copying (decision V2).*
 - *The whole document: the current format version becomes `7` (decision V9).*
 
+*Annotation of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)): whole document, the current format version becomes `8` (decision M14).*
+
 ### Starting state
 
 Verified on 2026-10-22:

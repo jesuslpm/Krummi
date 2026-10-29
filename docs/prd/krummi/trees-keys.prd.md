@@ -67,6 +67,14 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 - *A9: un daño en las páginas de un valor guardado fuera de su hoja hace fallar a Leer, pero nunca a Guardar ni Añadir sobre su clave, Quitar, vaciar, borrar ni sobrescribir con Renombrar su árbol, que no leen esas páginas (decisión V7).*
 - *A13: la versión de formato vigente pasa a ser `7`; un almacén de formato `6` es de formato anterior (decisión V9).*
 
+*Anotaciones del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)):*
+
+- *A1: cada tipo se abre con su propia apertura, con los mismos modos; Guardar, Añadir, Leer y Quitar no compilan con la apertura de un árbol multivalor (decisión M4).*
+- *A5: en un árbol multivalor, el número de entradas es su número de claves (decisión M6).*
+- *A9: en un árbol multivalor, las operaciones que liberan el subárbol entero de una clave pueden fallar con daño en cualquier página de ese subárbol (decisión M11).*
+- *A10: Añadir, Quitar valor, Quitar clave y los dos Quitar intervalo de los árboles multivalor terminan las referencias aunque no cambien nada o fallen, y son cambios para T10 solo cuando añaden o quitan algún valor o alguna clave; las operaciones del catálogo y los modos de apertura siguen esta decisión sin cambios, y vaciar un árbol multivalor es siempre un cambio, como dice A2 (decisión M9).*
+- *A13: la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

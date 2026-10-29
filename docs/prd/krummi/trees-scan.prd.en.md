@@ -56,6 +56,13 @@ ends. A **handle** is the one of 5.1.
 - *R10, Output and AC-R14: the current format version becomes `7`; a store of format `6`, also the one created with 5.1 and kept as test data, is of an earlier format (decision V9).*
 - *Out of scope: values of more than 1,024 bytes in scans and in Remove range arrive with large values (decisions V1 and V2).*
 
+*Annotations of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)):*
+
+- *R6 and R7: the operations of multi-value trees that can modify end the scans, and their two Remove range operations are changes for T10 only when they remove something (decisions M8 and M9).*
+- *R8: Remove key range of a multi-value tree also needs the pages of the subtrees it frees, and may fail with damage in any of them (decision M11).*
+- *R10, Output and AC-R14: the current format version becomes `8`; a store of format `6` or `7` is of an earlier format (decision M14).*
+- *Out of scope: the scans and Remove range of multi-value trees are set by 5.4, with the rules of this document (decisions M7 and M8).*
+
 ### Starting state
 
 Verified on 2026-10-26 in the code:

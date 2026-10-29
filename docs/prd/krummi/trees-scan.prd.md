@@ -56,6 +56,13 @@ cualquiera de sus dos extremos. Una **apertura** es la de 5.1.
 - *R10, Salida y AC-R14: la versión de formato vigente pasa a ser `7`; un almacén de formato `6`, también el creado con 5.1 y conservado como dato de prueba, es de formato anterior (decisión V9).*
 - *Fuera de alcance: los valores de más de 1.024 bytes en recorridos y en Quitar intervalo llegan con los valores grandes (decisiones V1 y V2).*
 
+*Anotaciones del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)):*
+
+- *R6 y R7: las operaciones de los árboles multivalor que pueden modificar terminan los recorridos, y sus dos Quitar intervalo son cambios para T10 solo cuando quitan algo (decisiones M8 y M9).*
+- *R8: Quitar intervalo de claves de un árbol multivalor necesita además las páginas de los subárboles que libera, y puede fallar con daño en cualquiera de ellas (decisión M11).*
+- *R10, Salida y AC-R14: la versión de formato vigente pasa a ser `8`; un almacén de formato `6` o `7` es de formato anterior (decisión M14).*
+- *Fuera de alcance: los recorridos y Quitar intervalo de los árboles multivalor los fija 5.4, con las reglas de este documento (decisiones M7 y M8).*
+
 ### Estado de partida
 
 Verificado el 2026-10-26 en el código:

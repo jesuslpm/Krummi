@@ -94,6 +94,13 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B10: todo valor se devuelve como una sola secuencia contigua de bytes sin copia, también en modo temporal (decisión V2).*
 - *Dejado a la implementación: a partir de qué tamaño un valor se guarda fuera de su página hoja sigue dejado a la implementación, que evalúa al menos dos umbrales y deja la evaluación en el informe de cierre de 5.3 (decisión V4).*
 
+*Anotaciones del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)):*
+
+- *B3: los subárboles de las claves de un árbol multivalor no son árboles del catálogo; cada tipo se abre con su propia apertura, y usar una operación de un tipo con la apertura de un árbol de otro tipo no compila (decisiones M2 y M4).*
+- *B6: en los árboles multivalor, cada valor es de 0 a 2.048 bytes; el valor vacío es válido y va primero (decisión M1).*
+- *B11: tampoco hay un máximo artificial de valores por clave en un árbol multivalor (decisión M13).*
+- *Dejado a la implementación: los umbrales de subida y de bajada de los árboles multivalor quedan dejados a la implementación, que los elige con mediciones y deja la evaluación en el informe de cierre de 5.4 (decisión M3).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

@@ -92,6 +92,8 @@ from earlier rules is declared in its decisions and annotated in the affected do
 - *J3: the current format version becomes `7`; a store of format `6` is of an earlier format (decision V9).*
 - *J7: a committed version of a value stored off its leaf page is kept contiguous in the temporary area, and the reference of a read points to it without copying (decision V2).*
 
+*Annotation of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)): J3, the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
+
 ### Starting state
 
 Verified on 2026-10-22:

@@ -112,6 +112,8 @@ espacio se recupera al terminar las lecturas.*
 - *T16: una versión confirmada de un valor guardado fuera de su página hoja que se conserva fuera de `krummi.data` se conserva contigua, y la referencia apunta a ella sin copia (decisión V2).*
 - *Todo el documento: la versión de formato vigente pasa a ser `7` (decisión V9).*
 
+*Anotación del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)): todo el documento, la versión de formato vigente pasa a ser `8` (decisión M14).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:
