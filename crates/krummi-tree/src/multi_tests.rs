@@ -10,8 +10,9 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use krummi_tx::{Engine, OpenOptions, ReadTransaction, Result};
 
 use crate::multi::{
-    self, Keys, MultiUpdate, Values, add, contains, keys, multi_thresholds, remove_key,
-    remove_key_range, remove_value, remove_value_range, subtree_of, value_count, values, volume,
+    self, INLINE, Keys, MultiUpdate, SUBTREE, Values, add, contains, keys, multi_thresholds,
+    remove_key, remove_key_range, remove_value, remove_value_range, subtree_of, value_count,
+    values, volume,
 };
 use crate::{Interval, MAX_KEY, PageSource, create, node};
 
@@ -941,7 +942,7 @@ fn a_demoted_key_uses_the_pages_of_one_never_promoted() {
 
 /// The blob of a subtree with these fields, laid out as D1 says.
 fn subtree_blob(flags: u8, count: u64, inline_len: u64, root: u64) -> Vec<u8> {
-    let mut blob = vec![1, flags];
+    let mut blob = vec![SUBTREE, flags];
     for field in [count, inline_len, root] {
         blob.extend_from_slice(&field.to_le_bytes());
     }
@@ -950,7 +951,7 @@ fn subtree_blob(flags: u8, count: u64, inline_len: u64, root: u64) -> Vec<u8> {
 
 /// The inline blob that claims `count` values and holds `elements`, each written as its length and its bytes.
 fn inline_blob(count: u16, elements: &[&[u8]]) -> Vec<u8> {
-    let mut blob = vec![0];
+    let mut blob = vec![INLINE];
     blob.extend_from_slice(&count.to_le_bytes());
     for element in elements {
         blob.extend_from_slice(&(element.len() as u16).to_le_bytes());
@@ -979,6 +980,9 @@ fn damaged_page<T: std::fmt::Debug>(result: Result<T>) -> u64 {
 #[test]
 fn inconsistent_blobs_are_damage_of_their_leaf() {
     let long = vec![b'x'; MAX_KEY + 1];
+    // Five values of 1,000 bytes: a consistent blob, but longer than a leaf cell, so its entry is off its leaf.
+    let off_leaf: Vec<Vec<u8>> = (b'a'..=b'e').map(|c| vec![c; 1000]).collect();
+    let off_leaf: Vec<&[u8]> = off_leaf.iter().map(Vec::as_slice).collect();
     let cases: Vec<(&str, Vec<u8>)> = vec![
         ("unknown tag", vec![2, 1, 0, 1, 0, b'a']),
         ("empty", Vec::new()),
@@ -1004,7 +1008,7 @@ fn inconsistent_blobs_are_damage_of_their_leaf() {
             subtree_blob(0, 1, 3 + 2 + MAX_KEY as u64 + 1, 9),
         ),
         ("inline bytes without a header", subtree_blob(0, 1, 2, 9)),
-        ("off its leaf", inline_blob(1, &[&[b'v'; 8000]])),
+        ("off its leaf", inline_blob(5, &off_leaf)),
     ];
     let engine = temporary();
     let all = Owned::all();
@@ -1017,6 +1021,8 @@ fn inconsistent_blobs_are_damage_of_their_leaf() {
         }
         let key = [6, 1];
         root = crate::set(&mut tx, root, &key, &blob).unwrap().root;
+        let off = crate::run_of(&tx, root, &key).unwrap().is_some();
+        assert_eq!(off, label == "off its leaf", "{label}");
         let leaf = crate::leaf_of(&tx, root, &key).unwrap();
         assert_ne!(leaf, root, "{label}");
         assert_eq!(damaged_page(value_count(&tx, root, &key)), leaf, "{label}");

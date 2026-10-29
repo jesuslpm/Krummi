@@ -44,8 +44,10 @@ const DEFAULT_PROMOTION: usize = 2048;
 /// Provisional demotion threshold, until the measurement of M15 fixes it (M3).
 const DEFAULT_DEMOTION: usize = 1024;
 
-const INLINE: u8 = 0;
-const SUBTREE: u8 = 1;
+/// The tag of an inline blob, its first byte.
+pub(crate) const INLINE: u8 = 0;
+/// The tag of a subtree blob, its first byte.
+pub(crate) const SUBTREE: u8 = 1;
 /// Bytes of an inline blob before its values: the tag and the number of values.
 const INLINE_HEADER: usize = 3;
 /// Bytes before each value of an inline blob: its length.
@@ -269,15 +271,18 @@ fn entry<'t, S: PageSource + ?Sized>(
     .ok_or_else(|| tx.damaged(page))
 }
 
-/// Decodes the blob of `key` that a scan of the parent at `root` returned; one that is not consistent is damage of
-/// the leaf that holds it, found again.
+/// Decodes the blob of `key` that a scan of the parent at `root` returned; one that is not consistent, or that does
+/// not fit in a leaf and so came from a run off it (M1), is damage of the leaf that holds it, found again.
 fn decode_scanned<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     root: u64,
     key: &[u8],
     blob: &'t [u8],
 ) -> Result<Entry<'t>> {
-    Entry::decode(blob).ok_or_else(|| match descend(tx, root, key) {
+    let decoded = node::fits_inline(key.len(), blob.len())
+        .then(|| Entry::decode(blob))
+        .flatten();
+    decoded.ok_or_else(|| match descend(tx, root, key) {
         Ok((page, _)) => tx.damaged(page),
         Err(error) => error,
     })
