@@ -16,9 +16,12 @@
 //! - `--values <count>`: values per load (1,000,000 by default, as M15 sets); the skewed load spreads them over a
 //!   tenth as many keys and the oscillating load makes a tenth as many operations, so the default is M15's load.
 //!   A set size above the count is skipped, and one that does not divide it takes the whole sets that fit.
+//! - `--key-size <bytes>`: the length of the keys, from 16 to 2,032 bytes, so that the baseline's key, the key
+//!   followed by the value, is at most 2,048 (16 by default, as M15 sets). The values stay of 16 bytes.
 //! - `--quick`: a smoke test, the same as `--values 10000`.
 //!
-//! Every store is on disk and commits durably; keys and values are random 16-byte strings with fixed seeds. Before
+//! Every store is on disk and commits durably; keys and values are random strings with fixed seeds, the values of 16
+//! bytes and the keys of 16 or of `--key-size` bytes. Before
 //! each load the thresholds are set with the measurement hook of the engine (D7). The loads (M15):
 //!
 //! - **By set size**: the values spread over keys of N values each, for N = 1, 10, 100, 1,000, 10,000, 100,000 and
@@ -69,8 +72,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use krummi::{OpenMode, Store, StoreOptions};
-use krummi_tree::catalog;
 use krummi_tree::multi::{self, MAX_PROMOTION, multi_thresholds, set_multi_thresholds, volume};
+use krummi_tree::{MAX_KEY, catalog};
 use krummi_tx::{Engine, OpenOptions as EngineOptions};
 use timing::{BATCH, KEY, TREE, shuffled, splitmix};
 
@@ -106,7 +109,7 @@ impl Load {
 
 /// The values of a load and the key of each.
 struct Data {
-    keys: Vec<[u8; KEY]>,
+    keys: Vec<Vec<u8>>,
     values: Vec<[u8; KEY]>,
     /// The index in `keys` of the key of each value.
     owner: Vec<u32>,
@@ -166,8 +169,8 @@ fn main() {
         std::env::consts::ARCH
     );
     println!(
-        "- Values per load: {}; writes of {BATCH}; keys and values of {KEY} bytes; MAX_PROMOTION = {MAX_PROMOTION}.",
-        options.values
+        "- Values per load: {}; writes of {BATCH}; keys of {} bytes and values of {KEY} bytes; MAX_PROMOTION = {MAX_PROMOTION}.",
+        options.values, options.key_size
     );
     println!(
         "- Pairs (promotion:demotion): {}.",
@@ -185,7 +188,7 @@ fn main() {
                 );
             }
             Load::SetSize(_) | Load::Zipf => {
-                let data = data(load, options.values);
+                let data = data(load, options.values, options.key_size);
                 println!(
                     "## Load {}: {} values, keys with values: {}",
                     load.name(),
@@ -218,7 +221,7 @@ fn main() {
                 for &(promotion, demotion) in &options.pairs {
                     set_multi_thresholds(promotion, demotion);
                     let (at_threshold, elapsed, size, subtree) =
-                        oscillate(&options.folder, operations);
+                        oscillate(&options.folder, operations, options.key_size);
                     println!(
                         "| {promotion}:{demotion} | {at_threshold} | {} | {:.2} | {size} | {} |",
                         ms(elapsed),
@@ -237,6 +240,7 @@ struct Options {
     pairs: Vec<(usize, usize)>,
     loads: Vec<Load>,
     values: usize,
+    key_size: usize,
 }
 
 impl Options {
@@ -249,6 +253,7 @@ impl Options {
                 .collect(),
             loads: all_loads(),
             values: VALUES,
+            key_size: KEY,
         };
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
@@ -266,6 +271,18 @@ impl Options {
                         .ok()
                         .filter(|&v| v > 0)
                         .unwrap_or_else(|| usage("--values takes a positive count"));
+                }
+                "--key-size" => {
+                    options.key_size = value()
+                        .parse()
+                        .ok()
+                        .filter(|&k| (KEY..=MAX_KEY - KEY).contains(&k))
+                        .unwrap_or_else(|| {
+                            usage(&format!(
+                                "--key-size takes {KEY} to {} bytes",
+                                MAX_KEY - KEY
+                            ))
+                        });
                 }
                 "--quick" => options.values = QUICK,
                 "--help" | "-h" => usage(""),
@@ -328,7 +345,7 @@ fn usage(error: &str) -> ! {
         eprintln!("error: {error}");
     }
     eprintln!(
-        "usage: multi_timing [--folder <path>] [--pairs <p:d,...>] [--loads <name,...>] [--values <count>] [--quick]"
+        "usage: multi_timing [--folder <path>] [--pairs <p:d,...>] [--loads <name,...>] [--values <count>] [--key-size <bytes>] [--quick]"
     );
     eprintln!(
         "loads: {}",
@@ -342,8 +359,8 @@ fn usage(error: &str) -> ! {
 }
 
 /// The keys and values of a load by set size or of the skewed load, with `count` values; by set size, only the whole
-/// sets that fit in `count`.
-fn data(load: Load, count: usize) -> Data {
+/// sets that fit in `count`; the keys have `key_size` bytes.
+fn data(load: Load, count: usize, key_size: usize) -> Data {
     let count = match load {
         Load::SetSize(n) => count / n * n,
         _ => count,
@@ -357,7 +374,7 @@ fn data(load: Load, count: usize) -> Data {
         }
         Load::Oscillating => unreachable!("the oscillating load has its own data"),
     };
-    let keys = random_keys(key_count);
+    let keys = random_keys(key_count, key_size);
     let mut counts = vec![0u64; key_count];
     for &k in &owner {
         counts[k as usize] += 1;
@@ -367,7 +384,7 @@ fn data(load: Load, count: usize) -> Data {
         .enumerate()
         .filter(|&(_, n)| n > 0)
         .collect();
-    used.sort_unstable_by_key(|&(k, _)| keys[k]);
+    used.sort_unstable_by(|a, b| keys[a.0].cmp(&keys[b.0]));
     Data {
         keys,
         values,
@@ -376,14 +393,20 @@ fn data(load: Load, count: usize) -> Data {
     }
 }
 
-/// `count` distinct random keys, other than the values that [`timing::keys`] gives: the first 8 bytes are a
-/// bijection of the index.
-fn random_keys(count: usize) -> Vec<[u8; KEY]> {
+/// `count` distinct random keys of `size` bytes, at least 16, other than the values that [`timing::keys`] gives: the
+/// first 8 bytes are a bijection of the index, and the rest random. With 16 bytes they are those of M15's runs.
+fn random_keys(count: usize, size: usize) -> Vec<Vec<u8>> {
     (0..count as u64)
         .map(|i| {
-            let mut key = [0u8; KEY];
-            key[..8].copy_from_slice(&splitmix(i ^ 0x5EED_0101).to_be_bytes());
-            key[8..].copy_from_slice(&splitmix(i.wrapping_add(0x5EED_0103)).to_be_bytes());
+            let mut key = Vec::with_capacity(size);
+            key.extend_from_slice(&splitmix(i ^ 0x5EED_0101).to_be_bytes());
+            let mut state = i.wrapping_add(0x5EED_0103);
+            while key.len() < size {
+                let word = splitmix(state).to_be_bytes();
+                let take = word.len().min(size - key.len());
+                key.extend_from_slice(&word[..take]);
+                state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            }
             key
         })
         .collect()
@@ -512,7 +535,7 @@ fn measure(base: &Path, data: &Data, shape: Shape) -> Measured {
                 Shape::Composite => {
                     let tree = read.open_tree(TREE).expect("open the tree");
                     for entry in read.range_prefix(&tree, key, ..).expect("scan the prefix") {
-                        sum = checksum(sum, &entry.expect("an entry").0[KEY..]);
+                        sum = checksum(sum, &entry.expect("an entry").0[key.len()..]);
                         scanned += 1;
                     }
                 }
@@ -566,11 +589,8 @@ fn measure(base: &Path, data: &Data, shape: Shape) -> Measured {
 }
 
 /// The key of the baseline for `value` of `key`: the key followed by the value.
-fn composite(key: &[u8; KEY], value: &[u8; KEY]) -> [u8; 2 * KEY] {
-    let mut composite = [0; 2 * KEY];
-    composite[..KEY].copy_from_slice(key);
-    composite[KEY..].copy_from_slice(value);
-    composite
+fn composite(key: &[u8], value: &[u8; KEY]) -> Vec<u8> {
+    [key, value].concat()
 }
 
 /// The pages a Contains reads on average over every value of the closed store in `folder`: one per level of the tree,
@@ -601,13 +621,13 @@ fn pages_per_contains(folder: &Path, data: &Data, shape: Shape) -> f64 {
 /// Runs the oscillating load in a new store inside `base`, with the thresholds in force: returns the values of the
 /// key at the threshold, the time of the `operations`, the store's size after the last commit and whether the key
 /// ends in a subtree.
-fn oscillate(base: &Path, operations: usize) -> (usize, Duration, u64, bool) {
+fn oscillate(base: &Path, operations: usize, key_size: usize) -> (usize, Duration, u64, bool) {
     let (promotion, _) = multi_thresholds();
     let mut at_threshold = 0;
-    while volume(KEY, std::iter::repeat_n(KEY, at_threshold + 1)) <= promotion {
+    while volume(key_size, std::iter::repeat_n(KEY, at_threshold + 1)) <= promotion {
         at_threshold += 1;
     }
-    let key = random_keys(1)[0];
+    let key = random_keys(1, key_size).remove(0);
     let values = timing::keys(at_threshold + operations.div_ceil(2));
 
     let folder = tempfile::tempdir_in(base).expect("a temporary folder");
