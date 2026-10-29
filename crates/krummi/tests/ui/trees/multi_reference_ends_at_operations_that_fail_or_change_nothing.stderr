@@ -1,0 +1,59 @@
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/multi_reference_ends_at_operations_that_fail_or_change_nothing.rs:14:13
+   |
+13 |     let value = write.values(&a, b"k", ..).unwrap().next().unwrap().unwrap();
+   |                 ----- immutable borrow occurs here
+14 |     let _ = write.add(&a, b"", b"v");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+15 |     println!("{value:?}");
+   |                ----- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/multi_reference_ends_at_operations_that_fail_or_change_nothing.rs:19:13
+   |
+18 |     let mut scan = write.keys(&a, ..).unwrap();
+   |                    ----- immutable borrow occurs here
+19 |     let _ = write.add(&other, b"k", b"present");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+20 |     let _ = scan.next();
+   |             ---- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/multi_reference_ends_at_operations_that_fail_or_change_nothing.rs:24:13
+   |
+23 |     let (key, _) = write.keys(&a, ..).unwrap().next().unwrap().unwrap();
+   |                    ----- immutable borrow occurs here
+24 |     let _ = write.remove_value(&a, b"k", b"absent");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+25 |     println!("{key:?}");
+   |                --- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/multi_reference_ends_at_operations_that_fail_or_change_nothing.rs:29:13
+   |
+28 |     let mut scan = write.values_prefix(&a, b"k", b"p", ..).unwrap();
+   |                    ----- immutable borrow occurs here
+29 |     let _ = write.remove_key(&other, b"absent");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+30 |     let _ = scan.next_back();
+   |             ---- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/multi_reference_ends_at_operations_that_fail_or_change_nothing.rs:34:13
+   |
+33 |     let mut scan = write.values(&a, b"k", ..).unwrap();
+   |                    ----- immutable borrow occurs here
+34 |     let _ = write.remove_key_range_prefix(&a, b"absent", ..);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+35 |     let _ = scan.next();
+   |             ---- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/multi_reference_ends_at_operations_that_fail_or_change_nothing.rs:37:13
+   |
+36 |     let mut scan = write.keys_prefix(&a, b"k", ..).unwrap();
+   |                    ----- immutable borrow occurs here
+37 |     let _ = write.remove_value_range(&a, b"absent", ..);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+38 |     let _ = scan.next();
+   |             ---- immutable borrow later used here

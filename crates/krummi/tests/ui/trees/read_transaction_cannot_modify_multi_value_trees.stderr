@@ -1,0 +1,41 @@
+error[E0599]: no method named `open_multi_tree_with` found for struct `ReadTransaction<'s>` in the current scope
+ --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:9:18
+  |
+9 |     let _ = read.open_multi_tree_with("m", OpenMode::OpenOrCreate);
+  |                  ^^^^^^^^^^^^^^^^^^^^
+  |
+help: there is a method `open_multi_tree` with a similar name, but with different arguments
+ --> src/lib.rs
+  |
+  |     pub fn open_multi_tree(&self, name: &str) -> Result<ReadMultiTree<'s>> {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `add` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:10:18
+   |
+10 |     let _ = read.add(&tree, b"k", b"v");
+   |                  ^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_value` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:11:18
+   |
+11 |     let _ = read.remove_value(&tree, b"k", b"v");
+   |                  ^^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_key` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:12:18
+   |
+12 |     let _ = read.remove_key(&tree, b"k");
+   |                  ^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_key_range` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:13:18
+   |
+13 |     let _ = read.remove_key_range(&tree, ..);
+   |                  ^^^^^^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_value_range` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:14:18
+   |
+14 |     let _ = read.remove_value_range(&tree, b"k", ..);
+   |                  ^^^^^^^^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
