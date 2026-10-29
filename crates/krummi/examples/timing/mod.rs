@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use krummi::{OpenMode, Store, StoreInfo, StoreOptions, TreeKind};
+use krummi::{OpenMode, Store, StoreInfo, StoreOptions};
 
 /// Entries per write of the 100-byte loads.
 pub const BATCH: usize = 1_000;
@@ -29,7 +29,7 @@ pub fn load<'v>(
     for (batch, chunk) in keys.chunks(per_write).enumerate() {
         let mut write = store.write().expect("write");
         let tree = write
-            .open_tree_with(TREE, TreeKind::Normal, OpenMode::OpenOrCreate)
+            .open_tree_with(TREE, OpenMode::OpenOrCreate)
             .expect("open or create the tree");
         for (offset, key) in chunk.iter().enumerate() {
             write

@@ -1,7 +1,9 @@
-//! Helpers shared by the tree tests: stores on disk and temporary, error matchers, file comparison and page damage.
+//! Helpers shared by the tree tests: stores on disk and temporary, error matchers, file comparison, page damage and
+//! the model of a multi-value tree.
 
 #![allow(dead_code)]
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,10 +13,12 @@ use krummi_tree::catalog;
 use krummi_tx::{Engine, OpenOptions as EngineOptions};
 
 use krummi::{
-    Error, OpenMode, SizeSubject, Store, StoreOptions, TreeKind, WriteTransaction, WriteTree,
+    Error, OpenMode, SizeSubject, Store, StoreOptions, TreeKind, WriteMultiTree, WriteTransaction,
+    WriteTree,
 };
 
 pub const NORMAL: TreeKind = TreeKind::Normal;
+pub const MULTI: TreeKind = TreeKind::MultiValue;
 // The size limits are written out on purpose instead of taken from the engine: they pin the PRDs' limits (B4, B5,
 // V1 of the large values PRD, which replaced A11), so a change in the engine's constants fails these tests.
 pub const MAX_NAME: usize = 1024;
@@ -37,9 +41,40 @@ pub fn open(folder: &Path) -> Store {
 }
 
 pub fn create<'s>(write: &mut WriteTransaction<'s>, name: &str) -> WriteTree<'s> {
+    write.open_tree_with(name, OpenMode::CreateNew).unwrap()
+}
+
+/// What a multi-value tree holds: each key with its values, both in byte order (M1).
+pub type Model = BTreeMap<Vec<u8>, BTreeSet<Vec<u8>>>;
+
+pub fn create_multi<'s>(write: &mut WriteTransaction<'s>, name: &str) -> WriteMultiTree<'s> {
     write
-        .open_tree_with(name, NORMAL, OpenMode::CreateNew)
+        .open_multi_tree_with(name, OpenMode::CreateNew)
         .unwrap()
+}
+
+/// Commits the multi-value tree `name`, created if missing, with the keys and values of `model` added.
+pub fn commit_multi(store: &Store, name: &str, model: &Model) {
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_multi_tree_with(name, OpenMode::OpenOrCreate)
+        .unwrap();
+    for (key, values) in model {
+        for value in values {
+            write.add(&tree, key, value).unwrap();
+        }
+    }
+    write.commit().unwrap();
+}
+
+/// The set of `values`.
+pub fn set_of(values: &[&[u8]]) -> BTreeSet<Vec<u8>> {
+    values.iter().map(|value| value.to_vec()).collect()
+}
+
+/// A value of 16 bytes, the decimal digits of `i`, so that values sort by `i`.
+pub fn value16(i: usize) -> Vec<u8> {
+    format!("{i:016}").into_bytes()
 }
 
 /// No entries, for [`commit_tree`].
@@ -48,9 +83,7 @@ pub const EMPTY: &[(&[u8], &[u8])] = &[];
 /// Commits a tree `name` with `entries`.
 pub fn commit_tree(store: &Store, name: &str, entries: &[(impl AsRef<[u8]>, impl AsRef<[u8]>)]) {
     let mut write = store.write().unwrap();
-    let tree = write
-        .open_tree_with(name, NORMAL, OpenMode::OpenOrCreate)
-        .unwrap();
+    let tree = write.open_tree_with(name, OpenMode::OpenOrCreate).unwrap();
     for (key, value) in entries {
         write.set(&tree, key.as_ref(), value.as_ref()).unwrap();
     }

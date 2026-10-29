@@ -8,8 +8,6 @@ use krummi_tx::Memory;
 use super::*;
 use crate::tests::long_key;
 
-const NORMAL: TreeKind = TreeKind::Normal;
-
 /// A value of `len` bytes, different for each `seed`, whose pages never hold the same bytes.
 pub(crate) fn pattern(len: usize, seed: u8) -> Vec<u8> {
     (0..len).map(|i| (i % 251) as u8 ^ seed).collect()
@@ -27,7 +25,7 @@ fn run_of<S: PageSource>(tx: &S, key: &[u8]) -> (u64, u64) {
 }
 
 fn get<'t>(read: &'t ReadTransaction<'_>, key: &[u8]) -> &'t [u8] {
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     read.get(&tree, key).unwrap().unwrap()
 }
 
@@ -47,9 +45,7 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
         let (old, new) = (pattern(run_capacity(3), 1), pattern(run_capacity(3) + 1, 2));
 
         let mut write = store.write().unwrap();
-        let tree = write
-            .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-            .unwrap();
+        let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
         write.set(&tree, b"k", &old).unwrap();
         let own = write.get(&tree, b"k").unwrap().unwrap();
         assert!(own == &old[..], "the write reads its own value");
@@ -69,7 +65,7 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
         assert_eq!(committed.as_ptr(), get(&read, b"k").as_ptr(), "no copy");
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         write.set(&tree, b"k", &new).unwrap();
         write.commit().unwrap();
         let kept = get(&read, b"k");
@@ -97,9 +93,7 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
     let pages = store.info().page_count;
     let value = pattern(store.info().size_bytes as usize, 3);
     let mut write = store.write().unwrap();
-    let tree = write
-        .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-        .unwrap();
+    let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
     write.set(&tree, b"k", &value).unwrap();
     write.commit().unwrap();
     assert!(store.info().page_count > pages, "the store grew");
@@ -150,7 +144,7 @@ type Model = std::collections::BTreeMap<Vec<u8>, Vec<u8>>;
 /// its count, and a scan of the whole tree.
 #[track_caller]
 fn check_snapshot(read: &ReadTransaction<'_>, model: &Model, absent: &[Vec<u8>], label: &str) {
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     for (key, value) in model {
         let found = read.get(&tree, key).unwrap();
         assert!(found == Some(&value[..]), "{label}: {} bytes", value.len());
@@ -192,9 +186,7 @@ fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_thei
         let keys: Vec<Vec<u8>> = (0..90).chain(200..230).map(long_key).collect();
         let snapshot: Model = (0..6).map(|i| (long_key(i), mixed_value(i, 1))).collect();
         let mut write = store.write().unwrap();
-        let tree = write
-            .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-            .unwrap();
+        let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
         for (key, value) in &snapshot {
             write.set(&tree, key, value).unwrap();
         }
@@ -203,7 +195,7 @@ fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_thei
         assert!(engine.transfer_now());
 
         let read = store.read().unwrap();
-        let rtree = read.open_tree("t", NORMAL).unwrap();
+        let rtree = read.open_tree("t").unwrap();
         let references: Vec<&[u8]> = snapshot
             .keys()
             .map(|key| read.get(&rtree, key).unwrap().unwrap())
@@ -223,7 +215,7 @@ fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_thei
 
         let mut model = snapshot.clone();
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let changes: [(usize, Option<Vec<u8>>); 4] = [
             (0, Some(mixed_value(1, 2))),
             (1, Some(pattern(3 * PAGE_SIZE, 2))),
@@ -260,7 +252,7 @@ fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_thei
         write.commit().unwrap();
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let mut new_runs = Vec::new();
         for i in 200..230 {
             let value = mixed_value(2 * i + 1, 3);
@@ -309,9 +301,7 @@ const VALUE_PAGES: u64 = 32;
 fn scatter(store: &Store) {
     let key = |i: u64| format!("{i:08}").into_bytes();
     let mut write = store.write().unwrap();
-    write
-        .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-        .unwrap();
+    write.open_tree_with("t", OpenMode::CreateNew).unwrap();
     write.commit().unwrap();
     let mut stored = 0;
     loop {
@@ -320,7 +310,7 @@ fn scatter(store: &Store) {
             break;
         }
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         for _ in 0..gap.clamp(1, 16) {
             write.set(&tree, &key(stored), &[1; 5_000]).unwrap();
             stored += 1;
@@ -328,7 +318,7 @@ fn scatter(store: &Store) {
         write.commit().unwrap();
     }
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     for i in (0..stored).step_by(2) {
         assert!(write.remove(&tree, &key(i)).unwrap());
     }
@@ -357,7 +347,7 @@ fn ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier() {
         let before = store.info();
         let frontier = store.engine.frontier();
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         write.set(&tree, b"big", &value).unwrap();
         write.commit().unwrap();
         let after = store.info();
@@ -396,10 +386,10 @@ fn ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier() {
     assert_eq!(in_memory.info().size_bytes, size, "the same preparation");
     for store in [on_disk, in_memory] {
         let read = store.read().unwrap();
-        let count = read.len(&read.open_tree("t", NORMAL).unwrap()).unwrap();
+        let count = read.len(&read.open_tree("t").unwrap()).unwrap();
         drop(read);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let class = match write.set(&tree, b"big", &value) {
             Err(error) => {
                 assert_eq!(write.commit().unwrap_err().kind(), error.kind());
@@ -409,12 +399,12 @@ fn ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier() {
         };
         assert_eq!(class, ErrorKind::MaxSize);
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&tree, b"big").unwrap(), None, "nothing applied");
         assert_eq!(read.len(&tree).unwrap(), count);
         drop(read);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         write.set(&tree, b"probe", b"works").unwrap();
         write.commit().unwrap();
         let read = store.read().unwrap();

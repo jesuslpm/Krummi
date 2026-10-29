@@ -3,7 +3,7 @@ error[E0382]: borrow of moved value: `write`
   |
 6 |     let mut write = store.write().unwrap();
   |         --------- move occurs because `write` has type `WriteTransaction<'_>`, which does not implement the `Copy` trait
-7 |     let tree = write.open_tree("t", TreeKind::Normal).unwrap();
+7 |     let tree = write.open_tree("t").unwrap();
 8 |     write.commit().unwrap();
   |           -------- `write` moved due to this method call
 9 |     write.set(&tree, b"k", b"v").unwrap();

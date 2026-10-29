@@ -25,11 +25,11 @@ fn s0_a_handle_of_another_transaction_fails_with_misuse_without_effect() {
     stores(|store, folder| {
         commit_tree(store, "t", &[(b"k", b"v")]);
         let old = store.write().unwrap();
-        let stale = old.open_tree("t", NORMAL).unwrap();
+        let stale = old.open_tree("t").unwrap();
         old.commit().unwrap();
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         misuse(write.get(&stale, b"k").unwrap_err(), folder);
         misuse(write.set(&stale, b"k", b"x").unwrap_err(), folder);
         misuse(write.try_add(&stale, b"n", b"x").unwrap_err(), folder);
@@ -48,12 +48,12 @@ fn s0_a_handle_of_another_transaction_fails_with_misuse_without_effect() {
         write.commit().unwrap();
 
         let first = store.read().unwrap();
-        let read_handle = first.open_tree("t", NORMAL).unwrap();
+        let read_handle = first.open_tree("t").unwrap();
         drop(first);
         let read = store.read().unwrap();
         misuse(read.get(&read_handle, b"k").unwrap_err(), folder);
         misuse(read.len(&read_handle).unwrap_err(), folder);
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&tree, b"k").unwrap(), Some(&b"v"[..]));
         assert_eq!(read.get(&tree, b"other").unwrap(), Some(&b"1"[..]));
         assert_eq!(read.len(&tree).unwrap(), 2);
@@ -64,33 +64,29 @@ fn s0_a_handle_of_another_transaction_fails_with_misuse_without_effect() {
 fn ac_a1_open_modes_open_create_and_fail_by_existence() {
     stores(|store, folder| {
         let mut write = store.write().unwrap();
-        let error = write.open_tree("t", NORMAL).err().unwrap();
+        let error = write.open_tree("t").err().unwrap();
         assert_eq!(not_found(error, folder), "t");
         let tree = create(&mut write, "t");
         assert_eq!(write.len(&tree).unwrap(), 0);
         assert!(write.tree_exists("t").unwrap());
         let error = write
-            .open_tree_with("t", NORMAL, OpenMode::CreateNew)
+            .open_tree_with("t", OpenMode::CreateNew)
             .err()
             .unwrap();
         assert_eq!(already_exists(error, folder), "t");
         write.set(&tree, b"k", b"v").unwrap();
-        let created = write
-            .open_tree_with("u", NORMAL, OpenMode::OpenOrCreate)
-            .unwrap();
+        let created = write.open_tree_with("u", OpenMode::OpenOrCreate).unwrap();
         assert!(write.tree_exists("u").unwrap());
         assert_eq!(write.len(&created).unwrap(), 0);
-        let opened = write
-            .open_tree_with("t", NORMAL, OpenMode::OpenOrCreate)
-            .unwrap();
+        let opened = write.open_tree_with("t", OpenMode::OpenOrCreate).unwrap();
         assert_eq!(write.get(&opened, b"k").unwrap(), Some(&b"v"[..]));
         assert_eq!(write.len(&opened).unwrap(), 1);
         write.commit().unwrap();
 
         let read = store.read().unwrap();
-        let error = read.open_tree("missing", NORMAL).err().unwrap();
+        let error = read.open_tree("missing").err().unwrap();
         assert_eq!(not_found(error, folder), "missing");
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&tree, b"k").unwrap(), Some(&b"v"[..]));
         assert_eq!(read.len(&tree).unwrap(), 1);
         assert_eq!(names(store), ["t", "u"]);
@@ -103,10 +99,8 @@ fn ac_a2_emptying_keeps_the_tree_and_its_handles() {
         commit_tree(store, "t", &[(b"a", b"1"), (b"b", b"2"), (b"c", b"3")]);
         commit_tree(store, "e", &[(b"a", b"1")]);
         let mut write = store.write().unwrap();
-        let before = write.open_tree("t", NORMAL).unwrap();
-        let emptied = write
-            .open_tree_with("t", NORMAL, OpenMode::CreateOrEmpty)
-            .unwrap();
+        let before = write.open_tree("t").unwrap();
+        let emptied = write.open_tree_with("t", OpenMode::CreateOrEmpty).unwrap();
         assert_eq!(write.len(&emptied).unwrap(), 0);
         assert_eq!(
             write.len(&before).unwrap(),
@@ -117,14 +111,14 @@ fn ac_a2_emptying_keeps_the_tree_and_its_handles() {
         write.set(&before, b"x", b"9").unwrap();
         assert_eq!(write.len(&emptied).unwrap(), 1, "and keeps working");
 
-        let e = write.open_tree_with("e", NORMAL, OpenMode::Empty).unwrap();
+        let e = write.open_tree_with("e", OpenMode::Empty).unwrap();
         assert_eq!(write.len(&e).unwrap(), 0);
         let new = write
-            .open_tree_with("new", NORMAL, OpenMode::CreateOrEmpty)
+            .open_tree_with("new", OpenMode::CreateOrEmpty)
             .unwrap();
         assert_eq!(write.len(&new).unwrap(), 0);
         let error = write
-            .open_tree_with("missing", NORMAL, OpenMode::Empty)
+            .open_tree_with("missing", OpenMode::Empty)
             .err()
             .unwrap();
         assert_eq!(not_found(error, folder), "missing");
@@ -133,20 +127,20 @@ fn ac_a2_emptying_keeps_the_tree_and_its_handles() {
         for key in [b"a", b"b", b"c"] {
             write.set(&filled, key, b"v").unwrap();
         }
-        let f = write.open_tree_with("f", NORMAL, OpenMode::Empty).unwrap();
+        let f = write.open_tree_with("f", OpenMode::Empty).unwrap();
         assert_eq!(write.len(&f).unwrap(), 0);
         assert_eq!(write.len(&filled).unwrap(), 0);
         write.commit().unwrap();
 
         let read = store.read().unwrap();
         for (name, count) in [("e", 0), ("f", 0), ("new", 0), ("t", 1)] {
-            let tree = read.open_tree(name, NORMAL).unwrap();
+            let tree = read.open_tree(name).unwrap();
             assert_eq!(read.len(&tree).unwrap(), count, "{name}");
         }
-        let t = read.open_tree("t", NORMAL).unwrap();
+        let t = read.open_tree("t").unwrap();
         assert_eq!(read.get(&t, b"x").unwrap(), Some(&b"9"[..]));
         assert_eq!(read.get(&t, b"a").unwrap(), None);
-        let f = read.open_tree("f", NORMAL).unwrap();
+        let f = read.open_tree("f").unwrap();
         assert_eq!(read.get(&f, b"a").unwrap(), None);
         assert_eq!(names(store), ["e", "f", "new", "t"]);
     });
@@ -159,7 +153,7 @@ fn ac_a3_a_read_transaction_opens_checks_lists_reads_and_counts() {
     stores(|store, _| {
         commit_tree(store, "t", &[(b"k", b"v")]);
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert!(read.tree_exists("t").unwrap());
         assert!(!read.tree_exists("u").unwrap());
         assert_eq!(read.list_trees().unwrap(), [("t".to_owned(), NORMAL)]);
@@ -218,10 +212,10 @@ fn ac_a5_rename() {
         commit_tree(store, "a", &[(b"k", b"a")]);
         commit_tree(store, "b", &[(b"k", b"b")]);
         let mut write = store.write().unwrap();
-        let a = write.open_tree("a", NORMAL).unwrap();
-        let b = write.open_tree("b", NORMAL).unwrap();
+        let a = write.open_tree("a").unwrap();
+        let b = write.open_tree("b").unwrap();
         write.rename_tree("a", "c", false).unwrap();
-        let c = write.open_tree("c", NORMAL).unwrap();
+        let c = write.open_tree("c").unwrap();
         assert_eq!(write.get(&c, b"k").unwrap(), Some(&b"a"[..]));
         assert!(!write.tree_exists("a").unwrap());
         assert_eq!(
@@ -235,7 +229,7 @@ fn ac_a5_rename() {
         let error = write.rename_tree("c", "b", false).unwrap_err();
         assert_eq!(already_exists(error, folder), "b");
         write.rename_tree("c", "b", true).unwrap();
-        let new_b = write.open_tree("b", NORMAL).unwrap();
+        let new_b = write.open_tree("b").unwrap();
         assert_eq!(write.get(&new_b, b"k").unwrap(), Some(&b"a"[..]));
         assert_eq!(
             write.get(&c, b"k2").unwrap(),
@@ -274,7 +268,7 @@ fn ac_a5_rename() {
 
         assert_eq!(names(store), ["b"]);
         let read = store.read().unwrap();
-        let b = read.open_tree("b", NORMAL).unwrap();
+        let b = read.open_tree("b").unwrap();
         assert_eq!(read.get(&b, b"k").unwrap(), Some(&b"a"[..]));
         assert_eq!(read.get(&b, b"k2").unwrap(), Some(&b"a2"[..]));
         assert_eq!(read.len(&b).unwrap(), 2);
@@ -298,7 +292,7 @@ fn ac_a6_identity_survives_renames_and_ends_when_overwritten() {
         assert_eq!(write.get(&a, b"k").unwrap(), Some(&b"1"[..]));
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let a = read.open_tree("a", NORMAL).unwrap();
+        let a = read.open_tree("a").unwrap();
         assert_eq!(read.get(&a, b"k").unwrap(), Some(&b"1"[..]));
         assert_eq!(names(store), ["a"]);
     });
@@ -367,7 +361,7 @@ fn ac_a8_key_operations() {
         write.commit().unwrap();
 
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&tree, b"k").unwrap(), None);
         assert_eq!(read.get(&tree, b"n").unwrap(), Some(&b"new"[..]));
         assert_eq!(read.get(&tree, b"e").unwrap(), Some(&b""[..]));
@@ -384,18 +378,14 @@ fn ac_a9_writes_that_change_nothing_leave_the_files_identical() {
     store.close().unwrap();
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
-        let t = write.open_tree("t", NORMAL).unwrap();
+        let t = write.open_tree("t").unwrap();
         assert!(!write.try_add(&t, b"k", b"other").unwrap());
         assert!(!write.remove(&t, b"missing").unwrap());
-        write
-            .open_tree_with("t", NORMAL, OpenMode::OpenOrCreate)
-            .unwrap();
+        write.open_tree_with("t", OpenMode::OpenOrCreate).unwrap();
         let fails = [
-            write.open_tree("missing", NORMAL).err(),
-            write
-                .open_tree_with("missing", NORMAL, OpenMode::Empty)
-                .err(),
-            write.open_tree_with("t", NORMAL, OpenMode::CreateNew).err(),
+            write.open_tree("missing").err(),
+            write.open_tree_with("missing", OpenMode::Empty).err(),
+            write.open_tree_with("t", OpenMode::CreateNew).err(),
             write.rename_tree("missing", "x", false).err(),
             write.rename_tree("t", "u", false).err(),
         ];
@@ -408,7 +398,7 @@ fn ac_a9_writes_that_change_nothing_leave_the_files_identical() {
 
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
-        write.open_tree_with("u", NORMAL, OpenMode::Empty).unwrap();
+        write.open_tree_with("u", OpenMode::Empty).unwrap();
         write.commit().unwrap();
     });
     assert!(changed, "emptying an empty tree is a change");
@@ -431,7 +421,7 @@ fn ac_a10_the_count_follows_every_operation() {
         };
         let mut write = store.write().unwrap();
         let tree = create(&mut write, "t");
-        let other = write.open_tree("t", NORMAL).unwrap();
+        let other = write.open_tree("t").unwrap();
         for i in 0..KEYS {
             write.set(&tree, &key(i), &[1; 100]).unwrap();
             check(&write, &other, "set a new key");
@@ -447,17 +437,17 @@ fn ac_a10_the_count_follows_every_operation() {
         write.commit().unwrap();
         let count = KEYS as u64 + 10;
         let snapshot = store.read().unwrap();
-        let before = snapshot.open_tree("t", NORMAL).unwrap();
+        let before = snapshot.open_tree("t").unwrap();
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         for i in (0..KEYS + 20).rev().step_by(2) {
             write.remove(&tree, &key(i)).unwrap();
             check(&write, &tree, "remove present and absent keys");
         }
         write.abort();
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(
             read.len(&tree).unwrap(),
             count,
@@ -465,7 +455,7 @@ fn ac_a10_the_count_follows_every_operation() {
         );
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         for i in 0..KEYS + 20 {
             write.remove(&tree, &key(i)).unwrap();
             check(&write, &tree, "remove every key");
@@ -475,7 +465,7 @@ fn ac_a10_the_count_follows_every_operation() {
             write.set(&tree, &key(i), b"again").unwrap();
         }
         check(&write, &tree, "fill again");
-        let emptied = write.open_tree_with("t", NORMAL, OpenMode::Empty).unwrap();
+        let emptied = write.open_tree_with("t", OpenMode::Empty).unwrap();
         check(&write, &emptied, "empty");
         write.set(&tree, &key(7), b"last").unwrap();
         check(&write, &tree, "after emptying");
@@ -486,7 +476,7 @@ fn ac_a10_the_count_follows_every_operation() {
             "an older read keeps its snapshot"
         );
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.len(&tree).unwrap(), 1);
     });
 
@@ -504,11 +494,11 @@ fn ac_a10_the_count_follows_every_operation() {
     damage(tmp.path(), page);
     let store = open(tmp.path());
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     assert_eq!(read.len(&tree).unwrap(), KEYS as u64);
     assert_eq!(damaged_page(read.get(&tree, &key(30)).unwrap_err()), page);
     let write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     assert_eq!(write.len(&tree).unwrap(), KEYS as u64);
 }
 
@@ -519,7 +509,7 @@ fn ac_a11_ten_alternating_replacements() {
         create(&mut write, "t");
         let mut stale = Vec::new();
         for step in 0..10 {
-            stale.push(write.open_tree("t", NORMAL).unwrap());
+            stale.push(write.open_tree("t").unwrap());
             if step % 2 == 0 {
                 write.delete_tree("t").unwrap();
                 stale.push(create(&mut write, "t"));
@@ -533,7 +523,7 @@ fn ac_a11_ten_alternating_replacements() {
             let error = write.set(handle, b"k", b"v").unwrap_err();
             assert_eq!(not_found(error, folder), "t", "handle {i}");
         }
-        let current = write.open_tree("t", NORMAL).unwrap();
+        let current = write.open_tree("t").unwrap();
         write.set(&current, b"k", b"v").unwrap();
         assert_eq!(write.len(&current).unwrap(), 1);
         write.commit().unwrap();
@@ -578,9 +568,9 @@ fn ac_a12_a_damaged_page_of_a_tree() {
         list.sort();
         assert_eq!(list, ["other", name]);
         assert!(read.tree_exists(name).unwrap());
-        let tree = read.open_tree(name, NORMAL).unwrap();
+        let tree = read.open_tree(name).unwrap();
         assert_eq!(read.len(&tree).unwrap(), 60);
-        let other = read.open_tree("other", NORMAL).unwrap();
+        let other = read.open_tree("other").unwrap();
         assert_eq!(read.len(&other).unwrap(), 1);
         assert_eq!(read.get(&other, b"changed").unwrap(), None);
     };
@@ -590,7 +580,7 @@ fn ac_a12_a_damaged_page_of_a_tree() {
     let store = open(tmp.path());
     unchanged(&store, "t");
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     for _ in 0..2 {
         assert_eq!(damaged_page(read.get(&tree, &key(30)).unwrap_err()), page);
     }
@@ -601,9 +591,9 @@ fn ac_a12_a_damaged_page_of_a_tree() {
     );
     drop(read);
     let mut write = store.write().unwrap();
-    let other = write.open_tree("other", NORMAL).unwrap();
+    let other = write.open_tree("other").unwrap();
     write.set(&other, b"changed", b"x").unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     assert!(write.tree_exists("t").unwrap());
     assert_eq!(write.list_trees().unwrap().len(), 2);
     assert_eq!(write.len(&tree).unwrap(), 60);
@@ -620,7 +610,7 @@ fn ac_a12_a_damaged_page_of_a_tree() {
     write.commit().unwrap();
     unchanged(&store, "renamed");
     let read = store.read().unwrap();
-    let tree = read.open_tree("renamed", NORMAL).unwrap();
+    let tree = read.open_tree("renamed").unwrap();
     assert_eq!(damaged_page(read.get(&tree, &key(30)).unwrap_err()), page);
     drop(read);
     store.close().unwrap();
@@ -630,7 +620,7 @@ fn ac_a12_a_damaged_page_of_a_tree() {
     let store = open(tmp.path());
     unchanged(&store, "t");
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     for _ in 0..2 {
         assert_eq!(damaged_page(read.get(&tree, &key(0)).unwrap_err()), page);
     }
@@ -642,18 +632,15 @@ fn ac_a12_a_damaged_page_of_a_tree() {
         "overwrite with rename",
     ] {
         let mut write = store.write().unwrap();
-        let other = write.open_tree("other", NORMAL).unwrap();
+        let other = write.open_tree("other").unwrap();
         write.set(&other, b"changed", b"x").unwrap();
         let error = match operation {
             "delete" => write.delete_tree("t").unwrap_err(),
             "create or empty" => write
-                .open_tree_with("t", NORMAL, OpenMode::CreateOrEmpty)
+                .open_tree_with("t", OpenMode::CreateOrEmpty)
                 .err()
                 .unwrap(),
-            "empty" => write
-                .open_tree_with("t", NORMAL, OpenMode::Empty)
-                .err()
-                .unwrap(),
+            "empty" => write.open_tree_with("t", OpenMode::Empty).err().unwrap(),
             _ => write.rename_tree("other", "t", true).unwrap_err(),
         };
         assert_eq!(damaged_page(error), page, "{operation}");
@@ -685,7 +672,7 @@ fn ac_a13_precedence() {
         );
         let error = write.rename_tree("missing", "dest", false).unwrap_err();
         assert_eq!(not_found(error, folder), "missing");
-        let deleted = write.open_tree("dest", NORMAL).unwrap();
+        let deleted = write.open_tree("dest").unwrap();
         write.delete_tree("dest").unwrap();
         let error = write.set(&deleted, &[0; MAX_KEY + 1], b"").unwrap_err();
         assert_eq!(invalid_size(error, folder).0, SizeSubject::Key);
@@ -745,7 +732,7 @@ fn ac_a13_precedence() {
     damage(tmp.path(), page);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     write.delete_tree("t").unwrap();
     let error = write.get(&tree, &key(30)).unwrap_err();
     assert_eq!(not_found(error, Some(tmp.path())), "t");
@@ -806,12 +793,12 @@ fn ac_a15_deleting_or_emptying_a_tree_gives_its_pages_back() {
         commit_tree(store, "e", EMPTY);
         let empty = in_use(store);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("e", NORMAL).unwrap();
+        let tree = write.open_tree("e").unwrap();
         fill(&mut write, &tree);
         write.commit().unwrap();
         assert!(in_use(store) > empty + 40);
         let mut write = store.write().unwrap();
-        write.open_tree_with("e", NORMAL, OpenMode::Empty).unwrap();
+        write.open_tree_with("e", OpenMode::Empty).unwrap();
         write.commit().unwrap();
         assert_eq!(in_use(store), empty);
     });
@@ -836,7 +823,7 @@ fn ac_a17_ac_b3_values_past_the_provisional_maximum() {
         write.set(&tree, b"over", &over).unwrap();
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&tree, &key).unwrap(), Some(&max[..]));
         assert_eq!(read.get(&tree, &empty_key).unwrap(), Some(&b""[..]));
         assert_eq!(read.get(&tree, b"over").unwrap(), Some(&over[..]));
@@ -855,7 +842,7 @@ fn ac_a17_ac_b3_values_past_the_provisional_maximum() {
     store.close().unwrap();
     let store = open(tmp.path());
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     assert_eq!(read.get(&tree, &key).unwrap(), Some(&max[..]));
     assert_eq!(read.get(&tree, &key[1..]).unwrap(), Some(&b""[..]));
 }
@@ -893,7 +880,7 @@ fn ac_b1_keys_of_1_to_2048_bytes() {
         assert_eq!(write.len(&tree).unwrap(), 3, "without effect");
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         for key in &keys {
             assert_eq!(read.get(&tree, key).unwrap(), Some(&max[..]));
         }
@@ -923,7 +910,7 @@ fn ac_b2_names_of_1_to_1024_bytes() {
                 OpenMode::OpenOrCreate,
                 OpenMode::CreateOrEmpty,
             ] {
-                let error = write.open_tree_with(name, NORMAL, mode).err().unwrap();
+                let error = write.open_tree_with(name, mode).err().unwrap();
                 assert_eq!(
                     invalid_size(error, folder),
                     (SizeSubject::TreeName, len, 1, 1024)
@@ -945,15 +932,12 @@ fn ac_b4_validation_failures_do_not_prevent_the_commit() {
         write.set(&tree, b"before", b"1").unwrap();
         let error = write.set(&tree, b"", b"x").unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidSize);
-        let error = write
-            .open_tree_with("", NORMAL, OpenMode::CreateNew)
-            .err()
-            .unwrap();
+        let error = write.open_tree_with("", OpenMode::CreateNew).err().unwrap();
         assert_eq!(invalid_size(error, folder).0, SizeSubject::TreeName);
         write.set(&tree, b"after", b"2").unwrap();
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(
             read.get(&tree, &[0; MAX_KEY + 1]).unwrap_err().kind(),
             ErrorKind::InvalidSize
@@ -970,14 +954,10 @@ fn ac_b4_validation_failures_do_not_prevent_the_commit() {
     commit_tree(&open(tmp.path()), "t", &[(b"k", b"v")]);
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert!(write.set(&tree, b"k", &vec![0; MAX_VALUE + 1]).is_err());
         assert!(write.remove(&tree, b"").is_err());
-        assert!(
-            write
-                .open_tree_with("", NORMAL, OpenMode::OpenOrCreate)
-                .is_err()
-        );
+        assert!(write.open_tree_with("", OpenMode::OpenOrCreate).is_err());
         assert!(write.rename_tree("t", "", true).is_err());
         write.commit().unwrap();
     });
@@ -1033,7 +1013,7 @@ fn ac_b6_names_are_bytes_without_normalization() {
         let read = store.read().unwrap();
         assert_eq!(read.list_trees().unwrap().len(), 4);
         for name in names_ {
-            let tree = read.open_tree(name, NORMAL).unwrap();
+            let tree = read.open_tree(name).unwrap();
             assert_eq!(read.len(&tree).unwrap(), 1, "{name}");
             for other in names_ {
                 let expected = (other == name).then_some(&b"mine"[..]);
@@ -1052,20 +1032,20 @@ fn ac_b9_the_invalid_size_wins_over_a_damaged_catalog() {
     let store = open(tmp.path());
     let long = "n".repeat(MAX_NAME + 1);
     let read = store.read().unwrap();
-    let error = read.open_tree(&long, NORMAL).err().unwrap();
+    let error = read.open_tree(&long).err().unwrap();
     assert_eq!(invalid_size(error, Some(tmp.path())).1, 1025);
     assert_eq!(
-        damaged_page(read.open_tree("catalog-marker", NORMAL).err().unwrap()),
+        damaged_page(read.open_tree("catalog-marker").err().unwrap()),
         page
     );
     let mut write = store.write().unwrap();
     let error = write
-        .open_tree_with(&long, NORMAL, OpenMode::OpenOrCreate)
+        .open_tree_with(&long, OpenMode::OpenOrCreate)
         .err()
         .unwrap();
     assert_eq!(invalid_size(error, Some(tmp.path())).1, 1025);
     assert_eq!(
-        damaged_page(write.open_tree("catalog-marker", NORMAL).err().unwrap()),
+        damaged_page(write.open_tree("catalog-marker").err().unwrap()),
         page
     );
     assert_eq!(
@@ -1081,7 +1061,7 @@ fn ac_b10_every_handle_sees_the_changes_of_the_others() {
         let mut write = store.write().unwrap();
         let a = create(&mut write, "a");
         let b = create(&mut write, "b");
-        let a_again = write.open_tree("a", NORMAL).unwrap();
+        let a_again = write.open_tree("a").unwrap();
         write.set(&a, b"1", b"a").unwrap();
         write.set(&a_again, b"2", b"a again").unwrap();
         write.set(&b, b"1", b"b").unwrap();
@@ -1092,8 +1072,8 @@ fn ac_b10_every_handle_sees_the_changes_of_the_others() {
         assert_eq!(write.get(&b, b"2").unwrap(), None);
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let a = read.open_tree("a", NORMAL).unwrap();
-        let b = read.open_tree("b", NORMAL).unwrap();
+        let a = read.open_tree("a").unwrap();
+        let b = read.open_tree("b").unwrap();
         assert_eq!(read.get(&a, b"1").unwrap(), Some(&b"a"[..]));
         assert_eq!(read.get(&a, b"2").unwrap(), Some(&b"a again"[..]));
         assert_eq!(read.get(&b, b"1").unwrap(), Some(&b"b"[..]));
@@ -1125,10 +1105,10 @@ fn ac_b14_handles_of_a_deleted_tree_never_reach_a_new_one() {
     stores(|store, folder| {
         commit_tree(store, "t", &[(b"k", b"original")]);
         let read = store.read().unwrap();
-        let original = read.open_tree("t", NORMAL).unwrap();
+        let original = read.open_tree("t").unwrap();
         let mut write = store.write().unwrap();
-        let first = write.open_tree("t", NORMAL).unwrap();
-        let mut stale = vec![write.open_tree("t", NORMAL).unwrap()];
+        let first = write.open_tree("t").unwrap();
+        let mut stale = vec![write.open_tree("t").unwrap()];
         write.delete_tree("t").unwrap();
         assert_eq!(not_found(write.get(&first, b"k").unwrap_err(), folder), "t");
         let mut current = create(&mut write, "t");
@@ -1157,7 +1137,7 @@ fn ac_b14_handles_of_a_deleted_tree_never_reach_a_new_one() {
         assert_eq!(read.get(&original, b"k").unwrap(), Some(&b"original"[..]));
         assert_eq!(read.len(&original).unwrap(), 1);
         let after = store.read().unwrap();
-        let tree = after.open_tree("t", NORMAL).unwrap();
+        let tree = after.open_tree("t").unwrap();
         assert_eq!(after.get(&tree, b"k").unwrap(), Some(&b"newest"[..]));
     });
 }
@@ -1187,12 +1167,12 @@ fn ac_b17_a_read_keeps_its_snapshot_while_a_write_changes_the_height() {
         let first: Vec<(Vec<u8>, &[u8])> = (0..6).map(|i| (key(i), &b"first"[..])).collect();
         commit_tree(store, "t", &first);
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         let snapshot = snapshot_of(&read, &tree, &keys);
         assert_eq!(snapshot.0, 6);
 
         let mut write = store.write().unwrap();
-        let written = write.open_tree("t", NORMAL).unwrap();
+        let written = write.open_tree("t").unwrap();
         for i in 6..90 {
             write.set(&written, &key(i), b"grown").unwrap();
         }
@@ -1215,7 +1195,7 @@ fn ac_b17_a_read_keeps_its_snapshot_while_a_write_changes_the_height() {
         );
 
         let new = store.read().unwrap();
-        let tree = new.open_tree("t", NORMAL).unwrap();
+        let tree = new.open_tree("t").unwrap();
         let expected: Vec<Option<Vec<u8>>> = (0..90)
             .map(|i| match i {
                 0 => Some(b"changed".to_vec()),
@@ -1244,8 +1224,8 @@ fn ac20_values_read_from_a_tree_point_into_the_engine_s_memory() {
         let first = store.read().unwrap();
         let second = store.read().unwrap();
         let (t1, t2) = (
-            first.open_tree("t", NORMAL).unwrap(),
-            second.open_tree("t", NORMAL).unwrap(),
+            first.open_tree("t").unwrap(),
+            second.open_tree("t").unwrap(),
         );
         let a = first.get(&t1, b"a").unwrap().unwrap();
         assert_eq!(a.as_ptr(), first.get(&t1, b"a").unwrap().unwrap().as_ptr());
@@ -1254,7 +1234,7 @@ fn ac20_values_read_from_a_tree_point_into_the_engine_s_memory() {
         let distance = (b.as_ptr() as usize).abs_diff(a.as_ptr() as usize);
         assert!(distance < store.info().page_size as usize, "{distance}");
         let write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let a = write.get(&tree, b"a").unwrap().unwrap();
         assert_eq!(
             a.as_ptr(),

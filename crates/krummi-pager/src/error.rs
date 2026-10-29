@@ -56,6 +56,8 @@ pub enum ErrorKind {
 pub enum TreeKind {
     /// A tree of unique keys, each with one value.
     Normal,
+    /// A tree of unique keys, each with an ordered set of distinct values (5.4).
+    MultiValue,
 }
 
 /// What an [`Error::InvalidSize`] is about.
@@ -356,6 +358,7 @@ impl fmt::Display for TreeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             TreeKind::Normal => "normal",
+            TreeKind::MultiValue => "multi-value",
         })
     }
 }

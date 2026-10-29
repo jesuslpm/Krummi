@@ -32,7 +32,8 @@ fn seen(store: &Store, keys: &[Vec<u8>]) -> Seen {
     let list = read.list_trees().unwrap();
     list.into_iter()
         .map(|(name, kind)| {
-            let tree = read.open_tree(&name, kind).unwrap();
+            assert_eq!(kind, TreeKind::Normal);
+            let tree = read.open_tree(&name).unwrap();
             let values: Vec<Option<Vec<u8>>> = keys
                 .iter()
                 .map(|key| read.get(&tree, key).unwrap().map(<[u8]>::to_vec))
@@ -93,7 +94,7 @@ fn crash_sweep(
             outcomes[usize::from(now == after)] = true;
             let mut write = store.write().unwrap();
             for (name, _, _) in &now {
-                let tree = write.open_tree(name, NORMAL).unwrap();
+                let tree = write.open_tree(name).unwrap();
                 for key in keys.iter().take(3) {
                     write.get(&tree, key).unwrap();
                 }
@@ -117,9 +118,7 @@ fn catalog_and_key_operations(through_close: bool) {
     let key = |i: usize| long_key(i, 1500);
     let keys: Vec<Vec<u8>> = (0..90).map(key).collect();
     let fill = |write: &mut WriteTransaction<'_>, name: &str, range: std::ops::Range<usize>| {
-        let tree = write
-            .open_tree_with(name, NORMAL, OpenMode::OpenOrCreate)
-            .unwrap();
+        let tree = write.open_tree_with(name, OpenMode::OpenOrCreate).unwrap();
         for i in range {
             write.set(&tree, &key(i), name.as_bytes()).unwrap();
         }
@@ -136,21 +135,19 @@ fn catalog_and_key_operations(through_close: bool) {
             write.commit().unwrap();
         },
         |write| {
-            let created = write
-                .open_tree_with("e", NORMAL, OpenMode::CreateNew)
-                .unwrap();
+            let created = write.open_tree_with("e", OpenMode::CreateNew).unwrap();
             for i in 40..80 {
                 write.set(&created, &key(i), b"created").unwrap();
             }
             write.rename_tree("a", "f", false).unwrap();
-            let renamed = write.open_tree("f", NORMAL).unwrap();
+            let renamed = write.open_tree("f").unwrap();
             for i in 5..35 {
                 assert!(write.remove(&renamed, &key(i)).unwrap());
             }
             for i in 60..90 {
                 write.set(&renamed, &key(i), b"renamed").unwrap();
             }
-            let emptied = write.open_tree_with("b", NORMAL, OpenMode::Empty).unwrap();
+            let emptied = write.open_tree_with("b", OpenMode::Empty).unwrap();
             write.set(&emptied, &key(1), b"emptied").unwrap();
             write.delete_tree("c").unwrap();
             write.rename_tree("d", "c", false).unwrap();
@@ -167,16 +164,14 @@ fn splits_and_merges(through_close: bool) {
         through_close,
         |store| {
             let mut write = store.write().unwrap();
-            let tree = write
-                .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-                .unwrap();
+            let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
             for i in 0..40 {
                 write.set(&tree, &key(i), b"before").unwrap();
             }
             write.commit().unwrap();
         },
         |write| {
-            let tree = write.open_tree("t", NORMAL).unwrap();
+            let tree = write.open_tree("t").unwrap();
             for i in 40..100 {
                 write.set(&tree, &key(i), b"split").unwrap();
             }
@@ -228,16 +223,14 @@ fn range_removals(through_close: bool) {
         through_close,
         |store| {
             let mut write = store.write().unwrap();
-            let tree = write
-                .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-                .unwrap();
+            let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
             for key in &keys {
                 write.set(&tree, key, b"before").unwrap();
             }
             write.commit().unwrap();
         },
         |write| {
-            let tree = write.open_tree("t", NORMAL).unwrap();
+            let tree = write.open_tree("t").unwrap();
             let (lower, upper) = (key(10), key(90));
             assert_eq!(
                 write.remove_range(&tree, &lower[..]..&upper[..]).unwrap(),
@@ -287,16 +280,14 @@ fn values_off_their_leaf(through_close: bool) {
         through_close,
         |store| {
             let mut write = store.write().unwrap();
-            let tree = write
-                .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-                .unwrap();
+            let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
             for i in 0..12 {
                 write.set(&tree, &key(i), &before(i)).unwrap();
             }
             write.commit().unwrap();
         },
         |write| {
-            let tree = write.open_tree("t", NORMAL).unwrap();
+            let tree = write.open_tree("t").unwrap();
             write.set(&tree, &key(1), &pattern(20_000, 101)).unwrap();
             write.set(&tree, &key(5), &pattern(4_500, 105)).unwrap();
             write.set(&tree, &key(3), b"in its leaf").unwrap();
@@ -404,20 +395,18 @@ fn ac10_trees_sweep(step: usize) {
     ];
     let mut write = store.write().unwrap();
     for (name, entries) in &trees {
-        let tree = write
-            .open_tree_with(name, NORMAL, OpenMode::CreateNew)
-            .unwrap();
+        let tree = write.open_tree_with(name, OpenMode::CreateNew).unwrap();
         for (key, value) in entries {
             write.set(&tree, key, value).unwrap();
         }
     }
     write.commit().unwrap();
     let mut write = store.write().unwrap();
-    let big = write.open_tree("big", NORMAL).unwrap();
+    let big = write.open_tree("big").unwrap();
     for (key, _) in trees[0].1.drain(..12) {
         assert!(write.remove(&big, &key).unwrap());
     }
-    let small = write.open_tree("small", NORMAL).unwrap();
+    let small = write.open_tree("small").unwrap();
     let large = pattern(PAGE_SIZE + 100, 2);
     write.set(&small, b"large", &large).unwrap();
     trees[2].1[1].1 = large;
@@ -463,7 +452,7 @@ fn ac10_trees_sweep(step: usize) {
             Err(error) => damaged(error, offset),
         }
         for (name, entries) in &trees {
-            let tree = match read.open_tree(name, NORMAL) {
+            let tree = match read.open_tree(name) {
                 Ok(tree) => tree,
                 Err(error) => {
                     damaged(error, offset);

@@ -7,7 +7,7 @@
 mod support;
 use std::collections::BTreeMap;
 
-use krummi::{OpenMode, Store, StoreOptions, TreeKind};
+use krummi::{OpenMode, Store, StoreOptions};
 use support::*;
 
 struct Rng(u64);
@@ -32,7 +32,7 @@ fn val(rng: &mut Rng, len: usize) -> Vec<u8> {
 type Model = BTreeMap<Vec<u8>, Vec<u8>>;
 
 fn check_all(r: &krummi::ReadTransaction<'_>, name: &str, model: &Model, label: &str) {
-    let t = r.open_tree(name, TreeKind::Normal).unwrap();
+    let t = r.open_tree(name).unwrap();
     assert_eq!(r.len(&t).unwrap(), model.len() as u64, "{label} len");
     let fw: Vec<_> = r.range(&t, ..).unwrap().map(|x| x.unwrap()).collect();
     assert_eq!(fw.len(), model.len(), "{label} fw len");
@@ -115,9 +115,7 @@ fn model_run(store: &Store, seed: u64) -> Model {
     keys.dedup();
     for round in 0..40 {
         let mut w = store.write().unwrap();
-        let t = w
-            .open_tree_with("m", TreeKind::Normal, OpenMode::OpenOrCreate)
-            .unwrap();
+        let t = w.open_tree_with("m", OpenMode::OpenOrCreate).unwrap();
         let mut pending = model.clone();
         for _ in 0..40 {
             let k = keys[rng.below(keys.len() as u64) as usize].clone();
@@ -214,8 +212,7 @@ fn no_page_leak() {
         };
         {
             let mut w = s.write().unwrap();
-            w.open_tree_with("t", TreeKind::Normal, OpenMode::CreateNew)
-                .unwrap();
+            w.open_tree_with("t", OpenMode::CreateNew).unwrap();
             w.commit().unwrap();
         }
         settle(&s);
@@ -223,7 +220,7 @@ fn no_page_leak() {
         let mut peak = 0;
         for i in 0..60 {
             let mut w = s.write().unwrap();
-            let t = w.open_tree("t", TreeKind::Normal).unwrap();
+            let t = w.open_tree("t").unwrap();
             let sz = [1 << 20, 64 << 10, 5000, 3 << 20, 100][i % 5];
             w.set(&t, b"a", &val(&mut rng, sz)).unwrap();
             w.set(&t, b"b", &val(&mut rng, 1 << 20)).unwrap();
@@ -236,20 +233,18 @@ fn no_page_leak() {
         // live data <= 3 MiB + 1 MiB = 512 pages; F6 delays reuse by about one commit
         assert!(peak < 2 * 512 + 200, "peak {peak} temporary={temporary}");
         let mut w = s.write().unwrap();
-        w.open_tree_with("t", TreeKind::Normal, OpenMode::Empty)
-            .unwrap();
+        w.open_tree_with("t", OpenMode::Empty).unwrap();
         w.commit().unwrap();
         settle(&s);
         assert_eq!(in_use(&s), base_empty, "after empty, temporary={temporary}");
         let mut w = s.write().unwrap();
-        let t = w.open_tree("t", TreeKind::Normal).unwrap();
+        let t = w.open_tree("t").unwrap();
         for i in 0..20u8 {
             w.set(&t, &[i], &val(&mut rng, 100_000)).unwrap();
         }
         w.commit().unwrap();
         let mut w = s.write().unwrap();
-        w.open_tree_with("u", TreeKind::Normal, OpenMode::CreateNew)
-            .unwrap();
+        w.open_tree_with("u", OpenMode::CreateNew).unwrap();
         w.commit().unwrap();
         let mut w = s.write().unwrap();
         w.rename_tree("t", "u", true).unwrap();
@@ -281,9 +276,7 @@ fn references_survive_make_durable_and_reuse() {
         let v1 = val(&mut rng, 3 * 8192 + 17);
         let v2 = val(&mut rng, 200_000);
         let mut w = s.write().unwrap();
-        let t = w
-            .open_tree_with("t", TreeKind::Normal, OpenMode::CreateNew)
-            .unwrap();
+        let t = w.open_tree_with("t", OpenMode::CreateNew).unwrap();
         w.set(&t, b"k1", &v1).unwrap();
         w.set(&t, b"k2", &v2).unwrap();
         for i in 0..300u32 {
@@ -292,14 +285,14 @@ fn references_survive_make_durable_and_reuse() {
         }
         w.commit().unwrap();
         let r = s.read().unwrap();
-        let rt = r.open_tree("t", TreeKind::Normal).unwrap();
+        let rt = r.open_tree("t").unwrap();
         let g1 = r.get(&rt, b"k1").unwrap().unwrap();
         let g2 = r.get(&rt, b"k2").unwrap().unwrap();
         let ptr1 = g1.as_ptr();
         assert!(g1 == &v1[..] && g2 == &v2[..]);
         for round in 0..6usize {
             let mut w = s.write().unwrap();
-            let t = w.open_tree("t", TreeKind::Normal).unwrap();
+            let t = w.open_tree("t").unwrap();
             let v = val(&mut rng, 3 * 8192 + 17 + round);
             w.set(&t, b"k1", &v).unwrap();
             w.remove(&t, b"k2").unwrap();
@@ -315,7 +308,7 @@ fn references_survive_make_durable_and_reuse() {
                 s.make_durable().unwrap();
             }
             let mut w = s.write().unwrap();
-            let t = w.open_tree("t", TreeKind::Normal).unwrap();
+            let t = w.open_tree("t").unwrap();
             w.remove_range(&t, &b"new"[..]..&b"nex"[..]).unwrap();
             for i in 0..30u32 {
                 let v = val(&mut rng, 70_000);
@@ -349,9 +342,7 @@ fn threshold_sweep_keys_and_values() {
         let mut rng = Rng(9);
         let mut model = Model::new();
         let mut w = s.write().unwrap();
-        let t = w
-            .open_tree_with("m", TreeKind::Normal, OpenMode::CreateNew)
-            .unwrap();
+        let t = w.open_tree_with("m", OpenMode::CreateNew).unwrap();
         for klen in [1usize, 2, 17, 1000, 2047, 2048] {
             let thr = 4078 - 4 - klen;
             for d in -3i64..=3 {
@@ -404,9 +395,7 @@ fn every_altered_byte_of_a_small_store_with_runs() {
     {
         let s = open(tmp.path());
         let mut w = s.write().unwrap();
-        let t = w
-            .open_tree_with("t", TreeKind::Normal, OpenMode::CreateNew)
-            .unwrap();
+        let t = w.open_tree_with("t", OpenMode::CreateNew).unwrap();
         w.set(&t, b"big", &v_big).unwrap();
         w.set(&t, b"one", &v_one).unwrap();
         w.set(&t, b"small", &v_small).unwrap();
@@ -446,7 +435,7 @@ fn every_altered_byte_of_a_small_store_with_runs() {
         let mut errored = false;
         {
             let r = s.read().unwrap();
-            match r.open_tree("t", TreeKind::Normal) {
+            match r.open_tree("t") {
                 Err(_) => errored = true,
                 Ok(t) => {
                     for (k, v) in [

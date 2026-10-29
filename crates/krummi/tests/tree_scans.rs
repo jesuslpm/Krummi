@@ -200,7 +200,7 @@ fn ac_r1_the_output_examples() {
 
 /// Opens the tree `t` of the tests in a read.
 fn tree_t<'s>(read: &krummi::ReadTransaction<'s>) -> krummi::ReadTree<'s> {
-    read.open_tree("t", NORMAL).unwrap()
+    read.open_tree("t").unwrap()
 }
 
 /// `count` keys of `len` bytes that sort by their number.
@@ -356,9 +356,7 @@ fn ac_b7_keys_come_out_in_unsigned_byte_order() {
             all.swap(i, j);
         }
         let mut write = store.write().unwrap();
-        let tree = write
-            .open_tree_with("t", NORMAL, OpenMode::CreateNew)
-            .unwrap();
+        let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
         for key in &all {
             write.set(&tree, key, &value_of(key)).unwrap();
         }
@@ -391,9 +389,9 @@ fn ac_r5_sizes_of_scans() {
         commit_tree(store, "empty", EMPTY);
         let read = store.read().unwrap();
         let tree = tree_t(&read);
-        let empty = read.open_tree("empty", NORMAL).unwrap();
+        let empty = read.open_tree("empty").unwrap();
         let mut write = store.write().unwrap();
-        let wtree = write.open_tree("t", NORMAL).unwrap();
+        let wtree = write.open_tree("t").unwrap();
         let key = |len: usize| vec![b'k'; len];
         let (short, long, max, big_prefix) =
             (key(0), key(MAX_KEY + 1), key(MAX_KEY), key(MAX_KEY + 1));
@@ -494,7 +492,7 @@ fn ac_r6_a_write_scan_sees_its_changes() {
     stores(|store, _| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         write.set(&tree, b"aa", b"new").unwrap();
         write.remove(&tree, b"b").unwrap();
         write.set(&tree, b"c", b"changed").unwrap();
@@ -525,8 +523,8 @@ fn ac_r11_scans_through_deleted_and_foreign_handles() {
     stores(|store, folder| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let mut write = store.write().unwrap();
-        let first = write.open_tree("t", NORMAL).unwrap();
-        let second = write.open_tree("t", NORMAL).unwrap();
+        let first = write.open_tree("t").unwrap();
+        let second = write.open_tree("t").unwrap();
         write.rename_tree("t", "renamed", false).unwrap();
         write.delete_tree("renamed").unwrap();
         let error = write.range(&second, ..).map(|_| ()).unwrap_err();
@@ -586,7 +584,7 @@ fn ac_r11_handle_failures_win_over_damage() {
     damage(tmp.path(), run);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     write.delete_tree("t").unwrap();
     let error = write.range(&tree, ..).map(|_| ()).unwrap_err();
     assert_eq!(not_found(error, Some(tmp.path())), "t");
@@ -683,7 +681,7 @@ fn ac_r13_scans_and_damaged_pages() {
     // In a write, the failure is the transaction's (T11).
     drop(read);
     let write = store.write().unwrap();
-    let wtree = write.open_tree("t", NORMAL).unwrap();
+    let wtree = write.open_tree("t").unwrap();
     let error = write
         .range(&wtree, ..)
         .unwrap()
@@ -763,13 +761,13 @@ fn ac_r1_the_output_removals() {
         let all = EXAMPLE.map(<[u8]>::to_vec);
         fill(store, "t", &all);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert_eq!(write.remove_range_prefix(&tree, b"b", ..).unwrap(), 2);
         let left = keys(&forward(write.range(&tree, ..).unwrap()));
         assert_eq!(left, [&b"a"[..], b"ab", b"c"].map(<[u8]>::to_vec));
         write.abort();
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let bounds: Bounds<'_> = (Included(b"ab"), Excluded(b"ba"));
         assert_eq!(write.remove_range_prefix(&tree, b"b", bounds).unwrap(), 1);
         assert_eq!(write.get(&tree, b"b").unwrap(), None);
@@ -792,7 +790,7 @@ fn ac_r4_empty_intervals() {
     stores(|store, folder| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         for bounds in empties {
             assert!(forward(write.range(&tree, bounds).unwrap()).is_empty());
             assert_eq!(write.remove_range(&tree, bounds).unwrap(), 0);
@@ -806,7 +804,7 @@ fn ac_r4_empty_intervals() {
         let mut scan = write.range(&tree, same).unwrap();
         assert_eq!(scan.next().unwrap().unwrap().0, b"b");
         assert!(scan.next_back().is_none() && scan.next().is_none());
-        let second = write.open_tree("t", NORMAL).unwrap();
+        let second = write.open_tree("t").unwrap();
         write.delete_tree("t").unwrap();
         let error = write.remove_range(&second, empties[0]).unwrap_err();
         assert_eq!(not_found(error, folder), "t");
@@ -822,7 +820,7 @@ fn ac_r4_empty_intervals() {
     // Only scans, empty removals, removals of absent keys and invalid sizes: nothing is written.
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert_eq!(forward(write.range(&tree, ..).unwrap()).len(), 5);
         for bounds in empties {
             assert_eq!(write.remove_range(&tree, bounds).unwrap(), 0);
@@ -836,7 +834,7 @@ fn ac_r4_empty_intervals() {
     assert!(!changed, "a write that removes nothing writes nothing");
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert_eq!(write.remove_range(&tree, &b"c"[..]..).unwrap(), 1);
         write.commit().unwrap();
     });
@@ -847,7 +845,7 @@ fn ac_r4_empty_intervals() {
     damage(tmp.path(), root);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     for bounds in empties {
         assert!(forward(write.range(&tree, bounds).unwrap()).is_empty());
         assert_eq!(write.remove_range(&tree, bounds).unwrap(), 0);
@@ -866,7 +864,7 @@ fn ac_r5_sizes_of_removals() {
     stores(|store, folder| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let (short, long) = (Vec::new(), vec![b'k'; MAX_KEY + 1]);
         let error = write
             .remove_range(&tree, (Included(&short[..]), Unbounded))
@@ -900,8 +898,8 @@ fn ac_r6_other_handles_see_a_range_removal() {
     stores(|store, _| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let mut write = store.write().unwrap();
-        let first = write.open_tree("t", NORMAL).unwrap();
-        let second = write.open_tree("t", NORMAL).unwrap();
+        let first = write.open_tree("t").unwrap();
+        let second = write.open_tree("t").unwrap();
         assert_eq!(
             write.remove_range(&first, &b"ab"[..]..=&b"ba"[..]).unwrap(),
             3
@@ -921,7 +919,7 @@ fn removal_keys(count: usize) -> Vec<Vec<u8>> {
 /// Checks that the tree `t` of `write` holds exactly `model`: a whole scan in both directions, the count and a read
 /// of every key the test used.
 fn check_tree(write: &WriteTransaction<'_>, model: &BTreeMap<Vec<u8>, Vec<u8>>, used: &[Vec<u8>]) {
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     let want: Entries = model.clone().into_iter().collect();
     assert_eq!(forward(write.range(&tree, ..).unwrap()), want);
     let mut reversed = keys(&want);
@@ -944,7 +942,7 @@ fn ac_r9_range_removals_across_pages_and_levels() {
         let all = removal_keys(2000);
         let mut model = fill(store, "t", &all);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let steps: [(&[u8], Bounds<'_>); 6] = [
             // Within one page.
             (b"", (Included(&all[100]), Excluded(&all[103]))),
@@ -981,7 +979,7 @@ fn ac_r9_range_removals_across_pages_and_levels() {
     let all = removal_keys(2000);
     let mut model = fill(&store, "t", &all);
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     assert_eq!(
         write
             .remove_range(&tree, &all[10][..]..&all[1990][..])
@@ -1010,7 +1008,7 @@ fn range_removals_match_a_model() {
         let mut model = fill(store, "t", &all);
         let mut random = Lcg(3);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         for round in 0..40 {
             let a = (random.next() as usize) % all.len();
             let b = (random.next() as usize) % all.len();
@@ -1068,7 +1066,7 @@ fn ac_r10_removing_every_entry_gives_the_pages_back() {
             let cuts: Vec<usize> = (0..=intervals).map(|i| i * all.len() / intervals).collect();
             for pair in cuts.windows(2) {
                 let mut write = store.write().unwrap();
-                let tree = write.open_tree("t", NORMAL).unwrap();
+                let tree = write.open_tree("t").unwrap();
                 let lower = if pair[0] == 0 {
                     Unbounded
                 } else {
@@ -1098,8 +1096,8 @@ fn ac_r11_removals_through_deleted_and_foreign_handles() {
     stores(|store, folder| {
         fill(store, "t", &EXAMPLE.map(<[u8]>::to_vec));
         let mut write = store.write().unwrap();
-        let first = write.open_tree("t", NORMAL).unwrap();
-        let second = write.open_tree("t", NORMAL).unwrap();
+        let first = write.open_tree("t").unwrap();
+        let second = write.open_tree("t").unwrap();
         write.delete_tree("t").unwrap();
         assert_eq!(
             not_found(write.remove_range(&second, ..).unwrap_err(), folder),
@@ -1111,13 +1109,13 @@ fn ac_r11_removals_through_deleted_and_foreign_handles() {
         write.abort();
 
         let old = store.write().unwrap();
-        let foreign = old.open_tree("t", NORMAL).unwrap();
+        let foreign = old.open_tree("t").unwrap();
         old.commit().unwrap();
         let mut write = store.write().unwrap();
         misuse(write.remove_range(&foreign, ..).unwrap_err(), folder);
         let error = write.remove_range(&foreign, &long[..]..).unwrap_err();
         assert_eq!(invalid_size(error, folder).0, SizeSubject::Key);
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert_eq!(write.remove_range(&tree, ..).unwrap(), 5);
         write.commit().unwrap();
     });
@@ -1136,7 +1134,7 @@ fn ac_r13_removals_and_damaged_pages() {
     damage(tmp.path(), leaf);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     assert_eq!(
         write
             .remove_range(&tree, &all[10][..]..&all[30][..])
@@ -1146,7 +1144,7 @@ fn ac_r13_removals_and_damaged_pages() {
     assert_eq!(write.remove_range(&tree, &all[1950][..]..).unwrap(), 50);
     write.commit().unwrap();
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     let error = write
         .remove_range(&tree, &all[900][..]..&all[1100][..])
         .unwrap_err();
@@ -1191,7 +1189,7 @@ fn ac_r7_scans_keep_their_snapshot_while_a_write_changes_the_tree() {
     let mut later = read.range_prefix(&tree, b"01", ..).unwrap();
 
     let mut write = store.write().unwrap();
-    let wtree = write.open_tree("t", NORMAL).unwrap();
+    let wtree = write.open_tree("t").unwrap();
     assert_eq!(
         write
             .remove_range(&wtree, &all[50][..]..&all[1450][..])
@@ -1232,9 +1230,10 @@ fn ac_r7_scans_keep_their_snapshot_while_a_write_changes_the_tree() {
 
 /// AC-V12 (V9, AC-B12; it replaces AC-R14 of 5.2): the store of format `6` kept as test data, created and filled
 /// with the 5.1 version in `tests/data/store-5.1`, is refused with the different-format class as a previous format
-/// and is left byte-identical, with nothing added to its folder; a new store reports format `7`.
+/// and is left byte-identical, with nothing added to its folder; a new store reports the current format, `8` since the
+/// multi-value trees (M14 of the multi-value trees PRD, which also checks the store of format `7` in AC-M18).
 #[test]
-fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_format_7() {
+fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_the_current_one() {
     let tmp = tempfile::tempdir().unwrap();
     let fixture =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/store-5.1/krummi.data");
@@ -1244,7 +1243,7 @@ fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_format_
     match Store::open(tmp.path(), &krummi::StoreOptions::default()).err() {
         Some(krummi::Error::DifferentFormat {
             found, expected, ..
-        }) => assert_eq!((found, expected), (6, 7)),
+        }) => assert_eq!((found, expected), (6, 8)),
         other => panic!("expected a previous format, got {other:?}"),
     }
     assert_eq!(std::fs::read(&data).unwrap(), before);
@@ -1255,6 +1254,6 @@ fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_format_
     assert_eq!(entries, vec![krummi_pager::DATA_FILE]);
     let new = tempfile::tempdir().unwrap();
     let store = open(new.path());
-    assert_eq!(store.info().format_version, 7);
+    assert_eq!(store.info().format_version, 8);
     store.close().unwrap();
 }

@@ -27,7 +27,7 @@ mod timing;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use krummi::{Store, StoreInfo, StoreOptions, TreeKind};
+use krummi::{Store, StoreInfo, StoreOptions};
 use timing::{BATCH, KEY, TREE, VALUE, header, keys, load, row, shuffled, splitmix};
 
 const KIB: usize = 1024;
@@ -157,9 +157,7 @@ fn read_at_random<'v>(
 ) -> Duration {
     let store = Store::open(folder, &StoreOptions::default()).expect("reopen");
     let read = store.read().expect("read");
-    let tree = read
-        .open_tree(TREE, TreeKind::Normal)
-        .expect("open the tree");
+    let tree = read.open_tree(TREE).expect("open the tree");
     let start = Instant::now();
     for &i in order {
         let found = read
@@ -179,9 +177,7 @@ fn read_at_random<'v>(
 fn scan(folder: &Path, entries: usize, bytes: usize) -> Duration {
     let store = Store::open(folder, &StoreOptions::default()).expect("reopen");
     let read = store.read().expect("read");
-    let tree = read
-        .open_tree(TREE, TreeKind::Normal)
-        .expect("open the tree");
+    let tree = read.open_tree(TREE).expect("open the tree");
     let start = Instant::now();
     let (mut count, mut seen, mut sum) = (0, 0, 0u64);
     for entry in read.range(&tree, ..).expect("scan") {

@@ -16,7 +16,7 @@ mod timing;
 
 use std::time::Instant;
 
-use krummi::{Store, StoreOptions, TreeKind};
+use krummi::{Store, StoreOptions};
 use timing::{BATCH, TREE, VALUE, header, keys, load, row, shuffled};
 
 fn main() {
@@ -50,9 +50,7 @@ fn main() {
     let start = Instant::now();
     {
         let read = store.read().expect("read");
-        let tree = read
-            .open_tree(TREE, TreeKind::Normal)
-            .expect("open the tree");
+        let tree = read.open_tree(TREE).expect("open the tree");
         for &i in &order {
             let value = read
                 .get(&tree, &keys[i])
@@ -66,9 +64,7 @@ fn main() {
     let start = Instant::now();
     for batch in order.chunks(BATCH) {
         let mut write = store.write().expect("write");
-        let tree = write
-            .open_tree(TREE, TreeKind::Normal)
-            .expect("open the tree");
+        let tree = write.open_tree(TREE).expect("open the tree");
         for &i in batch {
             assert!(write.remove(&tree, &keys[i]).expect("remove"));
         }

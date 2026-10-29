@@ -21,6 +21,8 @@ pub const IDENTITIES_SLOT: usize = 1;
 const ENTRY_SIZE: usize = 8 + 1 + 8 + 8;
 /// The kind byte of a normal tree.
 const NORMAL: u8 = 1;
+/// The kind byte of a multi-value tree (D5 of the multi-value trees execution).
+const MULTI_VALUE: u8 = 2;
 
 /// The catalog's entry of a tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,8 +43,9 @@ impl Entry {
         bytes[..8].copy_from_slice(&self.id.to_le_bytes());
         bytes[8] = match self.kind {
             TreeKind::Normal => NORMAL,
-            // `TreeKind` is non-exhaustive, but its only kind is the normal one until module 5.4 adds the others.
-            kind => unreachable!("module 5.1 has no {kind} trees"),
+            TreeKind::MultiValue => MULTI_VALUE,
+            // `TreeKind` is non-exhaustive for the applications; the catalog knows every kind of its version.
+            kind => unreachable!("the catalog has no {kind} trees"),
         };
         bytes[9..17].copy_from_slice(&self.root.to_le_bytes());
         bytes[17..].copy_from_slice(&self.count.to_le_bytes());
@@ -57,6 +60,7 @@ impl Entry {
         let field = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8 bytes"));
         let kind = match bytes[8] {
             NORMAL => TreeKind::Normal,
+            MULTI_VALUE => TreeKind::MultiValue,
             _ => return None,
         };
         Some(Entry {

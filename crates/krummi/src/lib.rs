@@ -6,26 +6,35 @@
 //! a crash of the process or the system and a power cut, and opening a store after a crash recovers it without
 //! any action of the application. Module 4 adds free space: the pages that writes free are reused before the store
 //! grows, and [`StoreInfo`] reports how many pages are free. Module 5 adds named trees: inside a transaction an
-//! application opens a tree by its name and kind, stores, adds, reads and removes entries by key, and creates,
-//! empties, renames, lists and deletes trees. It scans a tree in key order from both ends, between two bounds and
-//! with an optional prefix, and removes every entry of an interval at once. Keys have 1 to 2,048 bytes and values 0
-//! to 268,435,456 (256 MiB); reads and scans return every value, whatever its size, as one contiguous slice of the
+//! application opens a tree by its name, stores, adds, reads and removes entries by key, and creates, empties,
+//! renames, lists and deletes trees. It scans a tree in key order from both ends, between two bounds and with an
+//! optional prefix, and removes every entry of an interval at once. Keys have 1 to 2,048 bytes and values 0 to
+//! 268,435,456 (256 MiB); reads and scans return every value, whatever its size, as one contiguous slice of the
 //! engine's memory, without copying it.
 //!
+//! A multi-value tree, opened with its own opening, keeps for each key an ordered set of distinct values of 0 to
+//! 2,048 bytes: an application adds, removes and checks values, counts the values of a key, scans the keys and the
+//! values of a key, and removes keys, values and intervals of either. Each kind has its own handle, which takes only
+//! the operations of its kind.
+//!
 //! ```
-//! use krummi::{OpenMode, Store, StoreOptions, TreeKind};
+//! use krummi::{OpenMode, Store, StoreOptions};
 //!
 //! let store = Store::open_temporary(&StoreOptions::default())?;
 //! let read = store.read()?;      // sees the store as it is now
 //! let mut write = store.write()?; // the one write transaction
-//! let tree = write.open_tree_with("orders", TreeKind::Normal, OpenMode::OpenOrCreate)?;
+//! let tree = write.open_tree_with("orders", OpenMode::OpenOrCreate)?;
 //! write.set(&tree, b"key", b"value")?;
+//! let index = write.open_multi_tree_with("by-color", OpenMode::OpenOrCreate)?;
+//! write.add(&index, b"red", b"key")?;
 //! write.commit()?;               // visible to reads opened from now on
 //! assert!(!read.tree_exists("orders")?);
 //! drop(read);
 //! let read = store.read()?;
-//! let tree = read.open_tree("orders", TreeKind::Normal)?;
+//! let tree = read.open_tree("orders")?;
 //! assert_eq!(read.get(&tree, b"key")?, Some(&b"value"[..]));
+//! let index = read.open_multi_tree("by-color")?;
+//! assert!(read.contains(&index, b"red", b"key")?);
 //! drop(read);
 //! store.close()?;
 //! # Ok::<(), krummi::Error>(())
@@ -40,11 +49,17 @@ use std::time::Duration;
 
 pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result, SizeSubject, TreeKind};
 use krummi_tree::catalog::{self, Entry};
-use krummi_tree::{Interval, PageSource};
+use krummi_tree::{Interval, PageSource, RangeUpdate, multi};
+
+use sealed::{AsReadTree, AsWriteTree};
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
 const MAX_NAME: usize = 1024;
+/// Maximum bytes of a value of a multi-value tree: the maximum of a key (M1).
+const MAX_MULTI_VALUE: usize = krummi_tree::MAX_KEY;
 
+#[cfg(test)]
+mod multi_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -155,8 +170,9 @@ pub struct WriteTransaction<'s> {
     trees: RefCell<Trees>,
 }
 
-/// How [`WriteTransaction::open_tree_with`] opens a tree; [`WriteTransaction::open_tree`] only opens. Opening an
-/// existing tree of another kind fails with [`ErrorKind::DifferentTreeType`] in every mode.
+/// How [`WriteTransaction::open_tree_with`] and [`WriteTransaction::open_multi_tree_with`] open a tree;
+/// [`WriteTransaction::open_tree`] and [`WriteTransaction::open_multi_tree`] only open. Opening an existing tree of
+/// another kind fails with [`ErrorKind::DifferentTreeType`] in every mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpenMode {
     /// Creates an empty tree; fails with [`ErrorKind::TreeAlreadyExists`] if it exists.
@@ -178,28 +194,52 @@ pub struct ReadRange<'t>(krummi_tree::Range<'t, krummi_tx::ReadTransaction<'t>>)
 /// transaction's thread and ends at the transaction's next operation that may modify it.
 pub struct WriteRange<'t>(krummi_tree::Range<'t, krummi_tx::WriteTransaction<'t>>);
 
+/// A scan of the keys of a multi-value tree in a read transaction, from [`ReadTransaction::keys`]: a double-ended
+/// iterator of keys with their numbers of values, in key order. It can be sent to another thread, like its
+/// transaction. After a failure it returns nothing more from either end.
+pub struct ReadKeys<'t>(multi::Keys<'t, krummi_tx::ReadTransaction<'t>>);
+
+/// A scan of the keys of a multi-value tree in a write transaction, from [`WriteTransaction::keys`], like
+/// [`ReadKeys`]. It stays on its transaction's thread and ends at the transaction's next operation that may modify
+/// it.
+pub struct WriteKeys<'t>(multi::Keys<'t, krummi_tx::WriteTransaction<'t>>);
+
+/// A scan of the values of a key of a multi-value tree in a read transaction, from [`ReadTransaction::values`]: a
+/// double-ended iterator of values, in byte order, the empty value first. It can be sent to another thread, like its
+/// transaction. After a failure it returns nothing more from either end.
+pub struct ReadValues<'t>(multi::Values<'t, krummi_tx::ReadTransaction<'t>>);
+
+/// A scan of the values of a key of a multi-value tree in a write transaction, from [`WriteTransaction::values`],
+/// like [`ReadValues`]. It stays on its transaction's thread and ends at the transaction's next operation that may
+/// modify it.
+pub struct WriteValues<'t>(multi::Values<'t, krummi_tx::WriteTransaction<'t>>);
+
 macro_rules! scan_iterator {
-    ($range:ident) => {
-        impl<'t> Iterator for $range<'t> {
-            type Item = Result<(&'t [u8], &'t [u8])>;
+    ($scan:ident<$t:lifetime>, $item:ty) => {
+        impl<$t> Iterator for $scan<$t> {
+            type Item = Result<$item>;
 
             fn next(&mut self) -> Option<Self::Item> {
                 self.0.next()
             }
         }
 
-        impl DoubleEndedIterator for $range<'_> {
+        impl DoubleEndedIterator for $scan<'_> {
             fn next_back(&mut self) -> Option<Self::Item> {
                 self.0.next_back()
             }
         }
 
-        impl std::iter::FusedIterator for $range<'_> {}
+        impl std::iter::FusedIterator for $scan<'_> {}
     };
 }
 
-scan_iterator!(ReadRange);
-scan_iterator!(WriteRange);
+scan_iterator!(ReadRange<'t>, (&'t [u8], &'t [u8]));
+scan_iterator!(WriteRange<'t>, (&'t [u8], &'t [u8]));
+scan_iterator!(ReadKeys<'t>, (&'t [u8], u64));
+scan_iterator!(WriteKeys<'t>, (&'t [u8], u64));
+scan_iterator!(ReadValues<'t>, &'t [u8]);
+scan_iterator!(WriteValues<'t>, &'t [u8]);
 
 /// A tree opened in a read transaction: it sees the transaction's snapshot. It can be sent to other threads and
 /// shared between them, like the transaction, and cannot outlive its store. Using it in another transaction
@@ -222,6 +262,65 @@ pub struct WriteTree<'s> {
     /// The raw pointer keeps the handle on its thread: it is neither `Send` nor `Sync`.
     _store: PhantomData<(&'s Store, *const ())>,
 }
+
+/// A multi-value tree opened in a read transaction, with the rules of [`ReadTree`]: it sees the transaction's
+/// snapshot, can be sent to other threads and shared between them, cannot outlive its store, and fails with
+/// [`ErrorKind::Misuse`] without effect in another transaction. It takes only the operations of multi-value trees.
+pub struct ReadMultiTree<'s>(ReadTree<'s>);
+
+/// A multi-value tree opened in a write transaction, with the rules of [`WriteTree`]: every handle of the tree in
+/// that transaction sees the same state, it stays on its thread, cannot outlive its store, fails with
+/// [`ErrorKind::Misuse`] without effect in another transaction, and with [`ErrorKind::TreeNotFound`] once its tree was
+/// deleted. It takes only the operations of multi-value trees.
+pub struct WriteMultiTree<'s>(WriteTree<'s>);
+
+/// The handles of both kinds of tree share one mechanism: a multi-value handle wraps the normal one.
+mod sealed {
+    pub trait AsReadTree {
+        fn as_tree(&self) -> &super::ReadTree<'_>;
+    }
+
+    pub trait AsWriteTree {
+        fn as_tree(&self) -> &super::WriteTree<'_>;
+    }
+}
+
+/// A tree handle of a read transaction of either kind, [`ReadTree`] or [`ReadMultiTree`], for the operations that
+/// both kinds have, such as [`ReadTransaction::len`]. It cannot be implemented outside this crate.
+pub trait ReadHandle: AsReadTree {}
+
+/// A tree handle of a write transaction of either kind, [`WriteTree`] or [`WriteMultiTree`], for the operations
+/// that both kinds have, such as [`WriteTransaction::len`]. It cannot be implemented outside this crate.
+pub trait WriteHandle: AsWriteTree {}
+
+impl AsReadTree for ReadTree<'_> {
+    fn as_tree(&self) -> &ReadTree<'_> {
+        self
+    }
+}
+
+impl AsReadTree for ReadMultiTree<'_> {
+    fn as_tree(&self) -> &ReadTree<'_> {
+        &self.0
+    }
+}
+
+impl AsWriteTree for WriteTree<'_> {
+    fn as_tree(&self) -> &WriteTree<'_> {
+        self
+    }
+}
+
+impl AsWriteTree for WriteMultiTree<'_> {
+    fn as_tree(&self) -> &WriteTree<'_> {
+        &self.0
+    }
+}
+
+impl ReadHandle for ReadTree<'_> {}
+impl ReadHandle for ReadMultiTree<'_> {}
+impl WriteHandle for WriteTree<'_> {}
+impl WriteHandle for WriteMultiTree<'_> {}
 
 /// The trees a write transaction opened, sorted by identity. Growing it is a reservation that can fail with
 /// [`ErrorKind::OutOfMemory`] instead of aborting the process (P13).
@@ -258,10 +357,20 @@ struct TreeState {
 }
 
 impl<'s> ReadTransaction<'s> {
-    /// Opens the tree `name` of kind `kind`. Fails with [`ErrorKind::InvalidSize`] if the name is empty or longer
-    /// than 1,024 bytes, with [`ErrorKind::DifferentTreeType`] if the tree has another kind, and with
+    /// Opens the normal tree `name`. Fails with [`ErrorKind::InvalidSize`] if the name is empty or longer than 1,024
+    /// bytes, with [`ErrorKind::DifferentTreeType`] if it is a multi-value tree, and with
     /// [`ErrorKind::TreeNotFound`] if the snapshot does not have it. It reads only the catalog.
-    pub fn open_tree(&self, name: &str, kind: TreeKind) -> Result<ReadTree<'s>> {
+    pub fn open_tree(&self, name: &str) -> Result<ReadTree<'s>> {
+        self.open(name, TreeKind::Normal)
+    }
+
+    /// Opens the multi-value tree `name`, with the failures of [`open_tree`](Self::open_tree); it fails with
+    /// [`ErrorKind::DifferentTreeType`] if it is a normal tree.
+    pub fn open_multi_tree(&self, name: &str) -> Result<ReadMultiTree<'s>> {
+        self.open(name, TreeKind::MultiValue).map(ReadMultiTree)
+    }
+
+    fn open(&self, name: &str, kind: TreeKind) -> Result<ReadTree<'s>> {
         self.folder.check_name(name)?;
         let entry = find(self.folder, &self.inner, name, kind)?;
         let entry = entry.ok_or_else(|| self.folder.not_found(name))?;
@@ -293,8 +402,10 @@ impl<'s> ReadTransaction<'s> {
         krummi_tree::get(&self.inner, tree.root, key)
     }
 
-    /// The number of entries of `tree` in the snapshot, counted without walking the tree.
-    pub fn len(&self, tree: &ReadTree<'_>) -> Result<u64> {
+    /// The number of entries of `tree` in the snapshot, counted without walking the tree: of a multi-value tree, its
+    /// number of keys.
+    pub fn len(&self, tree: &impl ReadHandle) -> Result<u64> {
+        let tree = tree.as_tree();
         self.check_handle(tree)?;
         Ok(tree.count)
     }
@@ -330,6 +441,93 @@ impl<'s> ReadTransaction<'s> {
         )?))
     }
 
+    /// Whether `key` has `value` in the multi-value `tree`; a key that is not there has no value. Fails with
+    /// [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes, or the value is longer than 2,048
+    /// bytes, after checking the key.
+    pub fn contains(&self, tree: &ReadMultiTree<'_>, key: &[u8], value: &[u8]) -> Result<bool> {
+        self.folder.check_key(key)?;
+        self.folder.check_multi_value(value)?;
+        self.check_handle(&tree.0)?;
+        multi::contains(&self.inner, tree.0.root, key, value)
+    }
+
+    /// The number of values of `key` in the multi-value `tree`, `0` if the key is not there, read without reading the
+    /// values. Fails with [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes.
+    pub fn value_count(&self, tree: &ReadMultiTree<'_>, key: &[u8]) -> Result<u64> {
+        self.folder.check_key(key)?;
+        self.check_handle(&tree.0)?;
+        multi::value_count(&self.inner, tree.0.root, key)
+    }
+
+    /// A scan of the keys of the multi-value `tree` within `bounds`, each with its number of values, with the rules
+    /// of [`range`](Self::range) for the bounds and the ends. The keys point into the engine's memory, not to copies,
+    /// and live as long as the transaction.
+    pub fn keys<'k>(
+        &self,
+        tree: &ReadMultiTree<'_>,
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<ReadKeys<'_>> {
+        self.keys_prefix(tree, &[], bounds)
+    }
+
+    /// Like [`keys`](Self::keys), only with the keys that start with `prefix`, with the rules of
+    /// [`range_prefix`](Self::range_prefix).
+    pub fn keys_prefix<'k>(
+        &self,
+        tree: &ReadMultiTree<'_>,
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<ReadKeys<'_>> {
+        let interval = self.folder.interval(prefix, &bounds)?;
+        self.check_handle(&tree.0)?;
+        Ok(ReadKeys(multi::keys(&self.inner, tree.0.root, interval)?))
+    }
+
+    /// A scan of the values of `key` in the multi-value `tree` within `bounds`, in byte order from its front end and
+    /// in reverse order from its back end, with the rules of [`range`](Self::range) applied to the values; a key that
+    /// is not there has no values. The bounds are values: the empty value is a valid bound. Fails with
+    /// [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes, or a bound is longer than 2,048
+    /// bytes, in that order. Bounds that leave no value between them read nothing. The values point into the engine's
+    /// memory, not to copies, and live as long as the transaction.
+    pub fn values<'k>(
+        &self,
+        tree: &ReadMultiTree<'_>,
+        key: &[u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<ReadValues<'_>> {
+        self.values_prefix(tree, key, &[], bounds)
+    }
+
+    /// Like [`values`](Self::values), only with the values that start with `prefix`; an empty prefix limits nothing.
+    /// Fails with [`ErrorKind::InvalidSize`] if `prefix` is longer than 2,048 bytes, after checking the key and the
+    /// bounds.
+    pub fn values_prefix<'k>(
+        &self,
+        tree: &ReadMultiTree<'_>,
+        key: &[u8],
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<ReadValues<'_>> {
+        self.folder.check_key(key)?;
+        let interval = self.folder.value_interval(prefix, &bounds)?;
+        self.check_handle(&tree.0)?;
+        Ok(ReadValues(multi::values(
+            &self.inner,
+            tree.0.root,
+            key,
+            interval,
+        )?))
+    }
+
+    /// A test hook, not part of the interface: the root page of the subtree that holds the values of `key`, or `None`
+    /// when they are in its entry or the key is not there.
+    #[doc(hidden)]
+    pub fn subtree_of(&self, tree: &ReadMultiTree<'_>, key: &[u8]) -> Result<Option<u64>> {
+        self.folder.check_key(key)?;
+        self.check_handle(&tree.0)?;
+        multi::subtree_of(&self.inner, tree.0.root, key)
+    }
+
     fn check_handle(&self, tree: &ReadTree<'_>) -> Result<()> {
         if tree.serial == self.serial {
             Ok(())
@@ -347,25 +545,46 @@ impl<'s> ReadTransaction<'s> {
 /// [`ErrorKind::TreeNotFound`], [`ErrorKind::TreeAlreadyExists`] and [`ErrorKind::Misuse`] for a handle of another
 /// transaction, have no effect and do not prevent the commit; any other failure does (T11).
 impl<'s> WriteTransaction<'s> {
-    /// Opens the tree `name` of kind `kind`. Fails with [`ErrorKind::InvalidSize`] if the name is empty or longer
-    /// than 1,024 bytes, with [`ErrorKind::DifferentTreeType`] if the tree has another kind, and with
+    /// Opens the normal tree `name`. Fails with [`ErrorKind::InvalidSize`] if the name is empty or longer than 1,024
+    /// bytes, with [`ErrorKind::DifferentTreeType`] if it is a multi-value tree, and with
     /// [`ErrorKind::TreeNotFound`] if it does not exist. It reads only the catalog.
-    pub fn open_tree(&self, name: &str, kind: TreeKind) -> Result<WriteTree<'s>> {
+    pub fn open_tree(&self, name: &str) -> Result<WriteTree<'s>> {
+        self.open(name, TreeKind::Normal)
+    }
+
+    /// Opens the normal tree `name` in `mode`, with the failures of [`open_tree`](Self::open_tree) except that the
+    /// creating modes create a missing tree. Emptying a tree frees its pages; it keeps its handles, which see it
+    /// empty.
+    pub fn open_tree_with(&mut self, name: &str, mode: OpenMode) -> Result<WriteTree<'s>> {
+        self.open_with(name, TreeKind::Normal, mode)
+    }
+
+    /// Opens the multi-value tree `name`, with the failures of [`open_tree`](Self::open_tree); it fails with
+    /// [`ErrorKind::DifferentTreeType`] if it is a normal tree.
+    pub fn open_multi_tree(&self, name: &str) -> Result<WriteMultiTree<'s>> {
+        self.open(name, TreeKind::MultiValue).map(WriteMultiTree)
+    }
+
+    /// Opens the multi-value tree `name` in `mode`, with the failures of
+    /// [`open_multi_tree`](Self::open_multi_tree) except that the creating modes create a missing tree. Emptying a
+    /// tree frees its pages and those of its keys' subtrees; it keeps its handles, which see it empty.
+    pub fn open_multi_tree_with(
+        &mut self,
+        name: &str,
+        mode: OpenMode,
+    ) -> Result<WriteMultiTree<'s>> {
+        self.open_with(name, TreeKind::MultiValue, mode)
+            .map(WriteMultiTree)
+    }
+
+    fn open(&self, name: &str, kind: TreeKind) -> Result<WriteTree<'s>> {
         self.folder.check_name(name)?;
         let entry = find(self.folder, &self.inner, name, kind)?;
         let entry = entry.ok_or_else(|| self.folder.not_found(name))?;
         self.handle(name, &entry)
     }
 
-    /// Opens the tree `name` of kind `kind` in `mode`, with the failures of [`open_tree`](Self::open_tree)
-    /// except that the creating modes create a missing tree. Emptying a tree frees its pages; it keeps its
-    /// handles, which see it empty.
-    pub fn open_tree_with(
-        &mut self,
-        name: &str,
-        kind: TreeKind,
-        mode: OpenMode,
-    ) -> Result<WriteTree<'s>> {
+    fn open_with(&mut self, name: &str, kind: TreeKind, mode: OpenMode) -> Result<WriteTree<'s>> {
         self.folder.check_name(name)?;
         let entry = match (find(self.folder, &self.inner, name, kind)?, mode) {
             (None, OpenMode::Empty) => return Err(self.folder.not_found(name)),
@@ -442,9 +661,10 @@ impl<'s> WriteTransaction<'s> {
         krummi_tree::get(&self.inner, root, key)
     }
 
-    /// The number of entries of `tree`, with this transaction's changes, counted without walking the tree.
-    pub fn len(&self, tree: &WriteTree<'_>) -> Result<u64> {
-        Ok(self.live(tree)?.1)
+    /// The number of entries of `tree`, with this transaction's changes, counted without walking the tree: of a
+    /// multi-value tree, its number of keys.
+    pub fn len(&self, tree: &impl WriteHandle) -> Result<u64> {
+        Ok(self.live(tree.as_tree())?.1)
     }
 
     /// A scan of `tree` within `bounds`, with this transaction's changes, as [`ReadTransaction::range`] describes.
@@ -484,7 +704,7 @@ impl<'s> WriteTransaction<'s> {
         self.folder.check_value(value)?;
         let (root, _) = self.live(tree)?;
         let update = krummi_tree::set(&mut self.inner, root, key, value)?;
-        self.apply(tree, update, true);
+        self.apply(tree, update.root, update.count_changed, true);
         Ok(())
     }
 
@@ -496,7 +716,7 @@ impl<'s> WriteTransaction<'s> {
         self.folder.check_value(value)?;
         let (root, _) = self.live(tree)?;
         let update = krummi_tree::try_add(&mut self.inner, root, key, value)?;
-        self.apply(tree, update, true);
+        self.apply(tree, update.root, update.count_changed, true);
         Ok(update.count_changed)
     }
 
@@ -505,7 +725,7 @@ impl<'s> WriteTransaction<'s> {
         self.folder.check_key(key)?;
         let (root, _) = self.live(tree)?;
         let update = krummi_tree::remove(&mut self.inner, root, key)?;
-        self.apply(tree, update, false);
+        self.apply(tree, update.root, update.count_changed, false);
         Ok(update.count_changed)
     }
 
@@ -533,25 +753,182 @@ impl<'s> WriteTransaction<'s> {
         let interval = self.folder.interval(prefix, &bounds)?;
         let (root, _) = self.live(tree)?;
         let update = krummi_tree::remove_range(&mut self.inner, root, interval)?;
-        let state = self
-            .trees
-            .get_mut()
-            .get_mut(tree.id)
-            .expect("a live handle");
-        if update.removed > 0 || update.root != state.root {
-            // After a failure of T11 the tree may be inconsistent and the transaction cannot commit (left to the
-            // implementation): the count must not wrap. In a healthy write it never removes more than it counts.
-            debug_assert!(
-                update.removed <= state.count || self.inner.has_failed(),
-                "removed {} of {} entries",
-                update.removed,
-                state.count
-            );
-            state.count = state.count.saturating_sub(update.removed);
-            state.root = update.root;
-            state.dirty = true;
-        }
+        self.apply_removed(tree, update);
         Ok(update.removed)
+    }
+
+    /// Whether `key` has `value` in the multi-value `tree`, with this transaction's changes, as
+    /// [`ReadTransaction::contains`] describes.
+    pub fn contains(&self, tree: &WriteMultiTree<'_>, key: &[u8], value: &[u8]) -> Result<bool> {
+        self.folder.check_key(key)?;
+        self.folder.check_multi_value(value)?;
+        let (root, _) = self.live(&tree.0)?;
+        multi::contains(&self.inner, root, key, value)
+    }
+
+    /// The number of values of `key` in the multi-value `tree`, with this transaction's changes, as
+    /// [`ReadTransaction::value_count`] describes.
+    pub fn value_count(&self, tree: &WriteMultiTree<'_>, key: &[u8]) -> Result<u64> {
+        self.folder.check_key(key)?;
+        let (root, _) = self.live(&tree.0)?;
+        multi::value_count(&self.inner, root, key)
+    }
+
+    /// A scan of the keys of the multi-value `tree` within `bounds`, with this transaction's changes, as
+    /// [`ReadTransaction::keys`] describes. It and the keys it returns live until the next operation that may modify
+    /// the transaction. A failure while scanning, other than invalid size, is the transaction's (T11).
+    pub fn keys<'k>(
+        &self,
+        tree: &WriteMultiTree<'_>,
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<WriteKeys<'_>> {
+        self.keys_prefix(tree, &[], bounds)
+    }
+
+    /// Like [`keys`](Self::keys), only with the keys that start with `prefix`, as
+    /// [`ReadTransaction::keys_prefix`] describes.
+    pub fn keys_prefix<'k>(
+        &self,
+        tree: &WriteMultiTree<'_>,
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<WriteKeys<'_>> {
+        let interval = self.folder.interval(prefix, &bounds)?;
+        let (root, _) = self.live(&tree.0)?;
+        Ok(WriteKeys(multi::keys(&self.inner, root, interval)?))
+    }
+
+    /// A scan of the values of `key` in the multi-value `tree` within `bounds`, with this transaction's changes, as
+    /// [`ReadTransaction::values`] describes. It and the values it returns live until the next operation that may
+    /// modify the transaction. A failure while scanning, other than invalid size, is the transaction's (T11).
+    pub fn values<'k>(
+        &self,
+        tree: &WriteMultiTree<'_>,
+        key: &[u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<WriteValues<'_>> {
+        self.values_prefix(tree, key, &[], bounds)
+    }
+
+    /// Like [`values`](Self::values), only with the values that start with `prefix`, as
+    /// [`ReadTransaction::values_prefix`] describes.
+    pub fn values_prefix<'k>(
+        &self,
+        tree: &WriteMultiTree<'_>,
+        key: &[u8],
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<WriteValues<'_>> {
+        self.folder.check_key(key)?;
+        let interval = self.folder.value_interval(prefix, &bounds)?;
+        let (root, _) = self.live(&tree.0)?;
+        Ok(WriteValues(multi::values(
+            &self.inner,
+            root,
+            key,
+            interval,
+        )?))
+    }
+
+    /// A test hook, not part of the interface: as [`ReadTransaction::subtree_of`], with this transaction's changes.
+    #[doc(hidden)]
+    pub fn subtree_of(&self, tree: &WriteMultiTree<'_>, key: &[u8]) -> Result<Option<u64>> {
+        self.folder.check_key(key)?;
+        let (root, _) = self.live(&tree.0)?;
+        multi::subtree_of(&self.inner, root, key)
+    }
+
+    /// Adds `value` to the values of `key` in the multi-value `tree`, creating the key if it is not there, and
+    /// returns whether it added it; a value that is already there changes nothing. Fails with
+    /// [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes, or the value is longer than 2,048
+    /// bytes, after checking the key.
+    pub fn add(&mut self, tree: &WriteMultiTree<'_>, key: &[u8], value: &[u8]) -> Result<bool> {
+        self.folder.check_key(key)?;
+        self.folder.check_multi_value(value)?;
+        let (root, _) = self.live(&tree.0)?;
+        let update = multi::add(&mut self.inner, root, key, value)?;
+        self.apply(&tree.0, update.root, update.key_changed, true);
+        Ok(update.values > 0)
+    }
+
+    /// Removes `value` from the values of `key` in the multi-value `tree`, and returns whether it was there; the key
+    /// goes away with its last value. The sizes are checked as [`add`](Self::add) does.
+    pub fn remove_value(
+        &mut self,
+        tree: &WriteMultiTree<'_>,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<bool> {
+        self.folder.check_key(key)?;
+        self.folder.check_multi_value(value)?;
+        let (root, _) = self.live(&tree.0)?;
+        let update = multi::remove_value(&mut self.inner, root, key, value)?;
+        self.apply(&tree.0, update.root, update.key_changed, false);
+        Ok(update.values > 0)
+    }
+
+    /// Removes `key` with all its values from the multi-value `tree`, and returns how many values it had, `0` if it
+    /// was not there. Fails with [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes.
+    pub fn remove_key(&mut self, tree: &WriteMultiTree<'_>, key: &[u8]) -> Result<u64> {
+        self.folder.check_key(key)?;
+        let (root, _) = self.live(&tree.0)?;
+        let update = multi::remove_key(&mut self.inner, root, key)?;
+        self.apply(&tree.0, update.root, update.key_changed, false);
+        Ok(update.values)
+    }
+
+    /// Removes from the multi-value `tree` every key within `bounds` with all its values, and returns how many keys
+    /// it removed, with the rules of [`remove_range`](Self::remove_range).
+    pub fn remove_key_range<'k>(
+        &mut self,
+        tree: &WriteMultiTree<'_>,
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<u64> {
+        self.remove_key_range_prefix(tree, &[], bounds)
+    }
+
+    /// Like [`remove_key_range`](Self::remove_key_range), only with the keys that start with `prefix`, with the rules
+    /// of [`remove_range_prefix`](Self::remove_range_prefix).
+    pub fn remove_key_range_prefix<'k>(
+        &mut self,
+        tree: &WriteMultiTree<'_>,
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<u64> {
+        let interval = self.folder.interval(prefix, &bounds)?;
+        let (root, _) = self.live(&tree.0)?;
+        let update = multi::remove_key_range(&mut self.inner, root, interval)?;
+        self.apply_removed(&tree.0, update);
+        Ok(update.removed)
+    }
+
+    /// Removes from the values of `key` in the multi-value `tree` those within `bounds`, and returns how many it
+    /// removed; the key goes away with its last value, and a key that is not there removes nothing. The bounds and
+    /// their sizes follow [`ReadTransaction::values`]: bounds that leave no value between them read nothing.
+    pub fn remove_value_range<'k>(
+        &mut self,
+        tree: &WriteMultiTree<'_>,
+        key: &[u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<u64> {
+        self.remove_value_range_prefix(tree, key, &[], bounds)
+    }
+
+    /// Like [`remove_value_range`](Self::remove_value_range), only with the values that start with `prefix`, as
+    /// [`ReadTransaction::values_prefix`] describes.
+    pub fn remove_value_range_prefix<'k>(
+        &mut self,
+        tree: &WriteMultiTree<'_>,
+        key: &[u8],
+        prefix: &'k [u8],
+        bounds: impl RangeBounds<&'k [u8]>,
+    ) -> Result<u64> {
+        self.folder.check_key(key)?;
+        let interval = self.folder.value_interval(prefix, &bounds)?;
+        let (root, _) = self.live(&tree.0)?;
+        let update = multi::remove_value_range(&mut self.inner, root, key, interval)?;
+        self.apply(&tree.0, update.root, update.key_changed, false);
+        Ok(update.values)
     }
 
     /// A handle of the tree of `entry`, now named `name`; the tree's state joins the table on its first opening.
@@ -606,23 +983,55 @@ impl<'s> WriteTransaction<'s> {
         Ok((state.root, state.count))
     }
 
-    /// Records what a key operation did to the tree of `tree`; `added` tells which way the count moved.
-    fn apply(&mut self, tree: &WriteTree<'_>, update: krummi_tree::Update, added: bool) {
+    /// Records what a key operation did to the tree of `tree`: its new `root`, and whether its count changed by one,
+    /// `added` telling which way.
+    fn apply(&mut self, tree: &WriteTree<'_>, root: u64, count_changed: bool, added: bool) {
         let state = self
             .trees
             .get_mut()
             .get_mut(tree.id)
             .expect("a live handle");
-        if update.count_changed {
+        if count_changed {
             state.count = if added {
                 state.count + 1
             } else {
                 state.count - 1
             };
         }
-        if update.count_changed || update.root != state.root {
+        if count_changed || root != state.root {
+            state.root = root;
+            state.dirty = true;
+        }
+    }
+
+    /// Records what a range removal did to the tree of `tree`.
+    fn apply_removed(&mut self, tree: &WriteTree<'_>, update: RangeUpdate) {
+        let state = self
+            .trees
+            .get_mut()
+            .get_mut(tree.id)
+            .expect("a live handle");
+        if update.removed > 0 || update.root != state.root {
+            // After a failure of T11 the tree may be inconsistent and the transaction cannot commit (left to the
+            // implementation): the count must not wrap. In a healthy write it never removes more than it counts.
+            debug_assert!(
+                update.removed <= state.count || self.inner.has_failed(),
+                "removed {} of {} entries",
+                update.removed,
+                state.count
+            );
+            state.count = state.count.saturating_sub(update.removed);
             state.root = update.root;
             state.dirty = true;
+        }
+    }
+
+    /// Frees every page of the tree of `entry`, with the subtrees of the keys of a multi-value tree (D6).
+    fn free(&mut self, entry: &Entry) -> Result<()> {
+        if entry.kind == TreeKind::MultiValue {
+            multi::free_all(&mut self.inner, entry.root)
+        } else {
+            krummi_tree::free_all(&mut self.inner, entry.root)
         }
     }
 
@@ -643,7 +1052,7 @@ impl<'s> WriteTransaction<'s> {
     /// Empties the tree `name` of `entry`: it keeps its identity, and its pages give way to one empty root (A2).
     fn empty(&mut self, name: &str, entry: Entry) -> Result<Entry> {
         let entry = self.current(entry);
-        krummi_tree::free_all(&mut self.inner, entry.root)?;
+        self.free(&entry)?;
         let root = krummi_tree::create(&mut self.inner)?;
         let emptied = Entry {
             root,
@@ -661,7 +1070,7 @@ impl<'s> WriteTransaction<'s> {
     /// Deletes the tree `name` of `entry`, ending its identity: its handles fail from now on (A6, A8).
     fn delete(&mut self, name: &str, entry: Entry) -> Result<()> {
         let entry = self.current(entry);
-        krummi_tree::free_all(&mut self.inner, entry.root)?;
+        self.free(&entry)?;
         catalog::remove(&mut self.inner, name)?;
         if let Some(state) = self.trees.get_mut().get_mut(entry.id) {
             state.deleted = true;
@@ -781,20 +1190,45 @@ impl Folder<'_> {
         self.check_size(SizeSubject::Value, value.len(), 0, krummi_tree::MAX_VALUE)
     }
 
-    /// The interval of `bounds` and `prefix`, after checking their sizes in the order lower bound, upper bound,
-    /// prefix (R5).
+    /// A value of a multi-value tree: 0 to 2,048 bytes (M1).
+    fn check_multi_value(self, value: &[u8]) -> Result<()> {
+        self.check_size(SizeSubject::Value, value.len(), 0, MAX_MULTI_VALUE)
+    }
+
+    /// The interval of keys of `bounds` and `prefix`, after checking their sizes in the order lower bound, upper
+    /// bound, prefix (R5).
     fn interval<'a>(
         self,
         prefix: &'a [u8],
         bounds: &impl RangeBounds<&'a [u8]>,
+    ) -> Result<Interval<'a>> {
+        self.bounded(prefix, bounds, |key| self.check_key(key))
+    }
+
+    /// The interval of values of a multi-value tree of `bounds` and `prefix`, after checking their sizes in the
+    /// order lower bound, upper bound, prefix (M7).
+    fn value_interval<'a>(
+        self,
+        prefix: &'a [u8],
+        bounds: &impl RangeBounds<&'a [u8]>,
+    ) -> Result<Interval<'a>> {
+        self.bounded(prefix, bounds, |value| self.check_multi_value(value))
+    }
+
+    /// The interval of `bounds` and `prefix`, after checking each bound with `check_bound` and then the prefix.
+    fn bounded<'a>(
+        self,
+        prefix: &'a [u8],
+        bounds: &impl RangeBounds<&'a [u8]>,
+        check_bound: impl Fn(&[u8]) -> Result<()>,
     ) -> Result<Interval<'a>> {
         let (lower, upper) = (
             bounds.start_bound().map(|k| *k),
             bounds.end_bound().map(|k| *k),
         );
         for bound in [lower, upper] {
-            if let Bound::Included(key) | Bound::Excluded(key) = bound {
-                self.check_key(key)?;
+            if let Bound::Included(item) | Bound::Excluded(item) = bound {
+                check_bound(item)?;
             }
         }
         self.check_size(SizeSubject::Prefix, prefix.len(), 0, krummi_tree::MAX_KEY)?;

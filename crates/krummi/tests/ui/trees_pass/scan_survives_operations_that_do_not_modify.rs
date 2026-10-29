@@ -2,17 +2,17 @@
 // tree_exists, list_trees, len and another scan; a key returned by a scan of a read transaction outlives the
 // scan; and a scan of a read transaction can be sent to another thread.
 // Compile-only: `main` does not run the scenario.
-use krummi::{ReadRange, Result, Store, TreeKind};
+use krummi::{ReadRange, Result, Store};
 
 fn send<T: Send>() {}
 
 fn scenario(store: &Store) -> Result<()> {
     let write = store.write()?;
-    let a = write.open_tree("a", TreeKind::Normal)?;
+    let a = write.open_tree("a")?;
     let mut scan = write.range(&a, ..)?;
     let first = scan.next();
     let value = write.get(&a, b"k")?;
-    let b = write.open_tree("b", TreeKind::Normal)?;
+    let b = write.open_tree("b")?;
     let exists = write.tree_exists("c")?;
     let trees = write.list_trees()?;
     let count = write.len(&b)?;
@@ -23,7 +23,7 @@ fn scenario(store: &Store) -> Result<()> {
     write.commit()?;
 
     let read = store.read()?;
-    let a = read.open_tree("a", TreeKind::Normal)?;
+    let a = read.open_tree("a")?;
     let scan = read.range(&a, &b"a"[..]..=&b"z"[..])?;
     let keys: Vec<&[u8]> = scan.map(|entry| entry.map(|(key, _)| key)).collect::<Result<_>>()?;
     std::thread::scope(|s| {

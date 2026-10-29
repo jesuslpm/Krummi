@@ -168,7 +168,7 @@ fn ac_p14_a_temporary_store_works_and_respects_its_maximum_size() {
     assert!(info.temporary);
     assert_eq!(
         (info.format_version, info.page_size, info.size_bytes),
-        (7, 8192, INITIAL_SIZE)
+        (8, 8192, INITIAL_SIZE)
     );
     let mut page = HEADER_PAGES;
     let error = loop {

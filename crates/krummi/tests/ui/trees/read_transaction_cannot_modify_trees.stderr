@@ -1,14 +1,14 @@
 error[E0599]: no method named `open_tree_with` found for struct `ReadTransaction<'s>` in the current scope
  --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:9:18
   |
-9 |     let _ = read.open_tree_with("t", TreeKind::Normal, OpenMode::OpenOrCreate);
+9 |     let _ = read.open_tree_with("t", OpenMode::OpenOrCreate);
   |                  ^^^^^^^^^^^^^^
   |
 help: there is a method `open_tree` with a similar name, but with different arguments
  --> src/lib.rs
   |
-  |     pub fn open_tree(&self, name: &str, kind: TreeKind) -> Result<ReadTree<'s>> {
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     pub fn open_tree(&self, name: &str) -> Result<ReadTree<'s>> {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0599]: no method named `delete_tree` found for struct `ReadTransaction<'s>` in the current scope
   --> tests/ui/trees/read_transaction_cannot_modify_trees.rs:10:18

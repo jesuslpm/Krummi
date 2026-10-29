@@ -3,7 +3,7 @@ error[E0502]: cannot borrow `write` as mutable because it is also borrowed as im
    |
 17 |         let value = write.get(&tree, b"k").unwrap();
    |                     ----- immutable borrow occurs here
-18 |         let _ = write.open_tree_with("t", TreeKind::Normal, mode);
-   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+18 |         let _ = write.open_tree_with("t", mode);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
 19 |         println!("{value:?}");
    |                    ----- immutable borrow later used here

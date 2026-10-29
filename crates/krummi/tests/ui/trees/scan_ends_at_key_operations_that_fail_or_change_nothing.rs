@@ -1,12 +1,12 @@
 // AC-R8 (S8), R6, A10: a scan of a write transaction stops being usable at the next set, try_add or remove, in
 // that tree or in another one, even when the operation fails without effect or changes nothing.
-use krummi::{Store, StoreOptions, TreeKind};
+use krummi::{Store, StoreOptions};
 
 fn main() {
     let store = Store::open_temporary(&StoreOptions::default()).unwrap();
     let mut write = store.write().unwrap();
-    let a = write.open_tree("a", TreeKind::Normal).unwrap();
-    let b = write.open_tree("b", TreeKind::Normal).unwrap();
+    let a = write.open_tree("a").unwrap();
+    let b = write.open_tree("b").unwrap();
 
     // A set that fails: the key is empty.
     let mut scan = write.range(&a, ..).unwrap();

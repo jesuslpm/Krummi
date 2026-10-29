@@ -22,7 +22,7 @@ use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::path::Path;
 use std::time::Instant;
 
-use krummi::{Result, Store, StoreOptions, TreeKind};
+use krummi::{Result, Store, StoreOptions};
 use timing::{BATCH, KEY, TREE, VALUE, header, keys, load, row, shuffled};
 
 const SCANS: usize = 10_000;
@@ -49,9 +49,7 @@ fn main() {
     let store = Store::open(copy.path(), &StoreOptions::default()).expect("reopen");
     {
         let read = store.read().expect("read");
-        let tree = read
-            .open_tree(TREE, TreeKind::Normal)
-            .expect("open the tree");
+        let tree = read.open_tree(TREE).expect("open the tree");
 
         let start = Instant::now();
         let (count, bytes) = consume(read.range(&tree, ..).expect("scan"));
@@ -107,9 +105,7 @@ fn main() {
             Excluded(&sorted[cuts[i]][..])
         };
         let mut write = store.write().expect("write");
-        let tree = write
-            .open_tree(TREE, TreeKind::Normal)
-            .expect("open the tree");
+        let tree = write.open_tree(TREE).expect("open the tree");
         removed += write
             .remove_range(&tree, (lower, upper))
             .expect("remove range");

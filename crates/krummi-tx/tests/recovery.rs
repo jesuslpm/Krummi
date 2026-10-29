@@ -1261,13 +1261,13 @@ fn make_muninndb_store(folder: &Path) {
     }
 }
 
-/// AC-R1 (R3, R5, and E15 of the grouped journal PRD): a new store is `krummi.data` with the new mark and the current format (`7`); with commits not yet
+/// AC-R1 (R3, R5, and E15 of the grouped journal PRD): a new store is `krummi.data` with the new mark and the current format (`8`); with commits not yet
 /// the folder also holds `krummi.journal.<19 digits>` and `krummi.temp`, which a clean close removes.
 #[test]
 fn ac_r1_a_new_store_uses_the_krummi_names_and_mark_and_the_current_format() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = open(tmp.path());
-    assert_eq!(engine.info().format_version, 7);
+    assert_eq!(engine.info().format_version, 8);
     assert_eq!(names(tmp.path()), vec!["krummi.data"]);
     let pages = reserve(&engine, 1, "c0");
     let hold = engine.read().unwrap();

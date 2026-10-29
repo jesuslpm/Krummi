@@ -3,8 +3,8 @@ error[E0502]: cannot borrow `write` as mutable because it is also borrowed as im
    |
 10 |     let mut scan = write.range(&a, ..).unwrap();
    |                    ----- immutable borrow occurs here
-11 |     let _ = write.open_tree_with("a", TreeKind::Normal, OpenMode::OpenOrCreate);
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+11 |     let _ = write.open_tree_with("a", OpenMode::OpenOrCreate);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
 12 |     let _ = scan.next();
    |             ---- immutable borrow later used here
 

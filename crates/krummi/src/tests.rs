@@ -10,23 +10,26 @@ use krummi_pager::testing::{self, Action, Op};
 use super::*;
 use crate::value_tests::mixed_value;
 
-/// AC-B4 (B7, T12): once the store refuses writes, an invalid size in the open write still fails with its own
-/// class, not with the I/O class, and committing that write without changes ends without error.
+/// AC-B4 (B7, T12) and the T12 part of AC-M10 (M4, M12): once the store refuses writes, an invalid size and an
+/// opening of a tree as the other kind, in every mode, in the open write still fail with their own classes, not with
+/// the I/O class, and committing that write without changes ends without error.
 #[test]
-fn ac_b4_an_invalid_size_in_a_store_that_refuses_writes() {
+fn ac_b4_ac_m10_validation_failures_in_a_store_that_refuses_writes() {
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     // The transfer that fails is the one the test runs on this thread, whose faults it injects.
     store.engine.set_transfer_paused(true);
     let mut write = store.write().unwrap();
-    let tree = write
-        .open_tree_with("t", TreeKind::Normal, OpenMode::CreateNew)
-        .unwrap();
+    let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
     write.set(&tree, b"k", b"v").unwrap();
+    let multi = write
+        .open_multi_tree_with("m", OpenMode::CreateNew)
+        .unwrap();
+    write.add(&multi, b"k", b"v").unwrap();
     write.commit().unwrap();
 
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", TreeKind::Normal).unwrap();
+    let tree = write.open_tree("t").unwrap();
     // The next eight writes fail, a margin over the first write of the transfer pass, which already makes it fail,
     // whichever thread sharing these faults writes first (the journal's writer adopts them); the transaction tests
     // use the same margin.
@@ -52,17 +55,35 @@ fn ac_b4_an_invalid_size_in_a_store_that_refuses_writes() {
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidSize);
     let error = write
-        .open_tree_with("", TreeKind::Normal, OpenMode::OpenOrCreate)
+        .open_tree_with("", OpenMode::OpenOrCreate)
         .err()
         .unwrap();
     assert_eq!(error.kind(), ErrorKind::InvalidSize);
+    let different = ErrorKind::DifferentTreeType;
+    assert_eq!(write.open_tree("m").err().unwrap().kind(), different);
+    assert_eq!(write.open_multi_tree("t").err().unwrap().kind(), different);
+    for mode in [
+        OpenMode::CreateNew,
+        OpenMode::OpenOrCreate,
+        OpenMode::CreateOrEmpty,
+        OpenMode::Empty,
+    ] {
+        assert_eq!(
+            write.open_tree_with("m", mode).err().unwrap().kind(),
+            different
+        );
+        let error = write.open_multi_tree_with("t", mode).err().unwrap();
+        assert_eq!(error.kind(), different);
+    }
     write.commit().unwrap();
 
     store.close().unwrap();
     let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+    let tree = read.open_tree("t").unwrap();
     assert_eq!(read.get(&tree, b"k").unwrap(), Some(&b"v"[..]));
+    let multi = read.open_multi_tree("m").unwrap();
+    assert!(read.contains(&multi, b"k", b"v").unwrap());
 }
 
 /// A key of 2,048 bytes that starts with `i`: three fit in a leaf and three in a branch, so a few dozen of them
@@ -82,7 +103,8 @@ fn trees_seen(store: &Store, keys: &[Vec<u8>]) -> Seen {
     let list = read.list_trees().unwrap();
     list.into_iter()
         .map(|(name, kind)| {
-            let tree = read.open_tree(&name, kind).unwrap();
+            assert_eq!(kind, TreeKind::Normal);
+            let tree = read.open_tree(&name).unwrap();
             let values = keys
                 .iter()
                 .map(|key| read.get(&tree, key).unwrap().map(<[u8]>::to_vec))
@@ -96,7 +118,7 @@ fn trees_seen(store: &Store, keys: &[Vec<u8>]) -> Seen {
 /// whose merges bring it back down, with its operations' results. It goes on after a failure, as an application
 /// may (T11).
 fn splits_and_merges(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
-    let tree = match write.open_tree("t", TreeKind::Normal) {
+    let tree = match write.open_tree("t") {
         Ok(tree) => tree,
         Err(error) => return vec![Err(error)],
     };
@@ -115,7 +137,7 @@ fn splits_and_merges(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
 /// ends, removes intervals that merge pages and free subtrees over several levels, with a prefix and without, and
 /// scans again. A scan that fails stops at both ends (R8).
 fn range_removals(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
-    let tree = match write.open_tree("t", TreeKind::Normal) {
+    let tree = match write.open_tree("t") {
         Ok(tree) => tree,
         Err(error) => return vec![Err(error)],
     };
@@ -188,7 +210,7 @@ fn t11_sweep(step: u64) {
         700,
         |store| {
             let read = store.read().unwrap();
-            let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+            let tree = read.open_tree("t").unwrap();
             assert_eq!(read.len(&tree).unwrap(), 7, "0, 8, 16, 24, 32, 40 and 100");
             assert_eq!(read.get(&tree, &long_key(40)).unwrap(), Some(&b"split"[..]));
         },
@@ -203,7 +225,7 @@ fn t11_range_sweep(step: u64) {
     let classes = [Class::DiskFull, Class::MaxSize, Class::Io];
     t11_sweep_of(step, named, range_removals, &classes, 500, |store| {
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+        let tree = read.open_tree("t").unwrap();
         assert_eq!(read.len(&tree).unwrap(), 15, "0 to 4 and 30 to 39");
         assert_eq!(read.get(&tree, &long_key(30)).unwrap(), Some(&b"split"[..]));
         assert_eq!(read.get(&tree, &long_key(29)).unwrap(), None);
@@ -226,7 +248,7 @@ fn off_leaf(i: usize) -> Vec<u8> {
 /// with one off it, reads values off their leaf, adds over one (which reserves nothing, V1) and removes it, stores new
 /// ones whose leaves split, and removes an interval that holds some. It goes on after a failure (T11).
 fn values_off_their_leaf(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
-    let tree = match write.open_tree("t", TreeKind::Normal) {
+    let tree = match write.open_tree("t") {
         Ok(tree) => tree,
         Err(error) => return vec![Err(error)],
     };
@@ -256,7 +278,7 @@ fn values_off_their_leaf(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
 /// Checks the tree `t` once the write of [`values_off_their_leaf`] committed.
 fn values_off_their_leaf_committed(store: &Store) {
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", TreeKind::Normal).unwrap();
+    let tree = read.open_tree("t").unwrap();
     assert_eq!(read.len(&tree).unwrap(), 16, "0 to 3, 7, 8, 10 to 19");
     let get = |i: usize| read.get(&tree, &long_key(i)).unwrap().map(<[u8]>::to_vec);
     assert_eq!(get(1), Some(off_leaf(2)));
@@ -366,7 +388,7 @@ fn ac_v8_a_full_disk_or_no_memory_during_the_commit_of_values_off_their_leaf_app
             let label = format!("{op:?} on disk {on_disk}, failure {failures}");
             let mut write = store.write().unwrap();
             let mut results = values_off_their_leaf(&mut write);
-            let other = write.open_tree("other", TreeKind::Normal).unwrap();
+            let other = write.open_tree("other").unwrap();
             results.push(write.set(&other, b"large", &large));
             assert!(results.iter().all(Result::is_ok), "{label}");
             testing::reset();
@@ -384,7 +406,7 @@ fn ac_v8_a_full_disk_or_no_memory_during_the_commit_of_values_off_their_leaf_app
                     );
                     values_off_their_leaf_committed(&store);
                     let read = store.read().unwrap();
-                    let other = read.open_tree("other", TreeKind::Normal).unwrap();
+                    let other = read.open_tree("other").unwrap();
                     assert!(read.get(&other, b"large").unwrap() == Some(&large[..]));
                     break;
                 }
@@ -447,9 +469,7 @@ fn sweep_keys() -> Vec<Vec<u8>> {
 fn create_trees(store: &Store, value: fn(&str, usize) -> Vec<u8>) {
     let mut write = store.write().unwrap();
     for name in ["other", "t"] {
-        let tree = write
-            .open_tree_with(name, TreeKind::Normal, OpenMode::CreateNew)
-            .unwrap();
+        let tree = write.open_tree_with(name, OpenMode::CreateNew).unwrap();
         for i in 0..12 {
             write.set(&tree, &long_key(i), &value(name, i)).unwrap();
         }
@@ -460,7 +480,7 @@ fn create_trees(store: &Store, value: fn(&str, usize) -> Vec<u8>) {
 /// Checks that a new write reads, modifies and commits the tree `t` of [`create_trees`], unchanged.
 fn a_new_write_works(store: &Store, value: fn(&str, usize) -> Vec<u8>, label: &str) {
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", TreeKind::Normal).unwrap();
+    let tree = write.open_tree("t").unwrap();
     assert_eq!(write.len(&tree).unwrap(), 12, "{label}");
     write.set(&tree, b"probe", b"x").unwrap();
     let last = value("t", 11);

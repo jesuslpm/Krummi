@@ -18,6 +18,9 @@
 //! does not fit in its leaf lives in a run of contiguous pages whose first 16 bytes are the only header, with the
 //! same layout as a page header but for the whole run: the xxh3-64 of bytes `8..` of the run, then the number of
 //! its first page, both little endian. Its interior pages carry no header. A run of one page is a sealed page.
+//!
+//! Format 8 (M14 of the multi-value trees PRD) adds the multi-value trees, whose entries hold their values or the root
+//! of a subtree, little endian like the rest of the format; the pages keep their layout.
 
 use xxhash_rust::xxh3::xxh3_64;
 use zerocopy::little_endian::{U32, U64};
@@ -29,8 +32,8 @@ pub const PAGE_SIZE: usize = 8192;
 pub const PAGE_SIZE_U64: u64 = PAGE_SIZE as u64;
 /// Format version written by this version of the engine (P5; `5` since the free-space map, F11; `6` since the catalog
 /// and the trees, A13 of the trees and key operations PRD; `7` since the values outside their leaf, V9 of the large
-/// values PRD).
-pub const FORMAT_VERSION: u32 = 7;
+/// values PRD; `8` since the multi-value trees, M14 of the multi-value trees PRD).
+pub const FORMAT_VERSION: u32 = 8;
 /// Identification mark at the start of `krummi.data` (P4). The `\r\n`, `\x1a` and `\n` bytes detect text-mode
 /// transfers that would corrupt the file, as in the PNG signature.
 pub const MARK: [u8; 16] = *b"\x89Krummi\r\n\x1a\n\0\0\0\0\0";
@@ -279,7 +282,7 @@ mod tests {
             read_header_pages(&pages),
             HeaderRead::Found(Header::new_store())
         );
-        assert_eq!(Header::new_store().format_version, 7);
+        assert_eq!(Header::new_store().format_version, 8);
     }
 
     #[test]

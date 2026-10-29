@@ -39,7 +39,7 @@ fn key(i: u64) -> [u8; 8] {
 
 /// Stores [`ENTRIES`] entries of [`BIG`] bytes in the tree `name`, creating it.
 fn fill(write: &mut WriteTransaction<'_>, name: &str) -> Result<()> {
-    let tree = write.open_tree_with(name, NORMAL, OpenMode::OpenOrCreate)?;
+    let tree = write.open_tree_with(name, OpenMode::OpenOrCreate)?;
     for i in 0..ENTRIES {
         write.set(&tree, &key(i), &[i as u8; BIG])?;
     }
@@ -49,9 +49,7 @@ fn fill(write: &mut WriteTransaction<'_>, name: &str) -> Result<()> {
 /// Commits the tree `name` with the entry `k` → `v`.
 fn commit_tree(store: &Store, name: &str) {
     let mut write = store.write().unwrap();
-    let tree = write
-        .open_tree_with(name, NORMAL, OpenMode::CreateNew)
-        .unwrap();
+    let tree = write.open_tree_with(name, OpenMode::CreateNew).unwrap();
     write.set(&tree, b"k", b"v").unwrap();
     write.commit().unwrap();
 }
@@ -60,12 +58,12 @@ fn commit_tree(store: &Store, name: &str) {
 fn assert_accepts_writes(store: &Store, nth: usize) {
     let mut write = store.write().unwrap();
     let tree = write
-        .open_tree_with("after", NORMAL, OpenMode::OpenOrCreate)
+        .open_tree_with("after", OpenMode::OpenOrCreate)
         .unwrap();
     write.set(&tree, b"k", b"after").unwrap();
     write.commit().unwrap();
     let read = store.read().unwrap();
-    let tree = read.open_tree("after", NORMAL).unwrap();
+    let tree = read.open_tree("after").unwrap();
     assert_eq!(
         read.get(&tree, b"k").unwrap(),
         Some(&b"after"[..]),
@@ -118,7 +116,7 @@ fn sweep(
 /// What the read of `name`'s entry `k` sees on `store`.
 fn committed_value(store: &Store, name: &str, k: &[u8]) -> Option<Vec<u8>> {
     let read = store.read().unwrap();
-    let tree = read.open_tree(name, NORMAL).unwrap();
+    let tree = read.open_tree(name).unwrap();
     read.get(&tree, k).unwrap().map(<[u8]>::to_vec)
 }
 
@@ -140,7 +138,7 @@ fn r1_list_trees_in_a_read_fails_with_out_of_memory_and_the_read_stays_usable() 
         .map(|name| (name.to_string(), NORMAL))
         .collect();
     let read = store.read().unwrap();
-    let tree = read.open_tree("a", NORMAL).unwrap();
+    let tree = read.open_tree("a").unwrap();
     let mut failures = 0;
     loop {
         fail_alloc(failures);
@@ -176,7 +174,7 @@ fn r1_list_trees_in_a_write_follows_t11() {
     let failures = sweep(
         |store| commit_tree(store, "a"),
         |write, arm| {
-            let tree = write.open_tree("a", NORMAL)?;
+            let tree = write.open_tree("a")?;
             write.set(&tree, b"k", b"changed")?;
             arm();
             write.list_trees()?;
@@ -199,9 +197,9 @@ fn r1_opening_a_tree_in_a_write_follows_t11() {
     let failures = sweep(
         |store| commit_tree(store, "t"),
         |write, arm| {
-            write.open_tree_with("other", NORMAL, OpenMode::CreateNew)?;
+            write.open_tree_with("other", OpenMode::CreateNew)?;
             arm();
-            let tree = write.open_tree("t", NORMAL)?;
+            let tree = write.open_tree("t")?;
             write.set(&tree, b"k", b"changed")?;
             Ok(())
         },
@@ -223,9 +221,9 @@ fn r1_creating_a_tree_follows_t11() {
     let failures = sweep(
         |_| {},
         |write, arm| {
-            write.open_tree_with("first", NORMAL, OpenMode::CreateNew)?;
+            write.open_tree_with("first", OpenMode::CreateNew)?;
             arm();
-            write.open_tree_with("second", NORMAL, OpenMode::CreateNew)?;
+            write.open_tree_with("second", OpenMode::CreateNew)?;
             Ok(())
         },
         no_trees,
@@ -245,7 +243,7 @@ fn r1_sets_that_split_follow_t11() {
         },
         |store| {
             let read = store.read().unwrap();
-            let tree = read.open_tree("t", NORMAL).unwrap();
+            let tree = read.open_tree("t").unwrap();
             assert_eq!(read.len(&tree).unwrap(), 1, "nothing applied");
         },
     );
@@ -260,7 +258,7 @@ fn r1_removes_that_merge_follow_t11() {
         |_| {},
         |write, arm| {
             fill(write, "t")?;
-            let tree = write.open_tree("t", NORMAL)?;
+            let tree = write.open_tree("t")?;
             arm();
             for i in 0..ENTRIES {
                 write.remove(&tree, &key(i))?;
@@ -295,8 +293,8 @@ fn r1_renaming_an_open_tree_follows_t11() {
     let failures = sweep(
         |store| commit_tree(store, "t"),
         |write, arm| {
-            write.open_tree("t", NORMAL)?;
-            write.open_tree_with("other", NORMAL, OpenMode::CreateNew)?;
+            write.open_tree("t")?;
+            write.open_tree_with("other", OpenMode::CreateNew)?;
             arm();
             write.rename_tree("t", "u", false)
         },
@@ -319,7 +317,7 @@ fn r1_committing_changed_tree_entries_follows_t11() {
         let store = temporary();
         commit_tree(&store, "t");
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         write.set(&tree, b"k2", b"v2").unwrap();
         fail_alloc(failures);
         let result = write.commit();
@@ -356,7 +354,7 @@ fn r3_renaming_onto_an_existing_tree_is_rejected_before_any_reservation() {
         commit_tree(&store, "t");
         commit_tree(&store, "u");
         let mut write = store.write().unwrap();
-        let t = write.open_tree("t", NORMAL).unwrap();
+        let t = write.open_tree("t").unwrap();
         write.set(&t, b"k", b"changed").unwrap();
         fail_alloc(nth);
         let error = write.rename_tree("t", "u", false).unwrap_err();
@@ -385,7 +383,7 @@ fn commit_big_tree(store: &Store) {
 /// The number of entries of the committed tree `t`.
 fn committed_len(store: &Store) -> u64 {
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     read.len(&tree).unwrap()
 }
 
@@ -396,7 +394,7 @@ fn ac_r12_a_range_removal_out_of_memory_follows_t11() {
     let failed = sweep(
         commit_big_tree,
         |write, arm| {
-            let tree = write.open_tree("t", NORMAL)?;
+            let tree = write.open_tree("t")?;
             arm();
             let (lower, upper) = (key(3), key(17));
             let removed = write.remove_range(&tree, &lower[..]..&upper[..])?;
@@ -416,7 +414,7 @@ fn ac_r13_a_write_scan_out_of_memory_stops_and_follows_t11() {
     let failed = sweep(
         commit_big_tree,
         |write, arm| {
-            let tree = write.open_tree("t", NORMAL)?;
+            let tree = write.open_tree("t")?;
             let mut scan = write.range(&tree, ..)?;
             assert!(scan.next().unwrap().is_ok());
             arm();
@@ -441,7 +439,7 @@ fn ac_r13_a_read_scan_out_of_memory_stops_and_the_read_stays_usable() {
     let store = temporary();
     commit_big_tree(&store);
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     let mut scan = read.range(&tree, ..).unwrap();
     assert!(scan.next().unwrap().is_ok());
     fail_alloc(0);
@@ -467,7 +465,7 @@ fn r1_an_exhausted_scan_ends_at_both_ends_without_reserving() {
         let store = temporary();
         let mut write = store.write().unwrap();
         let tree = write
-            .open_tree_with("pending", NORMAL, OpenMode::CreateNew)
+            .open_tree_with("pending", OpenMode::CreateNew)
             .unwrap();
         write.set(&tree, b"a", b"pending").unwrap();
         let mut scan = write.range(&tree, ..).unwrap();

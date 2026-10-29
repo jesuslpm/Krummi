@@ -71,7 +71,7 @@ fn run_capacity(pages: usize) -> usize {
 #[track_caller]
 fn check_read(store: &Store, model: &Model, absent: &[Vec<u8>], label: &str) {
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     for (key, value) in model {
         let found = read.get(&tree, key).unwrap();
         assert!(found == Some(&value[..]), "{label}: {} bytes", value.len());
@@ -111,7 +111,7 @@ fn ac_v1_a_value_of_256_mib_under_a_2048_byte_key() {
 
         let check = |store: &Store, label: &str| {
             let read = store.read().unwrap();
-            let tree = read.open_tree("t", NORMAL).unwrap();
+            let tree = read.open_tree("t").unwrap();
             assert!(read.get(&tree, &key).unwrap() == Some(&big[..]), "{label}");
             assert_eq!(read.get(&tree, &empty_key).unwrap(), Some(&b""[..]));
             let scanned: Vec<(&[u8], &[u8])> = read
@@ -130,20 +130,20 @@ fn ac_v1_a_value_of_256_mib_under_a_2048_byte_key() {
         drop(big);
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         write.set(&tree, &key, b"1").unwrap();
         assert_eq!(write.get(&tree, &key).unwrap(), Some(&b"1"[..]));
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let read_tree = read.open_tree("t", NORMAL).unwrap();
+        let read_tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&read_tree, &key).unwrap(), Some(&b"1"[..]));
         drop(read);
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert!(write.remove(&tree, &key).unwrap());
         write.commit().unwrap();
         let read = store.read().unwrap();
-        let read_tree = read.open_tree("t", NORMAL).unwrap();
+        let read_tree = read.open_tree("t").unwrap();
         assert_eq!(read.get(&read_tree, &key).unwrap(), None);
         assert_eq!(read.len(&read_tree).unwrap(), 2);
         drop(read);
@@ -210,7 +210,7 @@ fn ac_v2_values_around_the_threshold_and_the_run_boundaries() {
         ];
         for (round, (label, next)) in rounds.into_iter().enumerate() {
             let mut write = store.write().unwrap();
-            let tree = write.open_tree("t", NORMAL).unwrap();
+            let tree = write.open_tree("t").unwrap();
             for (i, key) in keys.iter().enumerate() {
                 // The removal round removes every other key, so the tree keeps entries.
                 if label == "removed" && i % 2 == 1 {
@@ -278,7 +278,7 @@ fn ac_v4_scans_and_range_removals_over_values_off_their_leaf() {
         let oldest = store.read().unwrap();
         commit_tree(&store, "t", &model.iter().collect::<Vec<_>>());
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         let forward: Vec<(&[u8], &[u8])> =
             read.range(&tree, ..).unwrap().map(|e| e.unwrap()).collect();
         let expected: Vec<(&[u8], &[u8])> = model.iter().map(|(k, v)| (&k[..], &v[..])).collect();
@@ -317,7 +317,7 @@ fn ac_v4_scans_and_range_removals_over_values_off_their_leaf() {
         drop((read, oldest));
 
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         let removed = write.remove_range(&tree, &b"a3"[..]..&b"b2"[..]).unwrap();
         assert_eq!(removed, 7, "a3 to a7, b0 and b1");
         model.retain(|k, _| !(k[..] >= b"a3"[..] && k[..] < b"b2"[..]));
@@ -347,7 +347,7 @@ fn ac_v4_scans_and_range_removals_over_values_off_their_leaf() {
 fn fill_and_overwrite(store: &Store, name: &str) {
     let lens = [100, 5_000, 20_000, 100_000];
     let mut write = store.write().unwrap();
-    let tree = write.open_tree(name, NORMAL).unwrap();
+    let tree = write.open_tree(name).unwrap();
     for i in 0..24 {
         write
             .set(&tree, &long_key(i, 40), &pattern(lens[i % 4], 1))
@@ -378,13 +378,13 @@ fn ac_v5_values_off_their_leaf_give_their_pages_back() {
         fill_and_overwrite(&store, "e");
         assert!(in_use(&store) > empty + 50, "values off their leaf");
         let mut write = store.write().unwrap();
-        write.open_tree_with("e", NORMAL, OpenMode::Empty).unwrap();
+        write.open_tree_with("e", OpenMode::Empty).unwrap();
         write.commit().unwrap();
         assert_eq!(in_use(&store), empty, "emptied");
 
         fill_and_overwrite(&store, "e");
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("e", NORMAL).unwrap();
+        let tree = write.open_tree("e").unwrap();
         assert_eq!(write.remove_range(&tree, ..).unwrap(), 24);
         write.commit().unwrap();
         assert_eq!(in_use(&store), empty, "removed by a range removal");
@@ -453,7 +453,7 @@ fn ac_v7_a_damaged_value_fails_its_reads_but_never_its_removal() {
         let first = damaged_store(tmp.path(), at);
         let store = open(tmp.path());
         let read = store.read().unwrap();
-        let tree = read.open_tree("t", NORMAL).unwrap();
+        let tree = read.open_tree("t").unwrap();
         for _ in 0..2 {
             assert_eq!(damaged_page(read.get(&tree, b"b").unwrap_err()), first);
             let mut scan = read.range(&tree, ..).unwrap();
@@ -475,26 +475,26 @@ fn ac_v7_a_damaged_value_fails_its_reads_but_never_its_removal() {
         type Change = fn(&mut krummi::WriteTransaction<'_>) -> krummi::Result<()>;
         let changes: [(&str, Change); 7] = [
             ("store over it", |w| {
-                let t = w.open_tree("t", NORMAL)?;
+                let t = w.open_tree("t")?;
                 w.set(&t, b"b", b"new")
             }),
             ("remove it", |w| {
-                let t = w.open_tree("t", NORMAL)?;
+                let t = w.open_tree("t")?;
                 assert!(w.remove(&t, b"b")?);
                 Ok(())
             }),
             ("remove a range with it", |w| {
-                let t = w.open_tree("t", NORMAL)?;
+                let t = w.open_tree("t")?;
                 assert_eq!(w.remove_range(&t, &b"b"[..]..=&b"c"[..])?, 2);
                 Ok(())
             }),
             ("add over it", |w| {
-                let t = w.open_tree("t", NORMAL)?;
+                let t = w.open_tree("t")?;
                 assert!(!w.try_add(&t, b"b", b"added")?);
                 Ok(())
             }),
             ("empty the tree", |w| {
-                w.open_tree_with("t", NORMAL, OpenMode::Empty).map(|_| ())
+                w.open_tree_with("t", OpenMode::Empty).map(|_| ())
             }),
             ("delete the tree", |w| w.delete_tree("t")),
             ("overwrite the tree with a rename", |w| {
@@ -512,7 +512,7 @@ fn ac_v7_a_damaged_value_fails_its_reads_but_never_its_removal() {
             if label == "delete the tree" {
                 assert!(!read.tree_exists("t").unwrap());
             } else {
-                let tree = read.open_tree("t", NORMAL).unwrap();
+                let tree = read.open_tree("t").unwrap();
                 let b = read.get(&tree, b"b");
                 match label {
                     "store over it" => assert_eq!(b.unwrap(), Some(&b"new"[..])),
@@ -538,7 +538,7 @@ fn ac_v10_writes_that_change_nothing_with_large_values() {
     let over = vec![0u8; MAX_VALUE + 1];
     let changed = files_change(tmp.path(), |store| {
         let mut write = store.write().unwrap();
-        let tree = write.open_tree("t", NORMAL).unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert!(!write.try_add(&tree, b"k", &pattern(8 << 20, 5)).unwrap());
         assert!(!write.remove(&tree, b"missing").unwrap());
         assert!(!write.remove(&tree, b"absent").unwrap());
@@ -557,12 +557,12 @@ fn ac_v10_writes_that_change_nothing_with_large_values() {
     let store = Store::open(tmp.path(), &options).unwrap();
     let max = vec![0u8; MAX_VALUE];
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     assert!(!write.try_add(&tree, b"k", &max).unwrap(), "not added");
     write.commit().unwrap();
 
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     write.delete_tree("t").unwrap();
     let error = write.set(&tree, b"k", &over).unwrap_err();
     assert_eq!(invalid_size(error, Some(tmp.path())).1, 268_435_457);
@@ -571,7 +571,7 @@ fn ac_v10_writes_that_change_nothing_with_large_values() {
     write.abort();
 
     let mut write = store.write().unwrap();
-    let tree = write.open_tree("t", NORMAL).unwrap();
+    let tree = write.open_tree("t").unwrap();
     let failure = write.set(&tree, b"big", &pattern(4 << 20, 6)).unwrap_err();
     assert_eq!(failure.kind(), ErrorKind::MaxSize, "a failure of T11");
     let error = write.set(&tree, b"k", &over).unwrap_err();
@@ -580,7 +580,7 @@ fn ac_v10_writes_that_change_nothing_with_large_values() {
     assert_eq!(invalid_size(error, Some(tmp.path())).1, 268_435_457);
     assert_eq!(write.commit().unwrap_err().kind(), ErrorKind::MaxSize);
     let read = store.read().unwrap();
-    let tree = read.open_tree("t", NORMAL).unwrap();
+    let tree = read.open_tree("t").unwrap();
     assert_eq!(read.get(&tree, b"k").unwrap(), Some(&b"v"[..]));
     assert_eq!(read.len(&tree).unwrap(), 1);
 }
