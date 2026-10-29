@@ -50,8 +50,16 @@ const SUBTREE: u8 = 1;
 const INLINE_HEADER: usize = 3;
 /// Bytes before each value of an inline blob: its length.
 const ELEMENT_HEADER: usize = 2;
+/// Offset of the flags of a subtree blob, after its tag.
+const SUBTREE_FLAGS: usize = 1;
+/// Offset of the number of values of a subtree blob (u64).
+const SUBTREE_COUNT: usize = 2;
+/// Offset of the inline bytes of a subtree blob (u64).
+const SUBTREE_INLINE_LEN: usize = 10;
+/// Offset of the root page of a subtree blob (u64), its last field.
+const SUBTREE_ROOT: usize = 18;
 /// Bytes of a subtree blob.
-const SUBTREE_BLOB: usize = 26;
+const SUBTREE_BLOB: usize = SUBTREE_ROOT + 8;
 /// The flag of a subtree blob for a key with the empty value.
 const HAS_EMPTY: u8 = 1;
 
@@ -160,44 +168,45 @@ impl Subtree {
     fn encode(&self) -> [u8; SUBTREE_BLOB] {
         let mut blob = [0; SUBTREE_BLOB];
         blob[0] = SUBTREE;
-        blob[1] = if self.has_empty { HAS_EMPTY } else { 0 };
-        blob[2..10].copy_from_slice(&self.count.to_le_bytes());
-        blob[10..18].copy_from_slice(&self.inline_len.to_le_bytes());
-        blob[18..26].copy_from_slice(&self.root.to_le_bytes());
+        blob[SUBTREE_FLAGS] = if self.has_empty { HAS_EMPTY } else { 0 };
+        for (at, field) in [
+            (SUBTREE_COUNT, self.count),
+            (SUBTREE_INLINE_LEN, self.inline_len),
+            (SUBTREE_ROOT, self.root),
+        ] {
+            blob[at..at + 8].copy_from_slice(&field.to_le_bytes());
+        }
         blob
     }
 }
 
 impl<'t> Entry<'t> {
-    /// Decodes a blob, or `None` if it is not consistent: an unknown tag, a wrong length, no values, values out of
-    /// order or too long, or inline bytes that cannot be those of its values.
+    /// Decodes a blob, or `None` if its structure is not consistent: an unknown tag, a wrong length, no values,
+    /// values too long or past the end, or inline bytes that cannot be those of its values. Like the nodes of a tree,
+    /// whose checks leave the order of their keys out, it checks that every access stays inside the blob, not the
+    /// order of its values.
     fn decode(blob: &'t [u8]) -> Option<Self> {
         match *blob.first()? {
             INLINE if blob.len() >= INLINE_HEADER => {
                 let count = u16::from_le_bytes([blob[1], blob[2]]);
                 let elements = &blob[INLINE_HEADER..];
                 let mut rest = elements;
-                let mut previous: Option<&[u8]> = None;
                 for _ in 0..count {
-                    let (value, after) = split_element(rest)?;
-                    if previous.is_some_and(|previous| previous >= value) {
-                        return None;
-                    }
-                    (previous, rest) = (Some(value), after);
+                    rest = split_element(rest)?.1;
                 }
                 (count > 0 && rest.is_empty()).then_some(Entry::Inline {
                     count: u64::from(count),
                     elements,
                 })
             }
-            SUBTREE if blob.len() == SUBTREE_BLOB && blob[1] & !HAS_EMPTY == 0 => {
+            SUBTREE if blob.len() == SUBTREE_BLOB && blob[SUBTREE_FLAGS] & !HAS_EMPTY == 0 => {
                 let field =
                     |at: usize| u64::from_le_bytes(blob[at..at + 8].try_into().expect("8 bytes"));
                 let subtree = Subtree {
-                    has_empty: blob[1] == HAS_EMPTY,
-                    count: field(2),
-                    inline_len: field(10),
-                    root: field(18),
+                    has_empty: blob[SUBTREE_FLAGS] == HAS_EMPTY,
+                    count: field(SUBTREE_COUNT),
+                    inline_len: field(SUBTREE_INLINE_LEN),
+                    root: field(SUBTREE_ROOT),
                 };
                 let least = subtree.count.checked_mul(ELEMENT_HEADER as u64)?;
                 let most = subtree
@@ -297,6 +306,24 @@ fn check_value_interval(interval: &Interval<'_>) {
     );
 }
 
+/// The header of an inline blob of `count` values, `len` bytes long in all, with room reserved for the rest as
+/// [`reserve`] does.
+fn inline_header<S: PageSource + ?Sized>(tx: &S, count: u16, len: usize) -> Result<Vec<u8>> {
+    let mut blob = Vec::new();
+    reserve(tx, &mut blob, len)?;
+    blob.push(INLINE);
+    blob.extend_from_slice(&count.to_le_bytes());
+    Ok(blob)
+}
+
+/// Appends `value` to an inline blob: its length and its bytes.
+fn push_element(blob: &mut Vec<u8>, value: &[u8]) {
+    let len =
+        u16::try_from(value.len()).unwrap_or_else(|_| panic!("a value has up to {MAX_KEY} bytes"));
+    blob.extend_from_slice(&len.to_le_bytes());
+    blob.extend_from_slice(value);
+}
+
 /// The inline blob of `count` values, `len` bytes long, reserved as [`reserve`] does.
 fn encode_inline<'a, S: PageSource + ?Sized>(
     tx: &S,
@@ -304,15 +331,10 @@ fn encode_inline<'a, S: PageSource + ?Sized>(
     len: usize,
     values: impl Iterator<Item = &'a [u8]>,
 ) -> Result<Vec<u8>> {
-    let mut blob = Vec::new();
-    reserve(tx, &mut blob, len)?;
-    blob.push(INLINE);
     let count = u16::try_from(count).expect("an inline blob holds fewer than 2^16 values");
-    blob.extend_from_slice(&count.to_le_bytes());
+    let mut blob = inline_header(tx, count, len)?;
     for value in values {
-        let value_len = u16::try_from(value.len()).expect("a value has up to 2,048 bytes");
-        blob.extend_from_slice(&value_len.to_le_bytes());
-        blob.extend_from_slice(value);
+        push_element(&mut blob, value);
     }
     debug_assert_eq!(blob.len(), len);
     Ok(blob)
@@ -363,15 +385,12 @@ fn promote(tx: &mut WriteTransaction<'_>, blob: &[u8]) -> Result<[u8; SUBTREE_BL
 /// of the subtree. A subtree whose values do not match its blob is damage of that leaf.
 fn demote<S: PageSource + ?Sized>(tx: &S, page: u64, subtree: &Subtree) -> Result<Vec<u8>> {
     let len = usize::try_from(subtree.inline_len).map_err(|_| tx.damaged(page))?;
-    let mut blob = Vec::new();
-    reserve(tx, &mut blob, len)?;
-    blob.push(INLINE);
     // The volume is below the demotion threshold, so the count fits; checked anyway, against damage.
     let count = u16::try_from(subtree.count).map_err(|_| tx.damaged(page))?;
-    blob.extend_from_slice(&count.to_le_bytes());
+    let mut blob = inline_header(tx, count, len)?;
     let mut seen = 0;
     if subtree.has_empty {
-        blob.extend_from_slice(&[0, 0]);
+        push_element(&mut blob, b"");
         seen += 1;
     }
     leaves(tx, subtree.root, None, &mut |_, leaf| {
@@ -381,8 +400,7 @@ fn demote<S: PageSource + ?Sized>(tx: &S, page: u64, subtree: &Subtree) -> Resul
                 return Err(tx.damaged(page));
             }
             // A checked leaf has keys of up to `MAX_KEY` bytes.
-            blob.extend_from_slice(&(value.len() as u16).to_le_bytes());
-            blob.extend_from_slice(value);
+            push_element(&mut blob, value);
             seen += 1;
         }
         Ok(())
@@ -716,8 +734,9 @@ pub fn value_count<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Res
 }
 
 /// Frees every page of the multi-value tree at `root`: the subtrees of its keys, then the parent (D6). It reads the
-/// parent's nodes and every node of the subtrees.
-pub fn free_all(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
+/// parent's nodes and every node of the subtrees. Named apart from [`crate::free_all`], which frees a normal tree and
+/// would leave the subtrees of a multi-value tree in use.
+pub fn free_tree(tx: &mut WriteTransaction<'_>, root: u64) -> Result<()> {
     let reader = &*tx;
     let mut subtrees = Vec::new();
     leaves(reader, root, None, &mut |page, leaf| {

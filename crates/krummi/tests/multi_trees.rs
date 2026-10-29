@@ -1,7 +1,8 @@
-//! Multi-value trees through the public API (Multi-value trees PRD, M1–M14): AC-M1–AC-M8, AC-M10, the parts of
-//! AC-M11 without damage, AC-M17 and AC-M18. What must not compile (AC-M9) is in `trees_compile.rs`; where the
-//! references of the scans point (AC-M16) and a store that refuses writes (the T12 part of AC-M10) need the engine's
-//! test hooks and are in the library's own tests.
+//! Multi-value trees through the public API (Multi-value trees PRD, M1–M14): AC-M1–AC-M8, AC-M10–AC-M13, AC-M17 and
+//! AC-M18. What must not compile (AC-M9) is in `trees_compile.rs`; crashes and altered bytes (AC-M14, its first part,
+//! and AC-M15) are in `tree_integrity.rs`; where the references of the scans point (AC-M16), a store that refuses
+//! writes (the T12 part of AC-M10) and failures in the middle of an operation (AC-M14, its second part) need the
+//! engine's test hooks and are in the library's own tests.
 //!
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the
 //! store's files, which run on disk only. The tests that depend on the thresholds or on where the values of a key
@@ -207,6 +208,20 @@ fn ac_m1_the_values_of_a_key_are_a_set_in_byte_order() {
     on_disk_reopened(scenario);
 }
 
+/// What an invalid-size error reports: what is out of size, the size received, the minimum and the maximum.
+type Size = (SizeSubject, u64, u64, u64);
+
+/// The invalid-size error of AC-M2 for a key of `len` bytes.
+fn key_error(len: usize) -> Size {
+    (SizeSubject::Key, len as u64, 1, MAX_KEY as u64)
+}
+
+/// The invalid-size error of AC-M2 for a value of 2,049 bytes.
+const VALUE_ERROR: Size = (SizeSubject::Value, MAX_KEY as u64 + 1, 0, MAX_KEY as u64);
+
+/// The invalid-size error of AC-M2 for a prefix of 2,049 bytes.
+const PREFIX_ERROR: Size = (SizeSubject::Prefix, MAX_KEY as u64 + 1, 0, MAX_KEY as u64);
+
 /// The size failures of AC-M2 of the operations that both transactions have.
 macro_rules! check_read_sizes {
     ($tx:expr, $tree:expr, $folder:expr) => {{
@@ -214,9 +229,9 @@ macro_rules! check_read_sizes {
         let size = |error: Error| invalid_size(error, folder);
         let long = vec![0; MAX_KEY + 1];
         let long = &long[..];
-        let over = MAX_KEY as u64 + 1;
+        let (value, prefix) = (VALUE_ERROR, PREFIX_ERROR);
         for bad in [&[][..], long] {
-            let key = (SizeSubject::Key, bad.len() as u64, 1, MAX_KEY as u64);
+            let key = key_error(bad.len());
             assert_eq!(size(tx.contains(tree, bad, b"v").unwrap_err()), key);
             let both = tx.contains(tree, bad, long).unwrap_err();
             assert_eq!(size(both), key, "the key before the value");
@@ -233,8 +248,6 @@ macro_rules! check_read_sizes {
             let excluded = tx.keys(tree, (Excluded(bad), Unbounded)).err().unwrap();
             assert_eq!(size(excluded), key);
         }
-        let value = (SizeSubject::Value, over, 0, MAX_KEY as u64);
-        let prefix = (SizeSubject::Prefix, over, 0, MAX_KEY as u64);
         assert_eq!(size(tx.contains(tree, b"k", long).unwrap_err()), value);
         assert_eq!(size(tx.values(tree, b"k", long..).err().unwrap()), value);
         assert_eq!(size(tx.values(tree, b"k", ..long).err().unwrap()), value);
@@ -247,7 +260,7 @@ macro_rules! check_read_sizes {
         let only = tx.values_prefix(tree, b"k", long, ..).err().unwrap();
         assert_eq!(size(only), prefix);
         let both = tx.keys_prefix(tree, long, long..).err().unwrap();
-        assert_eq!(size(both), (SizeSubject::Key, over, 1, MAX_KEY as u64));
+        assert_eq!(size(both), key_error(long.len()));
         assert_eq!(size(tx.keys_prefix(tree, long, ..).err().unwrap()), prefix);
         let empty: &[u8] = b"";
         assert!(
@@ -269,9 +282,7 @@ fn ac_m2_sizes_are_checked_in_order_without_effect() {
         let size = |error: Error| invalid_size(error, folder);
         let long = vec![0; MAX_KEY + 1];
         let long = &long[..];
-        let over = MAX_KEY as u64 + 1;
-        let value = (SizeSubject::Value, over, 0, MAX_KEY as u64);
-        let prefix = (SizeSubject::Prefix, over, 0, MAX_KEY as u64);
+        let (value, prefix) = (VALUE_ERROR, PREFIX_ERROR);
 
         let mut write = store.write().unwrap();
         let tree = write.open_multi_tree("m").unwrap();
@@ -294,7 +305,7 @@ fn ac_m2_sizes_are_checked_in_order_without_effect() {
         let only = write.remove_value_range_prefix(&tree, b"k", long, ..);
         assert_eq!(size(only.unwrap_err()), prefix);
         for bad in [&[][..], long] {
-            let key = (SizeSubject::Key, bad.len() as u64, 1, MAX_KEY as u64);
+            let key = key_error(bad.len());
             assert_eq!(size(write.add(&tree, bad, b"v").unwrap_err()), key);
             assert_eq!(
                 size(write.add(&tree, bad, long).unwrap_err()),
@@ -447,14 +458,16 @@ enum Step {
 /// empty value is the fourth one added, and it stays.
 fn threshold_steps(with_empty: bool) -> Vec<(Step, BTreeSet<Vec<u8>>, bool)> {
     let (promotion, demotion) = multi_thresholds();
-    let volume_of = |values: &BTreeSet<Vec<u8>>| volume(1, values.iter().map(Vec::len));
+    // The volume of the key `k`, whose length is the first argument.
+    let volume_of = |values: &BTreeSet<Vec<u8>>| volume(b"k".len(), values.iter().map(Vec::len));
     let mut values = BTreeSet::new();
     let mut in_subtree = false;
     let mut steps = Vec::new();
     let mut fresh = (0..).map(value16);
     let mut added = 0;
-    let mut next_value = |added: usize| {
-        if with_empty && added == 3 {
+    // The value added after `added_before` others.
+    let mut next_value = |added_before: usize| {
+        if with_empty && added_before == 3 {
             Vec::new()
         } else {
             fresh.next().unwrap()
@@ -467,9 +480,7 @@ fn threshold_steps(with_empty: bool) -> Vec<(Step, BTreeSet<Vec<u8>>, bool)> {
             let value = next_value(added);
             added += 1;
             values.insert(value.clone());
-            let before = in_subtree;
             in_subtree |= volume_of(&values) > promotion;
-            assert_eq!(in_subtree, before || volume_of(&values) > promotion);
             steps.push((Step::Add(value), values.clone(), in_subtree));
             past += usize::from(in_subtree);
         }
@@ -1159,6 +1170,8 @@ macro_rules! read_operations_fail {
         assert!(size(tx.contains(tree, b"k", &long).unwrap_err()));
         assert!(size(tx.value_count(tree, b"").unwrap_err()));
         assert!(size(tx.keys(tree, &long[..]..).err().unwrap()));
+        assert!(size(tx.keys_prefix(tree, &long, ..).err().unwrap()));
+        assert!(size(tx.values(tree, b"k", ..=&long[..]).err().unwrap()));
         assert!(size(tx.values_prefix(tree, b"k", &long, ..).err().unwrap()));
     }};
 }
@@ -1193,6 +1206,9 @@ macro_rules! write_operations_fail {
             $write.remove_key_range(tree, ..=&long[..]).unwrap_err()
         ));
         assert!(size(
+            $write.remove_key_range_prefix(tree, &long, ..).unwrap_err()
+        ));
+        assert!(size(
             $write
                 .remove_value_range(tree, b"k", &long[..]..)
                 .unwrap_err()
@@ -1205,7 +1221,7 @@ macro_rules! write_operations_fail {
     }};
 }
 
-/// AC-M11 (M4, M12, A6, A7, AC-B14), without damage: in a write with a multi-value tree opened twice, deleting it
+/// AC-M11 (M4, M12, A6, A7, AC-B14): in a write with a multi-value tree opened twice, deleting it
 /// through one handle makes every operation through the other fail without effect with tree not found and the tree's
 /// last name, also after another tree is created with that name; a handle of another transaction fails without effect
 /// with misuse; and an argument out of its size wins over both.
@@ -1251,6 +1267,426 @@ fn ac_m11_handles_of_a_deleted_tree_and_of_another_transaction() {
         let tree = read.open_multi_tree("m").unwrap();
         check!(read, tree, model);
     });
+}
+
+/// A key of AC-M12: 1,000 bytes, so that [`KEYS`] of them spread over several leaves of the tree.
+fn damage_key(i: usize) -> Vec<u8> {
+    long_key(i, 1000)
+}
+
+/// The number of keys of AC-M12.
+const KEYS: usize = 24;
+/// The key of AC-M12 whose values are in a subtree of several levels, the empty value with them.
+const DEEP: usize = 3;
+/// A key of AC-M12 with its values in a subtree, in another leaf.
+const OTHER_SUBTREE: usize = 9;
+/// The key of AC-M12 whose leaf is damaged.
+const HIT: usize = 13;
+/// The keys of AC-M12 that are read and modified while another one needs a damaged page.
+const OTHERS: [usize; 3] = [0, OTHER_SUBTREE, KEYS - 1];
+
+/// The tree of AC-M12: [`KEYS`] keys with three values in their entries, except [`DEEP`], with the empty value and
+/// twenty values of 2,048 bytes in a subtree of several levels, and [`OTHER_SUBTREE`], with 150 values in a subtree.
+fn damage_model() -> Model {
+    (0..KEYS)
+        .map(|i| {
+            let values = match i {
+                DEEP => (0..20)
+                    .map(|j| long_key(j, MAX_KEY))
+                    .chain([vec![]])
+                    .collect(),
+                OTHER_SUBTREE => (0..150).map(value16).collect(),
+                _ => set_of(&[b"", b"a", b"b"]),
+            };
+            (damage_key(i), values)
+        })
+        .collect()
+}
+
+/// A closed store on disk with the normal tree `other` and the multi-value tree `m` of [`damage_model`], with the
+/// page that `target` gives damaged; and that page and what else `target` found before the damage.
+fn damaged_multi_store<T>(target: impl Fn(&Path) -> (u64, T)) -> (tempfile::TempDir, u64, T) {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_tree(&store, "other", &[(b"k", b"v")]);
+    commit_multi(&store, "m", &damage_model());
+    store.close().unwrap();
+    let (page, found) = target(tmp.path());
+    damage(tmp.path(), page);
+    (tmp, page, found)
+}
+
+/// Checks a scan that must fail with damage of `page`: the items it returns from one end until then, owned with
+/// `own`, are the next ones of `expected` from that end, and after the failure nothing more comes out of either end
+/// (R8).
+fn scan_fails_at<I, T: PartialEq + std::fmt::Debug>(
+    mut scan: impl DoubleEndedIterator<Item = Result<I>>,
+    expected: &[T],
+    own: impl Fn(I) -> T,
+    front: bool,
+    page: u64,
+) {
+    let mut expected: Box<dyn Iterator<Item = &T>> = if front {
+        Box::new(expected.iter())
+    } else {
+        Box::new(expected.iter().rev())
+    };
+    loop {
+        let step = if front { scan.next() } else { scan.next_back() };
+        match step.expect("the scan fails before it ends") {
+            Ok(item) => assert_eq!(own(item), *expected.next().unwrap(), "front {front}"),
+            Err(error) => {
+                assert_eq!(damaged_page(error), page, "front {front}");
+                assert!(
+                    scan.next().is_none() && scan.next_back().is_none(),
+                    "the scan ends"
+                );
+                return;
+            }
+        }
+    }
+}
+
+/// Checks that the operations of the transaction `$tx` on the values of `$key` that need the damaged `$page` fail with
+/// it, twice: Contains with the value `$present`, which is there, and with one that is not; and value scans, which
+/// return the values `$values` from either end before failing with it.
+macro_rules! value_reads_fail {
+    ($tx:expr, $tree:expr, $key:expr, $values:expr, $present:expr, $page:expr) => {{
+        let (tx, tree, key, page): (_, _, &[u8], u64) = (&$tx, &$tree, &$key, $page);
+        let values: Vec<Vec<u8>> = $values.iter().cloned().collect();
+        for _ in 0..2 {
+            for value in [&$present[..], b"absent"] {
+                let error = tx.contains(tree, key, value).unwrap_err();
+                assert_eq!(damaged_page(error), page, "contains {value:?}");
+            }
+            for front in [true, false] {
+                let scan = tx.values(tree, key, ..).unwrap();
+                scan_fails_at(scan, &values, own_value, front, page);
+            }
+        }
+    }};
+}
+
+/// Checks that a new read sees the trees of [`damaged_multi_store`] as they were: their list, the number of entries
+/// and, for each key but those of `skip`, its number of values and its values.
+fn unchanged(store: &Store, model: &Model, skip: &[usize]) {
+    let read = store.read().unwrap();
+    let kinds = vec![("m".to_owned(), MULTI), ("other".to_owned(), NORMAL)];
+    assert_eq!(read.list_trees().unwrap(), kinds);
+    let tree = read.open_multi_tree("m").unwrap();
+    assert_eq!(read.len(&tree).unwrap(), model.len() as u64);
+    let skipped: Vec<Vec<u8>> = skip.iter().map(|&i| damage_key(i)).collect();
+    for (key, values) in model.iter().filter(|(key, _)| !skipped.contains(key)) {
+        assert_eq!(read.value_count(&tree, key).unwrap(), values.len() as u64);
+        let found = collect(read.values(&tree, key, ..).unwrap(), own_value);
+        assert_eq!(found, values.iter().cloned().collect::<Vec<_>>());
+    }
+}
+
+/// Checks that a write on the store of [`damaged_multi_store`] reads and modifies the keys `keys`, which need no
+/// damaged page: Contains, adding a value, removing the first one, the number of values and the value scan; that it
+/// commits; and that a new read sees it, with [`unchanged`] for the keys but those of `skip`. Returns the model
+/// afterwards.
+fn other_keys_work(store: &Store, mut model: Model, keys: &[usize], skip: &[usize]) -> Model {
+    let mut write = store.write().unwrap();
+    let tree = write.open_multi_tree("m").unwrap();
+    for &i in keys {
+        let key = damage_key(i);
+        let first = model[&key].first().unwrap().clone();
+        assert!(write.contains(&tree, &key, &first).unwrap());
+        assert!(write.add(&tree, &key, b"new").unwrap());
+        assert!(write.remove_value(&tree, &key, &first).unwrap());
+        let values = model.get_mut(&key).unwrap();
+        values.insert(b"new".to_vec());
+        values.remove(&first);
+        let count = write.value_count(&tree, &key).unwrap();
+        assert_eq!(count, values.len() as u64);
+        let found = collect(write.values(&tree, &key, ..).unwrap(), own_value);
+        assert_eq!(found, values.iter().cloned().collect::<Vec<_>>());
+    }
+    write.commit().unwrap();
+    unchanged(store, &model, skip);
+    model
+}
+
+/// AC-M12 (M11, A9, R8, G6, F9), on disk, with the root page of the subtree of a key damaged, a subtree of several
+/// levels: adding, removing and checking one of its values that is there or not, and scanning its values, fail with
+/// damage and that page, again when repeated; a value scan from the front returns the empty value, which is in the
+/// key's entry, then fails and ends, and a new scan in a read fails the same; the number of values of the key, the
+/// key scan and the other keys work; and a write that removes the key, removes values until it goes back to its entry
+/// or away, removes a range of keys that holds it, empties the tree, deletes it or overwrites it with Rename fails
+/// with damage and the subtree's page, and its commit fails with it and applies nothing (T11).
+#[test]
+fn ac_m12_a_damaged_subtree_of_a_key() {
+    let model = damage_model();
+    let deep = damage_key(DEEP);
+    let (tmp, page, ()) = damaged_multi_store(|folder| {
+        let (root, levels) = subtree_root(folder, "m", &damage_key(DEEP));
+        assert!(levels >= 2, "a subtree of {levels} levels");
+        (root, ())
+    });
+    let store = open(tmp.path());
+    unchanged(&store, &model, &[DEEP]);
+    let present = long_key(5, MAX_KEY);
+
+    let read = store.read().unwrap();
+    let tree = read.open_multi_tree("m").unwrap();
+    value_reads_fail!(read, tree, deep, [Vec::new()], present, page);
+    assert!(
+        read.contains(&tree, &deep, b"").unwrap(),
+        "the empty value is in the key's entry"
+    );
+    assert_eq!(read.value_count(&tree, &deep).unwrap(), 21);
+    let keys = collect(read.keys(&tree, ..).unwrap(), own_key);
+    assert_eq!(keys, counts(&model));
+    drop(read);
+
+    // The operations on its values fail, the write goes on, and its commit fails with the first failure.
+    let mut write = store.write().unwrap();
+    let tree = write.open_multi_tree("m").unwrap();
+    for _ in 0..2 {
+        for value in [&present[..], b"absent"] {
+            let error = write.add(&tree, &deep, value).unwrap_err();
+            assert_eq!(damaged_page(error), page, "add {value:?}");
+            let error = write.remove_value(&tree, &deep, value).unwrap_err();
+            assert_eq!(damaged_page(error), page, "remove {value:?}");
+        }
+    }
+    value_reads_fail!(write, tree, deep, [Vec::new()], present, page);
+    assert_eq!(write.value_count(&tree, &deep).unwrap(), 21);
+    let keys = collect(write.keys(&tree, ..).unwrap(), own_key);
+    assert_eq!(keys, counts(&model));
+    assert_eq!(damaged_page(write.commit().unwrap_err()), page, "T11");
+    unchanged(&store, &model, &[DEEP]);
+    let model = other_keys_work(&store, model, &OTHERS, &[DEEP]);
+
+    // Removing every value of 2,048 bytes leaves the empty value, below the demotion threshold.
+    let longest: &[u8] = &long_key(0, MAX_KEY);
+    let (before, after) = (damage_key(DEEP - 1), damage_key(DEEP + 1));
+    for operation in [
+        "remove key",
+        "remove values until its entry",
+        "remove all its values",
+        "remove a range of keys",
+        "create or empty",
+        "empty",
+        "delete",
+        "overwrite with rename",
+    ] {
+        let mut write = store.write().unwrap();
+        let tree = write.open_multi_tree("m").unwrap();
+        let error = match operation {
+            "remove key" => write.remove_key(&tree, &deep).unwrap_err(),
+            "remove values until its entry" => write
+                .remove_value_range(&tree, &deep, longest..)
+                .unwrap_err(),
+            "remove all its values" => write.remove_value_range(&tree, &deep, ..).unwrap_err(),
+            "remove a range of keys" => write
+                .remove_key_range(&tree, &before[..]..=&after[..])
+                .unwrap_err(),
+            "create or empty" => write
+                .open_multi_tree_with("m", OpenMode::CreateOrEmpty)
+                .err()
+                .unwrap(),
+            "empty" => write
+                .open_multi_tree_with("m", OpenMode::Empty)
+                .err()
+                .unwrap(),
+            "delete" => write.delete_tree("m").unwrap_err(),
+            _ => write.rename_tree("other", "m", true).unwrap_err(),
+        };
+        assert_eq!(damaged_page(error), page, "{operation}");
+        let error = write.commit().unwrap_err();
+        assert_eq!(damaged_page(error), page, "{operation}: T11");
+        unchanged(&store, &model, &[DEEP]);
+    }
+    store.close().unwrap();
+}
+
+/// AC-M12 (M11, A9, R8, G6, F9), on disk, with a damaged leaf of the tree on the way to a key: adding, removing and
+/// checking one of its values that is there or not, scanning its values, counting them and removing the key or its
+/// values fail with damage and that page, again when repeated, and a new scan in a read fails the same; the key scan
+/// returns the keys before that leaf from each end, then fails and ends; the keys of the other leaves are read and
+/// modified; and a write that failed cannot be committed (T11).
+#[test]
+fn ac_m12_a_damaged_leaf_on_the_way_to_a_key() {
+    let model = damage_model();
+    let hit = damage_key(HIT);
+    let (tmp, page, in_the_leaf) = damaged_multi_store(|folder| {
+        let page = leaf_page(folder, Some("m"), &damage_key(HIT));
+        assert_ne!(page, root_page(folder, "m"), "a leaf below the root");
+        let in_the_leaf: Vec<usize> = (0..KEYS)
+            .filter(|&i| leaf_page(folder, Some("m"), &damage_key(i)) == page)
+            .collect();
+        for i in OTHERS.into_iter().chain([DEEP]) {
+            assert!(
+                !in_the_leaf.contains(&i),
+                "{i} in another leaf: {in_the_leaf:?}"
+            );
+        }
+        (page, in_the_leaf)
+    });
+    let store = open(tmp.path());
+    unchanged(&store, &model, &in_the_leaf);
+    let keys = counts(&model);
+
+    let read = store.read().unwrap();
+    let tree = read.open_multi_tree("m").unwrap();
+    value_reads_fail!(read, tree, hit, Vec::<Vec<u8>>::new(), b"a", page);
+    for _ in 0..2 {
+        let error = read.value_count(&tree, &hit).unwrap_err();
+        assert_eq!(damaged_page(error), page);
+        for front in [true, false] {
+            scan_fails_at(read.keys(&tree, ..).unwrap(), &keys, own_key, front, page);
+        }
+    }
+    drop(read);
+
+    let mut write = store.write().unwrap();
+    let tree = write.open_multi_tree("m").unwrap();
+    for _ in 0..2 {
+        for value in [&b"a"[..], b"absent"] {
+            let error = write.add(&tree, &hit, value).unwrap_err();
+            assert_eq!(damaged_page(error), page, "add {value:?}");
+            let error = write.remove_value(&tree, &hit, value).unwrap_err();
+            assert_eq!(damaged_page(error), page, "remove {value:?}");
+        }
+        let error = write.remove_value_range(&tree, &hit, ..).unwrap_err();
+        assert_eq!(damaged_page(error), page);
+        let error = write.remove_key(&tree, &hit).unwrap_err();
+        assert_eq!(damaged_page(error), page);
+    }
+    value_reads_fail!(write, tree, hit, Vec::<Vec<u8>>::new(), b"a", page);
+    scan_fails_at(write.keys(&tree, ..).unwrap(), &keys, own_key, true, page);
+    assert_eq!(damaged_page(write.commit().unwrap_err()), page, "T11");
+    unchanged(&store, &model, &in_the_leaf);
+    let others = [&OTHERS[..], &[DEEP]].concat();
+    other_keys_work(&store, model, &others, &in_the_leaf);
+    store.close().unwrap();
+}
+
+/// The tree of AC-M13 before its write: `p` with its values in its entry, near the promotion threshold; `d` and `s`
+/// with theirs in subtrees, `s` with values of 2,048 bytes, in one leaf; and four keys of 2,048 bytes, one to a leaf.
+fn snapshot_model() -> Model {
+    let mut model = Model::from([
+        (b"p".to_vec(), (0..100).map(value16).collect()),
+        (b"d".to_vec(), (0..150).map(value16).collect()),
+        (
+            b"s".to_vec(),
+            (0..2).map(|j| long_key(j, MAX_KEY)).collect(),
+        ),
+    ]);
+    for i in 0..4 {
+        model.insert(long_key(i, MAX_KEY), set_of(&[b"x"]));
+    }
+    model
+}
+
+/// The write of AC-M13 through `tree`, also applied to `model`: `p` moves to a subtree and back to its entry, `d` to
+/// its entry and back to a subtree, the subtree of `s` gains levels with values of 2,048 bytes and loses some, and the
+/// tree gains keys of 2,048 bytes and loses some, so that it gains levels too. It calls `check_snapshot` when the trees
+/// have grown and when they have shrunk.
+fn snapshot_write(
+    write: &mut krummi::WriteTransaction<'_>,
+    tree: &krummi::WriteMultiTree<'_>,
+    model: &mut Model,
+    check_snapshot: &dyn Fn(),
+) {
+    let mut add = |write: &mut krummi::WriteTransaction<'_>, key: &[u8], value: Vec<u8>| {
+        assert!(write.add(tree, key, &value).unwrap());
+        model.entry(key.to_vec()).or_default().insert(value);
+    };
+    for i in 100..120 {
+        add(write, b"p", value16(i));
+    }
+    for j in 2..40 {
+        add(write, b"s", long_key(j, MAX_KEY));
+    }
+    for i in 4..40 {
+        add(write, &long_key(i, MAX_KEY), b"x".to_vec());
+        add(write, &long_key(i, MAX_KEY), b"y".to_vec());
+    }
+    assert!(write.subtree_of(tree, b"p").unwrap().is_some(), "promoted");
+    check_snapshot();
+    let mut remove = |write: &mut krummi::WriteTransaction<'_>, key: &[u8], value: Vec<u8>| {
+        assert!(write.remove_value(tree, key, &value).unwrap());
+        let values = model.get_mut(key).unwrap();
+        values.remove(&value);
+        if values.is_empty() {
+            model.remove(key);
+        }
+    };
+    for i in 50..120 {
+        remove(write, b"p", value16(i));
+    }
+    for i in 50..150 {
+        remove(write, b"d", value16(i));
+    }
+    for j in (0..40).filter(|j| j % 3 != 0) {
+        remove(write, b"s", long_key(j, MAX_KEY));
+    }
+    for i in (0..40).filter(|i| i % 3 != 0) {
+        remove(write, &long_key(i, MAX_KEY), b"x".to_vec());
+        if i >= 4 {
+            remove(write, &long_key(i, MAX_KEY), b"y".to_vec());
+        }
+    }
+    assert!(write.subtree_of(tree, b"p").unwrap().is_none(), "demoted");
+    assert!(write.subtree_of(tree, b"d").unwrap().is_none(), "demoted");
+    check_snapshot();
+    for i in 50..150 {
+        assert!(write.add(tree, b"d", &value16(i)).unwrap());
+        model.get_mut(&b"d"[..]).unwrap().insert(value16(i));
+    }
+    assert!(write.subtree_of(tree, b"d").unwrap().is_some(), "promoted");
+}
+
+/// AC-M13 (G3, T14, AC-B17): a read opened before a write whose additions and removals move keys from their entries
+/// to subtrees and back, and split and merge pages of the tree and of the subtrees until their heights change, sees
+/// exactly its snapshot, its keys with their values and numbers of values and the number of entries, through a handle
+/// opened before the write and one opened after, before and after the commit; and a new read sees the write's. On
+/// disk, the heights of the tree and of a subtree are checked before and after.
+#[test]
+fn ac_m13_a_read_keeps_its_snapshot_while_a_write_moves_values_and_changes_heights() {
+    let scenario = |store: &Store| {
+        let snapshot = snapshot_model();
+        commit_multi(store, "m", &snapshot);
+        let read = store.read().unwrap();
+        let before = read.open_multi_tree("m").unwrap();
+        check!(read, before, snapshot);
+        let check_snapshot = || {
+            let tree = read.open_multi_tree("m").unwrap();
+            check!(read, tree, snapshot);
+            check!(read, before, snapshot);
+        };
+        let mut model = snapshot.clone();
+        let mut write = store.write().unwrap();
+        let tree = write.open_multi_tree("m").unwrap();
+        snapshot_write(&mut write, &tree, &mut model, &check_snapshot);
+        check!(write, tree, model);
+        check_snapshot();
+        write.commit().unwrap();
+        check_snapshot();
+        check_read(store, "m", &model);
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_multi(&store, "m", &snapshot_model());
+    store.close().unwrap();
+    let heights = |folder: &Path| (height(folder, "m"), subtree_root(folder, "m", b"s").1);
+    let before = heights(tmp.path());
+    let store = open(tmp.path());
+    scenario(&store);
+    store.close().unwrap();
+    let after = heights(tmp.path());
+    assert!(
+        after.0 > before.0 && after.1 > before.1,
+        "{before:?} to {after:?}"
+    );
+
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    scenario(&store);
+    store.close().unwrap();
 }
 
 /// AC-M17 (M9, T10): a write on disk that only adds values that are there, removes values and keys that are not,
@@ -1379,8 +1815,10 @@ fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_format_8() {
         )
     });
     let mut blob = vec![1, 1];
-    blob.extend(151u64.to_le_bytes());
-    blob.extend((volume(0, values.iter().map(Vec::len)) as u64).to_le_bytes());
+    blob.extend((values.len() as u64).to_le_bytes());
+    // The bytes of the inline encoding are the volume without the key, whose length is the first argument.
+    let inline_len = volume(0, values.iter().map(Vec::len));
+    blob.extend((inline_len as u64).to_le_bytes());
     blob.extend(subtree.to_le_bytes());
     let bytes = std::fs::read(tmp.path().join(DATA_FILE)).unwrap();
     let page = &bytes[leaf as usize * PAGE_SIZE..][..PAGE_SIZE];

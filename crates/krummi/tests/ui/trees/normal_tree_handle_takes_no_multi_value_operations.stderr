@@ -143,9 +143,73 @@ note: method defined here
    |            ^^^^^^^^^^^^^^^^^^
 
 error[E0308]: mismatched types
-  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:22:27
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:18:31
    |
-22 |     let _ = read.contains(&tree, b"k", b"v");
+18 |     let _ = write.keys_prefix(&tree, b"p", ..);
+   |                   ----------- ^^^^^ expected `&WriteMultiTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteMultiTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn keys_prefix<'k>(
+   |            ^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:19:33
+   |
+19 |     let _ = write.values_prefix(&tree, b"k", b"p", ..);
+   |                   ------------- ^^^^^ expected `&WriteMultiTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteMultiTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn values_prefix<'k>(
+   |            ^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:20:43
+   |
+20 |     let _ = write.remove_key_range_prefix(&tree, b"p", ..);
+   |                   ----------------------- ^^^^^ expected `&WriteMultiTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteMultiTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn remove_key_range_prefix<'k>(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:21:45
+   |
+21 |     let _ = write.remove_value_range_prefix(&tree, b"k", b"p", ..);
+   |                   ------------------------- ^^^^^ expected `&WriteMultiTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteMultiTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn remove_value_range_prefix<'k>(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:26:27
+   |
+26 |     let _ = read.contains(&tree, b"k", b"v");
    |                  -------- ^^^^^ expected `&ReadMultiTree<'_>`, found `&ReadTree<'_>`
    |                  |
    |                  arguments to this method are incorrect
@@ -159,9 +223,9 @@ note: method defined here
    |            ^^^^^^^^
 
 error[E0308]: mismatched types
-  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:23:30
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:27:30
    |
-23 |     let _ = read.value_count(&tree, b"k");
+27 |     let _ = read.value_count(&tree, b"k");
    |                  ----------- ^^^^^ expected `&ReadMultiTree<'_>`, found `&ReadTree<'_>`
    |                  |
    |                  arguments to this method are incorrect
@@ -175,9 +239,41 @@ note: method defined here
    |            ^^^^^^^^^^^
 
 error[E0308]: mismatched types
-  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:24:30
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:28:23
    |
-24 |     let _ = read.keys_prefix(&tree, b"p", ..);
+28 |     let _ = read.keys(&tree, ..);
+   |                  ---- ^^^^^ expected `&ReadMultiTree<'_>`, found `&ReadTree<'_>`
+   |                  |
+   |                  arguments to this method are incorrect
+   |
+   = note: expected reference `&ReadMultiTree<'_>`
+              found reference `&ReadTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn keys<'k>(
+   |            ^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:29:25
+   |
+29 |     let _ = read.values(&tree, b"k", ..);
+   |                  ------ ^^^^^ expected `&ReadMultiTree<'_>`, found `&ReadTree<'_>`
+   |                  |
+   |                  arguments to this method are incorrect
+   |
+   = note: expected reference `&ReadMultiTree<'_>`
+              found reference `&ReadTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn values<'k>(
+   |            ^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:30:30
+   |
+30 |     let _ = read.keys_prefix(&tree, b"p", ..);
    |                  ----------- ^^^^^ expected `&ReadMultiTree<'_>`, found `&ReadTree<'_>`
    |                  |
    |                  arguments to this method are incorrect
@@ -191,9 +287,9 @@ note: method defined here
    |            ^^^^^^^^^^^
 
 error[E0308]: mismatched types
-  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:25:32
+  --> tests/ui/trees/normal_tree_handle_takes_no_multi_value_operations.rs:31:32
    |
-25 |     let _ = read.values_prefix(&tree, b"k", b"p", ..);
+31 |     let _ = read.values_prefix(&tree, b"k", b"p", ..);
    |                  ------------- ^^^^^ expected `&ReadMultiTree<'_>`, found `&ReadTree<'_>`
    |                  |
    |                  arguments to this method are incorrect

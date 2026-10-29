@@ -15,12 +15,18 @@ fn main() {
     let _ = write.values(&tree, b"k", ..);
     let _ = write.remove_key_range(&tree, ..);
     let _ = write.remove_value_range(&tree, b"k", ..);
+    let _ = write.keys_prefix(&tree, b"p", ..);
+    let _ = write.values_prefix(&tree, b"k", b"p", ..);
+    let _ = write.remove_key_range_prefix(&tree, b"p", ..);
+    let _ = write.remove_value_range_prefix(&tree, b"k", b"p", ..);
     write.commit().unwrap();
 
     let read = store.read().unwrap();
     let tree = read.open_tree("t").unwrap();
     let _ = read.contains(&tree, b"k", b"v");
     let _ = read.value_count(&tree, b"k");
+    let _ = read.keys(&tree, ..);
+    let _ = read.values(&tree, b"k", ..);
     let _ = read.keys_prefix(&tree, b"p", ..);
     let _ = read.values_prefix(&tree, b"k", b"p", ..);
 }

@@ -1,6 +1,6 @@
 //! What the public tests cannot reach without the engine's test hooks: a store that refuses writes (T12) while a
-//! write transaction is open, and the failures of T11 at the page operations of a write (AC-B18, AC-R12, AC-R13 and,
-//! with values off their leaf, AC-V8) and during its commit.
+//! write transaction is open, and the failures of T11 at the page operations of a write (AC-B18, AC-R12, AC-R13,
+//! with values off their leaf AC-V8 and with a multi-value tree AC-M14) and during its commit.
 
 use std::io;
 use std::thread;
@@ -504,15 +504,42 @@ fn t11_sweep_of(
     min_points: u64,
     finished: impl Fn(&Store),
 ) {
+    let keys = sweep_keys();
+    let fixture = Fixture {
+        create: &|store| create_trees(store, value),
+        seen: &|store| trees_seen(store, &keys),
+        new_write_works: &|store, label| a_new_write_works(store, value, label),
+    };
+    t11_sweep_with(step, &fixture, change, classes, min_points, finished);
+}
+
+/// The trees of a T11 sweep: how it creates them, what a new read sees of them, and the check that a new write reads,
+/// modifies and commits them, unchanged, with a label for its failures.
+struct Fixture<'a, T> {
+    create: &'a dyn Fn(&Store),
+    seen: &'a dyn Fn(&Store) -> T,
+    new_write_works: &'a dyn Fn(&Store, &str),
+}
+
+/// The T11 sweep of [`t11_sweep_of`] on the trees of `fixture`: on disk and in a temporary store, a failure of
+/// `classes`, in turns, at each point in `step` where the write `change` reads, changes, reserves or frees a page or
+/// its commit does, until no point is left and the write commits.
+fn t11_sweep_with<T: PartialEq>(
+    step: u64,
+    fixture: &Fixture<'_, T>,
+    change: fn(&mut WriteTransaction<'_>) -> Vec<Result<()>>,
+    classes: &[Class],
+    min_points: u64,
+    finished: impl Fn(&Store),
+) {
     // The checks are about T11, not about durability: the store's flushes to disk are skipped.
     testing::skip_syncs(true);
     let tmp = tempfile::tempdir().unwrap();
     let on_disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     let in_memory = Store::open_temporary(&StoreOptions::default()).unwrap();
-    let keys = sweep_keys();
     for store in [&on_disk, &in_memory] {
-        create_trees(store, value);
-        let before = trees_seen(store, &keys);
+        (fixture.create)(store);
+        let before = (fixture.seen)(store);
         let mut points = 0;
         loop {
             let failure = classes[(points / step) as usize % classes.len()].error(tmp.path());
@@ -547,11 +574,8 @@ fn t11_sweep_of(
                     assert_eq!(write.commit().unwrap_err().kind(), class, "{label}: commit");
                 }
             }
-            assert!(
-                trees_seen(store, &keys) == before,
-                "{label}: nothing applied"
-            );
-            a_new_write_works(store, value, &label);
+            assert!((fixture.seen)(store) == before, "{label}: nothing applied");
+            (fixture.new_write_works)(store, &label);
             points += step;
         }
         assert!(points > min_points, "{points} points");
@@ -585,4 +609,190 @@ fn ac_r12_a_failure_at_every_page_operation_of_range_removals_and_scans_applies_
 #[ignore = "acceptance: a failure at every page operation of the write and its commit"]
 fn ac_b18_a_failure_at_every_page_operation_of_splits_and_merges_applies_nothing() {
     t11_sweep(1);
+}
+
+/// A value of 16 bytes, the decimal digits of `i`, so that values sort by `i`.
+fn value16(i: usize) -> Vec<u8> {
+    format!("{i:016}").into_bytes()
+}
+
+/// A key of 2,000 bytes that starts with `i`: the keys of the multi-value sweep that make its tree split and merge.
+fn filler(i: usize) -> Vec<u8> {
+    let mut key = long_key(i);
+    key.truncate(2000);
+    key
+}
+
+/// Commits the multi-value tree `m` of the T11 sweep: `p` with its values in its entry, two additions below the
+/// promotion threshold; `d` with its values in a subtree, two removals above the demotion threshold; `s` with values
+/// of 2,048 bytes in a subtree of two leaves; and six keys of 2,000 bytes.
+fn create_multi_tree(store: &Store) {
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_multi_tree_with("m", OpenMode::CreateNew)
+        .unwrap();
+    for i in 0..150 {
+        if i < 112 {
+            write.add(&tree, b"p", &value16(i)).unwrap();
+        }
+        write.add(&tree, b"d", &value16(i)).unwrap();
+    }
+    for i in 58..150 {
+        write.remove_value(&tree, b"d", &value16(i)).unwrap();
+    }
+    for j in 0..4 {
+        write.add(&tree, b"s", &long_key(j)).unwrap();
+    }
+    for i in 0..6 {
+        write.add(&tree, &filler(i), b"x").unwrap();
+    }
+    assert!(write.subtree_of(&tree, b"p").unwrap().is_none());
+    assert!(write.subtree_of(&tree, b"d").unwrap().is_some());
+    write.commit().unwrap();
+}
+
+/// The number of entries of a multi-value tree, and each key with its number of values and its values.
+type MultiSeen = (u64, Vec<(Vec<u8>, u64, Vec<Vec<u8>>)>);
+
+/// What a new read sees of the multi-value tree `m`: its number of entries and each key with its number of values and
+/// its values.
+fn multi_seen(store: &Store) -> MultiSeen {
+    let read = store.read().unwrap();
+    let tree = read.open_multi_tree("m").unwrap();
+    let keys = read
+        .keys(&tree, ..)
+        .unwrap()
+        .map(|item| {
+            let (key, count) = item.unwrap();
+            let values = read
+                .values(&tree, key, ..)
+                .unwrap()
+                .map(|value| value.unwrap().to_vec())
+                .collect();
+            (key.to_vec(), count, values)
+        })
+        .collect();
+    (read.len(&tree).unwrap(), keys)
+}
+
+/// Checks that a new write reads, modifies and commits the multi-value tree `m` of [`create_multi_tree`].
+fn a_new_multi_write_works(store: &Store, label: &str) {
+    let mut write = store.write().unwrap();
+    let tree = write.open_multi_tree("m").unwrap();
+    assert_eq!(write.len(&tree).unwrap(), 9, "{label}");
+    assert_eq!(write.value_count(&tree, b"p").unwrap(), 112, "{label}");
+    assert!(write.add(&tree, b"p", b"probe").unwrap(), "{label}");
+    assert!(
+        write.contains(&tree, b"s", &long_key(3)).unwrap(),
+        "{label}"
+    );
+    assert!(
+        write.remove_value(&tree, b"p", b"probe").unwrap(),
+        "{label}"
+    );
+    write.commit().unwrap();
+}
+
+/// The write of the multi-value T11 sweep (Multi-value trees PRD: AC-M14), over the tree of [`create_multi_tree`]: it
+/// moves the values of `p` to a subtree and those of `d` back to its entry, splits and merges the subtree of `s` and
+/// the tree, reads and scans keys and values, removes a range of keys, and moves `p` back to its entry with a range of
+/// values. It goes on after a failure (T11).
+fn multi_values(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
+    let tree = match write.open_multi_tree("m") {
+        Ok(tree) => tree,
+        Err(error) => return vec![Err(error)],
+    };
+    let mut results = Vec::new();
+    for i in 112..116 {
+        results.push(write.add(&tree, b"p", &value16(i)).map(drop));
+    }
+    for i in (53..58).rev() {
+        results.push(write.remove_value(&tree, b"d", &value16(i)).map(drop));
+    }
+    results.push(write.contains(&tree, b"p", &value16(0)).map(drop));
+    results.push(write.value_count(&tree, b"d").map(drop));
+    for j in 4..12 {
+        results.push(write.add(&tree, b"s", &long_key(j)).map(drop));
+    }
+    for j in (0..12).filter(|j| j % 3 != 0) {
+        results.push(write.remove_value(&tree, b"s", &long_key(j)).map(drop));
+    }
+    for i in 6..14 {
+        results.push(write.add(&tree, &filler(i), b"x").map(drop));
+    }
+    for i in (0..14).filter(|i| i % 2 == 1) {
+        results.push(write.remove_key(&tree, &filler(i)).map(drop));
+    }
+    let scanned = write.values(&tree, b"s", ..).and_then(|scan| {
+        scan.collect::<Result<Vec<_>>>()
+            .map(|values| assert!(values.len() <= 12))
+    });
+    results.push(scanned);
+    let scanned = write
+        .keys(&tree, ..)
+        .and_then(|mut scan| scan.try_for_each(|item| item.map(drop)));
+    results.push(scanned);
+    let (lower, upper) = (filler(10), filler(14));
+    let removed = write.remove_key_range(&tree, &lower[..]..&upper[..]);
+    results.push(removed.map(drop));
+    let from = value16(40);
+    let removed = write.remove_value_range(&tree, b"p", &from[..]..);
+    results.push(removed.map(drop));
+    results
+}
+
+/// Checks the tree `m` once the write of [`multi_values`] committed: what the same write commits on a new store, and
+/// where the values of `p`, `d` and `s` are.
+fn multi_values_committed(store: &Store) {
+    let fresh = Store::open_temporary(&StoreOptions::default()).unwrap();
+    create_multi_tree(&fresh);
+    let mut write = fresh.write().unwrap();
+    assert!(multi_values(&mut write).iter().all(Result::is_ok));
+    write.commit().unwrap();
+    assert!(multi_seen(store) == multi_seen(&fresh), "the write's tree");
+    let read = store.read().unwrap();
+    let tree = read.open_multi_tree("m").unwrap();
+    assert_eq!(read.value_count(&tree, b"p").unwrap(), 40);
+    assert!(read.subtree_of(&tree, b"p").unwrap().is_none(), "p demoted");
+    assert!(read.subtree_of(&tree, b"d").unwrap().is_none(), "d demoted");
+    assert!(read.subtree_of(&tree, b"s").unwrap().is_some());
+}
+
+/// AC-M14, second part (T11, AC-B18): a failure of disk full, maximum size or memory exhausted at each point where
+/// the write of [`multi_values`] reads, changes, reserves or frees a page, also while it moves the values of a key to
+/// a subtree or back, or where its commit writes the catalog, fails that operation; the commit fails with that class
+/// and applies nothing, and after the abort, or that failed commit, the tree, its keys, their values and the number
+/// of entries are as before and a new write works (the rest as in [`t11_sweep`]).
+fn t11_multi_sweep(step: u64) {
+    let classes = [Class::DiskFull, Class::MaxSize, Class::OutOfMemory];
+    let fixture = Fixture {
+        create: &create_multi_tree,
+        seen: &multi_seen,
+        new_write_works: &a_new_multi_write_works,
+    };
+    t11_sweep_with(
+        step,
+        &fixture,
+        multi_values,
+        &classes,
+        MULTI_POINTS,
+        multi_values_committed,
+    );
+}
+
+/// Fewer points than the write of [`multi_values`] has (about 920), so that its sweep fails if the write stops reaching
+/// the pages it reaches now.
+const MULTI_POINTS: u64 = 900;
+
+/// AC-M14 at every 13th point of the write of a multi-value tree.
+#[test]
+fn ac_m14_a_failure_at_a_sample_of_page_operations_of_a_multi_value_tree_applies_nothing() {
+    t11_multi_sweep(13);
+}
+
+/// `cargo test -p krummi --lib -- --ignored ac_m14_a_failure_at_every`.
+#[test]
+#[ignore = "acceptance: a failure at every page operation of the write and its commit"]
+fn ac_m14_a_failure_at_every_page_operation_of_a_multi_value_tree_applies_nothing() {
+    t11_multi_sweep(1);
 }

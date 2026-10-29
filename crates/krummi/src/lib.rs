@@ -1029,7 +1029,7 @@ impl<'s> WriteTransaction<'s> {
     /// Frees every page of the tree of `entry`, with the subtrees of the keys of a multi-value tree (D6).
     fn free(&mut self, entry: &Entry) -> Result<()> {
         if entry.kind == TreeKind::MultiValue {
-            multi::free_all(&mut self.inner, entry.root)
+            multi::free_tree(&mut self.inner, entry.root)
         } else {
             krummi_tree::free_all(&mut self.inner, entry.root)
         }

@@ -224,6 +224,26 @@ pub fn root_page(folder: &Path, tree: &str) -> u64 {
     })
 }
 
+/// The root page of the subtree of `key` in the multi-value tree `tree` of the closed store, and its number of
+/// levels.
+pub fn subtree_root(folder: &Path, tree: &str, key: &[u8]) -> (u64, u8) {
+    inspect(folder, |read| {
+        let root = catalog::lookup(read, tree).unwrap().unwrap().root;
+        let subtree = krummi_tree::multi::subtree_of(read, root, key)
+            .unwrap()
+            .expect("the key's values are in a subtree");
+        (subtree, krummi_tree::height(read, subtree).unwrap())
+    })
+}
+
+/// The number of levels of the tree `tree` of the closed store.
+pub fn height(folder: &Path, tree: &str) -> u8 {
+    inspect(folder, |read| {
+        let root = catalog::lookup(read, tree).unwrap().unwrap().root;
+        krummi_tree::height(read, root).unwrap()
+    })
+}
+
 /// Flips a byte of `page` in the closed store's data file, so that its checksum fails.
 pub fn damage(folder: &Path, page: u64) {
     let path = folder.join(DATA_FILE);

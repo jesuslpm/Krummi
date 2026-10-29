@@ -67,9 +67,9 @@ Decisions within *Dejado a la implementación*:
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T0 | — | inline | done: exploration (explorer `opus`/`medium`), design D1–D7 | — |
-| T1 | S1, S3–S7 (engine part) | delegated (context backstop) | pending | — |
-| T2 | S1–S10, S16–S18 | delegated (context backstop) | pending | — |
-| T3 | S11–S15 | delegated (context backstop) | pending | — |
+| T1 | S1, S3–S7 (engine part) | delegated (context backstop) | done | `8b5a7c8` |
+| T2 | S1–S10, S16–S18 | delegated (context backstop) | done | `cd7b815`, `182e461` |
+| T3 | S11–S15 | delegated (context backstop) | done | (T3 commit) |
 | T4 | S19–S20 | inline + background runs | pending | — |
 | T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
 
@@ -87,3 +87,56 @@ for the long-session backstop: the parent context already holds the PRD session 
 - **L2** (2026-10-29): estimate 5 h – 8 h confirmed by the user ("Sí"); real start 10:20:06 +0000; phase log
   `odd/tasks/trees-multivalue-phases.tsv`. RDD on (global).
 - **L3** (T0): exploration mapped the tree engine, catalog, public API, tests and measurements; design D1–D7.
+- **L4** (T1, ODD Worker `opus`/`high`): engine module `krummi_tree::multi` (multi.rs, multi_tests.rs, range.rs
+  `is_empty_from` / `contains`). RED: E0432/E0425 with the tests and an empty module. GREEN: 25 krummi-tree tests,
+  seeded model test of 4,320 ops with reopen, exact-threshold tests (mutants `<=`/`>=` killed). Checks fmt, clippy,
+  workspace tests: pass. Parent spot check: `cargo test -p krummi-tree` 25 passed. Deviations: `inline_len` is the
+  whole inline blob length (header included); a key with only the empty value may stay in a subtree with an empty
+  root; value-range removal pre-scans the removed bytes. Provisional thresholds 2048/1024. Commit `8b5a7c8`.
+  Risk: item 3 (shared `Interval` helpers), low. RDD assess on `9a50bd3..8b5a7c8`: medium, `under_budget`.
+- **L5** (T2, ODD Worker `opus`/`high`): public API (D5: `open_tree(name)`, `open_multi_tree*`, `ReadMultiTree` /
+  `WriteMultiTree`, contains, value_count, keys/values scans, add, remove_value, remove_key, key/value range
+  removals; `len` over sealed handle traits), catalog kind byte 2, `TreeKind::MultiValue`, format 8, kind-aware
+  freeing, format-7 fixture `tests/data/store-5.3` built from `cd50b90` via `git archive` (scratch removed).
+  RED: 405 compile errors on `tests/multi_trees.rs`; GREEN: 12/12; mutation (always normal `free_all`) caught by
+  S8. Parent fixed the last hard-coded format 7 in `krummi-pager/tests/pages.rs:171`; parent spot check
+  `cargo test --workspace --no-fail-fast`: 33 suites ok. Commit split for review: `cd7b815` (implementation and
+  mechanical call sites, verified alone: clippy clean, 32 suites ok) and `182e461` (new tests and fixture); final
+  tree identical to the original single commit. Risk: items 1 and 3 (persisted format, public API), requested by
+  M14 and D5.
+- **L6** (RDD): review 1, `9a50bd3..8b5a7c8` (T1), lenses risk/readability/reliability: approved, lineage
+  `review-65f9aede008e0181`; advisory: R1-001 global threshold setter (suggestion), R2-free-all-name-collision
+  (warning), R2-hardcoded-max-in-message, R2-subtree-blob-offsets (warning), R3-global-thresholds (warning),
+  R3-untested-blob-damage (warning). The slice `9a50bd3..4835dd0` and then `8b5a7c8..cd7b815` stopped with
+  `lens_context_budget_exceeded` (no authority created). Default taken (run rule: no stop to ask): `cd7b815` stays
+  without RDD; it is about 800 lines of mechanical call-site edits across 42 large test files plus the API, and
+  splitting further would need non-compiling intermediate commits. It is covered by the Codex code review of the
+  whole range and the independent verifier at the end. Review 2, `cd7b815..182e461` (T2 tests), lenses
+  reliability/readability: approved, lineage `review-443b1e1d58a73985`; advisory: R3-value-scan-send-unproved
+  (warning: the compile-fail case does not prove the write value scan is not Send), R2-tautological-threshold-assert,
+  R2-hardcoded-entry-layout-constants, R2-duplicated-size-locals, R3-read-prefix-removals-unchecked,
+  R3-normal-handle-write-prefix-ops-unchecked (suggestions). Folded into T3.
+- **L7** (T4 example, ODD Worker `opus`/`high`): `crates/krummi/examples/multi_timing.rs` (M15 loads, 6 pairs
+  512:448, 512:256, 2048:1792, 2048:1024, 4074:3564, 4074:2037; `--pairs`, `--loads`, `--values`, `--quick`).
+  Default taken: the oscillating load counts 100,000 operations (50,000 Add/Remove pairs). Quick smoke run
+  (10,000 values, Windows) only: Contains about 12–15 µs per value on subtree keys against 2.6 µs on one-value keys.
+  Commit `7d8c973`, recommitted as `5a6df2b` without a T3 deletion it had picked up.
+- **L8** (2026-10-29, user): "Pues si cuesta tanto 12–15 µs por valor frente a unos 2,6 µs con claves de un solo
+  valor, no sé que estamos haciendo mal ni si merece la pena usar árboles multivalor." Decision: the measurement
+  adds a baseline (the same pairs in a normal tree with composite keys) and a count of pages read per Contains for
+  each representation; the full run waits for T3 so builds do not skew the times.
+- **L9** (2026-10-29, user): "Yo no creo que sea necesario comprobar el blob, se supone que está ordenado, ya lo
+  verifican los tests. Igual que un árbol, no se verifica que está ordenado, se supone." Verified: `node::is_valid`
+  checks structure only, not key order. The blob decode drops its order and duplicate check and keeps the
+  structural checks (G6); sent to the T3 worker. That check only affected inline keys, not the subtree case of L8.
+- **L10** (T3, ODD Worker `opus`/`high`): S11 size cases completed for every operation; S12 damaged subtree root
+  and damaged leaf on the way to a key (fail with the page, other keys keep working, commit fails with T11 and
+  applies nothing); S13 snapshot across promotions, demotions and height changes, on disk and temporary; S14 crash
+  sweep (`crash_sweep_with`) and T11 sweep (`t11_sweep_with`, about 920 points, floor 900; ignored every-point
+  variants); S15 byte-alteration sample plus ignored every-byte sweep (`each_altered_byte`, `check_items`). Every new
+  test passed on its first run: no defect found. RDD follow-ups applied (offset constants, `{MAX_KEY}` message,
+  `multi::free_tree`, structural blob-damage tests, Send cases split in three, test cleanups); L9 applied. Default
+  taken: CI tree-sweep timeout raised from 60 to 120 min (every-byte multi sweep about 44 min on Windows debug).
+  Ignored runs: crashes through the close 13.9 s, every page operation 53.7 s, every byte 2,637 s. Parent spot check:
+  fmt, clippy clean; `cargo test --workspace` 408 passed, 0 failed, 17 ignored. Risk: item 5 (CI) and item 3, low
+  (shared test helpers refactored, existing tests pass).

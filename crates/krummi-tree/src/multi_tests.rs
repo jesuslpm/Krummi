@@ -866,7 +866,7 @@ fn removing_every_key_or_freeing_the_tree_returns_every_page() {
                 root = update.root;
             }
             4 => {
-                multi::free_all(&mut tx, root).unwrap();
+                multi::free_tree(&mut tx, root).unwrap();
                 tx.commit().unwrap();
                 assert_eq!(in_use(&engine), empty - 1, "freed whole");
                 continue;
@@ -937,4 +937,119 @@ fn a_demoted_key_uses_the_pages_of_one_never_promoted() {
         let _ = root;
     }
     assert_eq!(used[0], used[1]);
+}
+
+/// The blob of a subtree with these fields, laid out as D1 says.
+fn subtree_blob(flags: u8, count: u64, inline_len: u64, root: u64) -> Vec<u8> {
+    let mut blob = vec![1, flags];
+    for field in [count, inline_len, root] {
+        blob.extend_from_slice(&field.to_le_bytes());
+    }
+    blob
+}
+
+/// The inline blob that claims `count` values and holds `elements`, each written as its length and its bytes.
+fn inline_blob(count: u16, elements: &[&[u8]]) -> Vec<u8> {
+    let mut blob = vec![0];
+    blob.extend_from_slice(&count.to_le_bytes());
+    for element in elements {
+        blob.extend_from_slice(&(element.len() as u16).to_le_bytes());
+        blob.extend_from_slice(element);
+    }
+    blob
+}
+
+/// The page of a damage error.
+#[track_caller]
+fn damaged_page<T: std::fmt::Debug>(result: Result<T>) -> u64 {
+    match result {
+        Err(krummi_tx::Error::Damaged {
+            page: Some(page), ..
+        }) => page,
+        other => panic!("expected damage with a page, got {other:?}"),
+    }
+}
+
+/// G6 and M11 at the engine: an entry of a multi-value tree that is not a consistent blob, in a leaf whose checksum
+/// is valid, is damage of that leaf for every operation that reads it: an unknown tag, an empty blob, an inline blob
+/// with no values, a count that does not match its elements (fewer, or trailing bytes), an element longer than
+/// [`MAX_KEY`] or than what is left, a subtree blob of the wrong length, with unknown flags, with no values or with
+/// inline bytes that cannot be those of its values, and an entry kept off its leaf. The checks are structural, as
+/// those of the tree's nodes: the order of the values is not checked.
+#[test]
+fn inconsistent_blobs_are_damage_of_their_leaf() {
+    let long = vec![b'x'; MAX_KEY + 1];
+    let cases: Vec<(&str, Vec<u8>)> = vec![
+        ("unknown tag", vec![2, 1, 0, 1, 0, b'a']),
+        ("empty", Vec::new()),
+        ("inline header cut short", vec![0, 1]),
+        ("no values", inline_blob(0, &[])),
+        ("fewer values than counted", inline_blob(2, &[b"a"])),
+        ("more values than counted", inline_blob(1, &[b"a", b"b"])),
+        ("element too long", inline_blob(1, &[&long])),
+        ("element past the end", vec![0, 1, 0, 5, 0, b'a']),
+        (
+            "subtree blob too short",
+            subtree_blob(0, 1, 5, 9)[..25].to_vec(),
+        ),
+        (
+            "subtree blob too long",
+            [subtree_blob(0, 1, 5, 9), vec![0]].concat(),
+        ),
+        ("unknown subtree flags", subtree_blob(2, 1, 5, 9)),
+        ("subtree with no values", subtree_blob(0, 0, 3, 9)),
+        ("inline bytes below the values'", subtree_blob(0, 2, 6, 9)),
+        (
+            "inline bytes above the values'",
+            subtree_blob(0, 1, 3 + 2 + MAX_KEY as u64 + 1, 9),
+        ),
+        ("inline bytes without a header", subtree_blob(0, 1, 2, 9)),
+        ("off its leaf", inline_blob(1, &[&[b'v'; 8000]])),
+    ];
+    let engine = temporary();
+    let all = Owned::all();
+    for (label, blob) in cases {
+        let mut tx = engine.write(None).unwrap();
+        // Keys of 1,000 bytes around the damaged one, so that its leaf is not the root.
+        let mut root = create(&mut tx).unwrap();
+        for i in 0..12u8 {
+            root = add(&mut tx, root, &[i; 1000], b"v").unwrap().root;
+        }
+        let key = [6, 1];
+        root = crate::set(&mut tx, root, &key, &blob).unwrap().root;
+        let leaf = crate::leaf_of(&tx, root, &key).unwrap();
+        assert_ne!(leaf, root, "{label}");
+        assert_eq!(damaged_page(value_count(&tx, root, &key)), leaf, "{label}");
+        assert_eq!(
+            damaged_page(contains(&tx, root, &key, b"a")),
+            leaf,
+            "{label}"
+        );
+        let mut scan = values(&tx, root, &key, all.borrow()).unwrap();
+        assert_eq!(damaged_page(scan.next().unwrap()), leaf, "{label}");
+        let mut scan = keys(&tx, root, all.borrow()).unwrap();
+        assert_eq!(scan.next().unwrap().unwrap().0, [0; 1000], "{label}");
+        let damaged = scan.find(Result::is_err).unwrap();
+        assert_eq!(damaged_page(damaged), leaf, "{label}: key scan");
+        assert!(scan.next().is_none(), "{label}: the scan ends");
+        assert_eq!(
+            damaged_page(add(&mut tx, root, &key, b"z")),
+            leaf,
+            "{label}"
+        );
+        let removed = remove_value(&mut tx, root, &key, b"a");
+        assert_eq!(damaged_page(removed), leaf, "{label}");
+        assert_eq!(
+            damaged_page(remove_key(&mut tx, root, &key)),
+            leaf,
+            "{label}"
+        );
+        let removed = remove_value_range(&mut tx, root, &key, all.borrow());
+        assert_eq!(damaged_page(removed), leaf, "{label}");
+        let removed = remove_key_range(&mut tx, root, all.borrow());
+        assert_eq!(damaged_page(removed), leaf, "{label}");
+        let freed = multi::free_tree(&mut tx, root);
+        assert_eq!(damaged_page(freed), leaf, "{label}");
+        assert_eq!(damaged_page(tx.commit()), leaf, "{label}: T11");
+    }
 }

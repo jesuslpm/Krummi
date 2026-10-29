@@ -39,3 +39,27 @@ error[E0599]: no method named `remove_value_range` found for struct `ReadTransac
    |
 14 |     let _ = read.remove_value_range(&tree, b"k", ..);
    |                  ^^^^^^^^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_key_range_prefix` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:15:18
+   |
+15 |     let _ = read.remove_key_range_prefix(&tree, b"p", ..);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `range_prefix` with a similar name
+   |
+15 -     let _ = read.remove_key_range_prefix(&tree, b"p", ..);
+15 +     let _ = read.range_prefix(&tree, b"p", ..);
+   |
+
+error[E0599]: no method named `remove_value_range_prefix` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_multi_value_trees.rs:16:18
+   |
+16 |     let _ = read.remove_value_range_prefix(&tree, b"k", b"p", ..);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `values_prefix` with a similar name
+   |
+16 -     let _ = read.remove_value_range_prefix(&tree, b"k", b"p", ..);
+16 +     let _ = read.values_prefix(&tree, b"k", b"p", ..);
+   |

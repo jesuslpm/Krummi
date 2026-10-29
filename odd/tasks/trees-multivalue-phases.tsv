@@ -1,2 +1,8 @@
 2026-10-29T10:20:12+00:00	start	explore	T0 exploration
 2026-10-29T10:24:31+00:00	mark	implement	T1
+2026-10-29T10:41:29+00:00	mark	review	T1 assess
+2026-10-29T11:21:49+00:00	mark	review	T2 assess
+2026-10-29T11:23:42+00:00	bg-start	review	RDD review 1 lenses (T1)
+2026-10-29T11:25:17+00:00	bg-end	review	RDD review 1 lenses (T1)
+2026-10-29T11:38:11+00:00	mark	implement	T3
+2026-10-29T13:54:58+00:00	mark	checks	T3 checks

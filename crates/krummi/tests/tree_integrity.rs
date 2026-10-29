@@ -1,8 +1,9 @@
 //! Crashes, power cuts and altered bytes in stores with trees, on disk (Trees and key operations PRD: AC-A16; Trees
 //! PRD: AC-B18, its first part; In-order scan PRD: AC-R12, its first part; Large values PRD: AC-V8, its first part,
-//! and AC-V11; root PRD: AC10 repeated with the trees, their scans and a value off its leaf). The failures of T11 in
-//! the middle of a split, a merge or a range removal, or at the page operations of values off their leaf, the second
-//! part of AC-B18, AC-R12 and AC-V8, need the engine's hooks: they are in `src/tests.rs`.
+//! and AC-V11; Multi-value trees PRD: AC-M14, its first part, and AC-M15; root PRD: AC10 repeated with the trees,
+//! their scans, a value off its leaf and a multi-value tree). The failures of T11 in the middle of a split, a merge or
+//! a range removal, at the page operations of values off their leaf, or of a multi-value tree, the second part of
+//! AC-B18, AC-R12, AC-V8 and AC-M14, need the engine's hooks: they are in `src/tests.rs`.
 //!
 //! The crash sweeps record the file operations of a run and rebuild, for every point of the tested commit, what a
 //! power cut (the models of `POWER_CUTS`) or a crash of the process (`Model::Written`: the system keeps every write
@@ -12,15 +13,17 @@
 mod common;
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::Path;
 
 use common::{POWER_CUTS, Run};
 use krummi::{ErrorKind, OpenMode, Store, StoreOptions, TreeKind, WriteTransaction};
 use krummi_pager::DATA_FILE;
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use krummi_pager::testing::{self, Model};
-use support::{NORMAL, long_key, open};
+use krummi_tree::multi::volume;
+use support::{MULTI, NORMAL, leaf_page, long_key, open, subtree_root, value16};
 
 /// What the tests see of a store's trees: each tree of the list with its count and what Leer finds for every key
 /// the test used, in order.
@@ -57,17 +60,46 @@ fn crash_sweep(
     setup: impl Fn(&Store),
     change: impl Fn(&mut WriteTransaction<'_>),
 ) {
+    crash_sweep_with(
+        through_close,
+        setup,
+        change,
+        |store| seen(store, keys),
+        |store, now| {
+            let mut write = store.write().unwrap();
+            for (name, _, _) in now {
+                let tree = write.open_tree(name).unwrap();
+                for key in keys.iter().take(3) {
+                    write.get(&tree, key).unwrap();
+                }
+                write.set(&tree, &keys[0], b"modified").unwrap();
+                write.remove(&tree, &keys[1]).unwrap();
+            }
+            write.commit().unwrap();
+        },
+    );
+}
+
+/// The sweep of [`crash_sweep`], with what the test sees of the store taken by `look` and the new write after each
+/// reopening made by `new_write`, which gets what `look` saw.
+fn crash_sweep_with<T: PartialEq>(
+    through_close: bool,
+    setup: impl Fn(&Store),
+    change: impl Fn(&mut WriteTransaction<'_>),
+    look: impl Fn(&Store) -> T,
+    new_write: impl Fn(&Store, &T),
+) {
     let source = Run::begin();
     let store = open(source.path());
     setup(&store);
     let start = testing::recorded_len();
-    let before = seen(&store, keys);
+    let before = look(&store);
     let mut write = store.write().unwrap();
     change(&mut write);
     write.commit().unwrap();
     let returned = testing::recorded_len();
-    let after = seen(&store, keys);
-    assert_ne!(before, after, "the write changes what the test sees");
+    let after = look(&store);
+    assert!(before != after, "the write changes what the test sees");
     // Without `through_close`, the close comes after the recording.
     let open_store = if through_close {
         store.close().unwrap();
@@ -84,7 +116,7 @@ fn crash_sweep(
         for model in POWER_CUTS.into_iter().chain([Model::Written]) {
             let folder = run.crash(cut, model);
             let store = open(folder.path());
-            let now = seen(&store, keys);
+            let now = look(&store);
             let label = format!("cut {cut} of {}, {model:?}", run.ops.len());
             if cut >= returned {
                 assert!(now == after, "{label}: the commit had returned");
@@ -92,16 +124,7 @@ fn crash_sweep(
                 assert!(now == before || now == after, "{label}: half a commit");
             }
             outcomes[usize::from(now == after)] = true;
-            let mut write = store.write().unwrap();
-            for (name, _, _) in &now {
-                let tree = write.open_tree(name).unwrap();
-                for key in keys.iter().take(3) {
-                    write.get(&tree, key).unwrap();
-                }
-                write.set(&tree, &keys[0], b"modified").unwrap();
-                write.remove(&tree, &keys[1]).unwrap();
-            }
-            write.commit().unwrap();
+            new_write(&store, &now);
             store.close().unwrap();
         }
     }
@@ -319,9 +342,8 @@ fn ac_v8_crashes_through_the_close() {
     values_off_their_leaf(true);
 }
 
-/// The entries a scan of the whole tree returns from one end until it ends or fails: a failure must be of the
-/// damage class, after which the scan returns nothing more from either end, and every entry before it must be
-/// the next one expected from that end.
+/// The entries a scan of the whole tree returns from one end until it ends or fails, as [`check_items`] checks
+/// them.
 fn check_scan(
     read: &krummi::ReadTransaction<'_>,
     tree: &krummi::ReadTree<'_>,
@@ -329,11 +351,25 @@ fn check_scan(
     front: bool,
     offset: usize,
 ) {
-    let mut scan = read.range(tree, ..).unwrap();
-    let mut expected: Box<dyn Iterator<Item = &(Vec<u8>, Vec<u8>)>> = if front {
-        Box::new(entries.iter())
+    let scan = read.range(tree, ..).unwrap();
+    let own = |(key, value): (&[u8], &[u8])| (key.to_vec(), value.to_vec());
+    check_items(scan, entries, own, front, offset);
+}
+
+/// The items a scan returns from one end, owned with `own`, until it ends or fails: a failure must be of the damage
+/// class, after which the scan returns nothing more from either end, and every item before it must be the next one
+/// of `expected` from that end.
+fn check_items<I, T: PartialEq + std::fmt::Debug>(
+    mut scan: impl DoubleEndedIterator<Item = krummi::Result<I>>,
+    expected: &[T],
+    own: impl Fn(I) -> T,
+    front: bool,
+    offset: usize,
+) {
+    let mut expected: Box<dyn Iterator<Item = &T>> = if front {
+        Box::new(expected.iter())
     } else {
-        Box::new(entries.iter().rev())
+        Box::new(expected.iter().rev())
     };
     loop {
         let step = if front { scan.next() } else { scan.next_back() };
@@ -345,9 +381,9 @@ fn check_scan(
                 );
                 return;
             }
-            Some(Ok((key, value))) => {
-                let (k, v) = expected.next().expect("no entry beyond the tree's");
-                assert_eq!((key, value), (&k[..], &v[..]), "byte {offset}");
+            Some(Ok(item)) => {
+                let want = expected.next().expect("no item beyond the tree's");
+                assert_eq!(own(item), *want, "byte {offset}");
             }
             Some(Err(error)) => {
                 assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}: {error}");
@@ -432,20 +468,7 @@ fn ac10_trees_sweep(step: usize) {
         .chain(run.start..run.start + PAGE_HEADER_SIZE)
         .chain(edges)
         .collect();
-    for offset in offsets {
-        let mut bytes = pristine.clone();
-        bytes[offset] ^= 0xFF;
-        fs::write(copy.join(DATA_FILE), &bytes).unwrap();
-        let store = match Store::open(&copy, &StoreOptions::default()) {
-            Ok(store) => store,
-            Err(error) => {
-                assert!(
-                    matches!(error.kind(), ErrorKind::Damaged | ErrorKind::NotAStore),
-                    "byte {offset}: {error}"
-                );
-                continue;
-            }
-        };
+    each_altered_byte(&pristine, &copy, offsets, |store, offset| {
         let read = store.read().unwrap();
         match read.list_trees() {
             Ok(list) => assert_eq!(list, names, "byte {offset}"),
@@ -478,8 +501,31 @@ fn ac10_trees_sweep(step: usize) {
             check_scan(&read, &tree, entries, true, offset);
             check_scan(&read, &tree, entries, false, offset);
         }
-    }
+    });
     testing::reset();
+}
+
+/// Writes `pristine`, the data file of a closed store, into the folder `copy` with the byte at each of `offsets`
+/// altered, one at a time, and opens it: a store that does not open fails with the damage class or as not a store
+/// (the mark); one that opens goes to `read_all` with the offset.
+fn each_altered_byte(
+    pristine: &[u8],
+    copy: &Path,
+    offsets: impl IntoIterator<Item = usize>,
+    read_all: impl Fn(&Store, usize),
+) {
+    for offset in offsets {
+        let mut bytes = pristine.to_vec();
+        bytes[offset] ^= 0xFF;
+        fs::write(copy.join(DATA_FILE), &bytes).unwrap();
+        match Store::open(copy, &StoreOptions::default()) {
+            Ok(store) => read_all(&store, offset),
+            Err(error) => assert!(
+                matches!(error.kind(), ErrorKind::Damaged | ErrorKind::NotAStore),
+                "byte {offset}: {error}"
+            ),
+        }
+    }
 }
 
 #[test]
@@ -492,4 +538,251 @@ fn ac10_sample_of_altered_bytes_with_trees() {
 #[ignore = "acceptance: alters every byte of a store with trees"]
 fn ac10_every_altered_byte_with_trees() {
     ac10_trees_sweep(1);
+}
+
+/// What a multi-value tree holds: each key with its values (Multi-value trees PRD, M1).
+type MultiModel = BTreeMap<Vec<u8>, BTreeSet<Vec<u8>>>;
+
+/// The number of entries of a multi-value tree, and each key with its number of values and its values.
+type MultiSeen = (u64, Vec<(Vec<u8>, u64, Vec<Vec<u8>>)>);
+
+/// What the tests see of the multi-value tree `m`, the store's only tree: its number of entries and each key with its
+/// number of values and its values, checking that each key's number of values is the number its value scan finds.
+fn multi_seen(store: &Store) -> MultiSeen {
+    let read = store.read().unwrap();
+    assert_eq!(read.list_trees().unwrap(), [("m".to_owned(), MULTI)]);
+    let tree = read.open_multi_tree("m").unwrap();
+    let keys = read
+        .keys(&tree, ..)
+        .unwrap()
+        .map(|item| {
+            let (key, count) = item.unwrap();
+            let values: Vec<Vec<u8>> = read
+                .values(&tree, key, ..)
+                .unwrap()
+                .map(|value| value.unwrap().to_vec())
+                .collect();
+            assert_eq!(values.len() as u64, count, "the number of values");
+            assert_eq!(read.value_count(&tree, key).unwrap(), count);
+            (key.to_vec(), count, values)
+        })
+        .collect();
+    (read.len(&tree).unwrap(), keys)
+}
+
+/// The crash sweep of AC-M14: over a multi-value tree whose keys of 2,000 bytes spread over several leaves, with a
+/// key `a` with its values in its entry, near the promotion threshold, and keys `b` and `c` with theirs in subtrees, a
+/// write that moves `a` to a subtree and `b` back to its entry, adds values of 2,048 bytes to `c` and removes most of
+/// them, so that its subtree splits and merges pages, and adds keys and removes most of them, so that the tree does.
+fn multi_values(through_close: bool) {
+    let filler = |i: usize| long_key(i, 2000);
+    let long = |j: usize| long_key(j, krummi_tree::MAX_KEY);
+    crash_sweep_with(
+        through_close,
+        |store| {
+            let mut write = store.write().unwrap();
+            let tree = write
+                .open_multi_tree_with("m", OpenMode::CreateNew)
+                .unwrap();
+            for i in 0..150 {
+                if i < 100 {
+                    write.add(&tree, b"a", &value16(i)).unwrap();
+                }
+                write.add(&tree, b"b", &value16(i)).unwrap();
+            }
+            for j in 0..10 {
+                write.add(&tree, b"c", &long(j)).unwrap();
+            }
+            for i in 0..10 {
+                write.add(&tree, &filler(i), b"x").unwrap();
+            }
+            assert!(write.subtree_of(&tree, b"a").unwrap().is_none());
+            assert!(write.subtree_of(&tree, b"b").unwrap().is_some());
+            write.commit().unwrap();
+        },
+        |write| {
+            let tree = write.open_multi_tree("m").unwrap();
+            for i in 100..130 {
+                assert!(write.add(&tree, b"a", &value16(i)).unwrap());
+            }
+            for i in 50..150 {
+                assert!(write.remove_value(&tree, b"b", &value16(i)).unwrap());
+            }
+            assert!(write.subtree_of(&tree, b"a").unwrap().is_some(), "promoted");
+            assert!(write.subtree_of(&tree, b"b").unwrap().is_none(), "demoted");
+            for j in 10..40 {
+                assert!(write.add(&tree, b"c", &long(j)).unwrap());
+            }
+            for j in (0..40).filter(|j| j % 4 != 0) {
+                assert!(write.remove_value(&tree, b"c", &long(j)).unwrap());
+            }
+            for i in 10..40 {
+                assert!(write.add(&tree, &filler(i), b"x").unwrap());
+                assert!(write.add(&tree, &filler(i), b"y").unwrap());
+            }
+            for i in (0..40).filter(|i| i % 4 != 0) {
+                assert!(write.remove_key(&tree, &filler(i)).unwrap() > 0);
+            }
+        },
+        multi_seen,
+        |store, _| {
+            let mut write = store.write().unwrap();
+            let tree = write.open_multi_tree("m").unwrap();
+            write.add(&tree, b"a", b"new").unwrap();
+            write.remove_key(&tree, b"b").unwrap();
+            write.add(&tree, b"c", &long(99)).unwrap();
+            assert!(write.contains(&tree, b"c", &long(0)).unwrap());
+            write.commit().unwrap();
+        },
+    );
+}
+
+/// AC-M14, first part (G1, G5, AC-B18): interrupted at every point where its commit writes or flushes, the write of
+/// [`multi_values`] leaves the multi-value tree with every key, its values and its number of values, and the number
+/// of entries, all as before or all as after; and a new write reads and modifies it.
+#[test]
+fn ac_m14_crashes_during_a_commit_that_moves_values_and_splits_and_merges() {
+    multi_values(false);
+}
+
+/// AC-M14 also at every point of the close that moves that commit into `krummi.data` (see above).
+#[test]
+#[ignore = "acceptance: every point of the commit and of the close that follows it"]
+fn ac_m14_crashes_through_the_close() {
+    multi_values(true);
+}
+
+/// AC-M15 (M11, G6, AC10): AC10 with a multi-value tree whose keys have their values in their entries and in a
+/// subtree, read whole through the public API: every altered byte gives the damage class, "not a store" (the mark) or
+/// no observable difference: the same tree, number of entries, keys with their numbers of values, and values, from
+/// either end and with Contains (the first, the last and an absent value), never a value with a different byte. The
+/// suite alters one byte in `step`, plus the header and the last byte of the subtree's root and every byte of the
+/// entry of its key that points to it; the acceptance run, every byte.
+fn ac10_multi_sweep(step: usize) {
+    // The sweep checks damage detection, not durability: its flushes to disk are skipped.
+    testing::skip_syncs(true);
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("source");
+    let store = open(&source);
+    let mut model = MultiModel::from([
+        (
+            b"i".to_vec(),
+            [&b""[..], b"a", b"bb", b"\xFF\xFF"]
+                .map(<[u8]>::to_vec)
+                .into(),
+        ),
+        (
+            b"s".to_vec(),
+            (0..150).map(value16).chain([Vec::new()]).collect(),
+        ),
+        (b"t".to_vec(), [b"x".to_vec()].into()),
+    ]);
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_multi_tree_with("m", OpenMode::CreateNew)
+        .unwrap();
+    for (key, values) in &model {
+        for value in values {
+            write.add(&tree, key, value).unwrap();
+        }
+    }
+    write.commit().unwrap();
+    // A second write that frees pages of the subtree and adds a key.
+    let mut write = store.write().unwrap();
+    let tree = write.open_multi_tree("m").unwrap();
+    for i in 100..150 {
+        assert!(write.remove_value(&tree, b"s", &value16(i)).unwrap());
+        model.get_mut(&b"s"[..]).unwrap().remove(&value16(i));
+    }
+    write.add(&tree, b"u", b"u").unwrap();
+    model.insert(b"u".to_vec(), [b"u".to_vec()].into());
+    assert!(write.subtree_of(&tree, b"s").unwrap().is_some());
+    write.commit().unwrap();
+    store.close().unwrap();
+
+    let pristine = fs::read(source.join(DATA_FILE)).unwrap();
+    let (subtree, _) = subtree_root(&source, "m", b"s");
+    let leaf = leaf_page(&source, Some("m"), b"s") as usize * PAGE_SIZE;
+    let values = &model[&b"s"[..]];
+    // The entry of `s` as D1 lays it out: tag, flags (the empty value), number of values, inline bytes, root.
+    let mut blob = vec![1, 1];
+    for field in [
+        values.len() as u64,
+        volume(0, values.iter().map(Vec::len)) as u64,
+        subtree,
+    ] {
+        blob.extend(field.to_le_bytes());
+    }
+    let entry = pristine[leaf..leaf + PAGE_SIZE]
+        .windows(blob.len())
+        .position(|window| window == blob)
+        .expect("the entry of the key with a subtree")
+        + leaf;
+    let root = subtree as usize * PAGE_SIZE;
+    let offsets: BTreeSet<usize> = (0..pristine.len())
+        .step_by(step)
+        .chain(root..root + PAGE_HEADER_SIZE)
+        .chain([root + PAGE_SIZE - 1])
+        .chain(entry..entry + blob.len())
+        .collect();
+
+    let copy = tmp.path().join("copy");
+    fs::create_dir(&copy).unwrap();
+    let damaged = |error: krummi::Error, offset: usize| {
+        assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}: {error}");
+    };
+    let counts: Vec<(Vec<u8>, u64)> = model
+        .iter()
+        .map(|(key, values)| (key.clone(), values.len() as u64))
+        .collect();
+    let own_key = |(key, count): (&[u8], u64)| (key.to_vec(), count);
+    each_altered_byte(&pristine, &copy, offsets, |store, offset| {
+        let read = store.read().unwrap();
+        match read.list_trees() {
+            Ok(list) => assert_eq!(list, [("m".to_owned(), MULTI)], "byte {offset}"),
+            Err(error) => damaged(error, offset),
+        }
+        let tree = match read.open_multi_tree("m") {
+            Ok(tree) => tree,
+            Err(error) => return damaged(error, offset),
+        };
+        let entries = read.len(&tree).unwrap();
+        assert_eq!(entries, model.len() as u64, "byte {offset}");
+        for front in [true, false] {
+            let scan = read.keys(&tree, ..).unwrap();
+            check_items(scan, &counts, own_key, front, offset);
+        }
+        for (key, values) in &model {
+            match read.value_count(&tree, key) {
+                Ok(count) => assert_eq!(count, values.len() as u64, "byte {offset}"),
+                Err(error) => damaged(error, offset),
+            }
+            let values: Vec<Vec<u8>> = values.iter().cloned().collect();
+            for front in [true, false] {
+                let scan = read.values(&tree, key, ..).unwrap();
+                check_items(scan, &values, <[u8]>::to_vec, front, offset);
+            }
+            // Contains with the first and the last value and an absent one: the scans already read every value.
+            let ends = [values.first(), values.last()].map(|value| (&value.unwrap()[..], true));
+            for (value, there) in ends.into_iter().chain([(&b"absent"[..], false)]) {
+                match read.contains(&tree, key, value) {
+                    Ok(found) => assert_eq!(found, there, "byte {offset}: {key:?} {value:?}"),
+                    Err(error) => damaged(error, offset),
+                }
+            }
+        }
+    });
+    testing::reset();
+}
+
+#[test]
+fn ac10_sample_of_altered_bytes_with_a_multi_value_tree() {
+    ac10_multi_sweep(397);
+}
+
+/// `cargo test -p krummi --test tree_integrity -- --ignored ac10`.
+#[test]
+#[ignore = "acceptance: alters every byte of a store with a multi-value tree"]
+fn ac10_every_altered_byte_with_a_multi_value_tree() {
+    ac10_multi_sweep(1);
 }
