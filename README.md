@@ -8,21 +8,24 @@ Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.en.
 **transactions** ([PRD](docs/prd/krummi/transactions.prd.en.md)), and module 3, the **journal and recovery**
 ([PRD](docs/prd/krummi/journal.prd.en.md)), with grouped and direct journal writes
 ([PRD](docs/prd/krummi/journal-group-commit.prd.en.md)), module 4, **free space**
-([PRD](docs/prd/krummi/free-space.prd.en.md)), and the first three parts of module 5, **trees and key operations**,
-**in-order scan and prefix search** and **large values** ([module PRD](docs/prd/krummi/trees.prd.en.md),
-[PRD](docs/prd/krummi/trees-keys.prd.en.md), [PRD](docs/prd/krummi/trees-scan.prd.en.md),
-[PRD](docs/prd/krummi/trees-large-values.prd.en.md)). An application can create, open, inspect and close stores, on disk
+([PRD](docs/prd/krummi/free-space.prd.en.md)), and the first four parts of module 5, **trees and key operations**,
+**in-order scan and prefix search**, **large values** and **multi-value trees**
+([module PRD](docs/prd/krummi/trees.prd.en.md), [PRD](docs/prd/krummi/trees-keys.prd.en.md),
+[PRD](docs/prd/krummi/trees-scan.prd.en.md), [PRD](docs/prd/krummi/trees-large-values.prd.en.md),
+[PRD](docs/prd/krummi/trees-multivalue.prd.en.md)). An application can create, open, inspect and close stores, on disk
 or in memory, and open read transactions from any number of threads and one write transaction at a time, which the
 others wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after
 a crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key,
 with values of up to 256 MiB that reads return as one sequence of bytes without copying them, scans them in key order
-from both ends, by interval and by prefix, and removes whole intervals. The product and its split into modules are in
+from both ends, by interval and by prefix, and removes whole intervals. It also opens multi-value trees, where each
+key holds a sorted set of values of up to 2,048 bytes, the empty value included, with their own operations and scans.
+The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
 
 ```rust
 use std::time::Duration;
-use krummi::{OpenMode, Store, StoreOptions, TreeKind};
+use krummi::{OpenMode, Store, StoreOptions};
 
 let store = Store::open("data/orders", &StoreOptions::default())?;
 println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary, free pages
@@ -32,7 +35,7 @@ write.commit()?; // durable when it returns, and visible to the reads opened fro
 store.write()?.commit_deferred()?; // returns at once; durable, and visible to reads, a disk write later
 store.make_durable()?; // waits until every commit made so far is durable
 let mut write = store.write()?;
-let tree = write.open_tree_with("orders", TreeKind::Normal, OpenMode::OpenOrCreate)?; // like .NET's FileMode
+let tree = write.open_tree_with("orders", OpenMode::OpenOrCreate)?; // like .NET's FileMode
 write.set(&tree, b"order-1", b"two ravens")?; // like a Dictionary: set, try_add, get, remove, len
 write.set(&tree, b"order-2", &vec![7u8; 8 << 20])?; // values up to 256 MiB, kept in contiguous pages
 let big = write.get(&tree, b"order-2")?.unwrap(); // the whole 8 MiB as one slice, not copied
@@ -42,6 +45,11 @@ for entry in write.range_prefix(&tree, b"order-", ..)?.rev() { // like BTreeMap:
     println!("{key:?} {value:?}");
 }
 write.remove_range(&tree, &b"order-0"[..]..&b"order-5"[..])?; // returns how many entries it removed
+let tags = write.open_multi_tree_with("tags", OpenMode::OpenOrCreate)?; // each key holds a sorted set of values
+assert!(write.add(&tags, b"order-1", b"urgent")?); // whether it added; contains, value_count, remove_value, remove_key
+for value in write.values(&tags, b"order-1", ..)? { // a key's values in order; keys(..) scans keys with their counts
+    println!("{:?}", value?);
+}
 write.commit()?;
 drop(read);
 store.close()?; // moves everything into krummi.data and removes the journal
@@ -89,6 +97,14 @@ inside the interval in one descent. `cargo run --release -p krummi --example tre
 and removing 1 million entries, `--example scan_timing` scanning them and removing them by intervals, and
 `--example value_timing` storing and reading values from 1 KiB to 8 MiB and a mixed load.
 
+A multi-value tree is a tree whose leaf entries hold each key's values. While a key's values are few, they live
+sorted in its entry; when an Add takes the key past a promotion threshold, they move to a tree of their own for that
+key, outside the catalog, and they come back to the entry only when removals take it below a lower demotion
+threshold, so a key at the edge does not move back and forth. With its values in a tree of their own, a key's empty
+value is a flag of its entry, since tree keys are never empty. Emptying, deleting or overwriting the tree, and removing a key, free those trees too.
+`cargo run --release -p krummi --example multi_timing` measures them with several pairs of thresholds and loads,
+against a normal tree whose keys are the key followed by the value.
+
 ## Layout
 
 | Path | Contents |
@@ -96,7 +112,7 @@ and removing 1 million entries, `--example scan_timing` scanning them and removi
 | `crates/krummi/` | Public API of the engine |
 | `crates/krummi-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
 | `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API, free space |
-| `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, and the catalog of named trees |
+| `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, multi-value trees, and the catalog of named trees |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |

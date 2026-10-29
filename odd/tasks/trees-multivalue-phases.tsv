@@ -10,3 +10,6 @@
 2026-10-29T14:00:16+00:00	bg-start	review	RDD review 3 lenses (T3+T4)
 2026-10-29T14:01:18+00:00	bg-end	review	RDD review 3 lenses (T3+T4)
 2026-10-29T14:01:52+00:00	mark	implement	T4 baseline and page counts
+2026-10-29T14:03:59+00:00	bg-start	acceptance	M15 measurement Windows+Linux
+2026-10-29T18:55:31+00:00	bg-end	acceptance	M15 measurement Windows+Linux
+2026-10-29T18:57:09+00:00	mark	checks	T5 test edits and README
