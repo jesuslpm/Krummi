@@ -1162,8 +1162,10 @@ fn b1_a_deferred_commit_never_makes_returned_durable_ones_disappear() {
     }
 }
 
-/// B2 of the verification: a deferred commit that a journal rollover made durable is recorded as durable by the
-/// next record, so damage in it is reported, not taken for an unfinished commit (J9).
+/// B2 of the verification: a deferred commit that is durable when the next record is written after a journal
+/// rollover is recorded as durable by that record, so damage in it is reported, not taken for an unfinished commit
+/// (J9). The deferred commit is made durable first: written in one group with the next commit, both would be the
+/// last group, whose damage J9 discards without error.
 #[test]
 fn b2_damage_in_a_commit_made_durable_by_a_rollover_is_reported() {
     let (source, engine) = Run::start();
@@ -1171,6 +1173,7 @@ fn b2_damage_in_a_commit_made_durable_by_a_rollover_is_reported() {
     let pages = reserve(&engine, 4, "-");
     let hold = engine.read().unwrap();
     commit_all(&engine, &pages[..1], "d0", false);
+    engine.make_durable().unwrap();
     commit_all(&engine, &pages[1..2], "last", true);
     let run = Run::finish(source, vec![]);
     drop(hold);
