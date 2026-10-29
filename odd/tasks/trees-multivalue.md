@@ -188,6 +188,6 @@ for the long-session backstop: the parent context already holds the PRD session 
   0 failed.
 - **L18** (RDD): review 5, `fe52cc9..` the Codex fixes (`4ecf488`, `dc317ec`, the report and its resolutions),
   assessed medium and `under_budget`, raised to high with item 2 (the type-level guard that keeps normal operations
-  away from multi-value entries); lenses risk/reliability: approved, lineage in the acknowledgement below,
+  away from multi-value entries); lenses risk/reliability: approved, lineage `review-b2683ba3440bc7f9`,
   acknowledged (authority burned). Advisory: R3-set-size-truncation-no-automated-regression (suggestion): kept; the
   example has no test target that `cargo test --workspace` runs, and the reproduction command is in the resolutions.
