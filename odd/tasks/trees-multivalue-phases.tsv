@@ -18,3 +18,7 @@
 2026-10-29T20:06:11+00:00	mark	review	T5 RDD last slice
 2026-10-29T20:07:14+00:00	bg-start	review	RDD review 4 lenses (last slice)
 2026-10-29T20:08:13+00:00	bg-end	review	RDD review 4 lenses (last slice)
+2026-10-29T20:09:13+00:00	bg-start	review	codex-R1
+2026-10-29T20:15:48+00:00	bg-end	review	codex-R1
+2026-10-29T20:16:25+00:00	mark	fix	codex R1 R2
+2026-10-29T20:18:15+00:00	mark	checks	codex R1 R2
