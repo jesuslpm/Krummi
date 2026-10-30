@@ -40,3 +40,38 @@ passed; `cargo test --workspace` 421 passed, 0 failed (420 before, plus the new 
 - Cost: the test now takes 18.5 s in a debug build on this Windows machine (both stores); its earlier time was
   not measured.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-30 (verification)
+
+Review record: follow-up report [2026-10-30-code-02.md](2026-10-30-code-02.md) of `fc57e47..6b095ff`, wrapper
+status `findings`, thread `01a18cf1-e3a6-7c73-a359-9fe773b93063`. Executed settings from the wrapper telemetry:
+coordinator `gpt-6.1-sol` / `high`; one `krummi-review-critical` reviewer `gpt-6-astra` / `xhigh`.
+
+Verdict quoted: "Requires changes — R3 remains open (one minor finding). R1 and R2 are verified resolved."
+
+- R1: verified resolved.
+- R2: verified resolved.
+- R3 (new, minor): AC-C8 hangs instead of reporting a reader or writer failure.
+
+## 2026-10-30 (round 2 fixes)
+
+Fix commit on `feat/trees-node-check-cache`: `8cf01cf` (R3).
+Checks after the fix: `cargo fmt --all --check` passed; `cargo clippy --workspace --all-targets -- -D warnings`
+passed; `cargo test --workspace` 421 passed, 0 failed.
+
+The RDD review of `fc57e47..6b095ff` (lineage `review-e32dc28366105d7c`, lenses resilience and reliability) was
+approved before this round and reported the same defect as two non-blocking warnings,
+`R3-ac-c8-hangs-on-failure` and `R4-reader-loop-hangs-on-writer-failure`; this fix covers them too.
+
+### R3 — minor: AC-C8 hangs instead of reporting a reader or writer failure
+
+- Disposition: fixed (`8cf01cf`).
+- Fix: a guard on the writer's thread sets a `failed` flag when it drops while the thread panics, which happens
+  as the scope closure unwinds and before `thread::scope` waits for the readers; the readers stop as soon as they
+  see it. A reader's failure reaches the writer through `two_rounds` (a finished reader) or `join`, so either way
+  the writer panics and the guard stops the others.
+- Reproduction after the fix, with the report's once-only reader panic inserted temporarily before
+  `let mut seen = BTreeSet::new();`: `FAILED`, exit 101, "finished in 0.05s". With a temporary
+  `assert!(generation < 3, "injected writer failure")` after the writer's commit: `FAILED`, exit 101,
+  "finished in 0.08s". Both injections were removed; the report shows that the first one hung before the fix.
+- Status: claimed fixed, unverified until a follow-up review.

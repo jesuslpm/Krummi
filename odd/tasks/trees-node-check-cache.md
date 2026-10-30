@@ -120,3 +120,12 @@ in parallel; no writer trigger fires.
   R2 (major, AC-C8 does not make the readers overlap the writes and transfers) → fixed in `f95c57f`: coordinated
   readers, 1,000 full rounds each, every generation seen, transfers asserted while they read. Checks: fmt, clippy,
   421 tests passed.
+- **L13** (2026-10-30): RDD review of `fc57e47..6b095ff` (the R1 and R2 fixes; assessed medium `under_budget`, last
+  slice), lenses resilience and reliability: approved, lineage `review-e32dc28366105d7c`, acknowledged. Advisory,
+  non-blocking: R3-ac-c8-hangs-on-failure and R4-reader-loop-hangs-on-writer-failure (warnings, fixed in `8cf01cf`
+  with Codex R3), R3-oom-test-only-overflow and R4-scratch-assert-while-readers-pin (suggestions, not acted on:
+  the table's reservation goes through the same fallible helper that the fault-injection tests already cover, and
+  every reader's open snapshot is the newest one when the writer transfers).
+- **L14** (2026-10-30): Codex follow-up R2 ([report](../../docs/reviews/trees-node-check-cache/2026-10-30-code-02.md)):
+  status `findings`, thread `01a18cf1-e3a6-7c73-a359-9fe773b93063`; R1 and R2 verified resolved; new R3 (minor,
+  AC-C8 hangs when a reader or the writer fails) → fixed in `8cf01cf`. Checks: fmt, clippy, 421 tests passed.
