@@ -75,6 +75,10 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 - *A10: Añadir, Quitar valor, Quitar clave y los dos Quitar intervalo de los árboles multivalor terminan las referencias aunque no cambien nada o fallen, y son cambios para T10 solo cuando añaden o quitan algún valor o alguna clave; las operaciones del catálogo y los modos de apertura siguen esta decisión sin cambios, y vaciar un árbol multivalor es siempre un cambio, como dice A2 (decisión M9).*
 - *A13: la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
 
+*Anotaciones del 2026-10-30 desde la comprobación de organización recordada de los nodos ([trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)):*
+
+- *A9: una página dañada sigue fallando igual en cada operación posterior que la necesite, salvo el riesgo residual de la excepción a G6 del padre raíz: una alteración con el almacén abierto que coincide en el código de integridad de un nodo ya comprobado (decisión C7).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

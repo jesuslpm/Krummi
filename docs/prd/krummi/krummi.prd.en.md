@@ -143,6 +143,12 @@ together: if the last group is damaged with none after it, the damaged commit an
 and the current format version becomes `4` (decisions E9 and E15 of
 [journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
 
+*Annotation of 2026-10-30: exception to G6. The layout check of a node of a tree whose integrity has just been verified
+is skipped if that same content (page number and 64-bit integrity code) already passed it while the store stays open.
+An alteration made while the store is open that matches the integrity code of a remembered content may return data that
+is not what was written or end in a panic instead of an error; alterations made while the store is closed are
+detected as until now (decision C7 of [trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,
@@ -337,6 +343,10 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 
     *Annotation of 2026-10-23 to AC10: with the group write, that discard holds for an alteration in the last group
     of commits written together (decision E9 of [journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
+
+    *Annotation of 2026-10-30 to AC10: the criterion does not change, because its alterations are made with the store
+    closed and a newly opened store remembers no node; the residual risk of the exception to G6 only affects alterations
+    made while the store is open (decision C7 of [trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)).*
 11. **AC11** — Given a disk with no space, when a write transaction does not fit, then it fails with the
     disk-full error class, applies no change, the store still allows read transactions and, when space is freed,
     a following write commits without reopening (G7).

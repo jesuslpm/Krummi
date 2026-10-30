@@ -98,6 +98,11 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B11: there is no artificial maximum of values per key in a multi-value tree either (decision M13).*
 - *Left to the implementation: the promotion and demotion thresholds of multi-value trees are left to the implementation, which chooses them with measurements and records the evaluation in the closing report of 5.4 (decision M3).*
 
+*Annotations of 2026-10-30 from the remembered node layout check ([trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)):*
+
+- *B2: that PRD is a change to the module outside its split: it is not one of the six child PRDs and does not count toward the close of the module.*
+- *Reuse: the integrity check of the pages stays on every read of the data file; the layout check of a node is skipped if that same content already passed it in the current opening, with the residual risk of the exception to G6 of the root parent (decisions C1–C7).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

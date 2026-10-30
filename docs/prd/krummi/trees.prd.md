@@ -101,6 +101,11 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B11: tampoco hay un máximo artificial de valores por clave en un árbol multivalor (decisión M13).*
 - *Dejado a la implementación: los umbrales de subida y de bajada de los árboles multivalor quedan dejados a la implementación, que los elige con mediciones y deja la evaluación en el informe de cierre de 5.4 (decisión M3).*
 
+*Anotaciones del 2026-10-30 desde la comprobación de organización recordada de los nodos ([trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)):*
+
+- *B2: ese PRD es un cambio del módulo fuera de su reparto: no es uno de los seis PRD hijos ni cuenta para el cierre del módulo.*
+- *Reutilización: la comprobación de integridad de las páginas sigue en cada lectura del archivo de datos; la de organización de un nodo se omite si ese mismo contenido ya la pasó en la apertura en curso, con el riesgo residual de la excepción a G6 del padre raíz (decisiones C1–C7).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

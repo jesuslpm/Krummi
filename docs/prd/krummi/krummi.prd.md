@@ -142,6 +142,13 @@ escritas juntas: si se daña el último grupo sin ninguno posterior, se descarta
 siguientes; y la versión de formato vigente pasa a ser `4` (decisiones E9 y E15 de
 [journal-group-commit.prd.md](journal-group-commit.prd.md)).*
 
+*Anotación del 2026-10-30: excepción a G6. La comprobación de organización de un nodo de un árbol cuya integridad se
+acaba de verificar se omite si ese mismo contenido (número de página y código de integridad de 64 bits) ya la pasó
+mientras el almacén sigue abierto. Una alteración hecha con el almacén abierto que coincide en el código de integridad
+de un contenido recordado puede devolver datos que no son los escritos o terminar en un pánico en lugar de un error;
+las alteraciones hechas con el almacén cerrado se detectan como hasta ahora (decisión C7 de
+[trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,
@@ -339,6 +346,10 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 
     *Anotación del 2026-10-23 a AC10: con la escritura agrupada, ese descarte vale para una alteración en el último
     grupo de confirmaciones escritas juntas (decisión E9 de [journal-group-commit.prd.md](journal-group-commit.prd.md)).*
+
+    *Anotación del 2026-10-30 a AC10: el criterio no cambia, porque sus alteraciones se hacen con el almacén cerrado y
+    un almacén recién abierto no recuerda ningún nodo; el riesgo residual de la excepción a G6 solo afecta a
+    alteraciones con el almacén abierto (decisión C7 de [trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)).*
 11. **AC11** — Dado un disco sin espacio, cuando una transacción de escritura no cabe, entonces falla con la clase
     de error de disco lleno, no aplica ningún cambio, el almacén sigue permitiendo transacciones de lectura y,
     al liberar espacio, una escritura siguiente se confirma sin reabrir (G7).

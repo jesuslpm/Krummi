@@ -73,6 +73,10 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 - *A10: Add, Remove value, Remove key and the two Remove range operations of multi-value trees end the references even if they change nothing or fail, and are changes for T10 only when they add or remove some value or some key; catalog operations and open modes follow this decision unchanged, and emptying a multi-value tree is always a change, as A2 says (decision M9).*
 - *A13: the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
 
+*Annotations of 2026-10-30 from the remembered node layout check ([trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)):*
+
+- *A9: a damaged page still fails the same in every later operation that needs it, except for the residual risk of the exception to G6 of the root parent: an alteration made while the store is open that matches the integrity code of an already checked node (decision C7).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:
