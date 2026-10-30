@@ -78,7 +78,8 @@ Los commits `c7408c4` y `e529474` solo registran revisiones.
 | R3 | `6b095ff..2fa32aa` | `approved` | R3 verificado; ninguno abierto | [2026-10-30-code-03.md](../../docs/reviews/trees-node-check-cache/2026-10-30-code-03.md) |
 
 Resoluciones: [2026-10-30-code-resolutions.md](../../docs/reviews/trees-node-check-cache/2026-10-30-code-resolutions.md).
-Antes, a las 09:58, un primer intento falló por la cuota de uso de Codex (L10).
+Antes, a las 09:58, un primer intento falló por la cuota de uso de Codex (L10). La actualización de este informe con
+ese resultado no pasó por Codex; la revisó RDD (L16).
 
 ## Tiempo
 
@@ -194,8 +195,6 @@ que esto supone (C7) quedó anotada en el PRD raíz.
 
 ## Pendiente (no bloqueante)
 
-- **Revisión cruzada de Codex del código:** aprobada en la tercera ronda sin hallazgos abiertos (sección *Revisión
-  cruzada de Codex*). Esta actualización del informe no pasó por Codex.
 - **Observación de Windows:** lo que ahorra no comprobar una hoja de 370 entradas en Windows (12,5 y 14,0 µs por Get)
   supera el coste aislado de la comprobación medido antes del PRD (2,5–2,9 µs); en Linux coincide. No está explicado;
   el efecto relativo es el mismo en los dos sistemas.

@@ -135,3 +135,7 @@ in parallel; no writer trigger fires.
   `01a18d00-2118-7ce2-b2b4-96a0c9d850ed`, R3 verified resolved, no finding open. The closing report is updated
   with the outcome; following the user's "Lo fusionaremos y subiremos cuando codex lo revise luego.", main is
   fast-forwarded to this branch and pushed.
+- **L16** (2026-10-30): RDD review of `2fa32aa..f739caa` (the closing report update, documentation only; assessed
+  medium `under_budget`, last slice), lens readability: approved, lineage `review-1d015634a812a639`, acknowledged.
+  R2-pending-section-lists-approved-review (suggestion) → fixed in the commit that records this review: the
+  approved Codex review left the report's pending section.
