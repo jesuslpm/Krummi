@@ -2,6 +2,8 @@
 //! the engine's test hooks: how many contents the engine remembers, where pages live, and damage that appears while
 //! the store is open.
 
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
 use krummi_tree::{catalog, leaf_of};
@@ -367,12 +369,17 @@ fn ac_c7_a_byte_changed_in_a_remembered_node_is_detected() {
 }
 
 /// AC-C8 (C5, C6): with a table of four slots, the nodes of a tree of several leaves and a damaged node compete for
-/// the same slots while four threads read them at once, at least a thousand times each, and a write changes them and
-/// transfers them: every read returns the data of its snapshot, and the damaged node fails on every read.
+/// the same slots while four threads read them at once, a thousand rounds each at least, every round reading every
+/// node, and a write changes them and transfers them: every read returns the data of its snapshot, and the damaged
+/// node fails on every read. The writer waits for every reader to finish two rounds before and after each commit
+/// and each transfer, so the readers are reading while the nodes change and move, and each reader sees every
+/// generation.
 #[test]
 fn ac_c8_concurrent_reads_with_competing_slots() {
     const KEYS: usize = 24;
     const GENERATIONS: usize = 20;
+    const READERS: usize = 4;
+    const ROUNDS: usize = 1000;
     let tmp = tempfile::tempdir().unwrap();
     let stores = krummi_pager::testing::with_checked_slots(4, || {
         [
@@ -399,29 +406,55 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
         damage_layout(&store, bad_page);
         transfer(&store);
 
+        let rounds: [AtomicUsize; READERS] = Default::default();
+        let done = AtomicBool::new(false);
+        let shared = &store;
         thread::scope(|scope| {
-            for _ in 0..4 {
-                scope.spawn(|| {
-                    let mut node_reads = 0;
-                    while node_reads < 1000 {
-                        let read = store.read().unwrap();
-                        let good = read.open_tree("good").unwrap();
-                        let bad = read.open_tree("bad").unwrap();
-                        let first = read.get(&good, &key(0)).unwrap().unwrap().to_vec();
-                        for i in 1..KEYS {
-                            assert_eq!(
-                                read.get(&good, &key(i)).unwrap(),
-                                Some(&first[..]),
-                                "one snapshot"
-                            );
+            let store = shared;
+            let readers: Vec<_> = rounds
+                .iter()
+                .map(|finished| {
+                    let done = &done;
+                    scope.spawn(move || {
+                        let mut seen = BTreeSet::new();
+                        let mut count = 0;
+                        while count < ROUNDS || !done.load(Ordering::SeqCst) {
+                            let read = store.read().unwrap();
+                            let good = read.open_tree("good").unwrap();
+                            let bad = read.open_tree("bad").unwrap();
+                            let first = read.get(&good, &key(0)).unwrap().unwrap().to_vec();
+                            for i in 1..KEYS {
+                                assert_eq!(
+                                    read.get(&good, &key(i)).unwrap(),
+                                    Some(&first[..]),
+                                    "one snapshot"
+                                );
+                            }
+                            assert_eq!(damaged_page(read.get(&bad, b"bad")), bad_page);
+                            seen.insert(first);
+                            count += 1;
+                            finished.store(count, Ordering::SeqCst);
                         }
-                        assert_eq!(damaged_page(read.get(&bad, b"bad")), bad_page);
-                        // Opening each tree reads the catalog's node; each Get of `good` reads its root
-                        // branch and a leaf, and the Get of `bad` its one damaged leaf.
-                        node_reads += 2 + 2 * KEYS + 1;
-                    }
-                });
-            }
+                        seen
+                    })
+                })
+                .collect();
+            // Waits until every reader has finished two more rounds, so that one of them started after this call.
+            let two_rounds = || {
+                let from: Vec<usize> = rounds.iter().map(|r| r.load(Ordering::SeqCst)).collect();
+                while rounds
+                    .iter()
+                    .zip(&from)
+                    .any(|(r, &from)| r.load(Ordering::SeqCst) < from + 2)
+                {
+                    assert!(
+                        !readers.iter().any(|reader| reader.is_finished()),
+                        "a reader stopped while the writer ran"
+                    );
+                    thread::yield_now();
+                }
+            };
+            two_rounds();
             for generation in 1..=GENERATIONS {
                 let mut write = store.write().unwrap();
                 let good = write.open_tree("good").unwrap();
@@ -430,9 +463,30 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
                     write.set(&good, &key(i), value.as_bytes()).unwrap();
                 }
                 write.commit().unwrap();
-                transfer(&store);
+                two_rounds();
+                transfer(store);
+                assert_eq!(
+                    store.engine.scratch_bytes(),
+                    0,
+                    "the generation moved to the store's pages while the readers read"
+                );
+                two_rounds();
+            }
+            done.store(true, Ordering::SeqCst);
+            let every: BTreeSet<Vec<u8>> = (0..=GENERATIONS)
+                .map(|generation| format!("g{generation}").into_bytes())
+                .collect();
+            for reader in readers {
+                assert_eq!(
+                    reader.join().unwrap(),
+                    every,
+                    "a reader saw every generation"
+                );
             }
         });
+        for finished in &rounds {
+            assert!(finished.load(Ordering::SeqCst) >= ROUNDS);
+        }
         store.close().unwrap();
     }
 }
