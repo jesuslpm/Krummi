@@ -230,3 +230,8 @@ for the long-session backstop: the parent context already holds the PRD session 
   outside local tests; the engine compares a subtree's volume with the demotion threshold only when removing
   (`multi.rs`, `remove_value`), and only the test helper `check` asserts a subtree is at or above it. A test would
   need `set_multi_thresholds`, a process-wide value that would disturb the tests running in parallel.
+- **L25** (2026-10-30): Codex code review of `d5dc52a..c6097f8`
+  ([report](../../docs/reviews/trees-multivalue/2026-10-30-code.md),
+  [resolutions](../../docs/reviews/trees-multivalue/2026-10-30-code-resolutions.md)): status `findings`, R1 (minor,
+  the oscillating load panics when one value already passes the threshold) → fixed. A first attempt failed with the
+  model at capacity.

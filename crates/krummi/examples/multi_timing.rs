@@ -675,11 +675,15 @@ fn oscillate(
 
     let folder = tempfile::tempdir_in(base).expect("a temporary folder");
     let store = Store::open(folder.path(), &StoreOptions::default()).expect("open");
+    // Created on its own, since one value may already pass the threshold and leave no values before it.
+    let mut write = store.write().expect("write");
+    write
+        .open_multi_tree_with(TREE, OpenMode::CreateNew)
+        .expect("create the tree");
+    write.commit().expect("commit");
     for chunk in values[..at_threshold].chunks(BATCH) {
         let mut write = store.write().expect("write");
-        let tree = write
-            .open_multi_tree_with(TREE, OpenMode::OpenOrCreate)
-            .expect("open or create the tree");
+        let tree = write.open_multi_tree(TREE).expect("open the tree");
         for value in chunk {
             assert!(write.add(&tree, &key, value).expect("add"));
         }
