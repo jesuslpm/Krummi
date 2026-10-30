@@ -37,8 +37,8 @@ common conditions: "Valen los de los ascendientes, que deben seguir pasando sin 
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | C1–C8; S1, S4, S5 at the engine | inline (no writer trigger: one unit) | pending | |
-| T2 | S1–S9 at the public API | inline | pending | |
+| T1 | C1–C8 (engine; its acceptance tests are T2's) | inline (no writer trigger: one unit) | done | `6a1396b` |
+| T2 | S1–S9 at the public API | inline | done | this task's commit |
 | T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | pending | |
 | T4 | Docs, closing report, reviews | inline | pending | |
 
@@ -59,3 +59,23 @@ in parallel; no writer trigger fires.
   the page number: the risk C7 already accepts. C5 (Spanish and English) now says each entry is stored and looked up
   whole, and that matching another page's code takes the same coincidence as C7. Default taken without stopping the
   run; listed in the closing report.
+- **L4** (2026-10-30, T1): commits `09a9da4` (C5 wording), `6a1396b` (T1) and `64912a9` (the phase log, committed to keep the
+  untracked log out of the review inventory). Tests: 411 passed (408 before, plus 3 unit tests of the table); fmt and
+  clippy clean. RED was not observed first for T1: the engine change came before its acceptance tests (T2), which
+  run against it; the existing damage tests stayed green.
+- **L5** (2026-10-30): RDD review of T1 (`09a9da4..` committed only; assessed medium `under_budget`, raised to high
+  with item 2: skipping the layout check weakens damage detection), lenses risk, resilience, reliability: approved,
+  lineage `review-3073e38929171edc`, acknowledged. Findings: R1-001 (suggestion, collision trust assumption with an
+  external writer) → already the accepted residual risk of C7; R4-fixed-table-per-opening and R3-eager-table-allocation
+  (suggestions, 512 KiB per store at open) → the size is chosen by the measurement in T3; R3-node-at-cache-untested
+  (warning) → T2 adds the acceptance tests through `checked_remembered`; R3-with-checked-slots-not-panic-safe
+  (suggestion) → fixed in T2 with a guard. The phase-log background marks of this review failed (wrong arguments), so
+  its duration is not in the phase log.
+- **L6** (2026-10-30, T2): acceptance tests `crates/krummi/src/check_tests.rs`, AC-C1 to AC-C9 on disk and in
+  temporary mode (AC-C9 on disk only), through the public API and two test hooks: `Engine::checked_remembered` and
+  `Engine::flip_byte_in_place`. The second takes the engine mutably (no transaction open) and the scratch area's
+  `flushing` lock (no transfer writes meanwhile) to change a byte where the store keeps a page, without its checksum.
+  `with_checked_slots` restores the previous size on panic too (RDD T1 suggestion). An AC-C2 assertion first failed
+  because the test's own helper read the transferred leaf before the count; it now checks the page at the end.
+  Mutation check: remembering before the layout check failed AC-C4 and AC-C8; never remembering failed AC-C1, AC-C2,
+  AC-C3, AC-C6 and AC-C9. Checks: fmt, clippy clean; `cargo test --workspace` 420 passed, 0 failed.

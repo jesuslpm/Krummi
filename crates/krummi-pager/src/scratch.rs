@@ -256,6 +256,29 @@ impl Scratch {
         self.shared.pager()
     }
 
+    /// Flips every bit of byte `offset` of the payload of page `page_number` where the store keeps it, without
+    /// changing its checksum: damage that appears while the store is open (tests of the remembered node layout check
+    /// PRD, AC-C7). The page must be intact and have no version in this area.
+    ///
+    /// # Panics
+    ///
+    /// If the page is a header page or beyond the store, or `offset` is beyond the payload.
+    #[cfg(feature = "test-hooks")]
+    pub fn flip_byte_in_place(&mut self, page_number: u64, offset: usize) -> Result<()> {
+        let _flushing = self
+            .shared
+            .flushing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let pager = self.shared.pager();
+        let mut page = pager.run(page_number, 1)?.to_vec();
+        page[PAGE_HEADER_SIZE + offset] ^= 0xFF;
+        // SAFETY: borrowing this area mutably means no snapshot of it is alive, and every reference into the store's
+        // pages borrows a snapshot or this area, so none is alive; holding `flushing` keeps the transfer thread from
+        // writing pages in place meanwhile, the only other writer while the store is open.
+        unsafe { pager.write_run_shared(page_number, &page) }
+    }
+
     /// Information about the store (P12).
     pub fn info(&self) -> Info {
         self.pager().info()

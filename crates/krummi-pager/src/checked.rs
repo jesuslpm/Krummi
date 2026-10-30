@@ -39,10 +39,15 @@ pub fn with_checked_slots<T>(slots: usize, f: impl FnOnce() -> T) -> T {
         slots > 0,
         "a table of checked contents has at least one slot"
     );
-    let previous = TEST_SLOTS.with(|cell| cell.replace(Some(slots)));
-    let result = f();
-    TEST_SLOTS.with(|cell| cell.set(previous));
-    result
+    /// Puts back the slots set before, also when `f` panics.
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_SLOTS.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(TEST_SLOTS.with(|cell| cell.replace(Some(slots))));
+    f()
 }
 
 /// The table of a store.

@@ -59,6 +59,8 @@ const MAX_NAME: usize = 1024;
 const MAX_MULTI_VALUE: usize = krummi_tree::MAX_KEY;
 
 #[cfg(test)]
+mod check_tests;
+#[cfg(test)]
 mod multi_tests;
 #[cfg(test)]
 mod tests;

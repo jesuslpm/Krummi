@@ -282,6 +282,14 @@ impl Engine {
         self.scratch.pager().accepts_writes()
     }
 
+    /// Flips every bit of byte `offset` of the payload of page `page_number` in the store, without changing its
+    /// checksum, as damage that appears while the store is open; borrowing the engine mutably proves that no
+    /// transaction is open (tests of the remembered node layout check PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn flip_byte_in_place(&mut self, page_number: u64, offset: usize) -> Result<()> {
+        self.scratch.flip_byte_in_place(page_number, offset)
+    }
+
     /// Contents whose layout the tree code remembered as checked since the store opened, one per successful check of
     /// a verified page (tests of the remembered node layout check PRD).
     #[cfg(feature = "test-hooks")]
