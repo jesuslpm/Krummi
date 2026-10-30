@@ -75,3 +75,13 @@ approved before this round and reported the same defect as two non-blocking warn
   `assert!(generation < 3, "injected writer failure")` after the writer's commit: `FAILED`, exit 101,
   "finished in 0.08s". Both injections were removed; the report shows that the first one hung before the fix.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-30 (verification 2)
+
+Review record: follow-up report [2026-10-30-code-03.md](2026-10-30-code-03.md) of `6b095ff..2fa32aa`, wrapper
+status `approved`, thread `01a18d00-2118-7ce2-b2b4-96a0c9d850ed`. Executed settings from the wrapper telemetry:
+coordinator `gpt-6.1-sol` / `high`; one `krummi-review` reviewer `gpt-6.1-sol` / `high`.
+
+Verdict quoted: "Approved — R3 is verified resolved; no findings remain open in the requested scope."
+
+- R3: verified resolved.

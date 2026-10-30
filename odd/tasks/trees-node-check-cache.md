@@ -40,7 +40,7 @@ common conditions: "Valen los de los ascendientes, que deben seguir pasando sin 
 | T1 | C1–C8 (engine; its acceptance tests are T2's) | inline (no writer trigger: one unit) | done | `6a1396b` |
 | T2 | S1–S9 at the public API | inline | done | `1ea3d98` |
 | T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | done | `4057ce7` |
-| T4 | Docs, closing report, reviews | inline | done except the Codex review (L10) | the closing report commit |
+| T4 | Docs, closing report, reviews | inline | done, Codex approved (L15) | the closing report commits |
 
 Route evidence: the four tasks depend on each other in order (T2 and T3 need T1), so no two independent units run
 in parallel; no writer trigger fires.
@@ -129,3 +129,9 @@ in parallel; no writer trigger fires.
 - **L14** (2026-10-30): Codex follow-up R2 ([report](../../docs/reviews/trees-node-check-cache/2026-10-30-code-02.md)):
   status `findings`, thread `01a18cf1-e3a6-7c73-a359-9fe773b93063`; R1 and R2 verified resolved; new R3 (minor,
   AC-C8 hangs when a reader or the writer fails) → fixed in `8cf01cf`. Checks: fmt, clippy, 421 tests passed.
+- **L15** (2026-10-30): RDD review of `6b095ff..2fa32aa` (the R3 fix), lenses reliability and resilience: approved,
+  lineage `review-c534a2c3ec2a4bc1`, acknowledged; R3-001 (suggestion, informational) not acted on. Codex follow-up
+  R3 ([report](../../docs/reviews/trees-node-check-cache/2026-10-30-code-03.md)): status `approved`, thread
+  `01a18d00-2118-7ce2-b2b4-96a0c9d850ed`, R3 verified resolved, no finding open. The closing report is updated
+  with the outcome; following the user's "Lo fusionaremos y subiremos cuando codex lo revise luego.", main is
+  fast-forwarded to this branch and pushed.
