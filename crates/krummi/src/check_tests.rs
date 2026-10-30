@@ -408,17 +408,30 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
 
         let rounds: [AtomicUsize; READERS] = Default::default();
         let done = AtomicBool::new(false);
+        let failed = AtomicBool::new(false);
         let shared = &store;
         thread::scope(|scope| {
             let store = shared;
+            // A failure on this thread stops the readers while it unwinds, before the scope waits for them.
+            struct StopOnFailure<'a>(&'a AtomicBool);
+            impl Drop for StopOnFailure<'_> {
+                fn drop(&mut self) {
+                    if thread::panicking() {
+                        self.0.store(true, Ordering::SeqCst);
+                    }
+                }
+            }
+            let _stop = StopOnFailure(&failed);
             let readers: Vec<_> = rounds
                 .iter()
                 .map(|finished| {
-                    let done = &done;
+                    let (done, failed) = (&done, &failed);
                     scope.spawn(move || {
                         let mut seen = BTreeSet::new();
                         let mut count = 0;
-                        while count < ROUNDS || !done.load(Ordering::SeqCst) {
+                        while !failed.load(Ordering::SeqCst)
+                            && (count < ROUNDS || !done.load(Ordering::SeqCst))
+                        {
                             let read = store.read().unwrap();
                             let good = read.open_tree("good").unwrap();
                             let bad = read.open_tree("bad").unwrap();
