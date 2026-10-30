@@ -237,3 +237,6 @@ for the long-session backstop: the parent context already holds the PRD session 
   model at capacity.
 - **L26** (2026-10-30): Codex follow-up ([report](../../docs/reviews/trees-multivalue/2026-10-30-code-02.md)) of
   `c6097f8..0f5c8dd`: approved, R1 verified resolved.
+- **L27** (2026-10-30): RDD review of the last slice `c6097f8..24cba69` (the R1 fix `0f5c8dd` and the review
+  records; assessed medium, `under_budget`), lens reliability: approved without findings, lineage
+  `review-abac052309e1d5f4`, acknowledged.
