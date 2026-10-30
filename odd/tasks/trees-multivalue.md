@@ -206,3 +206,11 @@ for the long-session backstop: the parent context already holds the PRD session 
   values and keys of 64 bytes or more, 67–93% fewer pages; with 256-byte values 9–20% fewer (70% more in n10); with
   1,024-byte values no gain. Contains in a subtree is 17–69% slower even with as many pages read: a code-path cost to
   look at. Two runs slowed down from outside (32-byte keys, rerun; the n1 multi-value row with 64-byte keys).
+- **L22** (2026-10-30, user): "Los números que diste antes sugieren que el umbral de subida podría estar demasiado
+  bajo. Quizá con umbrales de 2048 y 4096 fuera mejor." 4,096 exceeds `MAX_PROMOTION` (4,074, M1); measured 2048:1024
+  against 4074:2037 at larger sizes (*Thresholds at larger sizes* in the measurement): 4,074 is never worse and takes
+  59% fewer pages where 2,048 moved keys to small subtrees. Investigation of Contains in subtrees (user: "Sí,
+  investiga."): in a scratch clone with `node::is_valid` short-circuited, Contains in a subtree went from 6.4–7.0 to
+  2.8–3.1 µs and in the composite tree from 3.7–4.1 to 3.3–3.4 µs (key 64, value 8): whole-node validation on every
+  page read costs about 3.5 µs on the dense leaves of subtrees; every read also checks the page's xxh3. Engine-wide
+  follow-up, outside this branch.

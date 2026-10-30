@@ -218,6 +218,55 @@ its share falls as the value grows.
   values are the set's elements, with no payload apart from them; a normal tree whose key is the key followed by the
   primary key, with the covered columns as its value, fits them better.
 
+## Thresholds at larger sizes (follow-up)
+
+Asked after the key and value sizes (L22): the threshold evaluation (M3) used M15's 16-byte keys and values, where the
+promotion threshold barely matters, and the larger sizes showed its losses (key 64 and value 256 in n10; key 256 in
+n100). Measured on Windows, 2026-10-30 02:36 to 03:10, the example of `eee6166`, pairs 2048:1024 and 4074:2037
+(the highest promotion threshold, `MAX_PROMOTION`, with the demotion at its half; 4,096 cannot be, since an inline
+entry must fit in its leaf, M1) and the composite baseline, loads n10, n100 and zipf, 1,000,000 values. Raw outputs:
+`work/th/` (not kept in the repository).
+
+| Sizes (bytes) | Load | Pair | Pages in use after adding | Add (s) | Contains (µs per value) | Remove (s) |
+|---|---|---|---|---|---|---|
+| key 64, value 64 | n10 | 2048:1024 | 12718 | 32.9 | 3.46 | 31.4 |
+| key 64, value 64 | n10 | 4074:2037 | 12718 | 30.0 | 3.46 | 31.6 |
+| key 64, value 64 | n10 | composite | 24535 | 30.4 | 3.59 | 29.7 |
+| key 64, value 64 | n100 | 2048:1024 | 10294 | 34.4 | 4.42 | 33.9 |
+| key 64, value 64 | n100 | 4074:2037 | 10401 | 32.5 | 4.30 | 34.1 |
+| key 64, value 64 | n100 | composite | 24504 | 29.7 | 3.76 | 29.6 |
+| key 64, value 64 | zipf | 2048:1024 | 14938 | 35.4 | 4.58 | 37.7 |
+| key 64, value 64 | zipf | 4074:2037 | 14167 | 34.6 | 4.54 | 37.0 |
+| key 64, value 64 | zipf | composite | 24500 | 30.0 | 3.82 | 29.8 |
+| key 64, value 256 | n10 | 2048:1024 | 102792 | 42.0 | 4.28 | 44.8 |
+| key 64, value 256 | n10 | 4074:2037 | 42071 | 36.2 | 3.78 | 35.5 |
+| key 64, value 256 | n10 | composite | 60476 | 36.6 | 4.39 | 33.4 |
+| key 64, value 256 | n100 | 2048:1024 | 53585 | 42.3 | 4.66 | 42.3 |
+| key 64, value 256 | n100 | 4074:2037 | 53621 | 43.0 | 4.66 | 42.8 |
+| key 64, value 256 | n100 | composite | 60427 | 35.3 | 4.23 | 33.2 |
+| key 64, value 256 | zipf | 2048:1024 | 55125 | 43.9 | 5.28 | 45.7 |
+| key 64, value 256 | zipf | 4074:2037 | 51636 | 44.0 | 5.33 | 44.5 |
+| key 64, value 256 | zipf | composite | 60573 | 35.5 | 4.23 | 33.5 |
+| key 256, value 16 | n10 | 2048:1024 | 8222 | 33.4 | 3.25 | 33.0 |
+| key 256, value 16 | n10 | 4074:2037 | 8222 | 30.1 | 3.24 | 32.7 |
+| key 256, value 16 | n10 | composite | 51699 | 30.4 | 4.18 | 30.0 |
+| key 256, value 16 | n100 | 2048:1024 | 10825 | 26.4 | 4.29 | 34.0 |
+| key 256, value 16 | n100 | 4074:2037 | 4413 | 24.1 | 3.12 | 26.4 |
+| key 256, value 16 | n100 | composite | 51727 | 29.1 | 4.25 | 28.1 |
+| key 256, value 16 | zipf | 2048:1024 | 8141 | 34.1 | 5.18 | 35.9 |
+| key 256, value 16 | zipf | 4074:2037 | 7910 | 33.5 | 4.98 | 36.4 |
+| key 256, value 16 | zipf | composite | 51663 | 28.7 | 4.24 | 28.7 |
+
+**Reading.** Where the two pairs keep every key in the same representation (key 64 and value 64 in n10 and n100,
+key 64 and value 256 in n100, key 256 in n10) pages and times are the same within the noise. Where 2,048 moves keys
+to small subtrees and 4,074 keeps them in their entry, 4,074 takes 59% fewer pages (key 64 and value 256 in n10:
+42,071 against 102,792, which turns 70% more than the composite tree into 30% fewer; key 256 in n100: 4,413 against
+10,825, 91% fewer than the composite tree instead of 79%), and adds, checks and removes faster (Contains 3.78 against
+4.28 µs and 3.12 against 4.29 µs; removing everything 35.5 against 44.8 s and 26.4 against 34.0 s). In zipf, 4,074
+takes 3–6% fewer pages with the same times. In no case was 4,074 worse. Against it, from M15: each operation next to
+the threshold rewrites a blob up to twice as long (1.5 against 2.6 µs per operation, next to a commit of about
+30 µs), and a parent leaf may hold two entries.
+
 ## Linux
 
 ### Load n1: 1000000 values, keys with values: 1000000
