@@ -196,3 +196,13 @@ for the long-session backstop: the parent context already holds the PRD session 
   after two rounds.
 - **L20** (T5 close): closing report [trees-multivalue-report.md](trees-multivalue-report.md). T5 done. The branch
   stays unmerged and unpushed.
+- **L21** (2026-10-29/30, user, after the closing report): "Con los números delante me parece que los árboles
+  multivalor no merecen la pena, los árboles normales van muy bien y no compensa la complejidad introducida." Then,
+  on key sizes: "¿Pero cuanto de mejora se tendría con 32, 64, 128 y 256 bytes en las claves?", and on values: "En un
+  índice secundario "normal" pondríamos la clave principal de la tabla en el valor, pero para uno "de cobertura" el
+  valor podría ser bastante más largo. ¿Cómo influiría esto?", with "Sí, pero no incluyas estas mediciones ni en la
+  CI y las pruebas normales." Done: `--key-size` (`1a61e0a`) and `--value-size` (`eee6166`) in the measurement
+  example, run by hand only; results in `trees-multivalue-measurements.md`, *Key and value sizes*. With 8–16-byte
+  values and keys of 64 bytes or more, 67–93% fewer pages; with 256-byte values 9–20% fewer (70% more in n10); with
+  1,024-byte values no gain. Contains in a subtree is 17–69% slower even with as many pages read: a code-path cost to
+  look at. Two runs slowed down from outside (32-byte keys, rerun; the n1 multi-value row with 64-byte keys).

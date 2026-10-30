@@ -124,6 +124,100 @@ near the threshold and with leaves of as few as two entries. Between the two dem
 simpler one is taken, half the promotion threshold, which also leaves the widest gap against keys that move back
 and forth by more than one value.
 
+## Key and value sizes (follow-up)
+
+Asked after the run (L21): M15 uses 16-byte keys and values, while an index's keys are usually longer and its values
+are a primary key (8–16 bytes) or, in a covering index, longer. Measured on Windows, 2026-10-29 21:38 to 2026-10-30
+01:04, with the example of `eee6166` (`--key-size`, `--value-size`), the chosen pair 2048:1024 against the composite
+baseline, 1,000,000 values per load, the rest as M15. Not run on Linux: pages do not depend on the system, and the
+Windows times of M15 agreed with Linux's. The first run with 32-byte keys was slowed down by something outside the
+engine, like the first M15 run on Windows (all its times 3–4 times the others), and was rerun; in the 64-byte
+key run, the multi-value row of n1 (133.6 µs per add, 20.5 µs per Contains) was slowed down the same way and its
+times are not valid; its pages are. The first row of each table is M15's rerun on Windows. Raw outputs: `work/ks/`
+(not kept in the repository).
+
+A byte model of the leaf cells (4-byte cell header, 2-byte slot) predicts the space within a few points: per value,
+the composite tree takes the key plus the value plus 6 bytes; the multi-value tree, the value plus 2 bytes in an
+entry (plus the key once per key) or plus 6 in a subtree. So the saving is about the key's length per value, and
+its share falls as the value grows.
+
+**Pages in use after adding, multi-value against composite**
+
+| Sizes (bytes) | n1 | n10 | n100 | n1000 | n10000 | n100000 | n1000000 | zipf |
+|---|---|---|---|---|---|---|---|---|
+| key 16, value 16 | +11 % | −44 % | −51 % | −28 % | −52 % | −40 % | −43 % | −38 % |
+| key 32, value 16 | +10 % | −58 % | −66 % | −47 % | −64 % | −56 % | −57 % | −51 % |
+| key 64, value 16 | +5 % | −71 % | −79 % | −68 % | −78 % | −73 % | −74 % | −67 % |
+| key 128, value 16 | +3 % | −79 % | −88 % | −82 % | −87 % | −85 % | −85 % | −78 % |
+| key 256, value 16 | +3 % | −84 % | −79 % | −90 % | −93 % | −92 % | −92 % | −84 % |
+| key 64, value 8 | +6 % | −78 % | −86 % | −78 % | −79 % | −82 % | −84 % | −75 % |
+| key 64, value 64 | +2 % | −48 % | −58 % | −41 % | −48 % | −49 % | −49 % | −39 % |
+| key 64, value 256 | 0 % | +70 % | −11 % | −19 % | −20 % | −20 % | −20 % | −9 % |
+| key 64, value 1024 | −16 % | +27 % | +2 % | 0 % | 0 % | 0 % | 0 % | +7 % |
+
+**Add, µs per value, multi-value against composite**
+
+| Sizes (bytes) | n1 | n10 | n100 | n1000 | n10000 | n100000 | n1000000 | zipf |
+|---|---|---|---|---|---|---|---|---|
+| key 16, value 16 | 37.2 / 33.6 | 28.1 / 29.7 | 23.4 / 28.9 | 30.8 / 27.4 | 30.9 / 26.8 | 29.2 / 26.3 | 29.9 / 25.9 | 32.9 / 27.9 |
+| key 32, value 16 | 36.6 / 29.7 | 26.0 / 26.1 | 21.8 / 25.5 | 29.7 / 25.3 | 28.9 / 24.6 | 27.0 / 23.1 | 28.4 / 22.5 | 28.9 / 23.9 |
+| key 64, value 16 | 133.6 / 31.5 | 27.1 / 26.3 | 22.1 / 25.4 | 28.9 / 26.2 | 30.1 / 25.3 | 28.6 / 24.9 | 29.1 / 24.5 | 31.5 / 27.3 |
+| key 128, value 16 | 37.0 / 31.4 | 28.5 / 28.5 | 23.5 / 27.3 | 31.3 / 26.2 | 30.2 / 26.0 | 28.5 / 25.9 | 28.8 / 24.9 | 32.5 / 26.8 |
+| key 256, value 16 | 39.0 / 34.5 | 30.8 / 30.7 | 27.2 / 28.5 | 32.8 / 27.6 | 31.0 / 27.0 | 29.7 / 27.0 | 29.1 / 26.4 | 33.9 / 29.1 |
+| key 64, value 8 | 37.8 / 30.9 | 26.1 / 27.3 | 19.5 / 25.1 | 28.1 / 24.5 | 28.1 / 26.3 | 25.3 / 23.1 | 27.3 / 23.8 | 29.9 / 25.1 |
+| key 64, value 64 | 36.9 / 29.6 | 31.4 / 28.2 | 33.6 / 27.7 | 30.1 / 27.5 | 28.6 / 27.7 | 27.2 / 27.8 | 29.0 / 27.3 | 35.4 / 28.9 |
+| key 64, value 256 | 35.9 / 32.0 | 37.7 / 33.5 | 38.5 / 33.9 | 34.8 / 32.9 | 32.8 / 33.1 | 30.5 / 31.5 | 32.3 / 33.1 | 41.5 / 31.7 |
+| key 64, value 1024 | 43.9 / 45.2 | 52.3 / 46.3 | 48.8 / 43.5 | 43.9 / 42.4 | 43.4 / 46.7 | 44.1 / 43.4 | 45.0 / 42.6 | 56.6 / 45.2 |
+
+**Contains, µs per value, multi-value against composite**
+
+| Sizes (bytes) | n1 | n10 | n100 | n1000 | n10000 | n100000 | n1000000 | zipf |
+|---|---|---|---|---|---|---|---|---|
+| key 16, value 16 | 4.5 / 4.2 | 3.6 / 4.4 | 3.4 / 4.3 | 5.2 / 4.1 | 5.5 / 4.2 | 5.4 / 4.1 | 5.6 / 4.1 | 5.7 / 4.1 |
+| key 32, value 16 | 4.0 / 3.6 | 2.9 / 3.9 | 2.9 / 4.0 | 5.0 / 4.2 | 4.7 / 4.1 | 5.2 / 3.8 | 5.1 / 3.6 | 4.4 / 3.6 |
+| key 64, value 16 | 20.5 / 3.7 | 2.9 / 3.8 | 2.7 / 3.8 | 4.8 / 4.1 | 5.1 / 4.0 | 5.3 / 4.0 | 5.6 / 4.1 | 4.9 / 4.1 |
+| key 128, value 16 | 3.6 / 3.9 | 3.3 / 4.0 | 3.3 / 3.8 | 5.6 / 3.9 | 5.1 / 3.8 | 5.5 / 3.9 | 5.6 / 4.0 | 5.3 / 3.8 |
+| key 256, value 16 | 4.1 / 4.2 | 3.2 / 4.2 | 4.2 / 4.2 | 5.2 / 4.2 | 4.9 / 4.1 | 5.3 / 4.1 | 5.5 / 4.2 | 5.0 / 4.4 |
+| key 64, value 8 | 3.7 / 3.8 | 2.9 / 4.2 | 2.9 / 4.0 | 6.7 / 4.1 | 5.5 / 4.4 | 5.2 / 3.6 | 6.1 / 3.6 | 5.1 / 4.1 |
+| key 64, value 64 | 3.4 / 3.5 | 3.3 / 3.5 | 4.1 / 3.9 | 4.1 / 3.8 | 4.4 / 3.8 | 3.9 / 3.8 | 4.5 / 3.8 | 4.3 / 3.4 |
+| key 64, value 256 | 3.5 / 3.9 | 4.3 / 4.0 | 4.2 / 4.3 | 4.4 / 3.8 | 4.4 / 4.1 | 3.7 / 4.2 | 4.4 / 3.9 | 4.6 / 3.8 |
+| key 64, value 1024 | 4.1 / 6.7 | 5.0 / 5.6 | 5.2 / 5.6 | 5.0 / 6.4 | 5.9 / 5.6 | 5.7 / 5.7 | 6.0 / 5.6 | 6.2 / 5.8 |
+
+**Pages per Contains, multi-value / composite**
+
+| Sizes (bytes) | n1 | n10 | n100 | n1000 | n10000 | n100000 | n1000000 | zipf |
+|---|---|---|---|---|---|---|---|---|
+| key 16, value 16 | 3.00 / 3.00 | 3.00 / 3.00 | 3.00 / 3.00 | 4.00 / 3.00 | 4.00 / 3.00 | 4.00 / 3.00 | 4.00 / 3.00 | 4.17 / 3.00 |
+| key 32, value 16 | 3.00 / 3.00 | 3.00 / 3.00 | 3.00 / 3.00 | 4.00 / 3.00 | 4.00 / 3.00 | 4.00 / 3.00 | 4.00 / 3.00 | 4.17 / 3.00 |
+| key 64, value 16 | 4.00 / 4.00 | 3.00 / 4.00 | 3.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 4.17 / 4.00 |
+| key 128, value 16 | 4.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 5.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 5.18 / 4.00 |
+| key 256, value 16 | 5.00 / 5.00 | 4.00 / 5.00 | 5.00 / 5.00 | 5.00 / 5.00 | 4.00 / 5.00 | 4.00 / 5.00 | 4.00 / 5.00 | 5.18 / 5.00 |
+| key 64, value 8 | 4.00 / 4.00 | 3.00 / 4.00 | 3.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 3.00 / 4.00 | 4.00 / 4.00 | 4.01 / 4.00 |
+| key 64, value 64 | 4.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 4.00 / 4.00 | 5.00 / 4.00 | 4.00 / 4.00 | 5.00 / 4.00 | 4.53 / 4.00 |
+| key 64, value 256 | 4.00 / 5.00 | 4.00 / 5.00 | 5.00 / 5.00 | 5.00 / 5.00 | 5.00 / 5.00 | 5.00 / 5.00 | 6.00 / 5.00 | 6.17 / 5.00 |
+| key 64, value 1024 | 4.00 / 8.00 | 5.00 / 8.00 | 6.00 / 8.00 | 6.00 / 8.00 | 7.99 / 8.00 | 8.00 / 8.00 | 9.00 / 8.00 | 7.72 / 8.00 |
+
+**Reading.**
+
+- **Space**: with values of 8–16 bytes (a primary key), the multi-value tree takes 67–93% fewer pages with keys of 64
+  bytes or more, in every load but n1, where it takes 2–6% more. With 64-byte values, 39–58% fewer. With 256-byte
+  values, 9–20% fewer, but 70% more in n10: ten values of 258 bytes pass the promotion threshold, which counts the
+  key and the values in bytes, and each key gets a subtree of its own in a page it barely fills. With 1,024-byte
+  values, the same as the composite tree or more (+27% in n10), except n1 (−16%, the composite tree's branch pages
+  hold 1,088-byte keys). With 256-byte keys, keys of 100 values also move to subtrees and save 79% instead of the
+  93% of the neighbouring loads.
+- **Add**: with 8–16-byte values, the same or up to 22% less while a key's values are in its entry and 7–26% more
+  with subtrees; with 64-byte values and more, within about 10% either way, except where keys move early to small
+  subtrees (n10 and n100 with 64 or more bytes: 11–21% more) and in zipf (22–31% more).
+- **Contains**: with 8–16-byte values, 13–31% faster while a key's values are in its entry and 17–69% slower in a
+  subtree, also where it reads as many pages as the composite tree or fewer (key 64 and value 8: 4.00 against 4.00 pages in n1000, 6.7
+  against 4.1 µs; 3.00 against 4.00 in n100000, 5.2 against 3.6 µs). The cost of a Contains in a subtree is in the
+  code path, not in the pages read: a possible improvement, not studied here. With larger values the gap closes:
+  with 1,024-byte values the composite tree is 8 levels tall and as slow as the multi-value tree or slower.
+- **Covering indexes**: with values of hundreds of bytes the multi-value tree saves little or takes more, and its
+  values are the set's elements, with no payload apart from them; a normal tree whose key is the key followed by the
+  primary key, with the covered columns as its value, fits them better.
+
 ## Linux
 
 ### Load n1: 1000000 values, keys with values: 1000000
