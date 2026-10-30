@@ -235,3 +235,5 @@ for the long-session backstop: the parent context already holds the PRD session 
   [resolutions](../../docs/reviews/trees-multivalue/2026-10-30-code-resolutions.md)): status `findings`, R1 (minor,
   the oscillating load panics when one value already passes the threshold) → fixed. A first attempt failed with the
   model at capacity.
+- **L26** (2026-10-30): Codex follow-up ([report](../../docs/reviews/trees-multivalue/2026-10-30-code-02.md)) of
+  `c6097f8..0f5c8dd`: approved, R1 verified resolved.

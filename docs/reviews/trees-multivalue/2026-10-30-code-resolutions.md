@@ -26,3 +26,13 @@ Review record: [2026-10-30-code.md](2026-10-30-code.md), wrapper status `finding
 `01a18bd2-1446-7d91-9cb6-e6864a10d90a`, coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review-critical`
 `gpt-6-astra`/`xhigh` (telemetry). An earlier attempt the same day failed before reviewing (`Selected model is at
 capacity`) and saved no report.
+
+## 2026-10-30 (verification)
+
+Follow-up report: [2026-10-30-code-02.md](2026-10-30-code-02.md), fix range `c6097f8..0f5c8dd`. Verdict, quoted:
+"Approved — R1 verified resolved; no open findings in the requested follow-up scope."
+
+- R1: verified resolved.
+
+Review record: wrapper status `approved`, thread `01a18bdd-652a-7400-a4bf-8b40a33cf41c`, coordinator
+`gpt-6.1-sol`/`high`, reviewer `krummi-review` `gpt-6.1-sol`/`high` (telemetry).
