@@ -22,3 +22,7 @@
 2026-10-30T09:59:46+00:00	mark	wait	Codex usage limit
 2026-10-30T10:04:15+00:00	mark	close	closing report
 2026-10-30T10:04:15+00:00	end		
+2026-10-30T12:47:11+00:00	bg-start	review	codex-R1
+2026-10-30T12:55:51+00:00	bg-end	review	codex-R1
+2026-10-30T12:56:07+00:00	mark	fix	codex-R1
+2026-10-30T13:00:03+00:00	mark	checks	codex-R1

@@ -112,3 +112,11 @@ in parallel; no writer trigger fires.
 - **L11** (2026-10-30): closing report [trees-node-check-cache-report.md](trees-node-check-cache-report.md), written
   with the Codex code review pending at the user's choice ("Sí" to writing it now). Active time 52 min 13 s against
   the estimate of 2 h 30 min to 4 h.
+- **L12** (2026-10-30): Codex code review R1 of `f49919f..fc57e47`
+  ([report](../../docs/reviews/trees-node-check-cache/2026-10-30-code.md),
+  [resolutions](../../docs/reviews/trees-node-check-cache/2026-10-30-code-resolutions.md)): status `findings`,
+  thread `01a18cd9-9d10-7141-9077-eaeeec8c5414`. R1 (major, the table's allocation aborts the process when the
+  system has no memory for it, against P13) → fixed in `161c0e4`, test first (RED: `capacity overflow` panic).
+  R2 (major, AC-C8 does not make the readers overlap the writes and transfers) → fixed in `f95c57f`: coordinated
+  readers, 1,000 full rounds each, every generation seen, transfers asserted while they read. Checks: fmt, clippy,
+  421 tests passed.
