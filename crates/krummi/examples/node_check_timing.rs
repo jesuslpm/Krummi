@@ -2,7 +2,7 @@
 //! layout check PRD, criterion AC-C10). It is run by hand: neither the tests nor CI run it.
 //!
 //! ```text
-//! cargo run --release -p krummi --example node_check_timing [options]
+//! cargo run --release -p krummi --example node_check_timing -- [options]
 //! ```
 //!
 //! Options:

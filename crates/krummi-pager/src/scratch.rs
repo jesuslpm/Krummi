@@ -262,9 +262,18 @@ impl Scratch {
     ///
     /// # Panics
     ///
-    /// If the page is a header page or beyond the store, or `offset` is beyond the payload.
+    /// If the page is a header page or beyond the store, has a version in this area, or `offset` is beyond the
+    /// payload.
     #[cfg(feature = "test-hooks")]
     pub fn flip_byte_in_place(&mut self, page_number: u64, offset: usize) -> Result<()> {
+        assert!(
+            offset < PAGE_SIZE - PAGE_HEADER_SIZE,
+            "offset {offset} is beyond the payload"
+        );
+        assert!(
+            !self.lock().versions.contains_key(&page_number),
+            "page {page_number} has a version in the scratch area, which reads see instead"
+        );
         let _flushing = self
             .shared
             .flushing

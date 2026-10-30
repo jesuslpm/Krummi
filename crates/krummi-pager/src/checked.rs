@@ -87,6 +87,11 @@ impl Checked {
         }
     }
 
+    /// Slots of the table.
+    pub(crate) fn slots(&self) -> usize {
+        self.slots.len()
+    }
+
     /// Contents remembered so far.
     pub(crate) fn remembered(&self) -> u64 {
         self.remembered.load(Ordering::Relaxed)

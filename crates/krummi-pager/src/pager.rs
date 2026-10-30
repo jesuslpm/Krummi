@@ -316,6 +316,11 @@ impl Pager {
         self.checked.remembered()
     }
 
+    /// Slots of the table of checked contents of this store (tests).
+    pub fn checked_slots(&self) -> usize {
+        self.checked.slots()
+    }
+
     /// The `count` pages of the run that starts at page `first`, as one contiguous sequence without copying it
     /// (D3 of the large values execution, V2 of the large values PRD), after checking the run's integrity (D1, G6).
     /// A damaged run, or one that does not fit in the store, is the damage class with its first page (V7).

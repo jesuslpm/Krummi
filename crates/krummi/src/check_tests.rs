@@ -326,7 +326,7 @@ fn ac_c6_an_inconsistent_entry_fails_although_its_layout_is_remembered() {
 #[test]
 fn ac_c7_a_byte_changed_in_a_remembered_node_is_detected() {
     on_both(|store| {
-        commit_tree(store, "n", 20, 64);
+        commit_tree(store, "n", 200, 64);
         transfer(store);
         let key = long_key(3, 64);
         let read = store.read().unwrap();
@@ -339,6 +339,30 @@ fn ac_c7_a_byte_changed_in_a_remembered_node_is_detected() {
         let read = store.read().unwrap();
         let tree = read.open_tree("n").unwrap();
         assert_eq!(damaged_page(read.get(&tree, &key)), page);
+        drop(read);
+
+        // A byte of a key, which keeps the layout valid: only the integrity code can catch it.
+        let other = long_key(190, 64);
+        let read = store.read().unwrap();
+        let tree = read.open_tree("n").unwrap();
+        let other_page = leaf(store, root_of(store, "n"), &other);
+        assert_ne!(other_page, page, "another leaf, still intact");
+        assert!(read.get(&tree, &other).unwrap().is_some(), "remembered");
+        let at = read
+            .inner
+            .page(other_page)
+            .unwrap()
+            .windows(other.len())
+            .position(|w| w == other)
+            .expect("the key in its leaf");
+        drop(read);
+        store
+            .engine
+            .flip_byte_in_place(other_page, at + 10)
+            .unwrap();
+        let read = store.read().unwrap();
+        let tree = read.open_tree("n").unwrap();
+        assert_eq!(damaged_page(read.get(&tree, &other)), other_page);
     });
 }
 
@@ -357,6 +381,11 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
         ]
     });
     for store in stores {
+        assert_eq!(
+            store.engine.checked_slots(),
+            4,
+            "the stores got the test's table"
+        );
         let key = |i: usize| long_key(i, 1500);
         let mut write = store.write().unwrap();
         let good = write.open_tree_with("good", OpenMode::CreateNew).unwrap();
@@ -387,8 +416,9 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
                             );
                         }
                         assert_eq!(damaged_page(read.get(&bad, b"bad")), bad_page);
-                        // Each read goes through the catalog and the tree's root and leaf.
-                        node_reads += 3 * (KEYS + 1);
+                        // Opening each tree reads the catalog's node; each Get of `good` reads its root
+                        // branch and a leaf, and the Get of `bad` its one damaged leaf.
+                        node_reads += 2 + 2 * KEYS + 1;
                     }
                 });
             }

@@ -36,7 +36,7 @@ system's temporary folder; Linux ran 09:37:17–09:38:00, one after the other.
   311 against 351 ns) and is within the noise on Windows (−4% and +5%). Such leaves are rare (a leaf holds at least
   two entries of the largest size), so every node uses the memory, without a minimum number of entries.
 - **Windows against Linux**: Windows takes 4 to 5 times as long in both modes, and what remembering saves on a leaf of
-  370 entries on Windows (about 12.6 µs per Get) is more than the isolated cost of the layout check measured before
+  370 entries on Windows (12.5 and 14.0 µs per Get in the two runs) is more than the isolated cost of the layout check measured before
   the PRD (2.5–2.9 µs per node on Windows). On Linux the saving (2.5 µs) matches it. The cause is not established;
   the relative effect agrees on both systems.
 

@@ -39,7 +39,7 @@ common conditions: "Valen los de los ascendientes, que deben seguir pasando sin 
 |---|---|---|---|---|
 | T1 | C1–C8 (engine; its acceptance tests are T2's) | inline (no writer trigger: one unit) | done | `6a1396b` |
 | T2 | S1–S9 at the public API | inline | done | `1ea3d98` |
-| T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | done | T3 commit |
+| T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | done | `4057ce7` |
 | T4 | Docs, closing report, reviews | inline | pending | |
 
 Route evidence: the four tasks depend on each other in order (T2 and T3 need T1), so no two independent units run
@@ -86,6 +86,17 @@ in parallel; no writer trigger fires.
   the multi-value tree, −44% and −36%/−55% in the composite tree; a leaf of one entry +13% on Linux (40 ns) and noise
   on Windows. Defaults taken (left to the implementation, C5): every node uses the memory, with no minimum number of
   entries; 65,536 slots per open store (512 KiB). Open observation: on Windows the saving per Get on the dense leaf
-  (12.6 µs) exceeds the isolated cost of the layout check (2.5–2.9 µs); not explained. `cargo fmt` reformatted the
+  (12.5 and 14.0 µs in the two runs) exceeds the isolated cost of the layout check (2.5–2.9 µs); not explained. `cargo fmt` reformatted the
   example after the runs (formatting only). README: the tree paragraph names the remembered check and the example.
+  Checks: fmt, clippy clean; 420 passed.
+- **L8** (2026-10-30): RDD review of the last slice `64912a9..4057ce7` (T2, T3; assessed medium `under_budget`),
+  lenses risk, reliability, readability: approved, lineage `review-9992850ecbe7818c`, acknowledged. Findings and
+  dispositions: R2-001 (warning, the Windows saving "12.6 µs" matched no row) → fixed, 12.5 and 14.0 µs;
+  R3-ac-c8-slot-count-unasserted (warning) → fixed, AC-C8 asserts the stores got 4 slots (new hook
+  `checked_slots`); R2-003 (the AC-C8 node-read count was overstated) → fixed, 2 + 2 × keys + 1 per round;
+  R3-ac-c7-checksum-vs-layout → fixed, AC-C7 also flips a byte of a key in another remembered leaf, which keeps the
+  layout valid, and the read fails; R1-flip-byte-unchecked-preconditions and R2-004 → fixed, the hook panics on an
+  offset beyond the payload or a page with a scratch version, and the engine hook documents it; R2-002 → fixed, the
+  example's documented command has `--`; R3-timing-order-bias (suggestion, the round without remembering always runs
+  first) → kept: the fastest of three limits it, and changing the order now would not match the recorded runs.
   Checks: fmt, clippy clean; 420 passed.
