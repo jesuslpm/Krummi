@@ -90,7 +90,9 @@ one contiguous sequence without copying it, also in a temporary store. A catalog
 entries; it takes no page until the first tree is created. A changed node keeps its page number, so a write needs no
 path copying, and reads return values without copying them. Opening and creating follow .NET's `FileMode` (open,
 create new, open or create, create or empty, empty), and the key operations follow a .NET `Dictionary`. A page whose
-layout is inconsistent is reported as damage, never trusted. Scans follow Rust's `BTreeMap::range`: two bounds,
+layout is inconsistent is reported as damage, never trusted; every read from the data file verifies the page's
+checksum, and a node whose layout already passed with that same checksum is not checked again while the store stays
+open, as `cargo run --release -p krummi --example node_check_timing` measures. Scans follow Rust's `BTreeMap::range`: two bounds,
 each included, excluded or open, and an optional prefix, consumed from the front or the back; a scan keeps the
 path from the root at each end and reads no page until it is used, and a range removal frees the subtrees wholly
 inside the interval in one descent. `cargo run --release -p krummi --example tree_timing` measures storing, reading

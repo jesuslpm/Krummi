@@ -38,8 +38,8 @@ common conditions: "Valen los de los ascendientes, que deben seguir pasando sin 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | C1–C8 (engine; its acceptance tests are T2's) | inline (no writer trigger: one unit) | done | `6a1396b` |
-| T2 | S1–S9 at the public API | inline | done | this task's commit |
-| T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | pending | |
+| T2 | S1–S9 at the public API | inline | done | `1ea3d98` |
+| T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | done | T3 commit |
 | T4 | Docs, closing report, reviews | inline | pending | |
 
 Route evidence: the four tasks depend on each other in order (T2 and T3 need T1), so no two independent units run
@@ -79,3 +79,13 @@ in parallel; no writer trigger fires.
   because the test's own helper read the transferred leaf before the count; it now checks the page at the end.
   Mutation check: remembering before the layout check failed AC-C4 and AC-C8; never remembering failed AC-C1, AC-C2,
   AC-C3, AC-C6 and AC-C9. Checks: fmt, clippy clean; `cargo test --workspace` 420 passed, 0 failed.
+- **L7** (2026-10-30, T3): example `node_check_timing` and [measurement](trees-node-check-cache-measurements.md),
+  Windows 09:34:46–09:37:16 and a rerun 09:38:17–09:40:44 (the first run's absolute times looked high; the rerun, with
+  the stores in the system's temporary folder, agreed), Linux in WSL 09:37:17–09:38:00. Remembering: leaf of 370
+  entries −86% (Linux) and −88%/−90% (Windows); of 100 entries −64% and −47%/−59%; Contains −66% and −71%/−72% in
+  the multi-value tree, −44% and −36%/−55% in the composite tree; a leaf of one entry +13% on Linux (40 ns) and noise
+  on Windows. Defaults taken (left to the implementation, C5): every node uses the memory, with no minimum number of
+  entries; 65,536 slots per open store (512 KiB). Open observation: on Windows the saving per Get on the dense leaf
+  (12.6 µs) exceeds the isolated cost of the layout check (2.5–2.9 µs); not explained. `cargo fmt` reformatted the
+  example after the runs (formatting only). README: the tree paragraph names the remembered check and the example.
+  Checks: fmt, clippy clean; 420 passed.
