@@ -51,6 +51,25 @@ pub trait PageSource {
     /// The payload of page `page_number` as the transaction sees it, without copying it (D11).
     fn page(&self, page_number: u64) -> Result<&[u8]>;
 
+    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
+    /// verified, or `None` when no read verifies it, as for a version of the scratch area (C2, C3 of the remembered
+    /// node layout check PRD).
+    fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
+        Ok((self.page(page_number)?, None))
+    }
+
+    /// Whether the content of page `page_number` with integrity code `code` already passed the layout check while the
+    /// store is open (C1, C2).
+    fn is_checked(&self, page_number: u64, code: u64) -> bool {
+        let _ = (page_number, code);
+        false
+    }
+
+    /// Remembers that the content of page `page_number` with integrity code `code` passed the layout check (C1, C2).
+    fn remember_checked(&self, page_number: u64, code: u64) {
+        let _ = (page_number, code);
+    }
+
     /// The content of the value run of `count` pages from page `first` as the transaction sees it, after the run's
     /// header, as one sequence without copying it (V2).
     fn run(&self, first: u64, count: u64) -> Result<&[u8]>;
@@ -76,6 +95,18 @@ pub trait PageSource {
 impl PageSource for ReadTransaction<'_> {
     fn page(&self, page_number: u64) -> Result<&[u8]> {
         ReadTransaction::page(self, page_number)
+    }
+
+    fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
+        ReadTransaction::page_and_code(self, page_number)
+    }
+
+    fn is_checked(&self, page_number: u64, code: u64) -> bool {
+        ReadTransaction::is_checked(self, page_number, code)
+    }
+
+    fn remember_checked(&self, page_number: u64, code: u64) {
+        ReadTransaction::remember_checked(self, page_number, code);
     }
 
     fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
@@ -106,6 +137,18 @@ impl PageSource for ReadTransaction<'_> {
 impl PageSource for WriteTransaction<'_> {
     fn page(&self, page_number: u64) -> Result<&[u8]> {
         WriteTransaction::page(self, page_number)
+    }
+
+    fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
+        WriteTransaction::page_and_code(self, page_number)
+    }
+
+    fn is_checked(&self, page_number: u64, code: u64) -> bool {
+        WriteTransaction::is_checked(self, page_number, code)
+    }
+
+    fn remember_checked(&self, page_number: u64, code: u64) {
+        WriteTransaction::remember_checked(self, page_number, code);
     }
 
     fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
@@ -159,12 +202,27 @@ pub fn copy_str<S: PageSource + ?Sized>(tx: &S, text: &str) -> Result<String> {
 /// The payload of node `page`, checked: a data page with a consistent layout (see [`node::is_valid`]) and, when
 /// `level` is given, at that level. A child is read one level below its parent, so no path loops. Otherwise it
 /// fails with the damage class and the number of the page it was asked for, as when its checksum fails (G6).
+///
+/// The layout of a content whose integrity code its read has just verified is checked once while the store is open:
+/// a content that passes is remembered by its page number and code, and a later read of the same content does not
+/// check it again (C1–C3 of the remembered node layout check PRD). Every other check runs on every read.
 fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Result<&[u8]> {
     if !tx.may_hold_data(page) {
         return Err(tx.damaged(page));
     }
-    let node = tx.page(page)?;
-    if node::is_valid(node) && level.is_none_or(|level| node::level(node) == level) {
+    let (node, code) = tx.page_and_code(page)?;
+    let layout = match code {
+        Some(code) if tx.is_checked(page, code) => true,
+        Some(code) => {
+            let valid = node::is_valid(node);
+            if valid {
+                tx.remember_checked(page, code);
+            }
+            valid
+        }
+        None => node::is_valid(node),
+    };
+    if layout && level.is_none_or(|level| node::level(node) == level) {
         Ok(node)
     } else {
         Err(tx.damaged(page))

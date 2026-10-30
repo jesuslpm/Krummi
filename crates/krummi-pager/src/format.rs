@@ -257,6 +257,15 @@ pub fn run_pages(len: u64) -> u64 {
     (len + PAGE_HEADER_SIZE as u64).div_ceil(PAGE_SIZE_U64)
 }
 
+/// The checksum that a page or a run records, its first 8 bytes; [`verify_run`] checks that it matches the content.
+///
+/// # Panics
+///
+/// If `run` is shorter than 8 bytes.
+pub fn recorded_checksum(run: &[u8]) -> u64 {
+    u64::from_le_bytes(run[..8].try_into().expect("8 bytes"))
+}
+
 /// Whether `run` is an intact run written at page `first`, with exactly its length (G6, V7).
 pub fn verify_run(first: u64, run: &[u8]) -> bool {
     !run.is_empty()

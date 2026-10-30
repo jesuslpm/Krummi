@@ -948,6 +948,17 @@ impl<'a> Snapshot<'a> {
     ///
     /// If `page_number` is a header page.
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
+        self.page_and_code(page_number).map(|(page, _)| page)
+    }
+
+    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
+    /// verified when it comes from the store (C2 of the remembered node layout check PRD). A version of the scratch
+    /// area, which no read verifies, has none (C3).
+    ///
+    /// # Panics
+    ///
+    /// If `page_number` is a header page.
+    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
         let state = self.scratch.lock();
         let version = state
             .versions
@@ -969,12 +980,13 @@ impl<'a> Snapshot<'a> {
             // whose retired versions its own flush frees: the flush borrows the writer mutably, which ends this
             // reference first ([`State::free_retired_by_writer`]). Published pages are never written again.
             let page = unsafe { std::slice::from_raw_parts(ptr, PAGE_SIZE) };
-            return Ok(&page[PAGE_HEADER_SIZE..]);
+            return Ok((&page[PAGE_HEADER_SIZE..], None));
         }
         drop(state);
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
         // writes this page while the snapshot is open, because any newer version is newer than the snapshot.
-        self.scratch.pager().page(page_number)
+        let (page, code) = self.scratch.pager().page_and_code(page_number)?;
+        Ok((page, Some(code)))
     }
 
     /// The `count` pages of the value run that starts at page `first` as this snapshot sees it, as one contiguous

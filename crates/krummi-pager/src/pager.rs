@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
 
+use crate::checked::Checked;
 use crate::error::{Error, Result};
 use crate::format::{
     self, FORMAT_VERSION, HEADER_PAGES, Header, HeaderRead, PAGE_HEADER_SIZE, PAGE_SIZE,
@@ -85,6 +86,8 @@ pub struct Pager {
     header: Mutex<HeaderState>,
     /// Flushes of `krummi.data` to the disk so far (tests).
     data_syncs: AtomicU64,
+    /// The contents whose layout the layers above already checked (C1–C6 of the remembered node layout check PRD).
+    checked: Checked,
 }
 
 #[derive(Clone, Copy)]
@@ -195,6 +198,7 @@ impl Pager {
             max_size,
             writes_disabled: Arc::new(AtomicBool::new(false)),
             data_syncs: AtomicU64::new(0),
+            checked: Checked::new(),
             header: Mutex::new(HeaderState::new(
                 Header::new_store(),
                 0,
@@ -277,11 +281,39 @@ impl Pager {
     ///
     /// If `page_number` is a header page.
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
+        self.page_and_code(page_number).map(|(page, _)| page)
+    }
+
+    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code this read has just
+    /// verified (C2 of the remembered node layout check PRD).
+    ///
+    /// # Panics
+    ///
+    /// If `page_number` is a header page.
+    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], u64)> {
         assert!(
             page_number >= HEADER_PAGES,
             "header pages are not read through Pager::page"
         );
-        Ok(&self.run(page_number, 1)?[PAGE_HEADER_SIZE..])
+        let run = self.run(page_number, 1)?;
+        Ok((&run[PAGE_HEADER_SIZE..], format::recorded_checksum(run)))
+    }
+
+    /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
+    /// above in this opening and is still remembered (C1, C2, C5).
+    pub fn is_checked(&self, page_number: u64, code: u64) -> bool {
+        self.checked.contains(page_number, code)
+    }
+
+    /// Remembers that the content of page `page_number` with integrity code `code`, verified by the read that got
+    /// it, passed the check of the layers above (C1, C2).
+    pub fn remember_checked(&self, page_number: u64, code: u64) {
+        self.checked.remember(page_number, code);
+    }
+
+    /// Contents remembered so far in this opening, one per successful check (tests).
+    pub fn checked_remembered(&self) -> u64 {
+        self.checked.remembered()
     }
 
     /// The `count` pages of the run that starts at page `first`, as one contiguous sequence without copying it
@@ -872,6 +904,7 @@ fn file_pager(
         max_size,
         writes_disabled: Arc::new(AtomicBool::new(false)),
         data_syncs: AtomicU64::new(0),
+        checked: Checked::new(),
     }
 }
 

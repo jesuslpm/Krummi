@@ -40,6 +40,31 @@ impl<'e> ReadTransaction<'e> {
         self.snapshot.page(page_number)
     }
 
+    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
+    /// verified when it comes from the store, and `None` for a version of the scratch area (C2, C3 of the
+    /// remembered node layout check PRD).
+    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
+        self.snapshot.page_and_code(page_number)
+    }
+
+    /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
+    /// above while the store is open (C1, C2).
+    pub fn is_checked(&self, page_number: u64, code: u64) -> bool {
+        self.snapshot
+            .scratch()
+            .pager()
+            .is_checked(page_number, code)
+    }
+
+    /// Remembers that the content of page `page_number` with integrity code `code` passed the check of the layers
+    /// above (C1, C2).
+    pub fn remember_checked(&self, page_number: u64, code: u64) {
+        self.snapshot
+            .scratch()
+            .pager()
+            .remember_checked(page_number, code);
+    }
+
     /// The content of the value run of `count` pages from page `first` as this transaction sees it, after the run's
     /// header, as one contiguous sequence without copying it (V2 of the large values PRD, T16). The reference lives
     /// as long as the transaction (T8). A damaged run, or pages that are not such a run, are the damage class with
@@ -154,16 +179,47 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If the page was never reserved.
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
+        self.page_and_code(page_number).map(|(page, _)| page)
+    }
+
+    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
+    /// verified when it comes from the store, and `None` for a page this transaction changed or a version of the
+    /// scratch area (C2, C3 of the remembered node layout check PRD).
+    ///
+    /// # Panics
+    ///
+    /// If the page was never reserved.
+    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
         self.track(self.engine.injected_fault())?;
         self.check_reserved(page_number, 1);
         if let Err(error) = self.check_page(page_number) {
             return self.track(Err(error));
         }
         if let Some(payload) = self.dirty.get(&page_number) {
-            return Ok(&payload[..]);
+            return Ok((&payload[..], None));
         }
-        let result = self.writer.snapshot().page(page_number);
+        let result = self.writer.snapshot().page_and_code(page_number);
         self.track(result)
+    }
+
+    /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
+    /// above while the store is open (C1, C2).
+    pub fn is_checked(&self, page_number: u64, code: u64) -> bool {
+        self.writer
+            .snapshot()
+            .scratch()
+            .pager()
+            .is_checked(page_number, code)
+    }
+
+    /// Remembers that the content of page `page_number` with integrity code `code` passed the check of the layers
+    /// above (C1, C2).
+    pub fn remember_checked(&self, page_number: u64, code: u64) {
+        self.writer
+            .snapshot()
+            .scratch()
+            .pager()
+            .remember_checked(page_number, code);
     }
 
     /// The payload of page `page_number` to change it. The first change copies the page into this transaction

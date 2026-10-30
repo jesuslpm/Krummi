@@ -282,6 +282,13 @@ impl Engine {
         self.scratch.pager().accepts_writes()
     }
 
+    /// Contents whose layout the tree code remembered as checked since the store opened, one per successful check of
+    /// a verified page (tests of the remembered node layout check PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn checked_remembered(&self) -> u64 {
+        self.scratch.pager().checked_remembered()
+    }
+
     /// Sets the minimum time between transfer passes and the growth of the scratch area since the last pass from
     /// which a pass starts without waiting for it (tests).
     #[cfg(feature = "test-hooks")]

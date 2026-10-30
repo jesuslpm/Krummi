@@ -3,6 +3,7 @@
 //! This crate is the only part of the engine allowed to use unsafe code (D12 of the root PRD). Its API is
 //! internal to the engine: applications use the `krummi` crate.
 
+mod checked;
 mod error;
 pub mod format;
 mod journal;
@@ -13,6 +14,7 @@ mod sys;
 mod temp;
 mod transfer;
 
+pub use checked::{CHECKED_SLOTS, set_remember_checked};
 pub use error::{Error, ErrorKind, Result, SizeSubject, TreeKind};
 pub use journal::{JOURNAL_PREFIX, RELEASE_FILE_LIMIT};
 pub use pager::{
@@ -29,6 +31,7 @@ pub use temp::TEMP_DIR;
 /// share another's with [`testing::adopt`], as the journal's writer does with the thread that opened the store.
 #[cfg(feature = "test-hooks")]
 pub mod testing {
+    pub use crate::checked::with_checked_slots;
     pub use crate::sys::Op;
     pub use crate::sys::faults::{
         Action, Context, Model, Recorded, abort_at, adopt, context, count, inject, materialize,
