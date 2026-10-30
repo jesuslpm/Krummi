@@ -223,3 +223,10 @@ for the long-session backstop: the parent context already holds the PRD session 
   draws values of 993–1,000 bytes too, runs 180 operations per batch and adds 40% of the time while shrinking (121
   promotions, 14 demotions, fixed seed). User question: "Por qué no podían ser los umbrales 4096:2048?": an inline
   entry above 4,074 bytes does not fit in the longest leaf cell (half a page) and would go off its leaf (M1).
+- **L24** (2026-10-30): RDD review of `ab18419` (base `dbfd9e1`, committed only; assessed medium, `under_budget`,
+  reviewed as the last slice), lens reliability: approved, lineage `review-32be4f2fe4c84d3b`, acknowledged. Advisory
+  R3-compat-unproved (WARNING): no test opens a store written with 2048:1024 under the new defaults. Kept as an
+  advisory: format 8, the first with multi-value trees, comes with this unmerged branch, so no such store exists
+  outside local tests; the engine compares a subtree's volume with the demotion threshold only when removing
+  (`multi.rs`, `remove_value`), and only the test helper `check` asserts a subtree is at or above it. A test would
+  need `set_multi_thresholds`, a process-wide value that would disturb the tests running in parallel.
