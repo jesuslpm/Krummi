@@ -631,13 +631,13 @@ fn create_multi_tree(store: &Store) {
     let tree = write
         .open_multi_tree_with("m", OpenMode::CreateNew)
         .unwrap();
-    for i in 0..150 {
-        if i < 112 {
+    for i in 0..300 {
+        if i < 225 {
             write.add(&tree, b"p", &value16(i)).unwrap();
         }
         write.add(&tree, b"d", &value16(i)).unwrap();
     }
-    for i in 58..150 {
+    for i in 114..300 {
         write.remove_value(&tree, b"d", &value16(i)).unwrap();
     }
     for j in 0..4 {
@@ -680,7 +680,7 @@ fn a_new_multi_write_works(store: &Store, label: &str) {
     let mut write = store.write().unwrap();
     let tree = write.open_multi_tree("m").unwrap();
     assert_eq!(write.len(&tree).unwrap(), 9, "{label}");
-    assert_eq!(write.value_count(&tree, b"p").unwrap(), 112, "{label}");
+    assert_eq!(write.value_count(&tree, b"p").unwrap(), 225, "{label}");
     assert!(write.add(&tree, b"p", b"probe").unwrap(), "{label}");
     assert!(
         write.contains(&tree, b"s", &long_key(3)).unwrap(),
@@ -703,10 +703,10 @@ fn multi_values(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
         Err(error) => return vec![Err(error)],
     };
     let mut results = Vec::new();
-    for i in 112..116 {
+    for i in 225..229 {
         results.push(write.add(&tree, b"p", &value16(i)).map(drop));
     }
-    for i in (53..58).rev() {
+    for i in (109..114).rev() {
         results.push(write.remove_value(&tree, b"d", &value16(i)).map(drop));
     }
     results.push(write.contains(&tree, b"p", &value16(0)).map(drop));

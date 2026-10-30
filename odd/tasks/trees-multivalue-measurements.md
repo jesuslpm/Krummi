@@ -124,6 +124,12 @@ near the threshold and with leaves of as few as two entries. Between the two dem
 simpler one is taken, half the promotion threshold, which also leaves the widest gap against keys that move back
 and forth by more than one value.
 
+**Revised after the run (2026-10-30, L23): 4,074:2,037.** With longer keys and values (*Thresholds at larger sizes*
+below), 2,048 moves keys of a few kilobytes to subtrees of one mostly empty page, and 4,074 takes up to 59% fewer pages
+and is never worse. The cost near the threshold stays: an operation there rewrites a blob up to twice as long. The
+demotion threshold stays at half the promotion threshold. 4,074 is the highest possible: a larger inline entry would
+not fit in the longest leaf cell, half a page, and would go off its leaf, which M1 rules out.
+
 ## Key and value sizes (follow-up)
 
 Asked after the run (L21): M15 uses 16-byte keys and values, while an index's keys are usually longer and its values

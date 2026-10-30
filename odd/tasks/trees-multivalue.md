@@ -214,3 +214,12 @@ for the long-session backstop: the parent context already holds the PRD session 
   2.8–3.1 µs and in the composite tree from 3.7–4.1 to 3.3–3.4 µs (key 64, value 8): whole-node validation on every
   page read costs about 3.5 µs on the dense leaves of subtrees; every read also checks the page's xxh3. Engine-wide
   follow-up, outside this branch.
+- **L23** (2026-10-30, user): "Sí", to changing the default thresholds to 4074:2037 (`DEFAULT_PROMOTION` =
+  `MAX_PROMOTION`, `DEFAULT_DEMOTION` = half). The thresholds are not persisted, so existing stores keep working: a
+  subtree below the new demotion threshold moves back to its entry at its next removal. Twelve tests had fixtures sized
+  for 2,048:1,024 (150 values of 16 bytes to promote, exact counts at the thresholds); their counts were scaled to the
+  new thresholds. The random model test saw 37 promotions and 2 demotions: its keys hold 5–30 values and crossed the
+  thresholds through 2,048-byte values, one of which no longer promotes alone and already blocks demotion. It now
+  draws values of 993–1,000 bytes too, runs 180 operations per batch and adds 40% of the time while shrinking (121
+  promotions, 14 demotions, fixed seed). User question: "Por qué no podían ser los umbrales 4096:2048?": an inline
+  entry above 4,074 bytes does not fit in the longest leaf cell (half a page) and would go off its leaf (M1).

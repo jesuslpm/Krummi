@@ -23,7 +23,7 @@ fn ac_m16_scans_of_a_multi_value_tree_return_the_engine_s_memory() {
         for value in [&b"a"[..], b"b", b"c"] {
             write.add(&tree, b"inline", value).unwrap();
         }
-        for i in 0..150 {
+        for i in 0..300 {
             write
                 .add(&tree, b"subtree", format!("{i:016}").as_bytes())
                 .unwrap();

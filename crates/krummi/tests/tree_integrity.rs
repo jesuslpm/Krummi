@@ -584,8 +584,8 @@ fn multi_values(through_close: bool) {
             let tree = write
                 .open_multi_tree_with("m", OpenMode::CreateNew)
                 .unwrap();
-            for i in 0..150 {
-                if i < 100 {
+            for i in 0..300 {
+                if i < 200 {
                     write.add(&tree, b"a", &value16(i)).unwrap();
                 }
                 write.add(&tree, b"b", &value16(i)).unwrap();
@@ -602,10 +602,10 @@ fn multi_values(through_close: bool) {
         },
         |write| {
             let tree = write.open_multi_tree("m").unwrap();
-            for i in 100..130 {
+            for i in 200..260 {
                 assert!(write.add(&tree, b"a", &value16(i)).unwrap());
             }
-            for i in 50..150 {
+            for i in 100..300 {
                 assert!(write.remove_value(&tree, b"b", &value16(i)).unwrap());
             }
             assert!(write.subtree_of(&tree, b"a").unwrap().is_some(), "promoted");
@@ -673,7 +673,7 @@ fn ac10_multi_sweep(step: usize) {
         ),
         (
             b"s".to_vec(),
-            (0..150).map(value16).chain([Vec::new()]).collect(),
+            (0..300).map(value16).chain([Vec::new()]).collect(),
         ),
         (b"t".to_vec(), [b"x".to_vec()].into()),
     ]);
@@ -690,7 +690,7 @@ fn ac10_multi_sweep(step: usize) {
     // A second write that frees pages of the subtree and adds a key.
     let mut write = store.write().unwrap();
     let tree = write.open_multi_tree("m").unwrap();
-    for i in 100..150 {
+    for i in 200..300 {
         assert!(write.remove_value(&tree, b"s", &value16(i)).unwrap());
         model.get_mut(&b"s"[..]).unwrap().remove(&value16(i));
     }

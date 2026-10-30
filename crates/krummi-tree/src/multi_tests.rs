@@ -50,17 +50,20 @@ impl Rng {
         }
     }
 
-    /// A value of 0, 1, 16 or 2,048 bytes; the 1-byte values are prefixes of the 16-byte ones.
+    /// A value of 0, 1, 16, 993 to 1,000 or 2,048 bytes; the shorter values are prefixes of the longer ones of their
+    /// first byte. A key with four or five values of about 1,000 bytes passes the promotion threshold, and one with
+    /// one or two and few others is below the demotion threshold.
     fn value(&mut self) -> Vec<u8> {
         match self.below(40) {
             0 => Vec::new(),
             1..=8 => vec![BYTES[self.below(5) as usize]],
-            9..=37 => {
+            9..=33 => {
                 let n = self.below(200) as u8;
                 let mut value = vec![BYTES[usize::from(n % 5)]];
                 value.extend((1..16u8).map(|i| (n / 5).wrapping_mul(7).wrapping_add(i)));
                 value
             }
+            34..=36 => vec![BYTES[self.below(5) as usize]; 1000 - self.below(8) as usize],
             _ => vec![BYTES[self.below(5) as usize]; MAX_KEY],
         }
     }
@@ -331,7 +334,7 @@ fn random_op(
     let key = rng.key();
     let before = subtree_of(&*tx, *root, &key).unwrap().is_some();
     let roll = rng.below(100);
-    let adds = if grow { 75 } else { 30 };
+    let adds = if grow { 75 } else { 40 };
     if roll < adds {
         let value = rng.value();
         let MultiUpdate {
@@ -401,8 +404,8 @@ fn random_op(
 }
 
 /// AC-M1, AC-M3–AC-M7 at the engine: thousands of random operations on keys of 1 and 2,048 bytes and values of 0,
-/// 1, 16 and 2,048 bytes match the model after every batch, in the write, in a later read and after reopening the
-/// store, while keys cross both thresholds many times.
+/// 1, 16, about 1,000 and 2,048 bytes match the model after every batch, in the write, in a later read and after
+/// reopening the store, while keys cross both thresholds many times.
 #[test]
 fn random_operations_match_a_map_of_sets_across_both_thresholds() {
     let tmp = tempfile::tempdir().unwrap();
@@ -419,7 +422,7 @@ fn random_operations_match_a_map_of_sets_across_both_thresholds() {
     for batch in 0..48 {
         let grow = (batch / 4) % 2 == 0;
         let mut tx = engine.write(None).unwrap();
-        for _ in 0..90 {
+        for _ in 0..180 {
             random_op(&mut tx, &mut root, &mut model, &mut rng, grow, &mut seen);
         }
         check(

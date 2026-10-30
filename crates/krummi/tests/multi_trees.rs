@@ -352,7 +352,7 @@ fn ac_m3_a_key_goes_away_with_its_last_value() {
     stores(|store, _| {
         let mut model = Model::from([
             (b"few".to_vec(), set_of(&[b"", b"a", b"b"])),
-            (b"many".to_vec(), (0..150).map(value16).collect()),
+            (b"many".to_vec(), (0..300).map(value16).collect()),
             (b"other".to_vec(), set_of(&[b"x"])),
         ]);
         commit_multi(store, "m", &model);
@@ -392,7 +392,7 @@ fn ac_m4_remove_key_returns_its_number_of_values() {
         let mut model = Model::from([
             (b"one".to_vec(), set_of(&[b"1"])),
             (b"several".to_vec(), (0..5).map(value16).collect()),
-            (b"subtree".to_vec(), (0..150).map(value16).collect()),
+            (b"subtree".to_vec(), (0..300).map(value16).collect()),
             (b"z".to_vec(), set_of(&[b""])),
         ]);
         commit_multi(store, "m", &model);
@@ -400,7 +400,7 @@ fn ac_m4_remove_key_returns_its_number_of_values() {
         let tree = write.open_multi_tree("m").unwrap();
         assert!(write.subtree_of(&tree, b"several").unwrap().is_none());
         assert!(write.subtree_of(&tree, b"subtree").unwrap().is_some());
-        for (key, count) in [(&b"one"[..], 1), (b"several", 5), (b"subtree", 150)] {
+        for (key, count) in [(&b"one"[..], 1), (b"several", 5), (b"subtree", 300)] {
             assert_eq!(write.remove_key(&tree, key).unwrap(), count);
             model.remove(key);
             check!(write, tree, model);
@@ -614,7 +614,7 @@ fn scan_model() -> Model {
         (b"aa".to_vec(), set_of(&[b"0000000000000050"])),
         (
             b"ab".to_vec(),
-            (0..150)
+            (0..300)
                 .map(value16)
                 .chain([
                     vec![],
@@ -625,7 +625,7 @@ fn scan_model() -> Model {
                 ])
                 .collect(),
         ),
-        (b"b".to_vec(), (0..150).map(value16).collect()),
+        (b"b".to_vec(), (0..300).map(value16).collect()),
         (vec![0xFF], set_of(&[b"", b"z"])),
         (vec![0xFF, 0xFF], set_of(&[b"\xFF"])),
     ])
@@ -794,13 +794,13 @@ fn ac_m7_removing_ranges_of_values_and_of_keys() {
             (b"i".to_vec(), set_of(&[b"", b"a", b"b", b"c", b"d"])),
             (
                 b"s".to_vec(),
-                (0..150).map(value16).chain([vec![]]).collect(),
+                (0..300).map(value16).chain([vec![]]).collect(),
             ),
-            (b"t".to_vec(), (0..150).map(value16).collect()),
+            (b"t".to_vec(), (0..300).map(value16).collect()),
             (b"u".to_vec(), set_of(&[b"1", b"2"])),
-            (b"v".to_vec(), (0..150).map(value16).collect()),
+            (b"v".to_vec(), (0..300).map(value16).collect()),
             (b"w".to_vec(), set_of(&[b"x"])),
-            (b"wx".to_vec(), (0..150).map(value16).collect()),
+            (b"wx".to_vec(), (0..300).map(value16).collect()),
             (b"z".to_vec(), set_of(&[b"z"])),
         ]);
         commit_multi(store, "m", &model);
@@ -829,7 +829,7 @@ fn ac_m7_removing_ranges_of_values_and_of_keys() {
         assert!(write.subtree_of(&tree, b"s").unwrap().is_some());
         check!(write, tree, model);
         assert_eq!(write.remove_value_range(&tree, b"i", ..).unwrap(), 3);
-        assert_eq!(write.remove_value_range(&tree, b"t", ..).unwrap(), 150);
+        assert_eq!(write.remove_value_range(&tree, b"t", ..).unwrap(), 300);
         model.remove(&b"i"[..]);
         model.remove(&b"t"[..]);
         check!(write, tree, model);
@@ -866,7 +866,7 @@ fn space_model() -> Model {
         long_key(20, 16),
         (0..40).map(|i| long_key(i, MAX_KEY)).collect(),
     );
-    model.insert(long_key(21, 16), (0..150).map(value16).collect());
+    model.insert(long_key(21, 16), (0..300).map(value16).collect());
     model.insert(
         long_key(22, 16),
         (0..300).map(value16).chain([vec![]]).collect(),
@@ -953,11 +953,11 @@ fn ac_m8_the_pages_of_the_subtrees_go_back_to_free_space() {
         commit_multi(
             store,
             "m",
-            &Model::from([(key.to_vec(), (0..150).map(value16).collect())]),
+            &Model::from([(key.to_vec(), (0..300).map(value16).collect())]),
         );
         let mut write = store.write().unwrap();
         let tree = write.open_multi_tree("m").unwrap();
-        let mut i = 150;
+        let mut i = 300;
         while write.subtree_of(&tree, key).unwrap().is_some() {
             i -= 1;
             assert!(write.remove_value(&tree, key, &value16(i)).unwrap());
@@ -1058,7 +1058,7 @@ macro_rules! check_types_in_write {
 fn ac_m10_each_kind_opens_only_as_itself() {
     let model = Model::from([
         (b"k".to_vec(), set_of(&[b"", b"v"])),
-        (b"s".to_vec(), (0..150).map(value16).collect()),
+        (b"s".to_vec(), (0..300).map(value16).collect()),
     ]);
     stores(|store, folder| {
         commit_tree(store, "n", &[(b"k", b"v")]);
@@ -1286,7 +1286,7 @@ const HIT: usize = 13;
 const OTHERS: [usize; 3] = [0, OTHER_SUBTREE, KEYS - 1];
 
 /// The tree of AC-M12: [`KEYS`] keys with three values in their entries, except [`DEEP`], with the empty value and
-/// twenty values of 2,048 bytes in a subtree of several levels, and [`OTHER_SUBTREE`], with 150 values in a subtree.
+/// twenty values of 2,048 bytes in a subtree of several levels, and [`OTHER_SUBTREE`], with 300 values in a subtree.
 fn damage_model() -> Model {
     (0..KEYS)
         .map(|i| {
@@ -1295,7 +1295,7 @@ fn damage_model() -> Model {
                     .map(|j| long_key(j, MAX_KEY))
                     .chain([vec![]])
                     .collect(),
-                OTHER_SUBTREE => (0..150).map(value16).collect(),
+                OTHER_SUBTREE => (0..300).map(value16).collect(),
                 _ => set_of(&[b"", b"a", b"b"]),
             };
             (damage_key(i), values)
@@ -1569,8 +1569,8 @@ fn ac_m12_a_damaged_leaf_on_the_way_to_a_key() {
 /// with theirs in subtrees, `s` with values of 2,048 bytes, in one leaf; and four keys of 2,048 bytes, one to a leaf.
 fn snapshot_model() -> Model {
     let mut model = Model::from([
-        (b"p".to_vec(), (0..100).map(value16).collect()),
-        (b"d".to_vec(), (0..150).map(value16).collect()),
+        (b"p".to_vec(), (0..200).map(value16).collect()),
+        (b"d".to_vec(), (0..300).map(value16).collect()),
         (
             b"s".to_vec(),
             (0..2).map(|j| long_key(j, MAX_KEY)).collect(),
@@ -1596,7 +1596,7 @@ fn snapshot_write(
         assert!(write.add(tree, key, &value).unwrap());
         model.entry(key.to_vec()).or_default().insert(value);
     };
-    for i in 100..120 {
+    for i in 200..240 {
         add(write, b"p", value16(i));
     }
     for j in 2..40 {
@@ -1616,10 +1616,10 @@ fn snapshot_write(
             model.remove(key);
         }
     };
-    for i in 50..120 {
+    for i in 100..240 {
         remove(write, b"p", value16(i));
     }
-    for i in 50..150 {
+    for i in 100..300 {
         remove(write, b"d", value16(i));
     }
     for j in (0..40).filter(|j| j % 3 != 0) {
@@ -1634,7 +1634,7 @@ fn snapshot_write(
     assert!(write.subtree_of(tree, b"p").unwrap().is_none(), "demoted");
     assert!(write.subtree_of(tree, b"d").unwrap().is_none(), "demoted");
     check_snapshot();
-    for i in 50..150 {
+    for i in 100..300 {
         assert!(write.add(tree, b"d", &value16(i)).unwrap());
         model.get_mut(&b"d"[..]).unwrap().insert(value16(i));
     }
@@ -1696,10 +1696,10 @@ fn ac_m13_a_read_keeps_its_snapshot_while_a_write_moves_values_and_changes_heigh
 fn ac_m17_a_write_that_changes_nothing_leaves_the_files_identical() {
     let model = Model::from([
         (b"i".to_vec(), set_of(&[b"", b"a", b"b"])),
-        (b"s".to_vec(), (0..150).map(value16).collect()),
+        (b"s".to_vec(), (0..300).map(value16).collect()),
         (
             b"t".to_vec(),
-            (0..150).map(value16).chain([vec![]]).collect(),
+            (0..300).map(value16).chain([vec![]]).collect(),
         ),
     ]);
     let tmp = tempfile::tempdir().unwrap();
@@ -1797,7 +1797,7 @@ fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_format_8() {
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
     assert_eq!(store.info().format_version, 8);
-    let values: BTreeSet<Vec<u8>> = (0..150).map(value16).chain([vec![]]).collect();
+    let values: BTreeSet<Vec<u8>> = (0..300).map(value16).chain([vec![]]).collect();
     commit_multi(
         &store,
         "m",

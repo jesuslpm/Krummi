@@ -39,10 +39,11 @@ use crate::{Interval, MAX_KEY, PageSource, Range, RangeUpdate, copy, descend, le
 
 /// Highest promotion threshold: an inline entry of this volume fills the longest leaf cell kept in its leaf (D2).
 pub const MAX_PROMOTION: usize = MAX_LEAF_CELL - LEAF_CELL_HEADER;
-/// Promotion threshold, chosen by the measurement of M15 (M3; `odd/tasks/trees-multivalue-measurements.md`).
-const DEFAULT_PROMOTION: usize = 2048;
+/// Promotion threshold, chosen by the measurements of M15 and of longer keys and values (M3;
+/// `odd/tasks/trees-multivalue-measurements.md`): the highest.
+const DEFAULT_PROMOTION: usize = MAX_PROMOTION;
 /// Demotion threshold, chosen by the measurement of M15 (M3): half the promotion threshold.
-const DEFAULT_DEMOTION: usize = 1024;
+const DEFAULT_DEMOTION: usize = MAX_PROMOTION / 2;
 
 /// The tag of an inline blob, its first byte.
 pub(crate) const INLINE: u8 = 0;

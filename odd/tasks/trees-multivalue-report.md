@@ -68,6 +68,10 @@ tamaño del blob que reescribe cada operación. 512 desperdicia espacio en clave
 solo en Windows, y cuesta hasta un 70 % más por operación junto al umbral. Las dos bajadas no se distinguen en los
 datos. **Elegida: 2.048:1.024**, con la bajada en la mitad por ser la más simple y la que deja más margen.
 
+*Revisión posterior al cierre (2026-10-30, L23):* los umbrales por defecto pasan a **4.074:2.037**. Con claves y
+valores más largos, 2.048 lleva a subárboles de una página casi vacía claves de unos pocos kilobytes, y 4.074 ocupa
+hasta un 59 % menos y nunca es peor (*Thresholds at larger sizes* en la medición).
+
 ## Revisiones RDD
 
 | Commits | Lentes | Resultado | Hallazgos y resolución | Linaje |
@@ -180,8 +184,9 @@ Un árbol multivalor guarda, para cada clave, un conjunto ordenado de valores de
 incluido, con sus operaciones propias: Añadir, Contiene, número de valores, Quitar valor, Quitar clave, recorridos de
 claves (con su número de valores) y de valores, y eliminación por intervalos de claves y de valores. Es un árbol
 normal (el padre) cuya entrada por clave es un blob: mientras los valores son pocos, van ordenados dentro de la
-entrada; cuando un Añadir supera el umbral de subida (2.048 bytes de clave más blob), pasan a un subárbol propio de
-esa clave, fuera del catálogo, y vuelven a la entrada por debajo del de bajada (1.024). Contar los valores y recorrer
+entrada; cuando un Añadir supera el umbral de subida (2.048 bytes de clave más blob; 4.074 desde L23), pasan a un
+subárbol propio de esa clave, fuera del catálogo, y vuelven a la entrada por debajo del de bajada (1.024; 2.037 desde
+L23). Contar los valores y recorrer
 las claves lee solo el padre. Vaciar, borrar o sobrescribir el árbol y quitar claves liberan también sus subárboles.
 Los dos tipos de árbol tienen aperturas y manejadores propios, de modo que usar una operación de un tipo con el otro
 no compila; el catálogo registra el tipo (byte `2`) y el formato pasa a `8`.
