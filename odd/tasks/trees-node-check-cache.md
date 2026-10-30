@@ -100,3 +100,9 @@ in parallel; no writer trigger fires.
   example's documented command has `--`; R3-timing-order-bias (suggestion, the round without remembering always runs
   first) → kept: the fastest of three limits it, and changing the order now would not match the recorded runs.
   Checks: fmt, clippy clean; 420 passed.
+- **L9** (2026-10-30): RDD review of `4057ce7..ceab08d` (the review fixes), lenses reliability and risk: approved,
+  lineage `review-b82822f29a0a84ec`, acknowledged. R3-ac-c7-key-flip-offset-and-path-unproved (warning) → dismissed
+  with evidence: `ReadTransaction::page` returns the payload (`Pager::page` is `&run[PAGE_HEADER_SIZE..]`) and the hook
+  adds `PAGE_HEADER_SIZE` to its offset, so the flipped byte is the key's padding; `node::is_valid` reads only the
+  kind, the count, the offsets and the lengths (and off-leaf run references), none of which that byte holds, so the
+  layout stays valid and only the integrity code can fail.
