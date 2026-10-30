@@ -40,7 +40,7 @@ common conditions: "Valen los de los ascendientes, que deben seguir pasando sin 
 | T1 | C1–C8 (engine; its acceptance tests are T2's) | inline (no writer trigger: one unit) | done | `6a1396b` |
 | T2 | S1–S9 at the public API | inline | done | `1ea3d98` |
 | T3 | C9, S10: measurement example, Windows and Linux runs, default size | inline | done | `4057ce7` |
-| T4 | Docs, closing report, reviews | inline | pending | |
+| T4 | Docs, closing report, reviews | inline | done except the Codex review (L10) | the closing report commit |
 
 Route evidence: the four tasks depend on each other in order (T2 and T3 need T1), so no two independent units run
 in parallel; no writer trigger fires.
@@ -109,3 +109,6 @@ in parallel; no writer trigger fires.
 - **L10** (2026-10-30): Codex code review of `f49919f..c7408c4` failed before reviewing: "You've hit your usage
   limit … try again at 12:44 PM" (wrapper status `error`, thread `01a18c3f-2fe9-7e43-80b2-7f700c88b917`, no report
   saved). Not an approval; waiting for the user's decision.
+- **L11** (2026-10-30): closing report [trees-node-check-cache-report.md](trees-node-check-cache-report.md), written
+  with the Codex code review pending at the user's choice ("Sí" to writing it now). Active time 52 min 13 s against
+  the estimate of 2 h 30 min to 4 h.
