@@ -106,3 +106,6 @@ in parallel; no writer trigger fires.
   adds `PAGE_HEADER_SIZE` to its offset, so the flipped byte is the key's padding; `node::is_valid` reads only the
   kind, the count, the offsets and the lengths (and off-leaf run references), none of which that byte holds, so the
   layout stays valid and only the integrity code can fail.
+- **L10** (2026-10-30): Codex code review of `f49919f..c7408c4` failed before reviewing: "You've hit your usage
+  limit … try again at 12:44 PM" (wrapper status `error`, thread `01a18c3f-2fe9-7e43-80b2-7f700c88b917`, no report
+  saved). Not an approval; waiting for the user's decision.
