@@ -198,7 +198,7 @@ impl Pager {
             max_size,
             writes_disabled: Arc::new(AtomicBool::new(false)),
             data_syncs: AtomicU64::new(0),
-            checked: Checked::new(),
+            checked: Checked::new()?,
             header: Mutex::new(HeaderState::new(
                 Header::new_store(),
                 0,
@@ -873,7 +873,7 @@ fn open_existing(folder: &Path, max_size: Option<u64>) -> Result<Pager> {
     // An incomplete final page, left by an interrupted growth, is ignored (P11).
     let len = file_len - file_len % PAGE_SIZE_U64;
     let map = map_new(&file, &path, len, folder)?;
-    Ok(file_pager(folder, file, path, len, map, max_size, header))
+    file_pager(folder, file, path, len, map, max_size, header)
 }
 
 fn map_new(file: &File, path: &Path, len: u64, folder: &Path) -> Result<Mmap> {
@@ -894,8 +894,8 @@ fn file_pager(
     map: Mmap,
     max_size: Option<u64>,
     header: HeaderState,
-) -> Pager {
-    Pager {
+) -> Result<Pager> {
+    Ok(Pager {
         header: Mutex::new(header),
         folder: Some(folder.to_path_buf()),
         storage: Storage::File(FileStorage {
@@ -909,8 +909,8 @@ fn file_pager(
         max_size,
         writes_disabled: Arc::new(AtomicBool::new(false)),
         data_syncs: AtomicU64::new(0),
-        checked: Checked::new(),
-    }
+        checked: Checked::new()?,
+    })
 }
 
 /// Removes the `krummi.data.new` left by an interrupted creation, unless another opener holds it (P8).
@@ -1018,7 +1018,7 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
         map,
         max_size,
         HeaderState::new(Header::new_store(), 0, Some(Header::new_store())),
-    ))))
+    )?)))
 }
 
 #[cfg(test)]

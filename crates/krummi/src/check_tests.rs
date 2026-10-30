@@ -468,3 +468,34 @@ fn ac_c9_reopening_forgets_the_remembered_nodes() {
     );
     store.close().unwrap();
 }
+
+/// C5 and P13 of the Pager PRD: when the system does not provide the memory of the table, opening fails with the
+/// out-of-memory class instead of aborting the process, in both modes, and the store on disk opens afterwards.
+#[test]
+fn opening_without_memory_for_the_table_fails_with_out_of_memory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    commit_tree(&store, "n", 20, 64);
+    store.close().unwrap();
+
+    // More slots than the address space holds: the system can never provide them.
+    let openings = krummi_pager::testing::with_checked_slots(usize::MAX / 8, || {
+        [
+            Store::open(tmp.path(), &StoreOptions::default()),
+            Store::open_temporary(&StoreOptions::default()),
+        ]
+    });
+    for opening in openings {
+        match opening {
+            Err(error) => assert_eq!(error.kind(), ErrorKind::OutOfMemory, "{error}"),
+            Ok(_) => panic!("the opening got a table the system cannot provide"),
+        }
+    }
+
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let read = store.read().unwrap();
+    let tree = read.open_tree("n").unwrap();
+    assert_eq!(read.len(&tree).unwrap(), 20);
+    drop(read);
+    store.close().unwrap();
+}

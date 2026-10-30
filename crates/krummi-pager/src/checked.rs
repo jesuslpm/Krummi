@@ -9,6 +9,9 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use crate::error::Result;
+use crate::scratch::try_reserve;
+
 /// Slots of the table of a store: 512 KiB.
 pub const CHECKED_SLOTS: usize = 1 << 16;
 
@@ -52,24 +55,29 @@ pub fn with_checked_slots<T>(slots: usize, f: impl FnOnce() -> T) -> T {
 
 /// The table of a store.
 pub(crate) struct Checked {
-    slots: Box<[AtomicU64]>,
+    /// Allocated once when the store opens and never resized.
+    slots: Vec<AtomicU64>,
     /// Contents remembered so far: one per successful check of a verified page (tests count them).
     remembered: AtomicU64,
 }
 
 impl Checked {
-    /// An empty table with the slots of a new store.
-    pub(crate) fn new() -> Checked {
+    /// An empty table with the slots of a new store, or the out-of-memory class if the system does not provide it
+    /// (P13).
+    pub(crate) fn new() -> Result<Checked> {
         #[cfg(feature = "test-hooks")]
         let slots = TEST_SLOTS
             .with(std::cell::Cell::get)
             .unwrap_or(CHECKED_SLOTS);
         #[cfg(not(feature = "test-hooks"))]
         let slots = CHECKED_SLOTS;
-        Checked {
-            slots: (0..slots).map(|_| AtomicU64::new(0)).collect(),
+        let mut table = Vec::new();
+        try_reserve(&mut table, slots)?;
+        table.resize_with(slots, || AtomicU64::new(0));
+        Ok(Checked {
+            slots: table,
             remembered: AtomicU64::new(0),
-        }
+        })
     }
 
     /// Whether the content of page `page` with integrity code `code` was remembered and is still in its slot.
@@ -109,7 +117,7 @@ mod tests {
 
     #[test]
     fn a_content_is_found_only_with_its_page_and_its_code() {
-        let checked = Checked::new();
+        let checked = Checked::new().unwrap();
         assert!(!checked.contains(7, 42));
         checked.remember(7, 42);
         assert!(checked.contains(7, 42));
@@ -120,7 +128,7 @@ mod tests {
 
     #[test]
     fn code_zero_is_never_remembered() {
-        let checked = Checked::new();
+        let checked = Checked::new().unwrap();
         checked.remember(3, 0);
         assert!(!checked.contains(3, 0));
         assert_eq!(checked.remembered(), 0);
