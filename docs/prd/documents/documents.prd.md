@@ -1,10 +1,10 @@
 # Base de datos documental embebida sobre Krummi — PRD (borrador)
 
-**Versión**: 0.2 (borrador)
+**Versión**: 0.3 (borrador)
 **Fecha**: 2026-10-29
 **Documento padre**: ninguno (PRD raíz de un producto aparte)
-**Estado**: borrador aparcado con preguntas abiertas. Se retoma cuando esté cerrado el producto Krummi
-([krummi.prd.md](../krummi/krummi.prd.md)). No ha pasado la revisión del PRD ni la revisión cruzada con Codex,
+**Estado**: borrador aparcado con preguntas abiertas. Se retoma cuando el producto Krummi
+([krummi.prd.md](../krummi/krummi.prd.md)) tenga al menos sus tablas (módulo 7). No ha pasado la revisión del PRD ni la revisión cruzada con Codex,
 no tiene traducción y no autoriza ninguna implementación.
 
 ## Objetivo y contexto
@@ -32,7 +32,8 @@ Acordadas con el usuario en la conversación del 2026-10-29:
 | DD7 | **Interfaz para otros lenguajes**: una interfaz binaria en C, estable y pequeña. Cada lenguaje (por ejemplo .NET) ofrece su propia API fluida que construye el árbol de consulta, lo serializa y lo envía en una sola llamada. Por esa interfaz, los documentos se entregan como copias en JSON, nunca como referencias a memoria del motor. |
 | DD8 | **Resultados por cursor.** Una consulta devuelve sus resultados de uno en uno, sin cargarlos todos en memoria. |
 | DD9 | **Volcado legible del árbol de consulta**, solo de salida, para logs y depuración. No se puede volver a leer como consulta. |
-| DD10 | **Plan elegido por costo, con conteos exactos de los índices.** El planificador estima cuántos documentos devuelve cada plan posible y elige el más barato, también cuando recorrer toda la colección cuesta menos que un índice poco selectivo que no cubre la consulta. Las estimaciones no salen de estadísticas aparte, sino de los propios índices, que están siempre al día (DD3): una igualdad cuenta los documentos de su valor, y un rango suma los de cada valor distinto del rango, sin leer ningún documento. Contar un rango se detiene al llegar al número de coincidencias a partir del cual conviene recorrer la colección, así que contar nunca cuesta más que ese umbral. La colección lleva su número de documentos al día en cada transacción. |
+| DD10 | **Plan elegido por costo, con conteos exactos de los índices.** El planificador estima cuántos documentos devuelve cada plan posible y elige el más barato, también cuando recorrer toda la colección cuesta menos que un índice poco selectivo que no cubre la consulta. Las estimaciones no salen de estadísticas aparte, sino de los propios índices, que están siempre al día (DD3, DD11): una igualdad cuenta los documentos de su valor, y un rango suma los de cada valor distinto del rango, sin leer ningún documento. Contar un rango se detiene al llegar al número de coincidencias a partir del cual conviene recorrer la colección, así que contar nunca cuesta más que ese umbral. La colección lleva su número de documentos al día en cada transacción. |
+| DD11 | **Documentos guardados en tablas de Krummi, con índices y planificador propios.** Cada colección es una tabla de Krummi (módulo 7) con el identificador como clave primaria y el documento binario (DD1) como columna, como hace RavenDB con Voron. Las consultas no usan los índices secundarios ni el planificador de las tablas, que se quedan con un esquema fijo para ganar en simplicidad y rendimiento: los índices de los documentos son árboles multivalor propios (valor de un campo → identificadores), que dan los conteos de DD10, y su planificador resuelve lo que las tablas no tienen, como campos ausentes, tipos mezclados y listas que ponen un mismo documento varias veces en un índice. Con las tablas solo se comparten piezas comunes, como la codificación ordenada de las claves de índice y el conteo con tope. |
 
 ### Estado de partida
 
@@ -79,8 +80,10 @@ volcado legible (DD9).
 - Las transacciones, la durabilidad y la recuperación de Krummi, sin capa transaccional propia.
 - Las lecturas sin copia de Krummi (D11 de Krummi) para leer campos sin copiar el documento.
 - Los valores grandes de Krummi (5.3) para los documentos que no caben en una página.
-- Los árboles multivalor de Krummi (5.4) para los índices secundarios (valor de un campo → documentos que lo
-  tienen), o las tablas con índices secundarios (módulo 7), según la pregunta Q2.
+- Las tablas de Krummi (módulo 7) para guardar los documentos (DD11), sin sus índices secundarios ni su
+  planificador.
+- Los árboles multivalor de Krummi (5.4) para los índices secundarios propios (valor de un campo → documentos que
+  lo tienen).
 - El número de valores de cada clave que guardan los árboles multivalor (5.4), y su recorrido de claves, que
   devuelve cada clave con ese número sin leer sus valores: son los conteos con los que el planificador estima el
   costo de cada plan (DD10).
@@ -90,7 +93,7 @@ volcado legible (DD9).
 | ID | Pregunta |
 |---|---|
 | Q1 | **Nombre del producto.** "Base de datos documental sobre Krummi" es provisional. |
-| Q2 | **Base sobre la que se construye**: directamente sobre árboles y árboles multivalor (disponibles antes), o sobre las tablas con clave primaria e índices secundarios de Krummi (módulo 7), como hace RavenDB con Voron. Decide cuándo puede empezar este producto. La base elegida tiene que dar el número de documentos de cada valor de un índice sin recorrerlos (DD10); los árboles multivalor lo dan. |
+| Q2 | ~~**Base sobre la que se construye**~~. Resuelta el 2026-10-29 por DD11. |
 | Q3 | **Formato de serialización del árbol de consulta** en la interfaz en C: uno simple y sin esquema, o uno con esquema y generación de código para cada lenguaje. |
 | Q4 | **Primer binding**: ¿.NET? ¿Hay más en la primera versión? |
 | Q5 | **Operadores de la primera versión**: igualdad, rangos, prefijo, pertenencia a una lista, `y`/`o`/`no`, orden, límite, proyección. ¿Cuáles entran? |
@@ -138,6 +141,6 @@ Medido con el historial de la sesión de Claude Code. Si la persona tarda más d
 
 | Sesión | Inicio | Reloj | Descartado | Activo | Agente | Persona | Intervenciones |
 |---|---|---|---|---|---|---|---|
-| 42d35e66 | 2026-10-29 09:51 UTC+00:00 | 8 h 52 min | 7 h 40 min | 1 h 12 min | 7 min | 1 h 4 min | 13 |
+| 42d35e66 | 2026-10-29 09:51 UTC+00:00 | 9 h 20 min | 7 h 40 min | 1 h 40 min | 10 min | 1 h 30 min | 20 |
 
-<!-- prd-time: [{"session": "42d35e66-27b3-40a4-a47e-68ef0d63ff8b", "start": "2026-10-29T09:51:10.546000+00:00", "wall": 31902, "discarded": 27601, "agent": 434, "human": 3866, "interventions": 13, "idle_minutes": 10}] -->
+<!-- prd-time: [{"session": "42d35e66-27b3-40a4-a47e-68ef0d63ff8b", "start": "2026-10-29T09:51:10.546000+00:00", "wall": 33573, "discarded": 27601, "agent": 585, "human": 5385, "interventions": 20, "idle_minutes": 10}] -->
