@@ -94,3 +94,6 @@ contract or concurrency change; the randomized model tests and the structure che
   `cargo test --workspace --no-fail-fast` 0 failed; `cargo test -p krummi --lib -- --ignored` (AC-B18, AC-R12,
   AC-V8, AC-M14) 4 passed; release `tree_integrity -- --ignored` 7 passed (3,737 s); release
   `tree_value_model -- --ignored` 1 passed (509 s).
+- **L9** (RDD review of the last slice, 2026-10-31): commits `275ecef` and `9fcc7da` against the reviewed boundary
+  `b7db2f1`, lens `review-reliability`, lineage `review-dde98592f0ebd32d`; result **approved**, no findings,
+  acknowledged (authority burned).
