@@ -97,6 +97,13 @@ pub(crate) fn long_key(i: usize) -> Vec<u8> {
 /// Each tree a new read sees, with its count and what it holds for every key of the test, in order.
 type Seen = Vec<(String, u64, Vec<Option<Vec<u8>>>)>;
 
+/// The numbers of `range`, its first half in increasing order and its second half in decreasing order, so that the
+/// splits of a write that adds them take both paths: past a node's last key, and into halves.
+pub(crate) fn in_both_orders(range: std::ops::Range<usize>) -> impl Iterator<Item = usize> {
+    let middle = range.start + range.len() / 2;
+    (range.start..middle).chain((middle..range.end).rev())
+}
+
 /// What a new read sees of the trees, for the keys `keys` (see [`Seen`]).
 fn trees_seen(store: &Store, keys: &[Vec<u8>]) -> Seen {
     let read = store.read().unwrap();
@@ -114,16 +121,16 @@ fn trees_seen(store: &Store, keys: &[Vec<u8>]) -> Seen {
         .collect()
 }
 
-/// The write of the T11 sweep: through `tree`, splits that reach the root, so the tree gains levels, and removals
-/// whose merges bring it back down, with its operations' results. It goes on after a failure, as an application
-/// may (T11).
+/// The write of the T11 sweep: through `tree`, splits that reach the root by both paths ([`in_both_orders`]), so
+/// the tree gains levels, and removals whose merges bring it back down, with its operations' results. It goes on
+/// after a failure, as an application may (T11).
 fn splits_and_merges(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
     let tree = match write.open_tree("t") {
         Ok(tree) => tree,
         Err(error) => return vec![Err(error)],
     };
     let mut results = Vec::new();
-    for i in 12..48 {
+    for i in in_both_orders(12..48) {
         results.push(write.set(&tree, &long_key(i), b"split"));
     }
     for i in (0..48).filter(|i| i % 8 != 0) {
@@ -142,7 +149,7 @@ fn range_removals(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
         Err(error) => return vec![Err(error)],
     };
     let mut results = Vec::new();
-    for i in 12..48 {
+    for i in in_both_orders(12..48) {
         results.push(write.set(&tree, &long_key(i), b"split"));
     }
     let ok = |results: &[Result<()>]| results.iter().all(Result::is_ok);
@@ -267,7 +274,7 @@ fn values_off_their_leaf(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
     }
     results.push(write.try_add(&tree, &long_key(9), &off_leaf(3)).map(drop));
     results.push(write.remove(&tree, &long_key(9)).map(drop));
-    for i in 12..20 {
+    for i in in_both_orders(12..20) {
         results.push(write.set(&tree, &long_key(i), &off_leaf(i)));
     }
     let (lower, upper) = (long_key(4), long_key(7));

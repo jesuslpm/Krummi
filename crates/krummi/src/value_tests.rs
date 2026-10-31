@@ -234,7 +234,10 @@ fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_thei
                 }
             }
         }
-        for i in 6..90 {
+        // In decreasing order, so that the splits divide nodes into halves and the removals' merges bring the tree
+        // down: in increasing order its branches keep a single key of 2,048 bytes, over a quarter full, and never
+        // merge (D4).
+        for i in (6..90).rev() {
             write.set(&tree, &long_key(i), &mixed_value(i, 2)).unwrap();
         }
         let tallest = height_in_write(&write);

@@ -10,7 +10,9 @@
 //! always be removed, replaced, or dropped with its tree.
 //!
 //! A changed node keeps its page number, because the transaction copies a page on its first change (T14), so no
-//! path is copied. An insertion that overflows a node splits it by bytes into halves, up to a new root; a removal
+//! path is copied. An insertion that overflows a node splits it by bytes into halves, up to a new root, unless it
+//! falls past the node's last cell: then the node keeps its cells and a new sibling starts with the new one, so
+//! keys added in increasing order fill their nodes instead of leaving them half full; a removal
 //! or an overwrite that leaves a node under a quarter full merges it with a sibling when both fit in one page, and
 //! a branch root left with one child is replaced by it. A node left without entries (a leaf, or a branch whose only
 //! child went away) is freed and leaves its parent, so no leaf but the root is ever empty. Operations that end up
@@ -786,7 +788,10 @@ fn insert_cell(
 }
 
 /// Splits the node at `page`, with `cell` put at `index` (replacing the cell there when `replace`), into itself
-/// and a new right sibling, by bytes into halves.
+/// and a new right sibling. A new cell past the node's last one hints that keys arrive in order, so the node keeps
+/// its cells and the sibling starts with the new one: a leaf is left untouched, and a branch moves its last key up
+/// to the parent, its child becoming the sibling's leftmost, so that the sibling has a key. Any other split divides
+/// the node by bytes into halves.
 fn split(
     tx: &mut WriteTransaction<'_>,
     page: u64,
@@ -804,7 +809,12 @@ fn split(
     cells.push(cell);
     let rest = index + usize::from(replace);
     cells.extend((rest..count).map(|i| node::cell(&old, i)));
-    let at = node::split_point(&cells, leaf);
+    let append = !replace && index == count;
+    let at = match (append, leaf) {
+        (true, true) => count,
+        (true, false) => count - 1,
+        (false, _) => node::split_point(&cells, leaf),
+    };
     let (key, right_leftmost, right_cells) = if leaf {
         (node::cell_key(cells[at], true), 0, &cells[at..])
     } else {
@@ -818,12 +828,14 @@ fn split(
     let key = copy(&*tx, key)?;
     let right = tx.allocate()?;
     node::fill(tx.page_mut(right)?, level, right_leftmost, right_cells);
-    node::fill(
-        tx.page_mut(page)?,
-        level,
-        node::leftmost(&old),
-        &cells[..at],
-    );
+    if !(append && leaf) {
+        node::fill(
+            tx.page_mut(page)?,
+            level,
+            node::leftmost(&old),
+            &cells[..at],
+        );
+    }
     Ok(Outcome::Split { key, right })
 }
 

@@ -769,7 +769,7 @@ fn in_use(store: &Store) -> u64 {
 #[test]
 fn ac_a15_deleting_or_emptying_a_tree_gives_its_pages_back() {
     let fill = |write: &mut WriteTransaction<'_>, tree: &WriteTree<'_>| {
-        for i in 0..60 {
+        for i in 0..120 {
             write.set(tree, &long_key(i, MAX_KEY), &[7; 100]).unwrap();
         }
     };

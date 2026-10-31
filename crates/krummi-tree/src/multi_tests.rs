@@ -1062,3 +1062,24 @@ fn inconsistent_blobs_are_damage_of_their_leaf() {
         assert_eq!(damaged_page(tx.commit()), leaf, "{label}: T11");
     }
 }
+
+/// The values of a key added in increasing order fill the nodes of its subtree but the last of each level, as the
+/// entries of a tree do: the subtree splits as any tree.
+#[test]
+fn values_added_in_order_fill_their_subtree() {
+    use crate::tests::{ORDERED_KEY, not_full_but_the_last, ordered_key};
+    let engine = temporary();
+    let mut tx = engine.write(None).unwrap();
+    let mut root = create(&mut tx).unwrap();
+    let mut set = BTreeSet::new();
+    for i in 0..2000 {
+        let value = ordered_key(1, i);
+        root = add(&mut tx, root, b"key", &value).unwrap().root;
+        set.insert(value);
+    }
+    let subtree = subtree_of(&tx, root, b"key").unwrap().unwrap();
+    let not_full = not_full_but_the_last(&tx, subtree, ORDERED_KEY, 0);
+    assert!(not_full.is_empty(), "not full: {not_full:?}");
+    tx.commit().unwrap();
+    agree(&engine.read().unwrap(), root, b"key", &set, "in order");
+}

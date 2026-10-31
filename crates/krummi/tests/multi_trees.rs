@@ -1279,7 +1279,7 @@ const KEYS: usize = 24;
 /// The key of AC-M12 whose values are in a subtree of several levels, the empty value with them.
 const DEEP: usize = 3;
 /// A key of AC-M12 with its values in a subtree, in another leaf.
-const OTHER_SUBTREE: usize = 9;
+const OTHER_SUBTREE: usize = 5;
 /// The key of AC-M12 whose leaf is damaged.
 const HIT: usize = 13;
 /// The keys of AC-M12 that are read and modified while another one needs a damaged page.

@@ -704,3 +704,154 @@ fn removing_the_last_entry_under_a_branch_without_keys_leaves_no_empty_leaf() {
     }
     assert!(reached >= 10, "the case was reached {reached} times");
 }
+
+/// Bytes of the keys of [`ordered_key`]: long, so that a branch holds few keys and a few thousand entries reach
+/// several levels.
+pub(crate) const ORDERED_KEY: usize = 1000;
+
+/// The `i`-th key of `stream`, in numeric order of `i` within the stream: the stream's byte, then `i` in big endian.
+pub(crate) fn ordered_key(stream: u8, i: u64) -> Vec<u8> {
+    let mut key = vec![stream; ORDERED_KEY - 8];
+    key.extend_from_slice(&i.to_be_bytes());
+    key
+}
+
+/// The pages of the tree at `root`, level by level from the root down, each level in key order.
+pub(crate) fn levels<S: PageSource>(tx: &S, root: u64) -> Vec<Vec<u64>> {
+    let mut levels = vec![vec![root]];
+    while !node::is_leaf(tx.page(levels[levels.len() - 1][0]).unwrap()) {
+        let below = levels[levels.len() - 1]
+            .iter()
+            .flat_map(|&page| {
+                let node = tx.page(page).unwrap();
+                (0..=node::count(node)).map(|index| node::child(node, index))
+            })
+            .collect();
+        levels.push(below);
+    }
+    levels
+}
+
+/// Whether the node at `page` of a tree whose keys have `key` bytes and its values `value` bytes is full: a leaf
+/// has no room for another entry, and a branch for two more keys, since a branch that overflows at its end moves
+/// its last key to its new sibling.
+pub(crate) fn full<S: PageSource>(tx: &S, page: u64, key: usize, value: usize) -> bool {
+    let node = tx.page(page).unwrap();
+    let room = if node::is_leaf(node) {
+        node::LEAF_CELL_HEADER + key + value + 2
+    } else {
+        2 * (2 + key + 8 + 2)
+    };
+    node::free_space(node) < room
+}
+
+/// The pages of the tree at `root` that are not [`full`], but the last of each level.
+pub(crate) fn not_full_but_the_last<S: PageSource>(
+    tx: &S,
+    root: u64,
+    key: usize,
+    value: usize,
+) -> Vec<u64> {
+    levels(tx, root)
+        .iter()
+        .flat_map(|level| level[..level.len() - 1].to_vec())
+        .filter(|&page| !full(tx, page, key, value))
+        .collect()
+}
+
+/// Entries added in increasing key order leave every node full but the last of its level: a leaf or a branch
+/// that overflows at its end starts a new sibling instead of splitting into halves.
+#[test]
+fn entries_added_in_order_fill_every_node_but_the_last_of_its_level() {
+    let engine = temporary();
+    let mut tx = engine.write(None).unwrap();
+    let mut root = create(&mut tx).unwrap();
+    let mut model = Model::new();
+    for i in 0..2000 {
+        let (key, value) = (ordered_key(1, i), i.to_le_bytes().to_vec());
+        root = set(&mut tx, root, &key, &value).unwrap().root;
+        model.insert(key, value);
+    }
+    assert!(height(&tx, root) >= 4);
+    let not_full = not_full_but_the_last(&tx, root, ORDERED_KEY, 8);
+    assert!(not_full.is_empty(), "not full: {not_full:?}");
+    tx.commit().unwrap();
+    check(
+        &engine.read().unwrap(),
+        root,
+        &model,
+        &mut Rng(3),
+        "in order",
+    );
+}
+
+/// A stream of increasing keys that resumes after another stream took the keys past it fills its leaves too: a
+/// leaf that overflows at its end starts a new sibling wherever it is in the tree, not only at the tree's end. The
+/// first stream fills whole leaves, so the second starts a leaf of its own and the first resumes at the end of a
+/// leaf that is not the last. The branches between both streams receive keys before their own and split into
+/// halves, so only the leaves are checked.
+#[test]
+fn a_stream_that_resumes_before_another_fills_its_leaves() {
+    let engine = temporary();
+    let mut tx = engine.write(None).unwrap();
+    let mut root = create(&mut tx).unwrap();
+    let mut model = Model::new();
+    for (stream, from) in [(1, 0), (2, 0), (1, 1000)] {
+        for i in from..from + 1000 {
+            let (key, value) = (ordered_key(stream, i), vec![stream; 8]);
+            root = set(&mut tx, root, &key, &value).unwrap().root;
+            model.insert(key, value);
+        }
+    }
+    let leaves = levels(&tx, root).pop().unwrap();
+    let last_of_first = leaves
+        .iter()
+        .rposition(|&page| node::key(tx.page(page).unwrap(), 0)[0] == 1)
+        .unwrap();
+    let not_full: Vec<u64> = leaves[..leaves.len() - 1]
+        .iter()
+        .enumerate()
+        .filter(|&(index, &page)| index != last_of_first && !full(&tx, page, ORDERED_KEY, 8))
+        .map(|(_, &page)| page)
+        .collect();
+    assert!(not_full.is_empty(), "not full: {not_full:?}");
+    tx.commit().unwrap();
+    check(
+        &engine.read().unwrap(),
+        root,
+        &model,
+        &mut Rng(4),
+        "resumed stream",
+    );
+}
+
+/// Entries added in decreasing key order still split their leaves into halves, as before: every leaf but the
+/// first, the one that keeps receiving them, has room for another entry.
+#[test]
+fn entries_added_in_reverse_order_still_split_into_halves() {
+    let engine = temporary();
+    let mut tx = engine.write(None).unwrap();
+    let mut root = create(&mut tx).unwrap();
+    let mut model = Model::new();
+    for i in (0..2000).rev() {
+        let (key, value) = (ordered_key(1, i), i.to_le_bytes().to_vec());
+        root = set(&mut tx, root, &key, &value).unwrap().root;
+        model.insert(key, value);
+    }
+    assert!(height(&tx, root) >= 3);
+    let leaves = levels(&tx, root).pop().unwrap();
+    let full_leaves: Vec<u64> = leaves[1..]
+        .iter()
+        .copied()
+        .filter(|&page| full(&tx, page, ORDERED_KEY, 8))
+        .collect();
+    assert!(full_leaves.is_empty(), "full: {full_leaves:?}");
+    tx.commit().unwrap();
+    check(
+        &engine.read().unwrap(),
+        root,
+        &model,
+        &mut Rng(5),
+        "reverse order",
+    );
+}
