@@ -29,3 +29,14 @@ Fix commit on `feat/trees-append-split`: `275ecef` (R1).
   sampled AC-B18, AC-R12, AC-V8 and AC-M14 included). The full checks of `CLAUDE.md` and the CI's ignored tree
   tests are recorded in the execution document (`odd/tasks/trees-append-split.md`).
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-10-31 (verification)
+
+Review record: report [`2026-10-31-code-02.md`](2026-10-31-code-02.md) (follow-up, `-FixRange 298ec81..a5b02d9`),
+wrapper status `approved`, thread `01a19199-409a-73c1-a705-27321dabc81d`. Executed settings from the wrapper
+telemetry: coordinator `gpt-6.1-sol` / `high`; one `krummi-review` reviewer `gpt-6.1-sol` / `high`.
+
+- R1: "verified resolved". The report notes that "the exact claimed 158-point count and 156-point historical-base
+  measurement were not independently remeasured; the unmodified strict guard independently establishes more than
+  140 points in both modes, which suffices to resolve R1."
+- Verdict, quoted: "Approved for the requested follow-up scope: R1 is verified resolved; no open findings remain."
