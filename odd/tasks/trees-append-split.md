@@ -68,6 +68,21 @@ contract or concurrency change; the randomized model tests and the structure che
   over a quarter full, so they never merge (D4); it now adds its keys in decreasing order. AC-A15 needed more
   than 40 pages: it fills 120 entries instead of 60. AC-M12 needed key 9 in another leaf than key 13; with full
   leaves of 8 keys of 1,000 bytes they share one, so its other subtree key is now 5.
-- **L6** (finding, pending, not caused by this change): with keys of 2,048 bytes a branch with one key is over a
-  quarter full and never merges with a sibling (D4), so after removals a tree can keep more levels than it needs;
-  decreasing inserts leave such branches too. Loads in order make it more visible.
+- **L6** (finding, pending, activated by this change): with keys of 2,048 bytes a branch with one key is over a
+  quarter full and never merges with a sibling (D4), so after removals a tree can keep more levels than it needs.
+  The merge rule is the base's, and decreasing inserts leave such branches too (`B0` branches in a scratch run),
+  but increasing loads now reach it: on the base, AC-V6's increasing load lost height after its removals; with the
+  append split it keeps it (2, 4, 4). Corrected after RDD's R3-inorder-merge-coverage, which called the earlier
+  wording ("not caused by this change") inconsistent with that base result.
+- **L7** (RDD review, 2026-10-31): commit `b7db2f1` against `main`, lenses `review-risk` and `review-reliability`,
+  lineage `review-b7fc82a5ee615800`; result **approved**, acknowledged (authority burned). Risk: no findings.
+  Reliability, three advisory findings, none blocking:
+  - R3-branch-append-left-size (WARNING, inferential): the left branch of an append split could be left with no
+    key or under a quarter full. Answer: a branch always fits three cells of the longest size (D4,
+    `crates/krummi-tree/src/node.rs:53`), so it overflows only with three or more keys and keeps at least two; the
+    old cells fill more than a page minus the new cell, so losing a last cell of at most 2,062 bytes leaves at
+    least about 4,018 bytes, over the quarter (2,044). A leaf's left side is untouched and over half full. Only
+    the new sibling, with one cell, can be under a quarter, as in Voron.
+  - R3-inorder-merge-coverage (WARNING, behavior-activated): see L6; pending, for the user.
+  - R3-catalog-coverage (SUGGESTION): no test of its own fills the catalog in order; it splits through the shared
+    `split`. Not addressed.
