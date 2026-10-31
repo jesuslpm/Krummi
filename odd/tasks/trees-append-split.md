@@ -100,3 +100,7 @@ contract or concurrency change; the randomized model tests and the structure che
 - **L10** (Codex code review, round 2, 2026-10-31): follow-up
   [report](../../docs/reviews/trees-append-split/2026-10-31-code-02.md) over `298ec81..a5b02d9`, wrapper status
   `approved`, thread `01a19199-409a-73c1-a705-27321dabc81d`: R1 verified resolved, no open findings. The loop ends.
+
+## Closing
+
+Closing report: [trees-append-split-report.md](trees-append-split-report.md).
