@@ -86,3 +86,11 @@ contract or concurrency change; the randomized model tests and the structure che
   - R3-inorder-merge-coverage (WARNING, behavior-activated): see L6; pending, for the user.
   - R3-catalog-coverage (SUGGESTION): no test of its own fills the catalog in order; it splits through the shared
     `split`. Not addressed.
+- **L8** (Codex code review, round 1, 2026-10-31): [report](../../docs/reviews/trees-append-split/2026-10-31-code.md),
+  wrapper status `findings`, thread `01a19149-616f-7911-a047-db8ac3a44511`. R1 (minor, the exhaustive AC-V8 sweep
+  reached 131 of its 140 points) → fixed in `275ecef` (158 points; the base reaches 156); see the
+  [resolutions](../../docs/reviews/trees-append-split/2026-10-31-code-resolutions.md). Checks at `275ecef`:
+  `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean;
+  `cargo test --workspace --no-fail-fast` 0 failed; `cargo test -p krummi --lib -- --ignored` (AC-B18, AC-R12,
+  AC-V8, AC-M14) 4 passed; release `tree_integrity -- --ignored` 7 passed (3,737 s); release
+  `tree_value_model -- --ignored` 1 passed (509 s).
