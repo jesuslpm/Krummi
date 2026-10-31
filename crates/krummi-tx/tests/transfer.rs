@@ -246,7 +246,9 @@ fn only_the_transfer_thread_transfers() {
     assert!(engine.transfer_now());
     engine.checkpoint().unwrap();
     engine.set_transfer_hook(None);
-    let threads = threads.lock().unwrap();
+    // A background pass that took the hook before it was cleared may still call it, and the close waits for that
+    // pass: holding the lock the hook takes until then would leave both threads waiting for each other.
+    let threads = threads.lock().unwrap().clone();
     assert!(threads.len() >= 3, "{} transfers", threads.len());
     assert!(
         threads
