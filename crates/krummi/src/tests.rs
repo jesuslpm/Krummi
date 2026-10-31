@@ -274,7 +274,7 @@ fn values_off_their_leaf(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
     }
     results.push(write.try_add(&tree, &long_key(9), &off_leaf(3)).map(drop));
     results.push(write.remove(&tree, &long_key(9)).map(drop));
-    for i in in_both_orders(12..20) {
+    for i in in_both_orders(12..24) {
         results.push(write.set(&tree, &long_key(i), &off_leaf(i)));
     }
     let (lower, upper) = (long_key(4), long_key(7));
@@ -286,14 +286,14 @@ fn values_off_their_leaf(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
 fn values_off_their_leaf_committed(store: &Store) {
     let read = store.read().unwrap();
     let tree = read.open_tree("t").unwrap();
-    assert_eq!(read.len(&tree).unwrap(), 16, "0 to 3, 7, 8, 10 to 19");
+    assert_eq!(read.len(&tree).unwrap(), 20, "0 to 3, 7, 8, 10 to 23");
     let get = |i: usize| read.get(&tree, &long_key(i)).unwrap().map(<[u8]>::to_vec);
     assert_eq!(get(1), Some(off_leaf(2)));
     assert_eq!(get(3), Some(b"in its leaf".to_vec()));
     assert_eq!(get(5), None);
     assert_eq!(get(7), Some(mixed("t", 7)));
     assert_eq!(get(9), None);
-    assert_eq!(get(19), Some(off_leaf(19)));
+    assert_eq!(get(23), Some(off_leaf(23)));
 }
 
 /// AC-V8, second part (V8, T11, AC-B18): a failure of disk full, maximum size, memory exhausted or input and output
