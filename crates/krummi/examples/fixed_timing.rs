@@ -2,7 +2,7 @@
 //! PRD, checked by criterion AC-X21).
 //!
 //! ```text
-//! cargo run --release -p krummi --example fixed_timing [options]
+//! cargo run --release -p krummi --example fixed_timing -- [options]
 //! ```
 //!
 //! Options:
@@ -247,7 +247,22 @@ fn measure(parent: &Path, kind: Kind, data: &Data) -> Measured {
     let (read, read_sum) = read_all(&store, kind, data, &reads);
     let (scan, scanned, scan_sum) = scan_all(&store, kind, data);
     assert_eq!(scanned, entries, "the scan returns every entry");
-    std::hint::black_box((read_sum, scan_sum));
+    // The checksums of what was read, against the stored entries, outside the measured time.
+    let expected = |order: &[usize]| {
+        order
+            .iter()
+            .fold(0, |sum, &i| fold(sum, data.keys[i], data.value(i)))
+    };
+    assert_eq!(
+        read_sum,
+        expected(&reads),
+        "the reads return the stored values"
+    );
+    assert_eq!(
+        scan_sum,
+        expected(&in_key_order),
+        "the scan returns the stored entries in key order"
+    );
     let remove = remove_all(&store, kind, data, &shuffled(entries, 0x5EED_0007));
     store.close().expect("close");
     Measured {
