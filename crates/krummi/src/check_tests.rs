@@ -1,12 +1,12 @@
-//! Remembered node layout checks (the remembered node layout check PRD, AC-C1 to AC-C9), through the public API and
-//! the engine's test hooks: how many contents the engine remembers, where pages live, and damage that appears while
-//! the store is open.
+//! Remembered node layout checks (the remembered node layout check PRD, AC-C1 to AC-C9, and with fixed-size trees
+//! AC-X19 of their PRD), through the public API and the engine's test hooks: how many contents the engine remembers,
+//! where pages live, and damage that appears while the store is open.
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
-use krummi_tree::{catalog, leaf_of};
+use krummi_tree::{catalog, fixed, leaf_of};
 
 use super::*;
 
@@ -80,8 +80,13 @@ fn commit_tree(store: &Store, name: &str, count: usize, len: usize) {
 
 /// Commits a write that makes the node at `page` an unknown kind, keeping its integrity code right.
 fn damage_layout(store: &Store, page: u64) {
+    damage_bytes(store, page, 0, &[0xEE]);
+}
+
+/// Commits a write that puts `bytes` at `at` in the node at `page`, keeping its integrity code right.
+fn damage_bytes(store: &Store, page: u64, at: usize, bytes: &[u8]) {
     let mut write = store.write().unwrap();
-    write.inner.page_mut(page).unwrap()[0] = 0xEE;
+    write.inner.page_mut(page).unwrap()[at..at + bytes.len()].copy_from_slice(bytes);
     write.commit().unwrap();
 }
 
@@ -528,6 +533,198 @@ fn ac_c9_reopening_forgets_the_remembered_nodes() {
     let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     assert_eq!(remembered(&store), 0, "a new opening remembers nothing");
     read(&store);
+    assert_eq!(
+        remembered(&store),
+        first,
+        "the same nodes are checked again"
+    );
+    store.close().unwrap();
+}
+
+/// The length of the values of the fixed-size trees of AC-X19.
+const FIXED_LEN: usize = 8;
+
+/// The value of `key` in the fixed-size trees of AC-X19.
+fn fixed_value(key: u64) -> [u8; FIXED_LEN] {
+    (key * 7).to_le_bytes()
+}
+
+/// Commits the fixed-size tree `name` of values of [`FIXED_LEN`] bytes with the keys `0..count`.
+fn commit_fixed(store: &Store, name: &str, count: u64) {
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_fixed_tree_with(name, FIXED_LEN, OpenMode::CreateNew)
+        .unwrap();
+    for key in 0..count {
+        write.set_fixed(&tree, key, &fixed_value(key)).unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// The leaf of `key` in the fixed-size tree with root `root`.
+fn fixed_leaf(store: &Store, root: u64, key: u64) -> u64 {
+    let read = store.read().unwrap();
+    fixed::leaf_of(&read.inner, root, FIXED_LEN, key).unwrap()
+}
+
+/// Checks that Leer of `key` in the fixed-size tree `name` of a read returns its value.
+fn read_fixed(read: &ReadTransaction<'_>, name: &str, key: u64) {
+    let tree = read.open_fixed_tree(name, FIXED_LEN).unwrap();
+    let value = fixed_value(key);
+    assert_eq!(
+        read.get_fixed(&tree, key).unwrap(),
+        Some(&value[..]),
+        "{key}"
+    );
+}
+
+/// The keys of the fixed-size tree of AC-X19: 1,500 of them fill three leaves under a root branch.
+const FIXED_KEYS: u64 = 1500;
+
+/// AC-X19, first part (X14, C1, C2, C4, AC-C1): the nodes of a fixed-size tree of two levels in the store's pages
+/// are checked once each: the first Leer of a key remembers the two nodes of its path, the root and the leaf; reading
+/// it again in the same read transaction and in another one returns the same and remembers nothing more; a key of
+/// another leaf remembers only that leaf.
+#[test]
+fn ac_x19_each_node_of_a_fixed_size_tree_is_checked_once_while_the_store_is_open() {
+    on_both(|store| {
+        commit_fixed(store, "f", FIXED_KEYS);
+        transfer(store);
+        let read = store.read().unwrap();
+        let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+        let before = remembered(store);
+        read_fixed(&read, "f", 700);
+        let first = remembered(store);
+        assert_eq!(first - before, 2, "the root and the leaf of 700");
+        for _ in 0..3 {
+            read_fixed(&read, "f", 700);
+            assert_eq!(read.len(&tree).unwrap(), FIXED_KEYS);
+        }
+        assert_eq!(remembered(store), first, "nothing checked again");
+        read_fixed(&read, "f", 1400);
+        assert_eq!(remembered(store) - first, 1, "only the leaf of 1400");
+        drop(read);
+        let read = store.read().unwrap();
+        for key in [700, 1400, 700] {
+            read_fixed(&read, "f", key);
+        }
+        assert_eq!(remembered(store), first + 1, "nothing checked again");
+    });
+}
+
+/// AC-X19, second part (X14, C1, C2, A9, AC-C4): a leaf of a fixed-size tree in the store's pages with a damaged
+/// layout and a right integrity code, an unknown kind or more entries than a leaf of its length holds, fails with the
+/// damage class and its page twice in one read transaction and once in another, and is never remembered; also when a
+/// right version of that page was remembered before.
+#[test]
+fn ac_x19_a_damaged_layout_of_a_fixed_size_leaf_fails_every_time() {
+    let over_capacity = u16::MAX.to_le_bytes();
+    for (at, bytes) in [(0, &[0xEE][..]), (2, &over_capacity[..])] {
+        on_both(|store| {
+            commit_fixed(store, "f", FIXED_KEYS);
+            transfer(store);
+            read_fixed(&store.read().unwrap(), "f", 700);
+            let page = fixed_leaf(store, root_of(store, "f"), 700);
+
+            damage_bytes(store, page, at, bytes);
+            transfer(store);
+            let before = remembered(store);
+            let read = store.read().unwrap();
+            let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+            assert_eq!(damaged_page(read.get_fixed(&tree, 700)), page, "byte {at}");
+            assert_eq!(damaged_page(read.get_fixed(&tree, 701)), page, "byte {at}");
+            drop(read);
+            let read = store.read().unwrap();
+            let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+            assert_eq!(damaged_page(read.get_fixed(&tree, 700)), page, "byte {at}");
+            assert_eq!(
+                remembered(store),
+                before,
+                "byte {at}: a damaged layout is never remembered"
+            );
+        });
+    }
+}
+
+/// AC-X19, third part (X14, C3, AC-C5): the same damage in a version of a fixed-size leaf still in the scratch area,
+/// committed and kept there by a read opened before it, fails on both reads.
+#[test]
+fn ac_x19_a_damaged_layout_of_a_fixed_size_leaf_in_the_scratch_area_fails_every_time() {
+    on_both(|store| {
+        commit_fixed(store, "f", FIXED_KEYS);
+        transfer(store);
+        let page = fixed_leaf(store, root_of(store, "f"), 700);
+        let keeper = store.read().unwrap();
+        damage_layout(store, page);
+        transfer(store);
+        assert!(
+            store.engine.scratch_bytes() > 0,
+            "the version stays in the scratch area"
+        );
+        let read = store.read().unwrap();
+        let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+        assert_eq!(damaged_page(read.get_fixed(&tree, 700)), page);
+        assert_eq!(damaged_page(read.get_fixed(&tree, 700)), page);
+        drop((read, keeper));
+    });
+}
+
+/// AC-X19, fourth part (X14, C2, C7, AC-C7): a byte of a remembered fixed-size leaf changed in the store's pages
+/// without its integrity code, while the store is open, makes the next read fail with the damage class and its page:
+/// a byte of its header, and a byte of a value, which keeps the layout valid, so that only the integrity code can
+/// catch it.
+#[test]
+fn ac_x19_a_byte_changed_in_a_remembered_fixed_size_node_is_detected() {
+    on_both(|store| {
+        commit_fixed(store, "f", FIXED_KEYS);
+        transfer(store);
+        read_fixed(&store.read().unwrap(), "f", 100);
+        let page = fixed_leaf(store, root_of(store, "f"), 100);
+        store.engine.flip_byte_in_place(page, 2).unwrap();
+        let read = store.read().unwrap();
+        let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+        assert_eq!(damaged_page(read.get_fixed(&tree, 100)), page);
+        drop(read);
+
+        let read = store.read().unwrap();
+        read_fixed(&read, "f", 1400);
+        let other = fixed_leaf(store, root_of(store, "f"), 1400);
+        assert_ne!(other, page, "another leaf, still intact");
+        let mut entry = 1400u64.to_le_bytes().to_vec();
+        entry.extend(fixed_value(1400));
+        let at = read
+            .inner
+            .page(other)
+            .unwrap()
+            .windows(entry.len())
+            .position(|w| w == entry)
+            .expect("the entry in its leaf");
+        drop(read);
+        // The first byte of the value.
+        store.engine.flip_byte_in_place(other, at + 8).unwrap();
+        let read = store.read().unwrap();
+        let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+        assert_eq!(damaged_page(read.get_fixed(&tree, 1400)), other);
+    });
+}
+
+/// AC-X19, last part (X14, C4, AC-C9): reopening a store on disk forgets the remembered nodes of a fixed-size tree:
+/// the first read of each node checks it again.
+#[test]
+fn ac_x19_reopening_forgets_the_remembered_fixed_size_nodes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    commit_fixed(&store, "f", FIXED_KEYS);
+    transfer(&store);
+    let before = remembered(&store);
+    read_fixed(&store.read().unwrap(), "f", 700);
+    let first = remembered(&store) - before;
+    assert!(first > 0);
+    store.close().unwrap();
+
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    assert_eq!(remembered(&store), 0, "a new opening remembers nothing");
+    read_fixed(&store.read().unwrap(), "f", 700);
     assert_eq!(
         remembered(&store),
         first,

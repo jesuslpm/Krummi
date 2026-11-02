@@ -1,9 +1,10 @@
 //! Crashes, power cuts and altered bytes in stores with trees, on disk (Trees and key operations PRD: AC-A16; Trees
 //! PRD: AC-B18, its first part; In-order scan PRD: AC-R12, its first part; Large values PRD: AC-V8, its first part,
-//! and AC-V11; Multi-value trees PRD: AC-M14, its first part, and AC-M15; root PRD: AC10 repeated with the trees,
-//! their scans, a value off its leaf and a multi-value tree). The failures of T11 in the middle of a split, a merge or
-//! a range removal, at the page operations of values off their leaf, or of a multi-value tree, the second part of
-//! AC-B18, AC-R12, AC-V8 and AC-M14, need the engine's hooks: they are in `src/tests.rs`.
+//! and AC-V11; Multi-value trees PRD: AC-M14, its first part, and AC-M15; Fixed-size trees PRD: AC-X12, its first
+//! part, and AC-X13; root PRD: AC10 repeated with the trees, their scans, a value off its leaf, a multi-value tree and
+//! a fixed-size tree). The failures of T11 in the middle of a split, a merge or a range removal, at the page
+//! operations of values off their leaf, of a multi-value tree or of a fixed-size tree, the second part of AC-B18,
+//! AC-R12, AC-V8, AC-M14 and AC-X12, need the engine's hooks: they are in `src/tests.rs`.
 //!
 //! The crash sweeps record the file operations of a run and rebuild, for every point of the tested commit, what a
 //! power cut (the models of `POWER_CUTS`) or a crash of the process (`Model::Written`: the system keeps every write
@@ -23,7 +24,10 @@ use krummi_pager::DATA_FILE;
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use krummi_pager::testing::{self, Model};
 use krummi_tree::multi::volume;
-use support::{MULTI, NORMAL, leaf_page, long_key, open, subtree_root, value16};
+use support::{
+    MULTI, NORMAL, fixed_height, fixed_leaf_page, fixed_model, fixed_value, leaf_page, long_key,
+    open, subtree_root, value16,
+};
 
 /// What the tests see of a store's trees: each tree of the list with its count and what Leer finds for every key
 /// the test used, in order.
@@ -785,4 +789,193 @@ fn ac10_sample_of_altered_bytes_with_a_multi_value_tree() {
 #[ignore = "acceptance: alters every byte of a store with a multi-value tree"]
 fn ac10_every_altered_byte_with_a_multi_value_tree() {
     ac10_multi_sweep(1);
+}
+
+/// The length of the values of the fixed-size tree of AC-X12: eight entries fill a leaf, and a leaf of one or two is
+/// under a quarter full, so that removals merge leaves.
+const CRASH_LEN: usize = 1000;
+
+/// The number of entries of a fixed-size tree, and its entries.
+type FixedSeen = (u64, Vec<(u64, Vec<u8>)>);
+
+/// What the tests see of the fixed-size tree `f` of values of `len` bytes, the store's only tree: its number of
+/// entries and its entries from a whole scan, checking that their number is the number of entries.
+fn fixed_seen(store: &Store, len: usize) -> FixedSeen {
+    let read = store.read().unwrap();
+    let kind = TreeKind::FixedSize(len as u16);
+    assert_eq!(read.list_trees().unwrap(), [("f".to_owned(), kind)]);
+    let tree = read.open_fixed_tree("f", len).unwrap();
+    let entries: Vec<(u64, Vec<u8>)> = read
+        .range_fixed(&tree, ..)
+        .unwrap()
+        .map(|item| {
+            let (key, value) = item.unwrap();
+            (key, value.to_vec())
+        })
+        .collect();
+    let count = read.len(&tree).unwrap();
+    assert_eq!(count, entries.len() as u64, "the number of entries");
+    (count, entries)
+}
+
+/// The crash sweep of AC-X12: over a fixed-size tree of 40 entries in five leaves, a write that adds keys past the
+/// last one and between the others, so that leaves split by both paths, removes most keys one by one and an interval,
+/// so that leaves merge and whole leaves go away, overwrites a value and adds one with Añadir.
+fn fixed_values(through_close: bool) {
+    let set = |write: &mut WriteTransaction<'_>, tree: &krummi::WriteFixedTree<'_>, key: u64| {
+        let value = fixed_value(key, CRASH_LEN);
+        write.set_fixed(tree, key, &value).unwrap();
+    };
+    crash_sweep_with(
+        through_close,
+        |store| {
+            let mut write = store.write().unwrap();
+            let tree = write
+                .open_fixed_tree_with("f", CRASH_LEN, OpenMode::CreateNew)
+                .unwrap();
+            for key in (0..400).step_by(10) {
+                set(&mut write, &tree, key);
+            }
+            write.commit().unwrap();
+        },
+        |write| {
+            let tree = write.open_fixed_tree("f", CRASH_LEN).unwrap();
+            for key in (400..800).step_by(10).chain((5..400).step_by(10)) {
+                set(write, &tree, key);
+            }
+            let added = |key: &u64| key.is_multiple_of(10) || *key < 400;
+            for key in (0..800)
+                .step_by(5)
+                .filter(|key| key % 30 != 0 && added(key))
+            {
+                assert!(write.remove_fixed(&tree, key).unwrap(), "{key}");
+            }
+            assert_eq!(write.remove_range_fixed(&tree, 300..=600).unwrap(), 11);
+            write.set_fixed(&tree, 0, &[0xEE; CRASH_LEN]).unwrap();
+            assert!(write.try_add_fixed(&tree, 1, &[0xAA; CRASH_LEN]).unwrap());
+        },
+        |store| fixed_seen(store, CRASH_LEN),
+        |store, _| {
+            let mut write = store.write().unwrap();
+            let tree = write.open_fixed_tree("f", CRASH_LEN).unwrap();
+            write.set_fixed(&tree, 2, &[2; CRASH_LEN]).unwrap();
+            write.remove_fixed(&tree, 0).unwrap();
+            assert!(write.get_fixed(&tree, 30).unwrap().is_some());
+            write.commit().unwrap();
+        },
+    );
+}
+
+/// AC-X12, first part (G1, G5, AC-B18): interrupted at every point where its commit writes or flushes, the write of
+/// [`fixed_values`] leaves the fixed-size tree with all its entries and their number as before or all as after; and a
+/// new write reads and modifies it.
+#[test]
+fn ac_x12_crashes_during_a_commit_with_splits_and_merges_of_a_fixed_size_tree() {
+    fixed_values(false);
+}
+
+/// AC-X12 also at every point of the close that moves that commit into `krummi.data`:
+/// `cargo test -p krummi --test tree_integrity -- --ignored ac_x12`.
+#[test]
+#[ignore = "acceptance: every point of the commit and of the close that follows it"]
+fn ac_x12_crashes_through_the_close() {
+    fixed_values(true);
+}
+
+/// The length of the values of the fixed-size tree of AC-X13: 75 entries fill a leaf.
+const AC10_LEN: usize = 100;
+
+/// AC-X13 (X10, G6, AC10): AC10 with a fixed-size tree of two levels, read whole through the public API: every altered
+/// byte gives the damage class, "not a store" (the mark) or no observable difference: the same tree and kind, number
+/// of entries, entries from either end and Leer of every key and of absent ones, never a key or a value with a
+/// different byte. The suite alters one byte in `step`, plus the headers of the root and of a leaf (the page header
+/// and the node header of D1); the acceptance run, every byte.
+fn ac10_fixed_sweep(step: usize) {
+    // The sweep checks damage detection, not durability: its flushes to disk are skipped.
+    testing::skip_syncs(true);
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("source");
+    let store = open(&source);
+    let mut model = fixed_model((0..200).map(|i| i * 7), AC10_LEN);
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_fixed_tree_with("f", AC10_LEN, OpenMode::CreateNew)
+        .unwrap();
+    for (key, value) in &model {
+        write.set_fixed(&tree, *key, value).unwrap();
+    }
+    write.commit().unwrap();
+    // A second write that frees pages: an interval that empties a leaf and merges the others, and a new key.
+    let mut write = store.write().unwrap();
+    let tree = write.open_fixed_tree("f", AC10_LEN).unwrap();
+    let removed = write.remove_range_fixed(&tree, 300..1200).unwrap();
+    model.retain(|key, _| !(300..1200).contains(key));
+    assert_eq!(removed, 129);
+    write.set_fixed(&tree, 1, &[0xFF; AC10_LEN]).unwrap();
+    model.insert(1, vec![0xFF; AC10_LEN]);
+    write.commit().unwrap();
+    store.close().unwrap();
+    assert_eq!(fixed_height(&source, "f", AC10_LEN), 2, "two levels");
+
+    let pristine = fs::read(source.join(DATA_FILE)).unwrap();
+    let root = support::root_page(&source, "f") as usize * PAGE_SIZE;
+    let leaf = fixed_leaf_page(&source, "f", AC10_LEN, 0) as usize * PAGE_SIZE;
+    // The page header and the node header (D1: kind, level, count, length and leftmost child).
+    let headers = PAGE_HEADER_SIZE + 16;
+    let offsets: BTreeSet<usize> = (0..pristine.len())
+        .step_by(step)
+        .chain(root..root + headers)
+        .chain(leaf..leaf + headers)
+        .collect();
+
+    let copy = tmp.path().join("copy");
+    fs::create_dir(&copy).unwrap();
+    let damaged = |error: krummi::Error, offset: usize| {
+        assert_eq!(error.kind(), ErrorKind::Damaged, "byte {offset}: {error}");
+    };
+    let kind = TreeKind::FixedSize(AC10_LEN as u16);
+    let entries: Vec<(u64, Vec<u8>)> = model.clone().into_iter().collect();
+    let own = |(key, value): (u64, &[u8])| (key, value.to_vec());
+    each_altered_byte(&pristine, &copy, offsets, |store, offset| {
+        let read = store.read().unwrap();
+        match read.list_trees() {
+            Ok(list) => assert_eq!(list, [("f".to_owned(), kind)], "byte {offset}"),
+            Err(error) => damaged(error, offset),
+        }
+        let tree = match read.open_fixed_tree("f", AC10_LEN) {
+            Ok(tree) => tree,
+            Err(error) => return damaged(error, offset),
+        };
+        let count = read.len(&tree).unwrap();
+        assert_eq!(count, model.len() as u64, "byte {offset}");
+        for front in [true, false] {
+            let scan = read.range_fixed(&tree, ..).unwrap();
+            check_items(scan, &entries, own, front, offset);
+        }
+        for (key, value) in &model {
+            match read.get_fixed(&tree, *key) {
+                Ok(found) => assert_eq!(found, Some(&value[..]), "byte {offset}: {key}"),
+                Err(error) => damaged(error, offset),
+            }
+        }
+        for key in [2, 300, 1394, u64::MAX] {
+            match read.get_fixed(&tree, key) {
+                Ok(found) => assert_eq!(found, None, "byte {offset}: {key}"),
+                Err(error) => damaged(error, offset),
+            }
+        }
+    });
+    testing::reset();
+}
+
+#[test]
+fn ac_x13_sample_of_altered_bytes_with_a_fixed_size_tree() {
+    ac10_fixed_sweep(397);
+}
+
+/// `cargo test -p krummi --test tree_integrity -- --ignored ac_x13`.
+#[test]
+#[ignore = "acceptance: alters every byte of a store with a fixed-size tree"]
+fn ac_x13_every_altered_byte_with_a_fixed_size_tree() {
+    ac10_fixed_sweep(1);
 }

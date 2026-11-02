@@ -423,6 +423,38 @@ pub fn damaged_page(error: Error) -> u64 {
     }
 }
 
+/// Checks a scan that must fail with damage of `page`: the items it returns from one end until then, owned with
+/// `own`, are the next ones of `expected` from that end, and after the failure nothing more comes out of either end
+/// (R8).
+#[track_caller]
+pub fn scan_fails_at<I, T: PartialEq + std::fmt::Debug>(
+    mut scan: impl DoubleEndedIterator<Item = Result<I>>,
+    expected: &[T],
+    own: impl Fn(I) -> T,
+    front: bool,
+    page: u64,
+) {
+    let mut expected: Box<dyn Iterator<Item = &T>> = if front {
+        Box::new(expected.iter())
+    } else {
+        Box::new(expected.iter().rev())
+    };
+    loop {
+        let step = if front { scan.next() } else { scan.next_back() };
+        match step.expect("the scan fails before it ends") {
+            Ok(item) => assert_eq!(own(item), *expected.next().unwrap(), "front {front}"),
+            Err(error) => {
+                assert_eq!(damaged_page(error), page, "front {front}");
+                assert!(
+                    scan.next().is_none() && scan.next_back().is_none(),
+                    "the scan ends"
+                );
+                return;
+            }
+        }
+    }
+}
+
 /// A key of `len` bytes that starts with `i`, so that keys sort by `i`.
 pub fn long_key(i: usize, len: usize) -> Vec<u8> {
     let mut key = format!("{i:05}").into_bytes();

@@ -1,7 +1,10 @@
-//! Fixed-size trees through the public API (Fixed-size trees PRD, X1–X15): AC-X1–AC-X6, AC-X8, AC-X9, AC-X15–AC-X17
-//! and AC-X20. What must not compile (AC-X7, and the lifetime part of AC-X14) is in `trees_compile.rs`; where the
-//! references of Leer and of the scans point (AC-X14) and a store that refuses writes (the T12 parts of AC-X17 and
-//! AC-X20) need the engine's test hooks and are in the library's own tests (`src/fixed_tests.rs`).
+//! Fixed-size trees through the public API (Fixed-size trees PRD, X1–X15): AC-X1–AC-X6, AC-X8–AC-X11, AC-X15–AC-X18
+//! and AC-X20. What must not compile (AC-X7, and the lifetime part of AC-X14) is in `trees_compile.rs`; the crashes
+//! during a commit (AC-X12, its first part) and the altered bytes (AC-X13) are in `tree_integrity.rs`; where the
+//! references of Leer and of the scans point (AC-X14), a store that refuses writes (the T12 parts of AC-X17 and
+//! AC-X20), the failures of T11 at the page operations (AC-X12, its second part) and the remembered layout check
+//! (AC-X19) need the engine's test hooks and are in the library's own tests (`src/fixed_tests.rs`, `src/tests.rs`
+//! and `src/check_tests.rs`).
 //!
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the
 //! store's files, which run on disk only. The tests that depend on the layout of the pages take it from the
@@ -1286,4 +1289,379 @@ fn ac_x20_tipo_gives_the_kind_of_a_tree_by_its_name() {
         write.commit().unwrap();
     });
     assert!(!changed, "asking for kinds writes nothing");
+}
+
+/// The length of the values of the tree of AC-X10: 113 entries fill a leaf.
+const DAMAGE_LEN: usize = 64;
+
+/// The tree of AC-X10: the multiples of 3 below 1,200, 400 keys added in order, so that they fill four leaves under a
+/// root branch, the first key of each leaf being its separator in the root.
+fn damage_model() -> FixedModel {
+    fixed_model((0..400).map(|i| i * 3), DAMAGE_LEN)
+}
+
+/// The key of AC-X10 whose leaf is damaged: one in the second leaf.
+const HIT: u64 = 600;
+
+/// A closed store on disk with the normal tree `other` and the fixed-size tree `f` of [`damage_model`], with the leaf
+/// of [`HIT`] damaged; and that page with the keys of the model in it, in order.
+fn damaged_fixed_store() -> (tempfile::TempDir, u64, Vec<u64>) {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_tree(&store, "other", &[(b"k", b"v")]);
+    commit_fixed(&store, "f", DAMAGE_LEN, &damage_model());
+    store.close().unwrap();
+    assert_eq!(fixed_height(tmp.path(), "f", DAMAGE_LEN), 2, "two levels");
+    let (page, in_the_leaf) = inspect(tmp.path(), |read| {
+        let root = catalog::lookup(read, "f").unwrap().unwrap().root;
+        let leaf = |key: u64| krummi_tree::fixed::leaf_of(read, root, DAMAGE_LEN, key).unwrap();
+        let page = leaf(HIT);
+        assert_ne!(page, root, "a leaf below the root");
+        let keys: Vec<u64> = damage_model()
+            .into_keys()
+            .filter(|&key| leaf(key) == page)
+            .collect();
+        (page, keys)
+    });
+    damage(tmp.path(), page);
+    (tmp, page, in_the_leaf)
+}
+
+/// Checks that a new read sees the trees of [`damaged_fixed_store`] as they were: their list, their kinds, the number
+/// of entries and Leer of every key of `model` outside the damaged leaf, whose keys are `skip`.
+fn unchanged(store: &Store, model: &FixedModel, skip: &[u64]) {
+    let read = store.read().unwrap();
+    let kinds = vec![
+        ("f".to_owned(), fixed(DAMAGE_LEN as u16)),
+        ("other".to_owned(), NORMAL),
+    ];
+    assert_eq!(read.list_trees().unwrap(), kinds);
+    let tree = read.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    assert_eq!(read.len(&tree).unwrap(), model.len() as u64);
+    for (key, value) in model.iter().filter(|(key, _)| !skip.contains(key)) {
+        assert_eq!(
+            read.get_fixed(&tree, *key).unwrap(),
+            Some(&value[..]),
+            "{key}"
+        );
+    }
+}
+
+/// Checks that the catalog operations of X10 on the tree `f` of [`damaged_fixed_store`], in the transaction `$tx`,
+/// never fail with the damage of its pages and give their usual results: Open, Exists, Tipo, Listar and the number of
+/// entries `$entries`.
+macro_rules! catalog_reads_work {
+    ($tx:expr, $entries:expr) => {{
+        let tx = &$tx;
+        let tree = tx.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+        assert_eq!(tx.len(&tree).unwrap(), $entries);
+        assert!(tx.tree_exists("f").unwrap());
+        let kind = fixed(DAMAGE_LEN as u16);
+        assert_eq!(tx.tree_kind("f").unwrap(), Some(kind));
+        let list = tx.list_trees().unwrap();
+        assert_eq!(list, [("f".to_owned(), kind), ("other".to_owned(), NORMAL)]);
+    }};
+}
+
+/// Checks that every operation of the transaction `$tx` on the keys of the damaged leaf `$page` fails with it, twice:
+/// Leer of `$present`, which is in it, and of `$absent`, which would be; and scans of the whole tree and of an
+/// interval around the leaf, which return the entries of `$model` before it from either end before failing with it.
+macro_rules! key_reads_fail {
+    ($tx:expr, $tree:expr, $model:expr, $present:expr, $absent:expr, $page:expr) => {{
+        let (tx, tree, page) = (&$tx, &$tree, $page);
+        let all = entries(&$model);
+        let around: Vec<(u64, Vec<u8>)> = all
+            .iter()
+            .filter(|(key, _)| (HIT - 300..=HIT + 300).contains(key))
+            .cloned()
+            .collect();
+        for _ in 0..2 {
+            for key in [$present, $absent] {
+                assert_eq!(damaged_page(tx.get_fixed(tree, key).unwrap_err()), page);
+            }
+            for front in [true, false] {
+                let scan = tx.range_fixed(tree, ..).unwrap();
+                scan_fails_at(scan, &all, own, front, page);
+                let scan = tx.range_fixed(tree, HIT - 300..=HIT + 300).unwrap();
+                scan_fails_at(scan, &around, own, front, page);
+            }
+        }
+    }};
+}
+
+/// AC-X10 (X10, A9, R8, G6, F9), on disk, with a damaged leaf of a fixed-size tree of two levels on the way to some
+/// keys: Leer, Guardar, Añadir and Quitar of a key of that leaf that is there and of one that is not, the scans and
+/// Quitar intervalo of intervals that hold them fail with damage and that page, again when repeated, also in a new
+/// scan of another read; a scan returns the right entries before that leaf from each end, then fails and ends; a
+/// write that failed cannot be committed and applies nothing (T11); the modes Open, CreateNew and OpenOrCreate,
+/// Exists, Tipo, Listar, Rename without overwrite or to its own name and the number of entries never fail with that
+/// damage and give their usual result or error (CreateNew: tree already exists); the keys whose path does not go
+/// through that leaf are read and modified, and scans and range removals whose bounds stop at the separator next to
+/// the damaged leaf, from the leaf before it and from the leaf after it, never read it (finding R3-002 of the first
+/// RDD review); and emptying, deleting or overwriting the tree with Rename fails with damage and that page, and the
+/// write follows T11.
+#[test]
+fn ac_x10_a_damaged_leaf_on_the_way_to_some_keys() {
+    let mut model = damage_model();
+    let (tmp, page, in_the_leaf) = damaged_fixed_store();
+    let (first, last) = (in_the_leaf[0], *in_the_leaf.last().unwrap());
+    assert!(first > 0 && last < 1197, "a leaf between two others");
+    let absent = HIT + 1;
+    let store = open(tmp.path());
+    unchanged(&store, &model, &in_the_leaf);
+
+    let read = store.read().unwrap();
+    catalog_reads_work!(read, 400);
+    let tree = read.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    key_reads_fail!(read, tree, model, HIT, absent, page);
+    drop(read);
+    let read = store.read().unwrap();
+    let tree = read.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    let scan = read.range_fixed(&tree, ..).unwrap();
+    scan_fails_at(scan, &entries(&model), own, true, page);
+    drop(read);
+
+    // The catalog operations of the tree work in a write, which commits.
+    let folder = Some(tmp.path());
+    let mut write = store.write().unwrap();
+    catalog_reads_work!(write, 400);
+    write
+        .open_fixed_tree_with("f", DAMAGE_LEN, OpenMode::OpenOrCreate)
+        .unwrap();
+    let error = write
+        .open_fixed_tree_with("f", DAMAGE_LEN, OpenMode::CreateNew)
+        .err()
+        .unwrap();
+    assert_eq!(already_exists(error, folder), "f");
+    write.rename_tree("f", "f", false).unwrap();
+    write.rename_tree("f", "f", true).unwrap();
+    let error = write.rename_tree("f", "other", false).unwrap_err();
+    assert_eq!(already_exists(error, folder), "other");
+    write.rename_tree("f", "g", false).unwrap();
+    assert_eq!(
+        write.tree_kind("g").unwrap(),
+        Some(fixed(DAMAGE_LEN as u16))
+    );
+    write.rename_tree("g", "f", false).unwrap();
+    catalog_reads_work!(write, 400);
+    write.commit().unwrap();
+    unchanged(&store, &model, &in_the_leaf);
+
+    // The operations on the keys of the leaf fail, the write goes on, and its commit fails with the first failure.
+    let mut write = store.write().unwrap();
+    let tree = write.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    let value = [0xAB; DAMAGE_LEN];
+    for _ in 0..2 {
+        for key in [HIT, absent] {
+            let error = write.set_fixed(&tree, key, &value).unwrap_err();
+            assert_eq!(damaged_page(error), page, "set {key}");
+            let error = write.try_add_fixed(&tree, key, &value).unwrap_err();
+            assert_eq!(damaged_page(error), page, "try_add {key}");
+            let error = write.remove_fixed(&tree, key).unwrap_err();
+            assert_eq!(damaged_page(error), page, "remove {key}");
+        }
+    }
+    key_reads_fail!(write, tree, model, HIT, absent, page);
+    assert_eq!(write.len(&tree).unwrap(), 400);
+    // Last, because a range removal that fails may have changed the leaves at its bounds in the write, whose content
+    // is then left to the implementation (it cannot commit, T11).
+    for _ in 0..2 {
+        for bounds in [
+            (Included(HIT), Included(HIT)),
+            (Included(absent), Excluded(absent + 1)),
+            (Excluded(first - 3), Excluded(last + 3)),
+            (Included(0), Included(1197)),
+            (Unbounded, Unbounded),
+        ] {
+            let error = write.remove_range_fixed(&tree, bounds).unwrap_err();
+            assert_eq!(damaged_page(error), page, "remove_range {bounds:?}");
+        }
+    }
+    assert_eq!(damaged_page(write.commit().unwrap_err()), page, "T11");
+    unchanged(&store, &model, &in_the_leaf);
+
+    // Bounds that stop at the separators next to the leaf: before it, its first key; after it, the first key of the
+    // next leaf. Neither scans nor range removals read the damaged leaf. (A bound between the leaf's last key and the
+    // next separator is within the leaf's part of the tree, which must be read.)
+    let next = last + 3;
+    let near = [
+        (Unbounded, Excluded(first)),
+        (Unbounded, Included(first - 1)),
+        (Included(first - 30), Excluded(first)),
+        (Included(first - 9), Included(first - 1)),
+        (Included(next), Unbounded),
+        (Excluded(next - 1), Unbounded),
+        (Included(next), Included(next + 30)),
+    ];
+    let read = store.read().unwrap();
+    let tree = read.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    check_scans!(read, tree, model, near);
+    drop(read);
+    let mut write = store.write().unwrap();
+    let tree = write.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    check_scans!(write, tree, model, near);
+    for bounds in [
+        (Included(first - 9), Excluded(first)),
+        (Included(next), Included(next + 6)),
+    ] {
+        assert_eq!(write.remove_range_fixed(&tree, bounds).unwrap(), 3);
+        model.retain(|key, _| !within(*key, bounds));
+    }
+    check_scans!(write, tree, model, near);
+    write.commit().unwrap();
+    unchanged(&store, &model, &in_the_leaf);
+
+    // The keys of the other leaves: Leer, Guardar, Añadir and Quitar.
+    let mut write = store.write().unwrap();
+    let tree = write.open_fixed_tree("f", DAMAGE_LEN).unwrap();
+    for key in [0, first - 30, next + 30, 1197] {
+        assert_eq!(write.get_fixed(&tree, key).unwrap(), Some(&model[&key][..]));
+        write.set_fixed(&tree, key, &value).unwrap();
+        model.insert(key, value.to_vec());
+        assert!(write.try_add_fixed(&tree, key + 1, &value).unwrap());
+        assert!(!write.try_add_fixed(&tree, key + 1, &value).unwrap());
+        model.insert(key + 1, value.to_vec());
+        assert_eq!(write.remove_fixed(&tree, key + 3).unwrap(), key < 1197);
+        model.remove(&(key + 3));
+        assert_eq!(write.get_fixed(&tree, key).unwrap(), Some(&value[..]));
+    }
+    assert_eq!(write.len(&tree).unwrap(), model.len() as u64);
+    write.commit().unwrap();
+    unchanged(&store, &model, &in_the_leaf);
+
+    for operation in [
+        "create or empty",
+        "empty",
+        "delete",
+        "overwrite with rename",
+    ] {
+        let mut write = store.write().unwrap();
+        let error = match operation {
+            "create or empty" => write
+                .open_fixed_tree_with("f", DAMAGE_LEN, OpenMode::CreateOrEmpty)
+                .err()
+                .unwrap(),
+            "empty" => write
+                .open_fixed_tree_with("f", DAMAGE_LEN, OpenMode::Empty)
+                .err()
+                .unwrap(),
+            "delete" => write.delete_tree("f").unwrap_err(),
+            _ => write.rename_tree("other", "f", true).unwrap_err(),
+        };
+        assert_eq!(damaged_page(error), page, "{operation}");
+        let error = write.commit().unwrap_err();
+        assert_eq!(damaged_page(error), page, "{operation}: T11");
+        unchanged(&store, &model, &in_the_leaf);
+    }
+    store.close().unwrap();
+}
+
+/// The length of the values of AC-X11: eight entries fill a leaf, and a leaf of one or two is under a quarter full,
+/// so that removals merge leaves.
+const SNAPSHOT_LEN: usize = 1000;
+
+/// AC-X11 (G3, T14, AC-B17): a read opened before a write whose insertions and removals split and merge pages of a
+/// fixed-size tree until its height changes sees exactly its snapshot, its entries and their number, through a handle
+/// opened before the write and one opened after, before and after the commit; and a new read sees the write's. The
+/// tree grows from one leaf to two levels by both kinds of split (past a leaf's last key and into halves), shrinks to
+/// two entries, which merges its leaves back into one, and grows again; on disk, its heights before and after are
+/// checked.
+#[test]
+fn ac_x11_a_read_keeps_its_snapshot_while_a_write_splits_and_merges() {
+    let scenario = |store: &Store| {
+        let snapshot = fixed_model([10, 20, 30], SNAPSHOT_LEN);
+        commit_fixed(store, "f", SNAPSHOT_LEN, &snapshot);
+        let read = store.read().unwrap();
+        let before = read.open_fixed_tree("f", SNAPSHOT_LEN).unwrap();
+        check_fixed!(read, before, snapshot);
+        let check_snapshot = || {
+            let tree = read.open_fixed_tree("f", SNAPSHOT_LEN).unwrap();
+            check_fixed!(read, tree, snapshot);
+            check_fixed!(read, before, snapshot);
+        };
+        let mut model = snapshot.clone();
+        let mut write = store.write().unwrap();
+        let tree = write.open_fixed_tree("f", SNAPSHOT_LEN).unwrap();
+        let grow =
+            |write: &mut krummi::WriteTransaction<'_>, model: &mut FixedModel, keys: &[u64]| {
+                for &key in keys {
+                    let value = fixed_value(key, SNAPSHOT_LEN);
+                    write.set_fixed(&tree, key, &value).unwrap();
+                    model.insert(key, value);
+                }
+            };
+        let keys: Vec<u64> = (31..=120).chain((0..10).rev()).collect();
+        grow(&mut write, &mut model, &keys);
+        check_fixed!(write, tree, model);
+        check_snapshot();
+        let gone: Vec<u64> = model
+            .keys()
+            .copied()
+            .filter(|&k| k != 0 && k != 100)
+            .collect();
+        for key in gone {
+            assert!(write.remove_fixed(&tree, key).unwrap());
+            model.remove(&key);
+        }
+        check_fixed!(write, tree, model);
+        check_snapshot();
+        let keys: Vec<u64> = (200..=300).collect();
+        grow(&mut write, &mut model, &keys);
+        check_fixed!(write, tree, model);
+        check_snapshot();
+        write.commit().unwrap();
+        check_snapshot();
+        check_read(store, "f", SNAPSHOT_LEN, &model);
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_fixed(&store, "f", SNAPSHOT_LEN, &fixed_model([10], SNAPSHOT_LEN));
+    store.close().unwrap();
+    assert_eq!(fixed_height(tmp.path(), "f", SNAPSHOT_LEN), 1, "before");
+    let store = open(tmp.path());
+    scenario(&store);
+    store.close().unwrap();
+    assert_eq!(fixed_height(tmp.path(), "f", SNAPSHOT_LEN), 2, "after");
+
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    scenario(&store);
+    store.close().unwrap();
+}
+
+/// AC-X18 (X8, T10): a write on disk that only makes one change, in separate writes, Guardar with the value the key
+/// already had, emptying an empty tree, Añadir of a new key, Quitar of a key that is there or Quitar intervalo that
+/// removes entries, changes the store's files once committed, as any write with changes does.
+#[test]
+fn ac_x18_a_write_with_one_change_changes_the_files() {
+    let model = fixed_model((0..1500).map(|i| i * 3), 8);
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_fixed(&store, "f", 8, &model);
+    commit_fixed(&store, "e", 8, &FixedModel::new());
+    store.close().unwrap();
+    assert!(fixed_height(tmp.path(), "f", 8) >= 2);
+    for change in [
+        "set with the same value",
+        "empty an empty tree",
+        "add a new key",
+        "remove a key that is there",
+        "remove a range",
+    ] {
+        let changed = files_change(tmp.path(), |store| {
+            let mut write = store.write().unwrap();
+            let tree = write.open_fixed_tree("f", 8).unwrap();
+            match change {
+                "set with the same value" => write.set_fixed(&tree, 300, &model[&300]).unwrap(),
+                "empty an empty tree" => {
+                    let empty = write.open_fixed_tree_with("e", 8, OpenMode::Empty).unwrap();
+                    assert_eq!(write.len(&empty).unwrap(), 0);
+                }
+                "add a new key" => assert!(write.try_add_fixed(&tree, 301, &[1; 8]).unwrap()),
+                "remove a key that is there" => assert!(write.remove_fixed(&tree, 600).unwrap()),
+                _ => assert_eq!(write.remove_range_fixed(&tree, 900..=903).unwrap(), 2),
+            }
+            write.commit().unwrap();
+        });
+        assert!(changed, "{change}: a write with a change writes");
+    }
 }

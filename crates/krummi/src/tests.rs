@@ -1,6 +1,7 @@
 //! What the public tests cannot reach without the engine's test hooks: a store that refuses writes (T12) while a
 //! write transaction is open, and the failures of T11 at the page operations of a write (AC-B18, AC-R12, AC-R13,
-//! with values off their leaf AC-V8 and with a multi-value tree AC-M14) and during its commit.
+//! with values off their leaf AC-V8, with a multi-value tree AC-M14 and with a fixed-size tree AC-X12) and during its
+//! commit.
 
 use std::io;
 use std::thread;
@@ -802,4 +803,147 @@ fn ac_m14_a_failure_at_a_sample_of_page_operations_of_a_multi_value_tree_applies
 #[ignore = "acceptance: a failure at every page operation of the write and its commit"]
 fn ac_m14_a_failure_at_every_page_operation_of_a_multi_value_tree_applies_nothing() {
     t11_multi_sweep(1);
+}
+
+/// The length of the values of the fixed-size T11 sweep: eight entries fill a leaf, and a leaf of one or two is under
+/// a quarter full, so that removals merge leaves.
+const FIXED_LEN: usize = 1000;
+
+/// The value of `key` in the fixed-size T11 sweep: its low byte, repeated.
+fn fixed_value(key: u64) -> Vec<u8> {
+    vec![key as u8; FIXED_LEN]
+}
+
+/// Commits the fixed-size tree `f` of the T11 sweep: the multiples of 10 below 400, 40 entries in five leaves.
+fn create_fixed_tree(store: &Store) {
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_fixed_tree_with("f", FIXED_LEN, OpenMode::CreateNew)
+        .unwrap();
+    for key in (0..400).step_by(10) {
+        write.set_fixed(&tree, key, &fixed_value(key)).unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// The number of entries of a fixed-size tree, and its entries.
+type FixedSeen = (u64, Vec<(u64, Vec<u8>)>);
+
+/// What a new read sees of the fixed-size tree `f`: its number of entries and its entries.
+fn fixed_seen(store: &Store) -> FixedSeen {
+    let read = store.read().unwrap();
+    let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
+    let entries = read
+        .range_fixed(&tree, ..)
+        .unwrap()
+        .map(|item| {
+            let (key, value) = item.unwrap();
+            (key, value.to_vec())
+        })
+        .collect();
+    (read.len(&tree).unwrap(), entries)
+}
+
+/// Checks that a new write reads, modifies and commits the fixed-size tree `f` of [`create_fixed_tree`].
+fn a_new_fixed_write_works(store: &Store, label: &str) {
+    let mut write = store.write().unwrap();
+    let tree = write.open_fixed_tree("f", FIXED_LEN).unwrap();
+    assert_eq!(write.len(&tree).unwrap(), 40, "{label}");
+    let probe = fixed_value(5);
+    assert!(write.try_add_fixed(&tree, 5, &probe).unwrap(), "{label}");
+    let last = fixed_value(390);
+    assert_eq!(
+        write.get_fixed(&tree, 390).unwrap(),
+        Some(&last[..]),
+        "{label}"
+    );
+    assert!(write.remove_fixed(&tree, 5).unwrap(), "{label}");
+    write.commit().unwrap();
+}
+
+/// The write of the fixed-size T11 sweep (Fixed-size trees PRD: AC-X12), over the tree of [`create_fixed_tree`]: it
+/// adds keys so that leaves split by both paths ([`in_both_orders`]) and the root gains entries, removes most keys so
+/// that leaves merge, overwrites a value, adds one with Añadir, reads and scans from both ends, and removes an
+/// interval that frees whole leaves and merges those at its bounds. It goes on after a failure (T11).
+fn fixed_values(write: &mut WriteTransaction<'_>) -> Vec<Result<()>> {
+    let tree = match write.open_fixed_tree("f", FIXED_LEN) {
+        Ok(tree) => tree,
+        Err(error) => return vec![Err(error)],
+    };
+    let mut results = Vec::new();
+    for i in in_both_orders(40..100) {
+        let key = i as u64 * 10;
+        results.push(write.set_fixed(&tree, key, &fixed_value(key)));
+    }
+    for key in (0..1000).step_by(10).filter(|key| key % 40 != 0) {
+        results.push(write.remove_fixed(&tree, key).map(drop));
+    }
+    results.push(write.set_fixed(&tree, 0, &fixed_value(1)));
+    results.push(write.try_add_fixed(&tree, 5, &fixed_value(5)).map(drop));
+    results.push(write.get_fixed(&tree, 400).map(drop));
+    let scanned = write
+        .range_fixed(&tree, ..)
+        .and_then(|mut scan| scan.try_for_each(|item| item.map(drop)));
+    results.push(scanned);
+    results.push(write.remove_range_fixed(&tree, 200..=700).map(drop));
+    let scanned = write
+        .range_fixed(&tree, ..)
+        .and_then(|scan| scan.rev().try_for_each(|item| item.map(drop)));
+    results.push(scanned);
+    results
+}
+
+/// Checks the tree `f` once the write of [`fixed_values`] committed: what the same write commits on a new store, and
+/// its entries.
+fn fixed_values_committed(store: &Store) {
+    let fresh = Store::open_temporary(&StoreOptions::default()).unwrap();
+    create_fixed_tree(&fresh);
+    let mut write = fresh.write().unwrap();
+    assert!(fixed_values(&mut write).iter().all(Result::is_ok));
+    write.commit().unwrap();
+    assert!(fixed_seen(store) == fixed_seen(&fresh), "the write's tree");
+    let (count, entries) = fixed_seen(store);
+    let keys: Vec<u64> = entries.iter().map(|(key, _)| *key).collect();
+    let want: Vec<u64> = [0, 5, 40, 80, 120, 160, 720, 760, 800, 840, 880, 920, 960].to_vec();
+    assert_eq!((count, keys), (13, want));
+    assert_eq!(entries[0].1, fixed_value(1), "the overwritten value");
+}
+
+/// AC-X12, second part (T11, AC-B18): a failure of disk full, maximum size or memory exhausted at each point where the
+/// write of [`fixed_values`] reads, changes, reserves or frees a page, also in the middle of splits, merges, range
+/// removals and freeing, or where its commit writes the catalog, fails that operation; the commit fails with that
+/// class and applies nothing, and after the abort, or that failed commit, the tree and its number of entries are as
+/// before and a new write works (the rest as in [`t11_sweep`]).
+fn t11_fixed_sweep(step: u64) {
+    let classes = [Class::DiskFull, Class::MaxSize, Class::OutOfMemory];
+    let fixture = Fixture {
+        create: &create_fixed_tree,
+        seen: &fixed_seen,
+        new_write_works: &a_new_fixed_write_works,
+    };
+    t11_sweep_with(
+        step,
+        &fixture,
+        fixed_values,
+        &classes,
+        FIXED_POINTS,
+        fixed_values_committed,
+    );
+}
+
+/// Fewer points than the write of [`fixed_values`] has (777), so that its sweep fails if the write stops reaching the
+/// pages it reaches now.
+const FIXED_POINTS: u64 = 760;
+
+/// AC-X12 at every 13th point of the write of a fixed-size tree.
+#[test]
+fn ac_x12_a_failure_at_a_sample_of_page_operations_of_a_fixed_size_tree_applies_nothing() {
+    t11_fixed_sweep(13);
+}
+
+/// `cargo test -p krummi --lib -- --ignored ac_x12_a_failure_at_every`.
+#[test]
+#[ignore = "acceptance: a failure at every page operation of the write and its commit"]
+fn ac_x12_a_failure_at_every_page_operation_of_a_fixed_size_tree_applies_nothing() {
+    t11_fixed_sweep(1);
 }

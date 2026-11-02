@@ -15,7 +15,7 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use std::ops::RangeBounds;
 use std::path::{Path, PathBuf};
 
-use krummi::{Error, OpenMode, Result, SizeSubject, Store, StoreOptions};
+use krummi::{Error, OpenMode, SizeSubject, Store, StoreOptions};
 use krummi_pager::DATA_FILE;
 use krummi_pager::format::PAGE_SIZE;
 use krummi_tree::catalog;
@@ -1218,37 +1218,6 @@ fn damaged_multi_store<T>(target: impl Fn(&Path) -> (u64, T)) -> (tempfile::Temp
     let (page, found) = target(tmp.path());
     damage(tmp.path(), page);
     (tmp, page, found)
-}
-
-/// Checks a scan that must fail with damage of `page`: the items it returns from one end until then, owned with
-/// `own`, are the next ones of `expected` from that end, and after the failure nothing more comes out of either end
-/// (R8).
-fn scan_fails_at<I, T: PartialEq + std::fmt::Debug>(
-    mut scan: impl DoubleEndedIterator<Item = Result<I>>,
-    expected: &[T],
-    own: impl Fn(I) -> T,
-    front: bool,
-    page: u64,
-) {
-    let mut expected: Box<dyn Iterator<Item = &T>> = if front {
-        Box::new(expected.iter())
-    } else {
-        Box::new(expected.iter().rev())
-    };
-    loop {
-        let step = if front { scan.next() } else { scan.next_back() };
-        match step.expect("the scan fails before it ends") {
-            Ok(item) => assert_eq!(own(item), *expected.next().unwrap(), "front {front}"),
-            Err(error) => {
-                assert_eq!(damaged_page(error), page, "front {front}");
-                assert!(
-                    scan.next().is_none() && scan.next_back().is_none(),
-                    "the scan ends"
-                );
-                return;
-            }
-        }
-    }
 }
 
 /// Checks that the operations of the transaction `$tx` on the values of `$key` that need the damaged `$page` fail with
