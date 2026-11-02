@@ -1,5 +1,5 @@
-//! Fixed-size trees where the public tests cannot see without the engine's test hooks: where the values of Leer and of
-//! the scans point (AC-X14), and a store that refuses writes (the T12 parts of AC-X17 and AC-X20).
+//! Fixed-size trees where the public tests cannot see without the engine's test hooks: where the values of `get_fixed`
+//! and of the scans point (AC-X14), and a store that refuses writes (the T12 parts of AC-X17 and AC-X20).
 
 use std::io;
 use std::thread;
@@ -9,9 +9,9 @@ use krummi_tx::Memory;
 
 use super::*;
 
-/// AC-X14 (X6, X7, AC20, T16): the values that Leer and the scans of a fixed-size tree of length 8 return are read
-/// where the engine keeps them, never a copy: once transferred, `krummi.data` or the memory of a temporary store; and
-/// the same memory comes back on each read. That a reference cannot outlive its transaction is in `tests/ui/trees`.
+/// AC-X14 (X6, X7, AC20, T16): the values that `get_fixed` and the scans of a fixed-size tree of length 8 return are
+/// read where the engine keeps them, never a copy: once transferred, `krummi.data` or the memory of a temporary store;
+/// and the same memory comes back on each read. That a reference cannot outlive its transaction is in `tests/ui/trees`.
 #[test]
 fn ac_x14_reads_and_scans_of_a_fixed_size_tree_return_the_engine_s_memory() {
     let tmp = tempfile::tempdir().unwrap();
@@ -63,8 +63,8 @@ fn ac_x14_reads_and_scans_of_a_fixed_size_tree_return_the_engine_s_memory() {
 
 /// AC-X17 and AC-X20, their parts of a store that refuses writes (T12): once the store refuses writes, opening a
 /// fixed-size tree with a length over 2,048, in every mode, or with a name of 1,025 bytes, and storing a value of
-/// another length, in the open write, still fail with the invalid size, not with the I/O class; Tipo gives every kind
-/// in that write and in a read; and committing the write without changes ends without error.
+/// another length, in the open write, still fail with the invalid size, not with the I/O class; `tree_kind` gives every
+/// kind in that write and in a read; and committing the write without changes ends without error.
 #[test]
 fn ac_x17_ac_x20_validation_and_tipo_in_a_store_that_refuses_writes() {
     let tmp = tempfile::tempdir().unwrap();

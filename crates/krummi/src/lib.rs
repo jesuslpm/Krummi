@@ -472,7 +472,8 @@ impl<'s> ReadTransaction<'s> {
     /// The kind of the tree named `name` in the snapshot, with its length when it is a fixed-size tree, as
     /// [`list_trees`](Self::list_trees) reports it, or `None` if there is no such tree (X15). Like
     /// [`tree_exists`](Self::tree_exists), it fails with [`ErrorKind::InvalidSize`] if the name is empty or longer
-    /// than 1,024 bytes, and then only when reading the catalog fails; it reads nothing of the tree itself.
+    /// than 1,024 bytes; otherwise it fails only when reading the catalog fails, and it reads nothing of the tree
+    /// itself.
     pub fn tree_kind(&self, name: &str) -> Result<Option<TreeKind>> {
         self.folder.check_name(name)?;
         Ok(catalog::lookup(&self.inner, name)?.map(|entry| entry.kind))
