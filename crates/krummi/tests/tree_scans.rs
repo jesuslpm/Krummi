@@ -1230,8 +1230,8 @@ fn ac_r7_scans_keep_their_snapshot_while_a_write_changes_the_tree() {
 
 /// AC-V12 (V9, AC-B12; it replaces AC-R14 of 5.2): the store of format `6` kept as test data, created and filled
 /// with the 5.1 version in `tests/data/store-5.1`, is refused with the different-format class as a previous format
-/// and is left byte-identical, with nothing added to its folder; a new store reports the current format, `8` since the
-/// multi-value trees (M14 of the multi-value trees PRD, which also checks the store of format `7` in AC-M18).
+/// and is left byte-identical, with nothing added to its folder; a new store reports the current format, `9` since the
+/// fixed-size trees (X12 of the fixed-size trees PRD, which also checks the stores of formats `7` and `8` in AC-X16).
 #[test]
 fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_the_current_one() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1243,7 +1243,7 @@ fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_the_cur
     match Store::open(tmp.path(), &krummi::StoreOptions::default()).err() {
         Some(krummi::Error::DifferentFormat {
             found, expected, ..
-        }) => assert_eq!((found, expected), (6, 8)),
+        }) => assert_eq!((found, expected), (6, 9)),
         other => panic!("expected a previous format, got {other:?}"),
     }
     assert_eq!(std::fs::read(&data).unwrap(), before);
@@ -1254,6 +1254,6 @@ fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_the_cur
     assert_eq!(entries, vec![krummi_pager::DATA_FILE]);
     let new = tempfile::tempdir().unwrap();
     let store = open(new.path());
-    assert_eq!(store.info().format_version, 8);
+    assert_eq!(store.info().format_version, 9);
     store.close().unwrap();
 }

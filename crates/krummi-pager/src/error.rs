@@ -58,6 +58,9 @@ pub enum TreeKind {
     Normal,
     /// A tree of unique keys, each with an ordered set of distinct values (5.4).
     MultiValue,
+    /// A tree whose keys are unsigned 64-bit integers in numeric order and whose values all have this number of
+    /// bytes, 0 to 2,048, fixed when it is created (5.5): two lengths are two kinds (X3 of the fixed-size trees PRD).
+    FixedSize(u16),
 }
 
 /// What an [`Error::InvalidSize`] is about.
@@ -356,10 +359,11 @@ impl fmt::Display for Error {
 
 impl fmt::Display for TreeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            TreeKind::Normal => "normal",
-            TreeKind::MultiValue => "multi-value",
-        })
+        match self {
+            TreeKind::Normal => f.write_str("normal"),
+            TreeKind::MultiValue => f.write_str("multi-value"),
+            TreeKind::FixedSize(len) => write!(f, "fixed-size of {len} bytes"),
+        }
     }
 }
 

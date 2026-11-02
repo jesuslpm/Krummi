@@ -1,5 +1,5 @@
-//! Helpers shared by the tree tests: stores on disk and temporary, error matchers, file comparison, page damage and
-//! the model of a multi-value tree.
+//! Helpers shared by the tree tests: stores on disk and temporary, error matchers, file comparison, page damage,
+//! scans, and the models of a multi-value tree and of a fixed-size tree.
 
 #![allow(dead_code)]
 
@@ -9,16 +9,24 @@ use std::path::{Path, PathBuf};
 
 use krummi_pager::DATA_FILE;
 use krummi_pager::format::PAGE_SIZE;
-use krummi_tree::catalog;
+use krummi_tree::{catalog, fixed};
 use krummi_tx::{Engine, OpenOptions as EngineOptions};
 
 use krummi::{
-    Error, OpenMode, SizeSubject, Store, StoreOptions, TreeKind, WriteMultiTree, WriteTransaction,
-    WriteTree,
+    Error, OpenMode, Result, SizeSubject, Store, StoreOptions, TreeKind, WriteFixedTree,
+    WriteMultiTree, WriteTransaction, WriteTree,
 };
 
 pub const NORMAL: TreeKind = TreeKind::Normal;
 pub const MULTI: TreeKind = TreeKind::MultiValue;
+
+/// The modes of A1 besides Open.
+pub const MODES: [OpenMode; 4] = [
+    OpenMode::CreateNew,
+    OpenMode::OpenOrCreate,
+    OpenMode::CreateOrEmpty,
+    OpenMode::Empty,
+];
 // The size limits are written out on purpose instead of taken from the engine: they pin the PRDs' limits (B4, B5,
 // V1 of the large values PRD, which replaced A11), so a change in the engine's constants fails these tests.
 pub const MAX_NAME: usize = 1024;
@@ -75,6 +83,125 @@ pub fn set_of(values: &[&[u8]]) -> BTreeSet<Vec<u8>> {
 /// A value of 16 bytes, the decimal digits of `i`, so that values sort by `i`.
 pub fn value16(i: usize) -> Vec<u8> {
     format!("{i:016}").into_bytes()
+}
+
+/// What a fixed-size tree holds: each key with its value, in numeric order of the keys (X5).
+pub type FixedModel = BTreeMap<u64, Vec<u8>>;
+
+/// The fixed-size tree `name` created with values of `len` bytes.
+pub fn create_fixed<'s>(
+    write: &mut WriteTransaction<'s>,
+    name: &str,
+    len: usize,
+) -> WriteFixedTree<'s> {
+    write
+        .open_fixed_tree_with(name, len, OpenMode::CreateNew)
+        .unwrap()
+}
+
+/// Commits the fixed-size tree `name` of values of `len` bytes, created if missing, with the entries of `model`.
+pub fn commit_fixed(store: &Store, name: &str, len: usize, model: &FixedModel) {
+    let mut write = store.write().unwrap();
+    let tree = write
+        .open_fixed_tree_with(name, len, OpenMode::OpenOrCreate)
+        .unwrap();
+    for (key, value) in model {
+        write.set_fixed(&tree, *key, value).unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// A value of `len` bytes for `key`, which counts up from the low byte of the key, so that close keys get different
+/// values.
+pub fn fixed_value(key: u64, len: usize) -> Vec<u8> {
+    (0..len)
+        .map(|i| (key as u8).wrapping_add(i as u8))
+        .collect()
+}
+
+/// The entries of `keys` with their [`fixed_value`] of `len` bytes.
+pub fn fixed_model(keys: impl IntoIterator<Item = u64>, len: usize) -> FixedModel {
+    keys.into_iter()
+        .map(|key| (key, fixed_value(key, len)))
+        .collect()
+}
+
+/// Collects a scan, owning each item with `own`.
+pub fn collect<T, U>(scan: impl Iterator<Item = Result<T>>, own: impl Fn(T) -> U) -> Vec<U> {
+    scan.map(|item| item.map(&own))
+        .collect::<Result<_>>()
+        .unwrap()
+}
+
+/// Collects a scan taking one item from the front and one from the back in turn.
+pub fn alternate<T, U>(
+    mut scan: impl DoubleEndedIterator<Item = Result<T>>,
+    own: impl Fn(T) -> U,
+) -> Vec<U> {
+    let (mut front, mut back) = (Vec::new(), Vec::new());
+    loop {
+        match scan.next() {
+            Some(item) => front.push(own(item.unwrap())),
+            None => break,
+        }
+        match scan.next_back() {
+            Some(item) => back.push(own(item.unwrap())),
+            None => break,
+        }
+    }
+    front.extend(back.into_iter().rev());
+    front
+}
+
+pub fn reversed<T>(mut items: Vec<T>) -> Vec<T> {
+    items.reverse();
+    items
+}
+
+/// A linear congruential generator, so that the random orders are the same on every run.
+pub struct Lcg(pub u64);
+
+impl Lcg {
+    /// The next number, of 31 bits.
+    pub fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0 >> 33
+    }
+
+    /// The next number, of 64 bits.
+    pub fn next_u64(&mut self) -> u64 {
+        (self.next() << 33) ^ (self.next() << 2) ^ self.next()
+    }
+
+    pub fn shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (1..items.len()).rev() {
+            let j = (self.next() % (i as u64 + 1)) as usize;
+            items.swap(i, j);
+        }
+    }
+}
+
+/// The pages in use: the pages of the store minus its free pages, as its information gives them.
+pub fn in_use(store: &Store) -> u64 {
+    let info = store.info();
+    info.page_count - info.free_pages
+}
+
+/// A store of the same kind as the one of `folder`: on disk in a new folder, or temporary.
+pub fn store_like(folder: Option<&Path>) -> (Store, Option<tempfile::TempDir>) {
+    match folder {
+        Some(_) => {
+            let tmp = tempfile::tempdir().unwrap();
+            (open(tmp.path()), Some(tmp))
+        }
+        None => (
+            Store::open_temporary(&StoreOptions::default()).unwrap(),
+            None,
+        ),
+    }
 }
 
 /// No entries, for [`commit_tree`].
@@ -145,6 +272,23 @@ pub fn invalid_size(error: Error, folder: Option<&Path>) -> (SizeSubject, u64, u
             (what, received, min, max)
         }
         other => panic!("expected invalid size, got {other}"),
+    }
+}
+
+/// The fields of a different-tree-type error, after checking its folder.
+#[track_caller]
+pub fn different(error: Error, folder: Option<&Path>) -> (String, TreeKind, TreeKind) {
+    match error {
+        Error::DifferentTreeType {
+            folder: f,
+            name,
+            found,
+            requested,
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (name, found, requested)
+        }
+        other => panic!("expected a different tree type, got {other}"),
     }
 }
 
@@ -241,6 +385,23 @@ pub fn height(folder: &Path, tree: &str) -> u8 {
     inspect(folder, |read| {
         let root = catalog::lookup(read, tree).unwrap().unwrap().root;
         krummi_tree::height(read, root).unwrap()
+    })
+}
+
+/// The page of the leaf where `key` is or would be in the fixed-size tree `tree`, of values of `len` bytes, of the
+/// closed store.
+pub fn fixed_leaf_page(folder: &Path, tree: &str, len: usize, key: u64) -> u64 {
+    inspect(folder, |read| {
+        let root = catalog::lookup(read, tree).unwrap().unwrap().root;
+        fixed::leaf_of(read, root, len, key).unwrap()
+    })
+}
+
+/// The number of levels of the fixed-size tree `tree`, of values of `len` bytes, of the closed store.
+pub fn fixed_height(folder: &Path, tree: &str, len: usize) -> u8 {
+    inspect(folder, |read| {
+        let root = catalog::lookup(read, tree).unwrap().unwrap().root;
+        fixed::height(read, root, len).unwrap()
     })
 }
 

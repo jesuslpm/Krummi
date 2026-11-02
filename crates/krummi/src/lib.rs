@@ -17,6 +17,11 @@
 //! values of a key, and removes keys, values and intervals of either. Each kind has its own handle, which takes only
 //! the operations of its kind.
 //!
+//! A fixed-size tree, also opened with its own opening and the length of its values, keeps for each key, an unsigned
+//! 64-bit integer in numeric order, one value of that length, 0 to 2,048 bytes, fixed when the tree is created: an
+//! application stores, adds, reads and removes entries, scans the tree between two integer bounds from both ends and
+//! removes intervals. [`ReadTransaction::tree_kind`] gives the kind of a tree by its name, with that length.
+//!
 //! ```
 //! use krummi::{OpenMode, Store, StoreOptions};
 //!
@@ -27,6 +32,8 @@
 //! write.set(&tree, b"key", b"value")?;
 //! let index = write.open_multi_tree_with("by-color", OpenMode::OpenOrCreate)?;
 //! write.add(&index, b"red", b"key")?;
+//! let counters = write.open_fixed_tree_with("counters", 8, OpenMode::OpenOrCreate)?;
+//! write.set_fixed(&counters, 7, &42u64.to_le_bytes())?;
 //! write.commit()?;               // visible to reads opened from now on
 //! assert!(!read.tree_exists("orders")?);
 //! drop(read);
@@ -35,6 +42,8 @@
 //! assert_eq!(read.get(&tree, b"key")?, Some(&b"value"[..]));
 //! let index = read.open_multi_tree("by-color")?;
 //! assert!(read.contains(&index, b"red", b"key")?);
+//! let counters = read.open_fixed_tree("counters", 8)?;
+//! assert_eq!(read.get_fixed(&counters, 7)?, Some(&42u64.to_le_bytes()[..]));
 //! drop(read);
 //! store.close()?;
 //! # Ok::<(), krummi::Error>(())
@@ -49,6 +58,7 @@ use std::time::Duration;
 
 pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result, SizeSubject, TreeKind};
 use krummi_tree::catalog::{self, Entry};
+use krummi_tree::fixed::{self, FixedRange};
 use krummi_tree::{Interval, PageSource, RangeUpdate, multi};
 
 use sealed::{AsReadTree, AsWriteTree, Token};
@@ -60,6 +70,8 @@ const MAX_MULTI_VALUE: usize = krummi_tree::MAX_KEY;
 
 #[cfg(test)]
 mod check_tests;
+#[cfg(test)]
+mod fixed_tests;
 #[cfg(test)]
 mod multi_tests;
 #[cfg(test)]
@@ -172,9 +184,11 @@ pub struct WriteTransaction<'s> {
     trees: RefCell<Trees>,
 }
 
-/// How [`WriteTransaction::open_tree_with`] and [`WriteTransaction::open_multi_tree_with`] open a tree;
-/// [`WriteTransaction::open_tree`] and [`WriteTransaction::open_multi_tree`] only open. Opening an existing tree of
-/// another kind fails with [`ErrorKind::DifferentTreeType`] in every mode.
+/// How [`WriteTransaction::open_tree_with`], [`WriteTransaction::open_multi_tree_with`] and
+/// [`WriteTransaction::open_fixed_tree_with`] open a tree; [`WriteTransaction::open_tree`],
+/// [`WriteTransaction::open_multi_tree`] and [`WriteTransaction::open_fixed_tree`] only open. Opening an existing tree
+/// of another kind, or a fixed-size tree with another length, fails with [`ErrorKind::DifferentTreeType`] in every
+/// mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpenMode {
     /// Creates an empty tree; fails with [`ErrorKind::TreeAlreadyExists`] if it exists.
@@ -216,6 +230,16 @@ pub struct ReadValues<'t>(multi::Values<'t, krummi_tx::ReadTransaction<'t>>);
 /// modify it.
 pub struct WriteValues<'t>(multi::Values<'t, krummi_tx::WriteTransaction<'t>>);
 
+/// A scan of a fixed-size tree in a read transaction, from [`ReadTransaction::range_fixed`]: a double-ended iterator
+/// of keys with their values, in numeric order of the keys. It can be sent to another thread, like its transaction.
+/// After a failure it returns nothing more from either end.
+pub struct ReadFixedRange<'t>(FixedRange<'t, krummi_tx::ReadTransaction<'t>>);
+
+/// A scan of a fixed-size tree in a write transaction, from [`WriteTransaction::range_fixed`], like
+/// [`ReadFixedRange`]. It stays on its transaction's thread and ends at the transaction's next operation that may
+/// modify it.
+pub struct WriteFixedRange<'t>(FixedRange<'t, krummi_tx::WriteTransaction<'t>>);
+
 macro_rules! scan_iterator {
     ($scan:ident<$t:lifetime>, $item:ty) => {
         impl<$t> Iterator for $scan<$t> {
@@ -242,6 +266,8 @@ scan_iterator!(ReadKeys<'t>, (&'t [u8], u64));
 scan_iterator!(WriteKeys<'t>, (&'t [u8], u64));
 scan_iterator!(ReadValues<'t>, &'t [u8]);
 scan_iterator!(WriteValues<'t>, &'t [u8]);
+scan_iterator!(ReadFixedRange<'t>, (u64, &'t [u8]));
+scan_iterator!(WriteFixedRange<'t>, (u64, &'t [u8]));
 
 /// A tree opened in a read transaction: it sees the transaction's snapshot. It can be sent to other threads and
 /// shared between them, like the transaction, and cannot outlive its store. Using it in another transaction
@@ -276,10 +302,29 @@ pub struct ReadMultiTree<'s>(ReadTree<'s>);
 /// deleted. It takes only the operations of multi-value trees.
 pub struct WriteMultiTree<'s>(WriteTree<'s>);
 
-/// The handles of both kinds of tree share one mechanism: a multi-value handle wraps the normal one. The traits
-/// cannot be named outside this crate, and their method takes a [`Token`](sealed::Token) that only this crate can
-/// build, so a public bound such as [`WriteHandle`] gives an application no way to reach the normal tree inside a
-/// multi-value handle (M4).
+/// A fixed-size tree opened in a read transaction, with the rules of [`ReadTree`]: it sees the transaction's snapshot,
+/// can be sent to other threads and shared between them, cannot outlive its store, and fails with
+/// [`ErrorKind::Misuse`] without effect in another transaction. It takes only the operations of fixed-size trees, and
+/// knows the length of the tree's values.
+pub struct ReadFixedTree<'s> {
+    tree: ReadTree<'s>,
+    len: usize,
+}
+
+/// A fixed-size tree opened in a write transaction, with the rules of [`WriteTree`]: every handle of the tree in that
+/// transaction sees the same state, it stays on its thread, cannot outlive its store, fails with
+/// [`ErrorKind::Misuse`] without effect in another transaction, and with [`ErrorKind::TreeNotFound`] once its tree was
+/// deleted. It takes only the operations of fixed-size trees, and knows the length of the tree's values, which
+/// emptying and renaming the tree keep (X1).
+pub struct WriteFixedTree<'s> {
+    tree: WriteTree<'s>,
+    len: usize,
+}
+
+/// The handles of every kind of tree share one mechanism: a multi-value or fixed-size handle wraps the normal one. The
+/// traits cannot be named outside this crate, and their method takes a [`Token`](sealed::Token) that only this crate
+/// can build, so a public bound such as [`WriteHandle`] gives an application no way to reach the normal tree inside
+/// another kind's handle (M4, X4).
 mod sealed {
     /// Proof that the caller is this crate.
     pub struct Token(pub(crate) ());
@@ -293,12 +338,13 @@ mod sealed {
     }
 }
 
-/// A tree handle of a read transaction of either kind, [`ReadTree`] or [`ReadMultiTree`], for the operations that
-/// both kinds have, such as [`ReadTransaction::len`]. It cannot be implemented outside this crate.
+/// A tree handle of a read transaction of any kind, [`ReadTree`], [`ReadMultiTree`] or [`ReadFixedTree`], for the
+/// operations that every kind has, such as [`ReadTransaction::len`]. It cannot be implemented outside this crate.
 pub trait ReadHandle: AsReadTree {}
 
-/// A tree handle of a write transaction of either kind, [`WriteTree`] or [`WriteMultiTree`], for the operations
-/// that both kinds have, such as [`WriteTransaction::len`]. It cannot be implemented outside this crate.
+/// A tree handle of a write transaction of any kind, [`WriteTree`], [`WriteMultiTree`] or [`WriteFixedTree`], for
+/// the operations that every kind has, such as [`WriteTransaction::len`]. It cannot be implemented outside this
+/// crate.
 pub trait WriteHandle: AsWriteTree {}
 
 impl AsReadTree for ReadTree<'_> {
@@ -325,10 +371,24 @@ impl AsWriteTree for WriteMultiTree<'_> {
     }
 }
 
+impl AsReadTree for ReadFixedTree<'_> {
+    fn as_tree(&self, _: Token) -> &ReadTree<'_> {
+        &self.tree
+    }
+}
+
+impl AsWriteTree for WriteFixedTree<'_> {
+    fn as_tree(&self, _: Token) -> &WriteTree<'_> {
+        &self.tree
+    }
+}
+
 impl ReadHandle for ReadTree<'_> {}
 impl ReadHandle for ReadMultiTree<'_> {}
+impl ReadHandle for ReadFixedTree<'_> {}
 impl WriteHandle for WriteTree<'_> {}
 impl WriteHandle for WriteMultiTree<'_> {}
+impl WriteHandle for WriteFixedTree<'_> {}
 
 /// The trees a write transaction opened, sorted by identity. Growing it is a reservation that can fail with
 /// [`ErrorKind::OutOfMemory`] instead of aborting the process (P13).
@@ -366,16 +426,29 @@ struct TreeState {
 
 impl<'s> ReadTransaction<'s> {
     /// Opens the normal tree `name`. Fails with [`ErrorKind::InvalidSize`] if the name is empty or longer than 1,024
-    /// bytes, with [`ErrorKind::DifferentTreeType`] if it is a multi-value tree, and with
+    /// bytes, with [`ErrorKind::DifferentTreeType`] if it is a tree of another kind, and with
     /// [`ErrorKind::TreeNotFound`] if the snapshot does not have it. It reads only the catalog.
     pub fn open_tree(&self, name: &str) -> Result<ReadTree<'s>> {
         self.open(name, TreeKind::Normal)
     }
 
     /// Opens the multi-value tree `name`, with the failures of [`open_tree`](Self::open_tree); it fails with
-    /// [`ErrorKind::DifferentTreeType`] if it is a normal tree.
+    /// [`ErrorKind::DifferentTreeType`] if it is a tree of another kind.
     pub fn open_multi_tree(&self, name: &str) -> Result<ReadMultiTree<'s>> {
         self.open(name, TreeKind::MultiValue).map(ReadMultiTree)
+    }
+
+    /// Opens the fixed-size tree `name` whose values have `value_len` bytes, with the failures of
+    /// [`open_tree`](Self::open_tree); it fails with [`ErrorKind::DifferentTreeType`] if it is a tree of another kind
+    /// or a fixed-size tree of another length. A `value_len` over 2,048 fails with [`ErrorKind::InvalidSize`] of a
+    /// value, after checking the name and without reading the store (X2).
+    pub fn open_fixed_tree(&self, name: &str, value_len: usize) -> Result<ReadFixedTree<'s>> {
+        let kind = self.folder.fixed_kind(name, value_len)?;
+        let tree = self.open(name, kind)?;
+        Ok(ReadFixedTree {
+            tree,
+            len: value_len,
+        })
     }
 
     fn open(&self, name: &str, kind: TreeKind) -> Result<ReadTree<'s>> {
@@ -394,6 +467,15 @@ impl<'s> ReadTransaction<'s> {
     pub fn tree_exists(&self, name: &str) -> Result<bool> {
         self.folder.check_name(name)?;
         Ok(catalog::lookup(&self.inner, name)?.is_some())
+    }
+
+    /// The kind of the tree named `name` in the snapshot, with its length when it is a fixed-size tree, as
+    /// [`list_trees`](Self::list_trees) reports it, or `None` if there is no such tree (X15). Like
+    /// [`tree_exists`](Self::tree_exists), it fails with [`ErrorKind::InvalidSize`] if the name is empty or longer
+    /// than 1,024 bytes, and then only when reading the catalog fails; it reads nothing of the tree itself.
+    pub fn tree_kind(&self, name: &str) -> Result<Option<TreeKind>> {
+        self.folder.check_name(name)?;
+        Ok(catalog::lookup(&self.inner, name)?.map(|entry| entry.kind))
     }
 
     /// The name and kind of every tree in the snapshot, in byte order of the names. The list is a copy: running
@@ -536,6 +618,36 @@ impl<'s> ReadTransaction<'s> {
         multi::subtree_of(&self.inner, tree.0.root, key)
     }
 
+    /// The value of `key` in the fixed-size `tree`, or `None` if the key is not there; in a tree of length `0`, an
+    /// empty value. Every key is valid (X5). The reference points into the engine's memory, not to a copy, and lives
+    /// as long as the transaction.
+    pub fn get_fixed(&self, tree: &ReadFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+        self.check_handle(&tree.tree)?;
+        fixed::get(&self.inner, tree.tree.root, tree.len, key)
+    }
+
+    /// A scan of the entries of the fixed-size `tree` whose keys are within `bounds`, in numeric order from its front
+    /// end ([`Iterator::next`]) and in reverse order from its back end ([`DoubleEndedIterator::next_back`]); each
+    /// entry comes out once. A bound need not be a key of the tree, and no bound is invalid. Bounds that leave no
+    /// integer between them, such as a lower bound after the upper one or an excluded lower bound `u64::MAX`, give an
+    /// empty scan that reads nothing (X7). The values point into the engine's memory, not to copies, and live as long
+    /// as the transaction.
+    pub fn range_fixed(
+        &self,
+        tree: &ReadFixedTree<'_>,
+        bounds: impl RangeBounds<u64>,
+    ) -> Result<ReadFixedRange<'_>> {
+        self.check_handle(&tree.tree)?;
+        let (lower, upper) = integer_bounds(&bounds);
+        Ok(ReadFixedRange(FixedRange::new(
+            &self.inner,
+            tree.tree.root,
+            tree.len,
+            lower,
+            upper,
+        )))
+    }
+
     fn check_handle(&self, tree: &ReadTree<'_>) -> Result<()> {
         if tree.serial == self.serial {
             Ok(())
@@ -554,7 +666,7 @@ impl<'s> ReadTransaction<'s> {
 /// transaction, have no effect and do not prevent the commit; any other failure does (T11).
 impl<'s> WriteTransaction<'s> {
     /// Opens the normal tree `name`. Fails with [`ErrorKind::InvalidSize`] if the name is empty or longer than 1,024
-    /// bytes, with [`ErrorKind::DifferentTreeType`] if it is a multi-value tree, and with
+    /// bytes, with [`ErrorKind::DifferentTreeType`] if it is a tree of another kind, and with
     /// [`ErrorKind::TreeNotFound`] if it does not exist. It reads only the catalog.
     pub fn open_tree(&self, name: &str) -> Result<WriteTree<'s>> {
         self.open(name, TreeKind::Normal)
@@ -568,7 +680,7 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// Opens the multi-value tree `name`, with the failures of [`open_tree`](Self::open_tree); it fails with
-    /// [`ErrorKind::DifferentTreeType`] if it is a normal tree.
+    /// [`ErrorKind::DifferentTreeType`] if it is a tree of another kind.
     pub fn open_multi_tree(&self, name: &str) -> Result<WriteMultiTree<'s>> {
         self.open(name, TreeKind::MultiValue).map(WriteMultiTree)
     }
@@ -583,6 +695,36 @@ impl<'s> WriteTransaction<'s> {
     ) -> Result<WriteMultiTree<'s>> {
         self.open_with(name, TreeKind::MultiValue, mode)
             .map(WriteMultiTree)
+    }
+
+    /// Opens the fixed-size tree `name` whose values have `value_len` bytes, with the failures of
+    /// [`ReadTransaction::open_fixed_tree`]: a `value_len` over 2,048 fails with [`ErrorKind::InvalidSize`] of a
+    /// value, after checking the name and without reading the store (X2).
+    pub fn open_fixed_tree(&self, name: &str, value_len: usize) -> Result<WriteFixedTree<'s>> {
+        let kind = self.folder.fixed_kind(name, value_len)?;
+        let tree = self.open(name, kind)?;
+        Ok(WriteFixedTree {
+            tree,
+            len: value_len,
+        })
+    }
+
+    /// Opens the fixed-size tree `name` whose values have `value_len` bytes in `mode`, with the failures of
+    /// [`open_fixed_tree`](Self::open_fixed_tree) except that the creating modes create a missing tree with that
+    /// length, which it keeps while it exists (X1). Emptying a tree frees its pages; it keeps its handles, which see
+    /// it empty.
+    pub fn open_fixed_tree_with(
+        &mut self,
+        name: &str,
+        value_len: usize,
+        mode: OpenMode,
+    ) -> Result<WriteFixedTree<'s>> {
+        let kind = self.folder.fixed_kind(name, value_len)?;
+        let tree = self.open_with(name, kind, mode)?;
+        Ok(WriteFixedTree {
+            tree,
+            len: value_len,
+        })
     }
 
     fn open(&self, name: &str, kind: TreeKind) -> Result<WriteTree<'s>> {
@@ -608,6 +750,14 @@ impl<'s> WriteTransaction<'s> {
     pub fn tree_exists(&self, name: &str) -> Result<bool> {
         self.folder.check_name(name)?;
         Ok(catalog::lookup(&self.inner, name)?.is_some())
+    }
+
+    /// The kind of the tree named `name` that this transaction sees, with its own changes, as
+    /// [`ReadTransaction::tree_kind`] describes: after a rename the new name has it, and a tree deleted and created
+    /// again gives its new kind.
+    pub fn tree_kind(&self, name: &str) -> Result<Option<TreeKind>> {
+        self.folder.check_name(name)?;
+        Ok(catalog::lookup(&self.inner, name)?.map(|entry| entry.kind))
     }
 
     /// The name and kind of every tree this transaction sees, with its own changes, in byte order of the names.
@@ -846,6 +996,83 @@ impl<'s> WriteTransaction<'s> {
         multi::subtree_of(&self.inner, root, key)
     }
 
+    /// The value of `key` in the fixed-size `tree`, with this transaction's changes, or `None` if the key is not
+    /// there, as [`ReadTransaction::get_fixed`] describes. The reference points into the engine's memory, not to a
+    /// copy, and lives until the next operation that may modify the transaction.
+    pub fn get_fixed(&self, tree: &WriteFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+        let (root, _) = self.live(&tree.tree)?;
+        fixed::get(&self.inner, root, tree.len, key)
+    }
+
+    /// A scan of the fixed-size `tree` within `bounds`, with this transaction's changes, as
+    /// [`ReadTransaction::range_fixed`] describes. It and the values it returns live until the next operation that may
+    /// modify the transaction. A failure while scanning is the transaction's (T11).
+    pub fn range_fixed(
+        &self,
+        tree: &WriteFixedTree<'_>,
+        bounds: impl RangeBounds<u64>,
+    ) -> Result<WriteFixedRange<'_>> {
+        let (root, _) = self.live(&tree.tree)?;
+        let (lower, upper) = integer_bounds(&bounds);
+        Ok(WriteFixedRange(FixedRange::new(
+            &self.inner,
+            root,
+            tree.len,
+            lower,
+            upper,
+        )))
+    }
+
+    /// Stores `value` under `key` in the fixed-size `tree`, replacing the value if the key is there; storing the value
+    /// the key already has is still a change (X8). Fails with [`ErrorKind::InvalidSize`] of a value, with the tree's
+    /// length as minimum and maximum, if `value` does not have that length, before checking the handle (X1, X11).
+    pub fn set_fixed(&mut self, tree: &WriteFixedTree<'_>, key: u64, value: &[u8]) -> Result<()> {
+        self.folder.check_fixed_value(value, tree.len)?;
+        let (root, _) = self.live(&tree.tree)?;
+        let update = fixed::set(&mut self.inner, root, tree.len, key, value)?;
+        self.apply(&tree.tree, update.root, update.count_changed, true);
+        Ok(())
+    }
+
+    /// Stores `value` under `key` in the fixed-size `tree` only if the key is not there, and returns whether it did.
+    /// The value's length is checked first, as [`set_fixed`](Self::set_fixed) does, also when the key is there.
+    pub fn try_add_fixed(
+        &mut self,
+        tree: &WriteFixedTree<'_>,
+        key: u64,
+        value: &[u8],
+    ) -> Result<bool> {
+        self.folder.check_fixed_value(value, tree.len)?;
+        let (root, _) = self.live(&tree.tree)?;
+        let update = fixed::try_add(&mut self.inner, root, tree.len, key, value)?;
+        self.apply(&tree.tree, update.root, update.count_changed, true);
+        Ok(update.count_changed)
+    }
+
+    /// Removes `key` from the fixed-size `tree`, and returns whether it was there.
+    pub fn remove_fixed(&mut self, tree: &WriteFixedTree<'_>, key: u64) -> Result<bool> {
+        let (root, _) = self.live(&tree.tree)?;
+        let update = fixed::remove(&mut self.inner, root, tree.len, key)?;
+        self.apply(&tree.tree, update.root, update.count_changed, false);
+        Ok(update.count_changed)
+    }
+
+    /// Removes from the fixed-size `tree` every entry whose key is within `bounds`, and returns how many it removed.
+    /// The bounds follow [`ReadTransaction::range_fixed`]: bounds that leave no integer between them remove nothing and
+    /// read nothing. The tree keeps its identity and its handles, which see the entries gone; the pages it no longer
+    /// uses are freed.
+    pub fn remove_range_fixed(
+        &mut self,
+        tree: &WriteFixedTree<'_>,
+        bounds: impl RangeBounds<u64>,
+    ) -> Result<u64> {
+        let (root, _) = self.live(&tree.tree)?;
+        let (lower, upper) = integer_bounds(&bounds);
+        let update = fixed::remove_range(&mut self.inner, root, tree.len, lower, upper)?;
+        self.apply_removed(&tree.tree, update);
+        Ok(update.removed)
+    }
+
     /// Adds `value` to the values of `key` in the multi-value `tree`, creating the key if it is not there, and
     /// returns whether it added it; a value that is already there changes nothing. Fails with
     /// [`ErrorKind::InvalidSize`] if the key is empty or longer than 2,048 bytes, or the value is longer than 2,048
@@ -1036,17 +1263,25 @@ impl<'s> WriteTransaction<'s> {
 
     /// Frees every page of the tree of `entry`, with the subtrees of the keys of a multi-value tree (D6).
     fn free(&mut self, entry: &Entry) -> Result<()> {
-        if entry.kind == TreeKind::MultiValue {
-            multi::free_tree(&mut self.inner, entry.root)
-        } else {
-            krummi_tree::free_all(&mut self.inner, entry.root)
+        match entry.kind {
+            TreeKind::MultiValue => multi::free_tree(&mut self.inner, entry.root),
+            TreeKind::FixedSize(len) => fixed::free_all(&mut self.inner, entry.root, len.into()),
+            _ => krummi_tree::free_all(&mut self.inner, entry.root),
+        }
+    }
+
+    /// The root page of a new empty tree of `kind`: a fixed-size tree has nodes of its own (D1).
+    fn new_root(&mut self, kind: TreeKind) -> Result<u64> {
+        match kind {
+            TreeKind::FixedSize(len) => fixed::create(&mut self.inner, len.into()),
+            _ => krummi_tree::create(&mut self.inner),
         }
     }
 
     /// Creates the empty tree `name` with a new identity (A8).
     fn create(&mut self, name: &str, kind: TreeKind) -> Result<Entry> {
         let id = catalog::new_identity(&mut self.inner)?;
-        let root = krummi_tree::create(&mut self.inner)?;
+        let root = self.new_root(kind)?;
         let entry = Entry {
             id,
             kind,
@@ -1061,7 +1296,7 @@ impl<'s> WriteTransaction<'s> {
     fn empty(&mut self, name: &str, entry: Entry) -> Result<Entry> {
         let entry = self.current(entry);
         self.free(&entry)?;
-        let root = krummi_tree::create(&mut self.inner)?;
+        let root = self.new_root(entry.kind)?;
         let emptied = Entry {
             root,
             count: 0,
@@ -1203,6 +1438,22 @@ impl Folder<'_> {
         self.check_size(SizeSubject::Value, value.len(), 0, MAX_MULTI_VALUE)
     }
 
+    /// The kind of a fixed-size tree whose values have `value_len` bytes, after checking the name and then that
+    /// length, of up to 2,048 bytes, which fails as a value would (X2, X11). The openings check the name again; it
+    /// is the same check, so the name's size always wins.
+    fn fixed_kind(self, name: &str, value_len: usize) -> Result<TreeKind> {
+        self.check_name(name)?;
+        self.check_size(SizeSubject::Value, value_len, 0, fixed::MAX_LEN)?;
+        Ok(TreeKind::FixedSize(
+            u16::try_from(value_len).expect("checked above"),
+        ))
+    }
+
+    /// A value of a fixed-size tree whose values have `len` bytes: exactly that length (X1).
+    fn check_fixed_value(self, value: &[u8], len: usize) -> Result<()> {
+        self.check_size(SizeSubject::Value, value.len(), len, len)
+    }
+
     /// The interval of keys of `bounds` and `prefix`, after checking their sizes in the order lower bound, upper
     /// bound, prefix (R5).
     fn interval<'a>(
@@ -1268,6 +1519,11 @@ impl Folder<'_> {
             reason: "the tree was opened in another transaction",
         }
     }
+}
+
+/// The two bounds of `bounds`, by value: every integer is a valid bound (X5).
+fn integer_bounds(bounds: &impl RangeBounds<u64>) -> (Bound<u64>, Bound<u64>) {
+    (bounds.start_bound().cloned(), bounds.end_bound().cloned())
 }
 
 fn engine_options(options: &StoreOptions) -> krummi_tx::OpenOptions {

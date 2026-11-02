@@ -8,17 +8,20 @@ Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.en.
 **transactions** ([PRD](docs/prd/krummi/transactions.prd.en.md)), and module 3, the **journal and recovery**
 ([PRD](docs/prd/krummi/journal.prd.en.md)), with grouped and direct journal writes
 ([PRD](docs/prd/krummi/journal-group-commit.prd.en.md)), module 4, **free space**
-([PRD](docs/prd/krummi/free-space.prd.en.md)), and the first four parts of module 5, **trees and key operations**,
-**in-order scan and prefix search**, **large values** and **multi-value trees**
+([PRD](docs/prd/krummi/free-space.prd.en.md)), and the first five parts of module 5, **trees and key operations**,
+**in-order scan and prefix search**, **large values**, **multi-value trees** and **fixed-size trees**
 ([module PRD](docs/prd/krummi/trees.prd.en.md), [PRD](docs/prd/krummi/trees-keys.prd.en.md),
 [PRD](docs/prd/krummi/trees-scan.prd.en.md), [PRD](docs/prd/krummi/trees-large-values.prd.en.md),
-[PRD](docs/prd/krummi/trees-multivalue.prd.en.md)). An application can create, open, inspect and close stores, on disk
+[PRD](docs/prd/krummi/trees-multivalue.prd.en.md), [PRD](docs/prd/krummi/trees-fixed-size.prd.en.md)). An
+application can create, open, inspect and close stores, on disk
 or in memory, and open read transactions from any number of threads and one write transaction at a time, which the
 others wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after
 a crash recovers it. Inside a transaction it opens named trees and stores, adds, reads and removes entries by key,
 with values of up to 256 MiB that reads return as one sequence of bytes without copying them, scans them in key order
 from both ends, by interval and by prefix, and removes whole intervals. It also opens multi-value trees, where each
-key holds a sorted set of values of up to 2,048 bytes, the empty value included, with their own operations and scans.
+key holds a sorted set of values of up to 2,048 bytes, the empty value included, with their own operations and scans,
+and fixed-size trees, whose keys are unsigned 64-bit integers in numeric order and whose values all have the length,
+0 to 2,048 bytes, given when the tree is created; asking for a tree's kind by its name gives that length too.
 The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
@@ -107,6 +110,11 @@ value is a flag of its entry, since tree keys are never empty. Emptying, deletin
 `cargo run --release -p krummi --example multi_timing` measures them with several pairs of thresholds and loads,
 against a normal tree whose keys are the key followed by the value.
 
+A fixed-size tree has nodes of its own, denser than the slotted nodes: a leaf entry is only its 8-byte key, little
+endian, and its value, and a branch entry its key and its child, so a leaf holds 1,020 entries of length 0 and 510 of
+8 bytes. Its keys are integers, so a scan takes integer bounds and has no prefix. Its handle carries the length of its
+values, which its catalog entry keeps.
+
 ## Layout
 
 | Path | Contents |
@@ -114,7 +122,7 @@ against a normal tree whose keys are the key followed by the value.
 | `crates/krummi/` | Public API of the engine |
 | `crates/krummi-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
 | `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API, free space |
-| `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, multi-value trees, and the catalog of named trees |
+| `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, multi-value trees, fixed-size trees with dense nodes of their own, and the catalog of named trees |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |

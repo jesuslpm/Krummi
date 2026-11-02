@@ -15,39 +15,12 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use std::ops::RangeBounds;
 use std::path::{Path, PathBuf};
 
-use krummi::{Error, OpenMode, Result, SizeSubject, Store, StoreOptions, TreeKind};
+use krummi::{Error, OpenMode, Result, SizeSubject, Store, StoreOptions};
 use krummi_pager::DATA_FILE;
 use krummi_pager::format::PAGE_SIZE;
 use krummi_tree::catalog;
 use krummi_tree::multi::{multi_thresholds, volume};
 use support::*;
-
-/// Collects a scan, owning each item with `own`.
-fn collect<T, U>(scan: impl Iterator<Item = Result<T>>, own: impl Fn(T) -> U) -> Vec<U> {
-    scan.map(|item| item.map(&own))
-        .collect::<Result<_>>()
-        .unwrap()
-}
-
-/// Collects a scan taking one item from the front and one from the back in turn.
-fn alternate<T, U>(
-    mut scan: impl DoubleEndedIterator<Item = Result<T>>,
-    own: impl Fn(T) -> U,
-) -> Vec<U> {
-    let (mut front, mut back) = (Vec::new(), Vec::new());
-    loop {
-        match scan.next() {
-            Some(item) => front.push(own(item.unwrap())),
-            None => break,
-        }
-        match scan.next_back() {
-            Some(item) => back.push(own(item.unwrap())),
-            None => break,
-        }
-    }
-    front.extend(back.into_iter().rev());
-    front
-}
 
 fn own_key((key, count): (&[u8], u64)) -> (Vec<u8>, u64) {
     (key.to_vec(), count)
@@ -55,11 +28,6 @@ fn own_key((key, count): (&[u8], u64)) -> (Vec<u8>, u64) {
 
 fn own_value(value: &[u8]) -> Vec<u8> {
     value.to_vec()
-}
-
-fn reversed<T>(mut items: Vec<T>) -> Vec<T> {
-    items.reverse();
-    items
 }
 
 /// Each key of `model` with its number of values.
@@ -116,26 +84,6 @@ fn on_disk_reopened(scenario: impl Fn(&Store) -> Model) {
     let store = open(tmp.path());
     check_read(&store, "m", &model);
     store.close().unwrap();
-}
-
-/// A linear congruential generator, so that the random orders are the same on every run.
-struct Lcg(u64);
-
-impl Lcg {
-    fn next(&mut self) -> u64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        self.0 >> 33
-    }
-
-    fn shuffle<T>(&mut self, items: &mut [T]) {
-        for i in (1..items.len()).rev() {
-            let j = (self.next() % (i as u64 + 1)) as usize;
-            items.swap(i, j);
-        }
-    }
 }
 
 /// AC-M1 (M1, M5, M6, AC-B7): values of 0, 1 and 2,048 bytes, with every byte and some prefixes of others, added in a
@@ -850,12 +798,6 @@ fn ac_m7_removing_ranges_of_values_and_of_keys() {
     });
 }
 
-/// The pages in use: the pages of the store minus its free pages, as its information gives them.
-fn in_use(store: &Store) -> u64 {
-    let info = store.info();
-    info.page_count - info.free_pages
-}
-
 /// The keys of AC-M8: ten long ones with their values in their entries, over several pages of the tree, and three
 /// with subtrees, one of several levels.
 fn space_model() -> Model {
@@ -872,20 +814,6 @@ fn space_model() -> Model {
         (0..300).map(value16).chain([vec![]]).collect(),
     );
     model
-}
-
-/// A store of the same kind as the one of `folder`: on disk in a new folder, or temporary.
-fn store_like(folder: Option<&Path>) -> (Store, Option<tempfile::TempDir>) {
-    match folder {
-        Some(_) => {
-            let tmp = tempfile::tempdir().unwrap();
-            (open(tmp.path()), Some(tmp))
-        }
-        None => (
-            Store::open_temporary(&StoreOptions::default()).unwrap(),
-            None,
-        ),
-    }
 }
 
 /// A tree `a` and the multi-value tree `m` created empty, each committed.
@@ -999,30 +927,6 @@ fn ac_m8_the_pages_of_the_subtrees_go_back_to_free_space() {
         }
     });
 }
-
-/// The fields of a different-tree-type error, after checking its folder.
-#[track_caller]
-fn different(error: Error, folder: Option<&Path>) -> (String, TreeKind, TreeKind) {
-    match error {
-        Error::DifferentTreeType {
-            folder: f,
-            name,
-            found,
-            requested,
-        } => {
-            assert_eq!(f, folder_of(folder));
-            (name, found, requested)
-        }
-        other => panic!("expected a different tree type, got {other}"),
-    }
-}
-
-const MODES: [OpenMode; 4] = [
-    OpenMode::CreateNew,
-    OpenMode::OpenOrCreate,
-    OpenMode::CreateOrEmpty,
-    OpenMode::Empty,
-];
 
 /// Checks that the write `$write` cannot open the normal tree `n` as multi-value nor the multi-value tree `m` as
 /// normal, in any way.
@@ -1766,11 +1670,12 @@ fn ac_m17_a_write_that_changes_nothing_leaves_the_files_identical() {
 /// AC-M18 (M14, AC-B12): the store of format `6` that 5.1 created (`tests/data/store-5.1`) and the one of format `7`
 /// that 5.3 created (`tests/data/store-5.3`, a normal tree `t` with twenty entries and one off its leaf, and an empty
 /// tree `e`, made by the 5.3 code of commit `cd50b90` compiled apart) are refused as previous formats and left
-/// byte-identical, with nothing added to their folders; a new store reports format `8`; and the entry of a key with a
-/// subtree holds its number of values and its subtree's page in little endian, as the implementation lays it out
-/// (D1: tag `1`, the flag of the empty value, the number of values, the bytes of its inline encoding, the root).
+/// byte-identical, with nothing added to their folders; a new store reports the current format (`8` then, `9` since
+/// the fixed-size trees, X12 of their PRD); and the entry of a key with a subtree holds its number of values and its
+/// subtree's page in little endian, as the implementation lays it out (D1: tag `1`, the flag of the empty value, the
+/// number of values, the bytes of its inline encoding, the root).
 #[test]
-fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_format_8() {
+fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_the_current_format() {
     for (fixture, format) in [("store-5.1", 6), ("store-5.3", 7)] {
         let tmp = tempfile::tempdir().unwrap();
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1783,7 +1688,7 @@ fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_format_8() {
         match Store::open(tmp.path(), &StoreOptions::default()).err() {
             Some(Error::DifferentFormat {
                 found, expected, ..
-            }) => assert_eq!((found, expected), (format, 8), "{fixture}"),
+            }) => assert_eq!((found, expected), (format, 9), "{fixture}"),
             other => panic!("{fixture}: expected a previous format, got {other:?}"),
         }
         assert_eq!(std::fs::read(&data).unwrap(), before, "{fixture}");
@@ -1796,7 +1701,7 @@ fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_format_8() {
 
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
-    assert_eq!(store.info().format_version, 8);
+    assert_eq!(store.info().format_version, 9);
     let values: BTreeSet<Vec<u8>> = (0..300).map(value16).chain([vec![]]).collect();
     commit_multi(
         &store,
