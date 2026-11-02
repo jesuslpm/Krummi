@@ -1,4 +1,4 @@
-# Árboles de tamaño fijo terminados: verificados y revisados por RDD; falta la revisión de Codex (sin cupo hasta el 4 de noviembre)
+# Árboles de tamaño fijo terminados: verificados y revisados por RDD; fusionados sin la revisión de Codex (sin cupo hasta el 4 de noviembre)
 
 Informe de cierre de `trees-fixed-size` (2026-11-02). Enfoque de ejecución: ODD.
 Fuente de producto: [trees-fixed-size.prd.md](../../docs/prd/krummi/trees-fixed-size.prd.md) (5.5). Documento de
@@ -185,13 +185,14 @@ Medido con un millón de claves:
 - **Tests de robustez (L10):** AC-X10 daña una hoja; AC-X11 cambia la altura de 1 a 2 con longitud 1.000.
 - **CI (L18):** `ac_x12` se añade al filtro del paso de barridos de árboles, y el barrido de todos los bytes de AC-X13
   va en un paso propio, en release.
-- **Codex (L19):** sin cupo. Se cierra sin su revisión, que queda pendiente para que decidas.
+- **Codex (L19):** sin cupo. Se cierra sin su revisión.
+- **Merge sin Codex (L23):** el 2026-11-02 a las 15:13 UTC decidiste "Fusionamos sin ella". La rama se fusiona en
+  `main` por avance rápido, sin push.
 
 ## Pending (non-blocking)
 
-- **Necesita tu decisión: revisión de Codex.** No pudo ejecutarse por el límite de uso, que se renueva el
-  2026-11-04 a las 06:48. Lo que hace falta decidir es si esperar a esa fecha y repetirla sobre
-  `a97017e..HEAD` antes del merge, o fusionar sin ella. La rama no se fusiona sin tu indicación en ningún caso.
+- **Revisión de Codex: no se hizo.** No pudo ejecutarse por el límite de uso, y decidiste fusionar sin ella (L23).
+  Si se quiere más adelante, el rango es `a97017e..d5a378e` (el código; lo posterior son documentos).
 - **CI:** el cambio del flujo de trabajo (`9198c8b`) solo se verá funcionar tras un push. Lo que no está medido es el
   tiempo en los ejecutores de GitHub del barrido de AC-X13, que tardó 56 min en release en Windows en esta máquina.
 - **R3-001 (RDD 1):** una raíz que se divide en el nivel 254 crearía una raíz ilegible. No se alcanza con 510 hijos
@@ -205,7 +206,7 @@ Medido con un millón de claves:
 - **Item 3:** cambian la API pública (`TreeKind`) y la lectura común `node_at`.
 - **Item 5:** cambia la CI.
 
-Lo cubren el verificador independiente y las revisiones RDD; falta la de Codex.
+Lo cubren el verificador independiente y las revisiones RDD; la de Codex no se hizo (L23).
 
 ## Manual cleanup
 

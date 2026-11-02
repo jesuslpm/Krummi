@@ -230,8 +230,10 @@ parent context must still hold. Forecast: T1 about 1,500 lines, T2 about 2,000, 
   `review-135e2bafabd287fe`, acknowledged. R4-ac-x13-timeout-headroom (suggestion: the 56-minute figure was measured
   without the debug checks): left pending with the CI timing of L20. Reviewed boundary: `d5a378e`; the commits after
   it are documents only.
+- **L23** (2026-11-02 15:13 UTC, user decision on L19): "Fusionamos sin ella". The Codex code review is waived for
+  this run; the branch is fast-forwarded into `main`, not pushed.
 
 ## Closing
 
 Closing report: [trees-fixed-size-report.md](trees-fixed-size-report.md). Measurement:
-[trees-fixed-size-measurements.md](trees-fixed-size-measurements.md). Codex code review pending (L19).
+[trees-fixed-size-measurements.md](trees-fixed-size-measurements.md). Codex code review not run (L19); the user chose to merge without it (L23).
