@@ -44,8 +44,8 @@ pub(crate) const MAX_BRANCH_CELL: usize = 2 + MAX_KEY + 8;
 /// Bytes a node uses under which it is merged with a sibling when they fit in one page (a quarter).
 pub(crate) const UNDERFULL: usize = PAYLOAD_SIZE / 4;
 
-const LEAF: u8 = 1;
-const BRANCH: u8 = 2;
+pub(crate) const LEAF: u8 = 1;
+pub(crate) const BRANCH: u8 = 2;
 
 // At least two entries fit per leaf and three keys per branch (D4); an entry with the longest key always fits with
 // its value off its leaf, and no value kept in its leaf has the length that marks one off it.
@@ -71,16 +71,16 @@ pub(crate) enum Value<'a> {
     },
 }
 
-fn u16_at(node: &[u8], at: usize) -> usize {
+pub(crate) fn u16_at(node: &[u8], at: usize) -> usize {
     usize::from(u16::from_le_bytes([node[at], node[at + 1]]))
 }
 
-fn put_u16(node: &mut [u8], at: usize, value: usize) {
+pub(crate) fn put_u16(node: &mut [u8], at: usize, value: usize) {
     let value = u16::try_from(value).expect("offsets fit in a page");
     node[at..at + 2].copy_from_slice(&value.to_le_bytes());
 }
 
-fn u64_at(node: &[u8], at: usize) -> u64 {
+pub(crate) fn u64_at(node: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(node[at..at + 8].try_into().expect("8 bytes"))
 }
 

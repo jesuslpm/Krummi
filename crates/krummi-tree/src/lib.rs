@@ -1,7 +1,8 @@
 //! B+ trees of Krummi (module 5, D1 and D4 of the trees and key operations execution): ordered maps from keys of
 //! 1 to [`MAX_KEY`] bytes to values of 0 to [`MAX_VALUE`] bytes, stored in slotted node pages through the page API
 //! of `krummi-tx`. A tree is known by its root page; the layers above keep it (the catalog in a meta slot, each
-//! tree in the catalog, see [`catalog`]).
+//! tree in the catalog, see [`catalog`]). Fixed-size trees, with integer keys and values of one length, have dense
+//! nodes of their own format and the same rules (see [`fixed`]).
 //!
 //! A value whose entry would not fit twice in a leaf lives off its leaf, in a value run of contiguous pages that the
 //! transaction reserves for it (D2, D6 and D7 of the large values execution). Runs are never changed: overwriting
@@ -33,6 +34,9 @@
 //! range, a misuse of the engine.
 
 pub mod catalog;
+pub mod fixed;
+#[cfg(test)]
+mod fixed_tests;
 pub mod multi;
 #[cfg(test)]
 mod multi_tests;
@@ -201,14 +205,40 @@ pub fn copy_str<S: PageSource + ?Sized>(tx: &S, text: &str) -> Result<String> {
     Ok(String::from_utf8(copy(tx, text.as_bytes())?).expect("a copy of a str is UTF-8"))
 }
 
-/// The payload of node `page`, checked: a data page with a consistent layout (see [`node::is_valid`]) and, when
-/// `level` is given, at that level. A child is read one level below its parent, so no path loops. Otherwise it
-/// fails with the damage class and the number of the page it was asked for, as when its checksum fails (G6).
+/// A node format: the check of its layout and the kinds of its leaves and branches, the first byte of a node. Every
+/// format keeps the level in the second byte (D2 of the fixed-size trees execution).
+pub(crate) struct Format {
+    pub(crate) is_valid: fn(&[u8]) -> bool,
+    pub(crate) kinds: [u8; 2],
+}
+
+/// The slotted nodes of the normal and multi-value trees.
+const SLOTTED: Format = Format {
+    is_valid: node::is_valid,
+    kinds: [node::LEAF, node::BRANCH],
+};
+
+/// The payload of slotted node `page`, checked as [`node_at_with`] does.
+fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Result<&[u8]> {
+    node_at_with(tx, page, level, &SLOTTED)
+}
+
+/// The payload of node `page` of `format`, checked: a data page with a consistent layout (see [`node::is_valid`]
+/// and [`fixed::is_valid`]) and, when `level` is given, at that level. A child is read one level below its parent,
+/// so no path loops. Otherwise it fails with the damage class and the number of the page it was asked for, as when
+/// its checksum fails (G6).
 ///
 /// The layout of a content whose integrity code its read has just verified is checked once while the store is open:
 /// a content that passes is remembered by its page number and code, and a later read of the same content does not
-/// check it again (C1–C3 of the remembered node layout check PRD). Every other check runs on every read.
-fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Result<&[u8]> {
+/// check it again (C1–C3 of the remembered node layout check PRD). The nodes of every format share that memory,
+/// which does not know their format, so every read checks the kind against the format: a remembered node of
+/// another format is damage (X14). Every other check runs on every read.
+pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    page: u64,
+    level: Option<u8>,
+    format: &Format,
+) -> Result<&'t [u8]> {
     if !tx.may_hold_data(page) {
         return Err(tx.damaged(page));
     }
@@ -216,22 +246,25 @@ fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Resu
     let layout = match code {
         Some(code) if tx.is_checked(page, code) => true,
         Some(code) => {
-            let valid = node::is_valid(node);
+            let valid = (format.is_valid)(node);
             if valid {
                 tx.remember_checked(page, code);
             }
             valid
         }
-        None => node::is_valid(node),
+        None => (format.is_valid)(node),
     };
-    if layout && level.is_none_or(|level| node::level(node) == level) {
+    if layout
+        && format.kinds.contains(&node[0])
+        && level.is_none_or(|level| node::level(node) == level)
+    {
         Ok(node)
     } else {
         Err(tx.damaged(page))
     }
 }
 
-/// The level of the children of a checked branch.
+/// The level of the children of a checked branch, of either format.
 fn child_level(branch: &[u8]) -> Option<u8> {
     Some(node::level(branch) - 1)
 }
@@ -599,19 +632,21 @@ fn remove_in(
     Ok(underfull_or_done(tx.page(page)?))
 }
 
+/// A change by key, of the slotted and the fixed trees.
 #[derive(Clone, Copy)]
-enum Op<'a> {
+pub(crate) enum Op<'a> {
     Set(&'a [u8]),
     Add(&'a [u8]),
     Remove,
 }
 
-/// What a change left in a node, for its parent.
-enum Outcome {
+/// What a change left in a node, for its parent; `K` is the key of a split, bytes in a slotted tree and an integer
+/// in a fixed one.
+pub(crate) enum Outcome<K = Vec<u8>> {
     Done,
     /// The node split: `right` is its new sibling, whose keys start at `key`.
     Split {
-        key: Vec<u8>,
+        key: K,
         right: u64,
     },
     /// The node is under a quarter full.
