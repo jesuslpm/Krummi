@@ -1,0 +1,255 @@
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:10:29
+   |
+10 |     let _ = write.get_fixed(&normal, 1);
+   |                   --------- ^^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn get_fixed(&self, tree: &WriteFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+   |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:11:29
+   |
+11 |     let _ = write.set_fixed(&normal, 1, b"v");
+   |                   --------- ^^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn set_fixed(&mut self, tree: &WriteFixedTree<'_>, key: u64, value: &[u8]) -> Result<()> {
+   |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:12:33
+   |
+12 |     let _ = write.try_add_fixed(&normal, 1, b"v");
+   |                   ------------- ^^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn try_add_fixed(
+   |            ^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:13:32
+   |
+13 |     let _ = write.remove_fixed(&normal, 1);
+   |                   ------------ ^^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn remove_fixed(&mut self, tree: &WriteFixedTree<'_>, key: u64) -> Result<bool> {
+   |            ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:14:31
+   |
+14 |     let _ = write.range_fixed(&normal, ..);
+   |                   ----------- ^^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn range_fixed(
+   |            ^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:15:38
+   |
+15 |     let _ = write.remove_range_fixed(&normal, ..);
+   |                   ------------------ ^^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn remove_range_fixed(
+   |            ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:16:29
+   |
+16 |     let _ = write.get_fixed(&multi, 1);
+   |                   --------- ^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteMultiTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn get_fixed(&self, tree: &WriteFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+   |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:17:29
+   |
+17 |     let _ = write.set_fixed(&multi, 1, b"v");
+   |                   --------- ^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteMultiTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn set_fixed(&mut self, tree: &WriteFixedTree<'_>, key: u64, value: &[u8]) -> Result<()> {
+   |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:18:33
+   |
+18 |     let _ = write.try_add_fixed(&multi, 1, b"v");
+   |                   ------------- ^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteMultiTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn try_add_fixed(
+   |            ^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:19:32
+   |
+19 |     let _ = write.remove_fixed(&multi, 1);
+   |                   ------------ ^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteMultiTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn remove_fixed(&mut self, tree: &WriteFixedTree<'_>, key: u64) -> Result<bool> {
+   |            ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:20:31
+   |
+20 |     let _ = write.range_fixed(&multi, ..);
+   |                   ----------- ^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteMultiTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn range_fixed(
+   |            ^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:21:38
+   |
+21 |     let _ = write.remove_range_fixed(&multi, ..);
+   |                   ------------------ ^^^^^^ expected `&WriteFixedTree<'_>`, found `&WriteMultiTree<'_>`
+   |                   |
+   |                   arguments to this method are incorrect
+   |
+   = note: expected reference `&WriteFixedTree<'_>`
+              found reference `&WriteMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn remove_range_fixed(
+   |            ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:27:28
+   |
+27 |     let _ = read.get_fixed(&normal, 1);
+   |                  --------- ^^^^^^^ expected `&ReadFixedTree<'_>`, found `&ReadTree<'_>`
+   |                  |
+   |                  arguments to this method are incorrect
+   |
+   = note: expected reference `&ReadFixedTree<'_>`
+              found reference `&ReadTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn get_fixed(&self, tree: &ReadFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+   |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:28:30
+   |
+28 |     let _ = read.range_fixed(&normal, ..);
+   |                  ----------- ^^^^^^^ expected `&ReadFixedTree<'_>`, found `&ReadTree<'_>`
+   |                  |
+   |                  arguments to this method are incorrect
+   |
+   = note: expected reference `&ReadFixedTree<'_>`
+              found reference `&ReadTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn range_fixed(
+   |            ^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:29:28
+   |
+29 |     let _ = read.get_fixed(&multi, 1);
+   |                  --------- ^^^^^^ expected `&ReadFixedTree<'_>`, found `&ReadMultiTree<'_>`
+   |                  |
+   |                  arguments to this method are incorrect
+   |
+   = note: expected reference `&ReadFixedTree<'_>`
+              found reference `&ReadMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn get_fixed(&self, tree: &ReadFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+   |            ^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/trees/normal_and_multi_value_handles_take_no_fixed_size_operations.rs:30:30
+   |
+30 |     let _ = read.range_fixed(&multi, ..);
+   |                  ----------- ^^^^^^ expected `&ReadFixedTree<'_>`, found `&ReadMultiTree<'_>`
+   |                  |
+   |                  arguments to this method are incorrect
+   |
+   = note: expected reference `&ReadFixedTree<'_>`
+              found reference `&ReadMultiTree<'_>`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn range_fixed(
+   |            ^^^^^^^^^^^

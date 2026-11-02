@@ -1,0 +1,59 @@
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/fixed_reference_ends_at_operations_that_fail_or_change_nothing.rs:15:13
+   |
+14 |     let value = write.get_fixed(&f, 1).unwrap();
+   |                 ----- immutable borrow occurs here
+15 |     let _ = write.set_fixed(&f, 1, b"short");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+16 |     println!("{value:?}");
+   |                ----- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/fixed_reference_ends_at_operations_that_fail_or_change_nothing.rs:20:13
+   |
+19 |     let mut scan = write.range_fixed(&f, ..).unwrap();
+   |                    ----- immutable borrow occurs here
+20 |     let _ = write.try_add_fixed(&other, 1, b"value 08");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+21 |     let _ = scan.next();
+   |             ---- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/fixed_reference_ends_at_operations_that_fail_or_change_nothing.rs:25:13
+   |
+24 |     let (_, value) = write.range_fixed(&f, ..).unwrap().next().unwrap().unwrap();
+   |                      ----- immutable borrow occurs here
+25 |     let _ = write.try_add_fixed(&f, 1, b"");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+26 |     println!("{value:?}");
+   |                ----- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/fixed_reference_ends_at_operations_that_fail_or_change_nothing.rs:30:13
+   |
+29 |     let mut scan = write.range_fixed(&f, 5..).unwrap();
+   |                    ----- immutable borrow occurs here
+30 |     let _ = write.remove_fixed(&other, 99);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+31 |     let _ = scan.next_back();
+   |             ---- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/fixed_reference_ends_at_operations_that_fail_or_change_nothing.rs:35:13
+   |
+34 |     let value = write.get_fixed(&f, 1).unwrap();
+   |                 ----- immutable borrow occurs here
+35 |     let _ = write.remove_range_fixed(&f, 8..5);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+36 |     println!("{value:?}");
+   |                ----- immutable borrow later used here
+
+error[E0502]: cannot borrow `write` as mutable because it is also borrowed as immutable
+  --> tests/ui/trees/fixed_reference_ends_at_operations_that_fail_or_change_nothing.rs:40:13
+   |
+39 |     let mut scan = write.range_fixed(&f, ..).unwrap();
+   |                    ----- immutable borrow occurs here
+40 |     let _ = write.open_fixed_tree_with("f", 2049, OpenMode::OpenOrCreate);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+41 |     let _ = scan.next();
+   |             ---- immutable borrow later used here

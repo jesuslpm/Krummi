@@ -1,0 +1,25 @@
+error[E0505]: cannot move out of `read` because it is borrowed
+  --> tests/ui/trees/fixed_reference_cannot_outlive_its_transaction.rs:10:10
+   |
+ 7 |     let read = store.read().unwrap();
+   |         ---- binding `read` declared here
+ 8 |     let f = read.open_fixed_tree("f", 8).unwrap();
+ 9 |     let value = read.get_fixed(&f, 1).unwrap();
+   |                 ---- borrow of `read` occurs here
+10 |     drop(read);
+   |          ^^^^ move out of `read` occurs here
+11 |     println!("{value:?}");
+   |                ----- borrow later used here
+
+error[E0505]: cannot move out of `read` because it is borrowed
+  --> tests/ui/trees/fixed_reference_cannot_outlive_its_transaction.rs:16:10
+   |
+13 |     let read = store.read().unwrap();
+   |         ---- binding `read` declared here
+14 |     let f = read.open_fixed_tree("f", 8).unwrap();
+15 |     let (_, value) = read.range_fixed(&f, ..).unwrap().next().unwrap().unwrap();
+   |                      ---- borrow of `read` occurs here
+16 |     drop(read);
+   |          ^^^^ move out of `read` occurs here
+17 |     println!("{value:?}");
+   |                ----- borrow later used here

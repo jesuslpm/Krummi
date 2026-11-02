@@ -1,0 +1,53 @@
+error[E0599]: no method named `open_fixed_tree_with` found for struct `ReadTransaction<'s>` in the current scope
+ --> tests/ui/trees/read_transaction_cannot_modify_fixed_size_trees.rs:9:18
+  |
+9 |     let _ = read.open_fixed_tree_with("f", 8, OpenMode::OpenOrCreate);
+  |                  ^^^^^^^^^^^^^^^^^^^^
+  |
+help: there is a method `open_fixed_tree` with a similar name, but with different arguments
+ --> src/lib.rs
+  |
+  |     pub fn open_fixed_tree(&self, name: &str, value_len: usize) -> Result<ReadFixedTree<'s>> {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `set_fixed` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_fixed_size_trees.rs:10:18
+   |
+10 |     let _ = read.set_fixed(&tree, 1, b"value 08");
+   |                  ^^^^^^^^^
+   |
+help: there is a method `get_fixed` with a similar name, but with different arguments
+  --> src/lib.rs
+   |
+   |     pub fn get_fixed(&self, tree: &ReadFixedTree<'_>, key: u64) -> Result<Option<&[u8]>> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `try_add_fixed` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_fixed_size_trees.rs:11:18
+   |
+11 |     let _ = read.try_add_fixed(&tree, 1, b"value 08");
+   |                  ^^^^^^^^^^^^^ method not found in `ReadTransaction<'_>`
+
+error[E0599]: no method named `remove_fixed` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_fixed_size_trees.rs:12:18
+   |
+12 |     let _ = read.remove_fixed(&tree, 1);
+   |                  ^^^^^^^^^^^^
+   |
+help: there is a method `range_fixed` with a similar name
+   |
+12 -     let _ = read.remove_fixed(&tree, 1);
+12 +     let _ = read.range_fixed(&tree, 1);
+   |
+
+error[E0599]: no method named `remove_range_fixed` found for struct `ReadTransaction<'s>` in the current scope
+  --> tests/ui/trees/read_transaction_cannot_modify_fixed_size_trees.rs:13:18
+   |
+13 |     let _ = read.remove_range_fixed(&tree, ..);
+   |                  ^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `range_fixed` with a similar name
+   |
+13 -     let _ = read.remove_range_fixed(&tree, ..);
+13 +     let _ = read.range_fixed(&tree, ..);
+   |
