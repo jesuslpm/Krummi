@@ -61,13 +61,19 @@ jobs:
           cargo test -p krummi-tx --test free_space -- --ignored ac10
       # Trees: every byte of a 128 KiB store with trees and a value off its leaf, and of a store with a multi-value
       # tree (AC10, AC-M15), crashes at every point of a commit and of the close that follows it (AC-A16, AC-B18,
-      # AC-R12, AC-V8, AC-M14), and a failure at every page operation of splits and merges, of range removals and
-      # scans, of writes of values off their leaf, and of a write of a multi-value tree.
-      - name: Tree acceptance sweeps (AC10, AC-A16, AC-B18, AC-R12, AC-V8, AC-M14, AC-M15)
+      # AC-R12, AC-V8, AC-M14, AC-X12), and a failure at every page operation of splits and merges, of range removals
+      # and scans, of writes of values off their leaf, of a write of a multi-value tree and of a write of a fixed-size
+      # tree.
+      - name: Tree acceptance sweeps (AC10, AC-A16, AC-B18, AC-R12, AC-V8, AC-M14, AC-M15, AC-X12)
         timeout-minutes: 120
         run: |
-          cargo test -p krummi --test tree_integrity -- --ignored
-          cargo test -p krummi --lib -- --ignored ac_b18 ac_r12 ac_v8 ac_m14
+          cargo test -p krummi --test tree_integrity -- --ignored --skip ac_x13
+          cargo test -p krummi --lib -- --ignored ac_b18 ac_r12 ac_v8 ac_m14 ac_x12
+      # Every byte of a store with a fixed-size tree (AC-X13), apart and in release: it reopens the store once per
+      # byte and took about 56 minutes in release on Windows, which the step above has no room for.
+      - name: Fixed-size tree every-byte sweep (AC-X13)
+        timeout-minutes: 120
+        run: cargo test --release -p krummi --test tree_integrity -- --ignored ac_x13
       - name: Free-space model with 100,000 operations (AC-F16)
         timeout-minutes: 30
         run: cargo test --release -p krummi-tx --test free_space -- --ignored ac_f16
