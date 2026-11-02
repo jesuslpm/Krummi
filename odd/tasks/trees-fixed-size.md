@@ -78,7 +78,7 @@ Decisions within *Dejado a la implementación*:
 | T2 | S1–S9, S14–S17, S20 | delegated (context backstop) | done | `e279b64`, `21f7cbd` |
 | T3 | S10–S13, S18, S19 | delegated (context backstop) | done | `90b7bb1` |
 | T4 | S21 | inline + background runs | done | `edfe769`, `c3e9a23`, `457d135` |
-| T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
+| T5 | all | inline: docs, checks, verification, RDD, Codex, closing | done except Codex (L19) | `f7acb34`–`d5a378e`, report |
 
 T1: engine module `krummi_tree::fixed` (node format, layout check through the shared remembered check, get, set,
 try_add, remove, range removal, freeing, double-ended scan) with a seeded model test against a `BTreeMap`. T2: public
@@ -214,3 +214,24 @@ parent context must still hold. Forecast: T1 about 1,500 lines, T2 about 2,000, 
   `01a19c27-b8b0-7c23-a359-6b2dec7e6602` and `01a19c41-8bfa-7d42-b0e5-19d7fdb65682`; logs
   `%TEMP%\codex-review\20261102-120650-trees-fixed-size-code` and `…\20261102-123502-trees-fixed-size-code`). Codex
   can run again on 2026-11-04 06:48. Not an approval: it stays pending for the user.
+- **L20** (RDD review 5): `541325e..c88ff58` (the example fix, the CI change and the log, 88 lines; assess high,
+  `shell_source`), lenses resilience and reliability: **approved**, lineage `review-8b8eba8c9f33c8d1`, acknowledged.
+  Suggestions: R4-acx13-release-loses-debug-asserts (the release sweep lost `debug_assert!` and overflow checks):
+  fixed in the next commit with `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS` and `CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS`
+  set to `true` for that step (Cargo's profile environment variables; not run locally, to keep the release build of
+  the running sweeps untouched); R3-002 (the checksum assertions depend on the fold order): a comment says so.
+  R4-acx13-timeout-headroom and R3-001 (the 120-minute budget of the new step is not measured on CI runners): left
+  pending, observable only after a push.
+- **L21** (CI's ignored sweeps in release at `9198c8b`'s filters, 12:13–13:03 UTC): `cargo test --release -p krummi
+  --lib -- --ignored ac_b18 ac_r12 ac_v8 ac_m14 ac_x12` 5 passed (1.88 s); `cargo test --release -p krummi --test
+  tree_integrity -- --ignored --skip ac_x13` 8 passed (2,989.40 s). The AC-X13 every-byte sweep passed in T3
+  (3,389.85 s, L10).
+- **L22** (RDD review 6): `c88ff58..d5a378e` (9 lines), lens resilience: **approved**, lineage
+  `review-135e2bafabd287fe`, acknowledged. R4-ac-x13-timeout-headroom (suggestion: the 56-minute figure was measured
+  without the debug checks): left pending with the CI timing of L20. Reviewed boundary: `d5a378e`; the commits after
+  it are documents only.
+
+## Closing
+
+Closing report: [trees-fixed-size-report.md](trees-fixed-size-report.md). Measurement:
+[trees-fixed-size-measurements.md](trees-fixed-size-measurements.md). Codex code review pending (L19).
