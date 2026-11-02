@@ -203,3 +203,14 @@ parent context must still hold. Forecast: T1 about 1,500 lines, T2 about 2,000, 
 - **L17** (checks at `457d135`, 12:02–12:06 UTC): `cargo fmt --all --check` clean; `cargo clippy --workspace
   --all-targets -- -D warnings` clean; `cargo test --workspace --no-fail-fast` 34 suites, 462 passed, 0 failed, 20
   ignored. Codex code review round 1 over `a97017e..HEAD` started.
+- **L18** (CI, `9198c8b`): the CI's tree sweep step did not run the new every-point T11 sweep (its filter lists
+  `ac_b18 ac_r12 ac_v8 ac_m14`) and would have run the every-byte AC-X13 sweep (3,389.85 s in release on Windows)
+  in debug within the step's 120 minutes. Default taken (run rule: no stop to ask): `ac_x12` added to the lib filter;
+  `tree_integrity -- --ignored --skip ac_x13` in that step; a new step runs `ac_x13` alone in release with 120
+  minutes. The filters were checked with `--list`; the YAML parses. Risk: item 5 (CI). The CI run itself is not
+  observable before a push.
+- **L19** (Codex code review round 1): two attempts over `a97017e..f7acb34` (12:06 UTC) and `a97017e..9198c8b`
+  (12:35 UTC) ended with wrapper status `error`, "You’ve hit your usage limit", no report written (threads
+  `01a19c27-b8b0-7c23-a359-6b2dec7e6602` and `01a19c41-8bfa-7d42-b0e5-19d7fdb65682`; logs
+  `%TEMP%\codex-review\20261102-120650-trees-fixed-size-code` and `…\20261102-123502-trees-fixed-size-code`). Codex
+  can run again on 2026-11-04 06:48. Not an approval: it stays pending for the user.
