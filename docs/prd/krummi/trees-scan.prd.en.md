@@ -63,6 +63,13 @@ ends. A **handle** is the one of 5.1.
 - *R10, Output and AC-R14: the current format version becomes `8`; a store of format `6` or `7` is of an earlier format (decision M14).*
 - *Out of scope: the scans and Remove range of multi-value trees are set by 5.4, with the rules of this document (decisions M7 and M8).*
 
+*Annotations of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)):*
+
+- *R3: in fixed-size trees, the interval is also empty when no integer satisfies both bounds (decision X7).*
+- *R6, R7 and R8: they hold equally for the scans and Remove range of fixed-size trees (decisions X7, X8 and X10).*
+- *R10, Output and AC-R14: the current format version becomes `9`; a store of format `6`, `7` or `8` is of an earlier format (decision X12).*
+- *Out of scope: the scans and Remove range of fixed-size trees are set by 5.5, without prefix (decision X7).*
+
 ### Starting state
 
 Verified on 2026-10-26 in the code:

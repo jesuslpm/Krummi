@@ -79,6 +79,16 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 
 - *A9: una página dañada sigue fallando igual en cada operación posterior que la necesite, salvo el riesgo residual de la excepción a G6 del padre raíz: una alteración con el almacén abierto que coincide en el código de integridad de un nodo ya comprobado (decisión C7).*
 
+*Anotaciones del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)):*
+
+- *A1: un árbol de tamaño fijo se abre con su propia apertura en los mismos modos, pidiendo su longitud (decisiones X2 y X4).*
+- *A3: Listar informa la longitud de los árboles de tamaño fijo, y una operación nueva del catálogo, Tipo, da el tipo de un árbol por su nombre, para los tres tipos (decisiones X3 y X15).*
+- *A5: el número de entradas está también en las aperturas de los árboles de tamaño fijo (decisión X4).*
+- *A7: el tamaño no válido de la longitud pedida al abrir un árbol de tamaño fijo va después del del nombre (decisión X11).*
+- *A9 y A10: valen igual para las operaciones de los árboles de tamaño fijo; Tipo no falla con daño en las páginas del propio árbol ni termina las referencias (decisiones X8, X10 y X15).*
+- *A13: la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
+- *Fuera de alcance: los árboles de tamaño fijo los fija 5.5; Tipo no es un Existe que pida un tipo, que sigue fuera de alcance (decisiones X1–X15).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

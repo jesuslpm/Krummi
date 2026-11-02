@@ -51,6 +51,11 @@ affected documents (see [Annotations to other PRDs](#annotations-to-other-prds))
 | C8 | **Coherence of the pages**: it relies on the current rules of the move (J5, T14): the engine only rewrites a page in its place in the data file when no open read transaction needs the earlier version, so the bytes of a node that a read checks do not change while it checks them or while it remembers them in use. |
 | C9 | **Measurement** (B12, no threshold by D5): the change includes a reproducible measurement that is run by hand, on Windows and on Linux, and that is not part of continuous integration or of the normal tests. It measures, without remembering nodes and remembering them, the cost of reading leaf nodes of 1, 100 and 370 entries, and Contains in a multi-value tree with the values in subtrees and in a normal tree with composite keys, on stores on disk. The closing report includes its results, also if any case is slower with the change. |
 
+*Annotations of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)):*
+
+- *C1 and Out of scope: the pages of fixed-size trees are nodes that use the remembered check, over the same bytes as the others (decision X14).*
+- *Output: the current format version becomes `9` (decision X12).*
+
 ### Starting state
 
 Verified on 2026-10-30 in the code:

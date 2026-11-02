@@ -52,6 +52,11 @@ documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 | C8 | **Coherencia de las páginas**: se apoya en las reglas vigentes del traslado (J5, T14): el motor solo reescribe una página en su sitio del archivo de datos cuando ninguna transacción de lectura abierta necesita la versión anterior, así que los bytes de un nodo que una lectura comprueba no cambian mientras los comprueba ni mientras la recuerda en uso. |
 | C9 | **Medición** (B12, sin umbral por D5): el cambio incluye una medición reproducible que se ejecuta a mano, en Windows y en Linux, y que no forma parte de la integración continua ni de las pruebas normales. Mide, sin recordar nodos y recordándolos, el coste de leer nodos hoja de 1, 100 y 370 entradas, y Contiene en un árbol multivalor con los valores en subárboles y en un árbol normal con claves compuestas, en almacenes en disco. El informe de cierre incluye sus resultados, también si algún caso es más lento con el cambio. |
 
+*Anotaciones del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)):*
+
+- *C1 y Fuera de alcance: las páginas de los árboles de tamaño fijo son nodos que usan lo recordado, sobre los mismos bytes que los demás (decisión X14).*
+- *Salida: la versión de formato vigente pasa a ser `9` (decisión X12).*
+
 ### Estado de partida
 
 Verificado el 2026-10-30 en el código:

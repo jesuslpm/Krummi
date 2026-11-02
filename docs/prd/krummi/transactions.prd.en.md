@@ -116,6 +116,8 @@ reads end.*
 
 *Annotation of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)): whole document, the current format version becomes `8` (decision M14).*
 
+*Annotation of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)): whole document, the current format version becomes `9` (decision X12).*
+
 ### Starting state
 
 Verified on 2026-10-22:

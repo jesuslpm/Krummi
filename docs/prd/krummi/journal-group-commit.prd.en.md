@@ -63,6 +63,8 @@ version becomes `5`; a store of format `4` is of an older format (decision F11).
 
 *Annotation of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)): E15, the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
 
+*Annotation of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)): E15, the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
+
 ### Starting state
 
 Verified on 2026-10-23 in the code:

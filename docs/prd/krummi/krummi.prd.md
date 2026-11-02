@@ -76,6 +76,8 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-10-29 a D7: con los árboles multivalor, la versión de formato vigente pasa a ser `8` (decisión M14 de [trees-multivalue.prd.md](trees-multivalue.prd.md)).*
 
+*Anotación del 2026-11-02 a D7: con los árboles de tamaño fijo, la versión de formato vigente pasa a ser `9` (decisión X12 de [trees-fixed-size.prd.md](trees-fixed-size.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

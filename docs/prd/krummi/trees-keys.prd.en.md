@@ -77,6 +77,16 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 
 - *A9: a damaged page still fails the same in every later operation that needs it, except for the residual risk of the exception to G6 of the root parent: an alteration made while the store is open that matches the integrity code of an already checked node (decision C7).*
 
+*Annotations of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)):*
+
+- *A1: a fixed-size tree is opened with its own handle in the same modes, requesting its length (decisions X2 and X4).*
+- *A3: List reports the length of fixed-size trees, and a new catalog operation, Type, gives the type of a tree by its name, for the three types (decisions X3 and X15).*
+- *A5: the number of entries is also on the handles of fixed-size trees (decision X4).*
+- *A7: the invalid size of the length requested when opening a fixed-size tree comes after that of the name (decision X11).*
+- *A9 and A10: they hold equally for the operations of fixed-size trees; Type does not fail with damage in the tree's own pages and does not end the references (decisions X8, X10 and X15).*
+- *A13: the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
+- *Out of scope: fixed-size trees are set by 5.5; Type is not an Exists that requests a type, which stays out of scope (decisions X1–X15).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:

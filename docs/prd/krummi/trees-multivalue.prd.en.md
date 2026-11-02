@@ -55,6 +55,11 @@ In this document, the **values of a key** are the set of values that a key of a 
 
 *Annotation of 2026-10-30 from the remembered node layout check ([trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)): M11 still holds, except for the residual risk of the exception to G6 of the root parent: an alteration made while the store is open that matches the integrity code of an already checked node (decision C7).*
 
+*Annotations of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)):*
+
+- *M4: the handles of fixed-size trees are a third type with the same rule (decision X4).*
+- *M14, Output and AC-M18: the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
+
 ### Starting state
 
 Verified on 2026-10-29 in the code:

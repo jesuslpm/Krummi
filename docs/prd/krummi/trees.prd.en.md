@@ -103,6 +103,12 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B2: that PRD is a change to the module outside its split: it is not one of the six child PRDs and does not count toward the close of the module.*
 - *Reuse: the integrity check of the pages stays on every read of the data file; the layout check of a node is skipped if that same content already passed it in the current opening, with the residual risk of the exception to G6 of the root parent (decisions C1–C7).*
 
+*Annotations of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)):*
+
+- *B3: the type of a fixed-size tree is “fixed-size of N bytes” and includes its length; two different lengths are different types (decision X3).*
+- *B6: in fixed-size trees, each value has exactly the length of the tree, 0 to 2,048 bytes, fixed when it is created (decision X1).*
+- *B7 and B8: the length requested when opening a fixed-size tree is validated as a value, with minimum `0` and maximum `2048`, after the name; the data of different tree type carry the length of each fixed-size type (decisions X2, X3 and X11).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

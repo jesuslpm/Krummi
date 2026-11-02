@@ -55,6 +55,11 @@ en páginas propias del almacén; su entrada sigue en la hoja, con su clave.
 - *V9, Salida y AC-V12: la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
 - *Fuera de alcance: los árboles multivalor no tienen valores fuera de su hoja; cada valor es de 0 a 2.048 bytes (decisión M1).*
 
+*Anotaciones del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)):*
+
+- *V9, Salida y AC-V12: la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
+- *Fuera de alcance: los árboles de tamaño fijo no tienen valores fuera de su hoja; cada valor tiene la longitud del árbol, de 0 a 2.048 bytes (decisión X1).*
+
 ### Estado de partida
 
 Verificado el 2026-10-27 en el código:

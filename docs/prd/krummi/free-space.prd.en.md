@@ -56,6 +56,8 @@ has ever been used; and the **store-owned pages** are those of the header, the m
 
 *Annotation of 2026-10-29 from multi-value trees ([trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)): F11, the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
 
+*Annotation of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)): F11, the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the public code of Voron v6.0:

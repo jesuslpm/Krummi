@@ -77,6 +77,8 @@ contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-10-29 to D7: with multi-value trees, the current format version becomes `8` (decision M14 of [trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)).*
 
+*Annotation of 2026-11-02 to D7: with fixed-size trees, the current format version becomes `9` (decision X12 of [trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

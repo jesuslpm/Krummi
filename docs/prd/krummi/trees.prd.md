@@ -106,6 +106,12 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B2: ese PRD es un cambio del módulo fuera de su reparto: no es uno de los seis PRD hijos ni cuenta para el cierre del módulo.*
 - *Reutilización: la comprobación de integridad de las páginas sigue en cada lectura del archivo de datos; la de organización de un nodo se omite si ese mismo contenido ya la pasó en la apertura en curso, con el riesgo residual de la excepción a G6 del padre raíz (decisiones C1–C7).*
 
+*Anotaciones del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)):*
+
+- *B3: el tipo de un árbol de tamaño fijo es «tamaño fijo de N bytes» e incluye su longitud; dos longitudes distintas son tipos distintos (decisión X3).*
+- *B6: en los árboles de tamaño fijo, cada valor tiene exactamente la longitud del árbol, de 0 a 2.048 bytes, fijada al crearlo (decisión X1).*
+- *B7 y B8: la longitud pedida al abrir un árbol de tamaño fijo se valida como un valor, con mínimo `0` y máximo `2048`, después del nombre; los datos de tipo de árbol distinto llevan la longitud de cada tipo de tamaño fijo (decisiones X2, X3 y X11).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

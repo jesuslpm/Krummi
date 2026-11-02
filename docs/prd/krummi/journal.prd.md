@@ -97,6 +97,8 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 
 *Anotación del 2026-10-29 desde los árboles multivalor ([trees-multivalue.prd.md](trees-multivalue.prd.md)): J3, la versión de formato vigente pasa a ser `8`; un almacén de formato `7` es de formato anterior (decisión M14).*
 
+*Anotación del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)): J3, la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

@@ -55,6 +55,11 @@ umbral de subida (M2).
 
 *Anotación del 2026-10-30 desde la comprobación de organización recordada de los nodos ([trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)): M11 sigue valiendo, salvo el riesgo residual de la excepción a G6 del padre raíz: una alteración con el almacén abierto que coincide en el código de integridad de un nodo ya comprobado (decisión C7).*
 
+*Anotaciones del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)):*
+
+- *M4: las aperturas de los árboles de tamaño fijo son un tercer tipo con la misma regla (decisión X4).*
+- *M14, Salida y AC-M18: la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
+
 ### Estado de partida
 
 Verificado el 2026-10-29 en el código:

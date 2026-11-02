@@ -56,6 +56,11 @@ its own in the store; its entry stays in the leaf, with its key.
 - *V9, Output and AC-V12: the current format version becomes `8`; a store of format `7` is of an earlier format (decision M14).*
 - *Out of scope: multi-value trees have no values off their leaf; each value is 0 to 2,048 bytes (decision M1).*
 
+*Annotations of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)):*
+
+- *V9, Output and AC-V12: the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
+- *Out of scope: fixed-size trees have no values off their leaf; each value has the length of the tree, 0 to 2,048 bytes (decision X1).*
+
 ### Starting state
 
 Verified on 2026-10-27 in the code:

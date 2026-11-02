@@ -63,6 +63,13 @@ cualquiera de sus dos extremos. Una **apertura** es la de 5.1.
 - *R10, Salida y AC-R14: la versión de formato vigente pasa a ser `8`; un almacén de formato `6` o `7` es de formato anterior (decisión M14).*
 - *Fuera de alcance: los recorridos y Quitar intervalo de los árboles multivalor los fija 5.4, con las reglas de este documento (decisiones M7 y M8).*
 
+*Anotaciones del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)):*
+
+- *R3: en los árboles de tamaño fijo, el intervalo también está vacío cuando ningún entero cumple los dos límites (decisión X7).*
+- *R6, R7 y R8: valen igual para los recorridos y Quitar intervalo de los árboles de tamaño fijo (decisiones X7, X8 y X10).*
+- *R10, Salida y AC-R14: la versión de formato vigente pasa a ser `9`; un almacén de formato `6`, `7` u `8` es de formato anterior (decisión X12).*
+- *Fuera de alcance: los recorridos y Quitar intervalo de los árboles de tamaño fijo los fija 5.5, sin prefijo (decisión X7).*
+
 ### Estado de partida
 
 Verificado el 2026-10-26 en el código:
