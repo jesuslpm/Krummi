@@ -77,7 +77,7 @@ Decisions within *Dejado a la implementación*:
 | T1 | S1, S5, S6 (engine part) | delegated (context backstop) | done | `d51b613` |
 | T2 | S1–S9, S14–S17, S20 | delegated (context backstop) | done | `e279b64`, `21f7cbd` |
 | T3 | S10–S13, S18, S19 | delegated (context backstop) | done | `90b7bb1` |
-| T4 | S21 | inline + background runs | in progress | `edfe769` |
+| T4 | S21 | inline + background runs | done | `edfe769`, `c3e9a23`, `457d135` |
 | T5 | all | inline: docs, checks, verification, RDD, Codex, closing | pending | — |
 
 T1: engine module `krummi_tree::fixed` (node format, layout check through the shared remembered check, get, set,
@@ -163,3 +163,43 @@ parent context must still hold. Forecast: T1 about 1,500 lines, T2 about 2,000, 
   clean. Commit `90b7bb1`. Risk: none (tests only).
 - **L11** (2026-11-02, process): a parent script error truncated this document (untracked) while appending L10; it
   was rebuilt from its generator and the entries appended during the run, with the same content.
+- **L12** (T4 runs): X13 measured on Windows (11:31–11:36 UTC) and on Linux in WSL 2 (11:37–11:47 UTC), one after the
+  other; results and machine in `odd/tasks/trees-fixed-size-measurements.md` (commit `c3e9a23`). Fixed-size trees use
+  43 %/40 % fewer pages with 0-byte values, 27–31 % with 8 and 5 % with 100; Windows loads in key order ×6.8, ×3.2
+  and ×1.6 faster; on Linux the durable commit dominates (×1.8, ×1.5, none).
+- **L13** (RDD reviews 2 and 3, T2, each with HEAD detached at its commit): review of `d51b613..e279b64`
+  (implementation, 861 lines), lenses risk, reliability and readability: **approved**, lineage
+  `review-11144303a4987ddc`, acknowledged. Advisory findings: R2-dangling-acx16-reference, R3-fixed-public-coverage,
+  R2-unused-fixed-helpers and R3-catalog-fixed-decode-untested (warnings that the tests are missing: they are in the
+  next commit `21f7cbd`, including `catalog_entries_of_fixed_size_trees_are_checked_by_kind` and AC-X16);
+  R3-fixed-module-outside-candidate (suggestion: the engine was reviewed in review 1); R2-tree-kind-doc-wording and
+  R2-mixed-language-op-names (suggestions, fixed in `541325e`). Review of `e279b64..21f7cbd` (tests, 2,404 lines),
+  lenses reliability and readability: **approved**, lineage `review-b629f1b1fc81bb2d`, acknowledged; three
+  suggestions on the trybuild `.stderr` snapshots pinning private fields and rustc help texts (R2-001,
+  R3-brittle-send-diagnostics, R3-toolchain-help-text): not addressed, the existing compile suite uses the same
+  snapshots by design. Reviewed boundary: `21f7cbd`.
+- **L14** (RDD review 4, last slice): `21f7cbd..541325e` (T3 tests, the measurement example and documents, 1,614
+  lines; assess high, `process_boundary`), lenses reliability and readability, started. Independent verifier (ODD
+  Verify `sonnet`/`high`) launched for the whole feature, because T1 and T2 named high-risk items.
+- **L15** (RDD review 4): `21f7cbd..541325e`, lenses reliability and readability: **approved**, lineage
+  `review-eabfe89bce05b27f`, acknowledged. Advisory findings: R2-001 (warning: the example's usage line lacked `--`)
+  and R3-001 (suggestion: the measurement's checksums were not compared with the stored entries), both fixed in
+  `457d135` (the checksums are compared outside the timed loops; `--quick` passes; the full runs of L12 used the
+  same timed code without that check); R2-002 (suggestion: test doc comments name operations by their PRD names,
+  Leer, Guardar, Tipo): not addressed, the existing tests do the same (for example `tree_integrity.rs:32`, from
+  2026-10-25); R2-003 (suggestion: T4 status and log stale at review time): already updated in L12–L14 and the task
+  table. Reviewed boundary: `541325e`; `457d135` (the example fix, 7 lines) is left for the closing slice.
+- **L16** (independent verifier, ODD Verify `sonnet`/`high`, `2125833..541325e`): S1–S20 pass, S21 pending the
+  closing report; no blockers. Focused suites pass on a `git archive` copy (`fixed_trees` 16, lib `fixed` 8 + 1
+  ignored, `tree_integrity ac_x` 2 + 2 ignored, `krummi-tree fixed` 11, `trees_compile` 1 with every new case).
+  Probes: the PRD *Salida* example exactly; X2 precedence in every mode (also `usize::MAX` and 65,544, no
+  truncation); X1 before Misuse and TreeNotFound; X7 against a `BTreeMap` with 1,521 bound pairs from both ends and
+  every empty case (0 mismatches); a random model at lengths 0–2,048 with reopen; a 1,500-tree catalog switching
+  entries between 25 and 27 bytes; normal and multi-value trees at `2125833` and HEAD give identical output and a
+  byte-identical data file after the 16 KB header (only the format version differs); rejected and no-op writes leave
+  the files identical. Advisories: the ignored sweeps were not run by it (the T3 worker ran them); the level-254
+  root split (R3-001); an emptied catalog keeps its root page (shared catalog code, unchanged). Scratch removed by
+  the parent.
+- **L17** (checks at `457d135`, 12:02–12:06 UTC): `cargo fmt --all --check` clean; `cargo clippy --workspace
+  --all-targets -- -D warnings` clean; `cargo test --workspace --no-fail-fast` 34 suites, 462 passed, 0 failed, 20
+  ignored. Codex code review round 1 over `a97017e..HEAD` started.
