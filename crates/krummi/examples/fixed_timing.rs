@@ -247,7 +247,8 @@ fn measure(parent: &Path, kind: Kind, data: &Data) -> Measured {
     let (read, read_sum) = read_all(&store, kind, data, &reads);
     let (scan, scanned, scan_sum) = scan_all(&store, kind, data);
     assert_eq!(scanned, entries, "the scan returns every entry");
-    // The checksums of what was read, against the stored entries, outside the measured time.
+    // The checksums of what was read, against the stored entries, outside the measured time. `fold` depends on the
+    // order, so each expected sum folds the entries in the order its pass visits them: `reads`, and key order.
     let expected = |order: &[usize]| {
         order
             .iter()

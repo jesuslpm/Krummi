@@ -70,9 +70,13 @@ jobs:
           cargo test -p krummi --test tree_integrity -- --ignored --skip ac_x13
           cargo test -p krummi --lib -- --ignored ac_b18 ac_r12 ac_v8 ac_m14 ac_x12
       # Every byte of a store with a fixed-size tree (AC-X13), apart and in release: it reopens the store once per
-      # byte and took about 56 minutes in release on Windows, which the step above has no room for.
+      # byte and took about 56 minutes in release on Windows, which the step above has no room for. The debug
+      # assertions and overflow checks stay on, as in the other sweeps.
       - name: Fixed-size tree every-byte sweep (AC-X13)
         timeout-minutes: 120
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+          CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
         run: cargo test --release -p krummi --test tree_integrity -- --ignored ac_x13
       - name: Free-space model with 100,000 operations (AC-F16)
         timeout-minutes: 30
