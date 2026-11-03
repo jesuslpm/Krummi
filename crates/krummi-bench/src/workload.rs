@@ -55,7 +55,7 @@ impl Engine {
         match self {
             Engine::Krummi | Engine::Voron | Engine::Redb => &[],
             Engine::Lmdb => &[
-                "tamaño del mapa de 4 GiB",
+                "tamaño del mapa de 1 GiB",
                 "claves duplicadas ordenadas en W19 y W20",
                 "claves enteras en W21 y W22",
             ],

@@ -371,7 +371,7 @@ mod tests {
 
 ## Opciones cambiadas
 
-- LMDB: tamaño del mapa de 4 GiB; claves duplicadas ordenadas en W19 y W20; claves enteras en W21 y W22.
+- LMDB: tamaño del mapa de 1 GiB; claves duplicadas ordenadas en W19 y W20; claves enteras en W21 y W22.
 - canopydb: caché de páginas de 1 GiB; confirmación que espera al disco del diario.
 - fjall: caché de bloques de 1 GiB; llevar el diario al disco (SyncData) en cada confirmación.
 ";
