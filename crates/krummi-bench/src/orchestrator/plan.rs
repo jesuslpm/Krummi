@@ -129,7 +129,7 @@ fn run_engine(
         let results = read_output(&stdout, load, scale).map_err(|c| fail(&c))?;
 
         let mut progress = Vec::new();
-        for (printed, (repetitions, digest)) in results {
+        for (printed, (reps, digest)) in results {
             match reference.get(&printed) {
                 None if engine == Engine::Krummi => {
                     reference.insert(printed, digest);
@@ -137,7 +137,7 @@ fn run_engine(
                 Some(&expected) if expected == digest => {}
                 _ => return Err(fail("los datos no coinciden con los de Krummi")),
             }
-            let metric = load_metric(&repetitions, warmups);
+            let metric = load_metric(&reps, warmups);
             measured.metrics.insert((printed, engine), metric);
             progress.push(format!("{}: {metric:.0} op/s", printed.name()));
         }
@@ -145,8 +145,8 @@ fn run_engine(
             let size = folder_size(&last_store(&store)).map_err(|e| fail(&e.to_string()))?;
             measured.sizes.insert((load, engine), size);
         }
-        // The stores of W17, W19 and W21 stay until the load that starts from them has run.
-        if !matches!(load, Load::W17 | Load::W19 | Load::W21) {
+        // A store that another load starts from (W17, W19 and W21) stays until that load has run.
+        if !Load::ALL.iter().any(|l| l.start() == Start::After(load)) {
             remove(&store).map_err(|c| fail(&c))?;
         }
         if let Start::After(previous) = load.start() {

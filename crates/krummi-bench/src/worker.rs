@@ -718,7 +718,7 @@ fn run<E: Store>(cx: &Context) -> Result<()> {
         }
         Load::W19 => {
             let adds: Vec<(u64, u64)> = (0..p.values_per_key)
-                .flat_map(|v| (0..p.keys).map(move |k| (base + k, base + k * 10 + v)))
+                .flat_map(|v| (0..p.keys).map(move |k| (base + k, base + k * p.values_per_key + v)))
                 .collect();
             let entries = Entries {
                 keys: keys(adds.iter().map(|&(k, _)| k)),
@@ -742,7 +742,9 @@ fn run<E: Store>(cx: &Context) -> Result<()> {
             let expected: u64 = (0..p.keys)
                 .map(|k| {
                     let values: u64 = (0..p.values_per_key)
-                        .map(|v| value_sum(written + k * 10 + v, &mut buffer, p.value_len))
+                        .map(|v| {
+                            value_sum(written + k * p.values_per_key + v, &mut buffer, p.value_len)
+                        })
                         .sum();
                     byte_sum(&key(written + k)) + values
                 })

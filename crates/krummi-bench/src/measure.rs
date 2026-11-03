@@ -52,12 +52,21 @@ pub fn ratio_text(krummi: f64, voron: f64) -> String {
     }
     let scaled = krummi * 100.0;
     let mut hundredths = (scaled / voron).floor().max(0.0) as u64;
-    // Correct the floating-point division at the boundary, by the same multiplication `meets` uses.
+    // Correct the floating-point division: `hundredths` is the largest whole number with `hundredths · voron ≤
+    // 100 · krummi`.
     while (hundredths + 1) as f64 * voron <= scaled {
         hundredths += 1;
     }
     while hundredths > 0 && hundredths as f64 * voron > scaled {
         hundredths -= 1;
+    }
+    // That comparison and the one of `meets` agree in exact arithmetic but can round differently, so at the
+    // threshold the verdict decides: a met threshold never shows less than `0,80`, a missed one never `0,80`.
+    if meets(krummi, voron) {
+        hundredths = hundredths.max(80);
+    } else {
+        // A missed threshold is a ratio below 0.80, so only a rounding error can have reached 80.
+        hundredths = hundredths.min(79);
     }
     format!("{},{:02}", hundredths / 100, hundredths % 100)
 }

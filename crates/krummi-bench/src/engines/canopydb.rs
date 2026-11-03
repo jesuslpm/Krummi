@@ -1,4 +1,4 @@
-//! canopydb (D8): a page cache of 1 GiB, the write-ahead log on (its default), the single-writer transaction
+//! canopydb (D8): its default options, which already have a page cache of 1 GiB and the write-ahead log on, the single-writer transaction
 //! `begin_write` (not `begin_write_concurrent`, K3), and every commit with `commit_with(true)`, which "Commits the
 //! transaction and optionally performs a durable `fsync` to make the transaction (and all the ones before it)
 //! durable in the storage" (canopydb 0.2.5, src/lib.rs). It has no multi-value trees or integer keys (K6).
@@ -8,9 +8,6 @@ use std::path::Path;
 use canopydb::{DbOptions, EnvOptions};
 
 use super::{NORMAL_NAME, Result, Tree, byte_sum, cause, unsupported};
-
-/// The page cache (K3): 1 GiB.
-const PAGE_CACHE: usize = 1 << 30;
 
 pub struct Store {
     db: canopydb::Database,
@@ -32,8 +29,9 @@ impl super::Store for Store {
         if tree != Tree::Normal {
             return Err(unsupported("canopydb", tree));
         }
-        let mut env = EnvOptions::new(path);
-        env.page_cache_size = PAGE_CACHE;
+        // `EnvOptions::new` already has a 1 GiB page cache (canopydb 0.2.5, src/options.rs), the size K3 asks for,
+        // so it stays at its default and is not a changed option.
+        let env = EnvOptions::new(path);
         // `DbOptions::default` has `use_wal: true`, which durable commits need.
         let db = canopydb::Database::with_options(env, DbOptions::default()).map_err(cause)?;
         Ok(Store { db })

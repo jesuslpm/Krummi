@@ -98,10 +98,14 @@ static class Program
         string spec = Environment.GetEnvironmentVariable(FailVariable);
         if (spec == null)
             return;
+        // A value that cannot be understood fails, as in the Rust worker, so a typo never passes as a success.
         string[] parts = spec.Split(':');
-        if (parts.Length != 3 || parts[0] != "voron" || Workload.FromId(parts[1]) is not int target)
-            return;
-        if (target != load && !(load == Workload.W12 && target == Workload.W13))
+        string[] kinds = ["error", "missing", "checksum", "exit"];
+        string[] engines = ["krummi", "voron", "lmdb", "redb", "canopydb", "fjall"];
+        if (parts.Length != 3 || !engines.Contains(parts[0]) || Workload.FromId(parts[1]) is not int target
+            || !kinds.Contains(parts[2]))
+            throw new BenchFailure($"{FailVariable} no válida: {spec}");
+        if (parts[0] != "voron" || (target != load && !(load == Workload.W12 && target == Workload.W13)))
             return;
         switch (parts[2])
         {
@@ -118,14 +122,24 @@ static class Program
         }
     }
 
+    /// Prints the known answers of the data functions and fails if any differs from the Rust side's (data.rs pins
+    /// the same values in its tests).
     static void SelfTest()
     {
-        Console.Out.WriteLine($"splitmix(0) {Data.Splitmix(0):x16}");
-        Console.Out.WriteLine($"splitmix(1) {Data.Splitmix(1):x16}");
-        Console.Out.WriteLine($"permutation(8,42) {string.Join(' ', Data.Permutation(8, 42))}");
         var d = new Digest();
         d.Feed(Data.Key(0));
         d.Feed(Data.Value(3, 100));
-        Console.Out.WriteLine($"digest(key(0),value(3,100)) {d.Hex}");
+        (string Name, string Got, string Expected)[] answers =
+        [
+            ("splitmix(0)", $"{Data.Splitmix(0):x16}", "e220a8397b1dcdaf"),
+            ("splitmix(1)", $"{Data.Splitmix(1):x16}", "910a2dec89025cc1"),
+            ("permutation(8,42)", string.Join(' ', Data.Permutation(8, 42)), "0 1 4 7 3 6 2 5"),
+            ("digest(key(0),value(3,100))", d.Hex, "95a8df032a8a94d0"),
+        ];
+        foreach (var (name, got, _) in answers)
+            Console.Out.WriteLine($"{name} {got}");
+        foreach (var (name, got, expected) in answers)
+            if (got != expected)
+                throw new BenchFailure($"{name} es {got} y se esperaba {expected}");
     }
 }

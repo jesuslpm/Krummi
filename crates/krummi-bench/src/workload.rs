@@ -274,7 +274,8 @@ pub const VALUE_LEN: usize = 100;
 /// Entries per write of the batched loads.
 pub const BATCH: u64 = 1_000;
 
-/// The quantities of a load at a scale (columns *Qué hace* and *Reducida*). Fields a load does not use are 0.
+/// The quantities of a load at a scale (columns *Qué hace* and *Reducida*). Fields a load does not use are 0, except
+/// `threads` (1) and `value_len` (100).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Params {
     /// Entries the load writes, removes or reads once each (per thread for W8 and W9).

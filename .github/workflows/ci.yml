@@ -109,9 +109,13 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Third-party code that the job builds and runs: pinned to the commit of tag 7.2.7, so a moved tag fails the
+      # job instead of changing what runs.
       - name: Get the RavenDB 7.2.7 source code
         shell: bash
-        run: git clone --quiet --depth 1 --branch 7.2.7 https://github.com/ravendb/ravendb.git "$KRUMMI_BENCH_RAVENDB"
+        run: |
+          git clone --quiet --depth 1 --branch 7.2.7 https://github.com/ravendb/ravendb.git "$KRUMMI_BENCH_RAVENDB"
+          test "$(git -C "$KRUMMI_BENCH_RAVENDB" rev-parse HEAD)" = "b84416401c6cd51a7d9a17f6d2fc7604b739fdf7"
 
       - name: Reduced run (AC-K6)
         shell: bash

@@ -64,7 +64,8 @@ Decisions within *Dejado a la implementación*:
   W19–W20, native-endian `u64` keys with `INTEGER_KEY` for W21–W22. redb: cache 1 GiB, `Durability::Immediate`,
   multimap and `u64` tables. canopydb: page cache 1 GiB (its default, so not listed as changed), WAL on, `commit_with(true)`, `begin_write`. fjall:
   `SingleWriterTxDatabase`, block cache 1 GiB, `durability(Some(PersistMode::SyncData))`. Krummi and Voron:
-  defaults. canopydb and fjall have no multi-value or integer keys (K6).
+  defaults. canopydb and fjall have no multi-value or integer keys (K6). Every engine is built with its default
+  Cargo features (`7286171`), so fjall keeps its default LZ4 block compression.
 - **D9 Reports.** The first complete reports go to `docs/benchmark/2026-11-03-windows.md` and `-linux.md`.
 - **D1 revised (commit `838fb35`).** There is no second binary: `cargo run` does not promise to build it. The Rust
   worker is the same `krummi-bench` executable started with `KRUMMI_BENCH_ROLE=worker` (not an option of K10). The
@@ -162,3 +163,21 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   package list gains `krummi-bench`. Seam check: `cargo fmt --all --check` ok, clippy clean, `cargo test --workspace`
   512 passed, 0 failed, 30 ignored; T4 ran `cargo test --release -p krummi-bench -- --include-ignored` all green and
   a real reduced run (exit 0, 76 s).
+- **L7** (2026-11-03): independent verifier (ODD Verify) over the whole feature at `642d5ab`: no blocker; S2–S7,
+  S9–S14 met, S1 and S8 pending the complete runs and the closing report. Advisories fixed in `7286171`: the engines
+  keep their default features (fjall had lost its default LZ4 compression, against K3); a report path that ends in a
+  separator now fails before the run; `ratio_text` no longer loops when Voron has no operations. Not fixed: a hard
+  kill leaves the work subfolder (Ctrl+C cleans it); Voron silently drops write-through if its O_DIRECT probe fails
+  on a file system (not the case on NTFS or ext4 here).
+- **L8** (2026-11-03): RDD. The whole range `aed68a6..7286171` exceeded the reviewers' context budget
+  (`lens_context_budget_exceeded`), so it was reviewed as chained committed slices, each from a detached checkout of
+  its last commit (clean tree), and the branch was checked out again afterwards. Results:
+
+  | Slice | Lenses | Result | Findings and disposition | Lineage |
+  |---|---|---|---|---|
+  | `aed68a6..8008b69` (PRD) | — | passive, no review | — | — |
+  | `8008b69..d9b4822` (library core) | risk, readability, reliability | approved | R1-001 suggestion (`deny` instead of `forbid` for unsafe): kept, the AC21 keyword scan limits it to the LMDB adapter; R2-001 warning (ratio text and threshold use different comparisons): fixed, the verdict now decides at the boundary; R3 warning (zero Voron metric loops): already fixed in `7286171` | `review-d098d5e49cf43551` |
+  | `d9b4822..5ca33da` (CI, dependency test) | risk, reliability | approved | R1-001 suggestion (RavenDB fetched by tag): fixed, CI checks the commit `b844164`; R3 suggestion (dependency test without all features): fixed, `--all-features` | `review-3ac00a52d5953365` |
+  | `5ca33da..fa65b43` (Voron worker) | reliability, resilience, readability | approved | R2-001 warning (`SortedByKey` copies the key formula): fixed, it uses `Data.KeyInto`; R2-002 and R3 warnings (malformed `KRUMMI_BENCH_FAIL` ignored): fixed, it fails as in the Rust worker; R2-003 suggestion (Params comment): fixed on both sides; R2-004 suggestion (identity through `ReadOrder`): fixed; R3 warning (selftest without assertions): fixed, it compares with the pinned answers | `review-d408eabb06d29d47` |
+  | `fa65b43..24baebb` (Rust worker) | risk, resilience, readability, reliability | approved | R1-001, R4-001, R2, R3-001 warnings (canopydb sets a 1 GiB page cache that the report does not list): fixed, the adapter keeps canopydb's default, which is 1 GiB; R2 warning (multi-value stride 10 unnamed): fixed, `values_per_key`; R2 suggestion (W16 repeats the repetition loop): kept, it must time opening and closing | `review-8afa7395edc131e4` |
+  | `24baebb..fa4f9c8` (orchestrator, fixes) | risk, resilience, readability, reliability | approved | R1-001 suggestion and R4/R2 warnings (default features add dependencies and LZ4 in fjall): kept on purpose, K3 asks for each engine's defaults and LZ4 is fjall's default; D8 records it; R4 suggestion (no per-process timeout): kept, out of scope in the PRD (*Fuera de alcance*: Ctrl+C or the CI job limit); R2 warning (kept stores hardcoded): fixed, derived from `Load::start`; R2 suggestion (shadowed name): fixed; R3 warning (Ctrl+C untested): kept, checked by hand in T4, not portable to automate; R3 warning (failed `versions` shows `desconocido`): kept, the PRD shows unknown data as `desconocido` and a broken worker fails at its first load; R3 suggestion (stderr joined): kept, a panic's message is on its second line | `review-d8124be01bd4049e` |

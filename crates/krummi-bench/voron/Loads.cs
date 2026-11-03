@@ -697,17 +697,23 @@ static class Loads
         return (starts.Min(), ends.Max());
     }
 
-    /// The indices 0..n sorted by the bytes of their keys (big-endian halves, so numeric order of the halves).
+    /// The indices 0..n sorted by the bytes of their keys, built through Data.KeyInto so the order follows the key
+    /// formula wherever it is defined.
     static uint[] SortedByKey(int n)
     {
-        var items = new (ulong Hi, ulong Lo, uint Index)[n];
+        var items = new (byte[] Key, uint Index)[n];
         for (uint i = 0; i < n; i++)
-            items[i] = (Data.Splitmix(i ^ 0x5EED0001UL), Data.Splitmix(~(ulong)i), i);
-        Array.Sort(items, (x, y) => x.Hi != y.Hi ? x.Hi.CompareTo(y.Hi) : x.Lo.CompareTo(y.Lo));
+        {
+            var key = new byte[Data.KeyLen];
+            Data.KeyInto(i, key);
+            items[i] = (key, i);
+        }
+        Array.Sort(items, (x, y) => x.Key.AsSpan().SequenceCompareTo(y.Key));
         return items.Select(x => x.Index).ToArray();
     }
 
-    static uint[] Identity(int n) => Data.ReadOrder(W1, 0, (ulong)n);
+    /// The indices 0..n in increasing order.
+    static uint[] Identity(int n) => Enumerable.Range(0, n).Select(i => (uint)i).ToArray();
 
     /// The byte sum of value(b + i, len) for i in 0..n.
     static uint[] ValueSums(int n, ulong b, int len)

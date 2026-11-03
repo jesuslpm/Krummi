@@ -7,7 +7,7 @@ namespace VoronBench;
 
 enum Start { Empty, Base, After }
 
-/// The quantities of a load at a scale. Fields a load does not use are 0.
+/// The quantities of a load at a scale. Fields a load does not use are 0, except Threads (1) and ValueLen (100).
 readonly record struct Params(
     ulong Entries = 0,
     ulong Batch = 0,

@@ -14,6 +14,8 @@ fn the_library_depends_on_no_package_of_the_benchmark() {
             "--offline",
             "--edges",
             "normal,build",
+            // Every feature of the library, so an engine behind an optional feature is caught too.
+            "--all-features",
             "--prefix",
             "none",
             "--format",
