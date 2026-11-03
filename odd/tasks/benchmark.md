@@ -66,9 +66,10 @@ Decisions within *Dejado a la implementación*:
   `SingleWriterTxDatabase`, block cache 1 GiB, `durability(Some(PersistMode::SyncData))`. Krummi and Voron:
   defaults. canopydb and fjall have no multi-value or integer keys (K6). Every engine is built with its default
   Cargo features (`7286171`), so fjall keeps its default LZ4 block compression. Voron's write transactions wait for
-  the write lock without a limit (`Timeout.InfiniteTimeSpan`), as the other engines' writers do; Voron's default
-  limit of 30 s failed W5 on WSL (L10). It is a wait limit, not a storage option, so the report does not list it
-  (default taken during the run).
+  the write lock up to 10 minutes; Voron's default limit of 30 s failed W5 on WSL (L10), and an unlimited wait
+  (`a881d48`) would hang on a lock that is never released, because the orchestrator has no time limit per process
+  (L11). It is a wait limit, not a storage option, and it changes no measurement of a run that finishes, so the
+  report does not list it (default taken during the run).
 - **D9 Reports.** The first complete reports go to `docs/benchmark/2026-11-03-windows.md` and `-linux.md`.
 - **D1 revised (commit `838fb35`).** There is no second binary: `cargo run` does not promise to build it. The Rust
   worker is the same `krummi-bench` executable started with `KRUMMI_BENCH_ROLE=worker` (not an option of K10). The
@@ -127,7 +128,7 @@ Decisions within *Dejado a la implementación*:
 | T3 | S7, S8, S10 (Voron program) | delegated (parallel with T2) | done: selftest equals Rust, 21 reduced processes | `fa65b43` |
 | T4 | S5, S9, S10, S11, S13 | delegated (after T2) | done: 8 cli + 8 run tests (ignored without .NET), Ctrl+C by hand | `586bb7f` |
 | T5 | S6, S14 | inline | done: CI job, AC21 change for K14, dependency test | `06a37d3` (AC21), `5ca33da` |
-| T6 | S1, S8 | inline + background runs | done: Windows 5/22, Linux (WSL 2) 7/22 thresholds met; Voron lock-wait fix | `9ba17b7`, `a881d48`, Linux report commit below |
+| T6 | S1, S8 | inline + background runs | done: Windows 5/22, Linux (WSL 2) 7/22 thresholds met; Voron lock-wait fix | `9ba17b7`, `a881d48`, `e4ac4f2` |
 | T7 | all | inline: checks, verification, RDD, Codex, closing | pending | — |
 
 T1: library core (workload table with full and reduced counts, data generator, median and metrics, threshold and
@@ -200,3 +201,12 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   Voron writers wait without a limit (D8). RDD assessment of `9ba17b7..a881d48`: medium, `under_budget`, pending in
   the last slice. Second WSL complete run at `a881d48`: exit 1, 6,958 s, "Krummi cumple 7 de 22 umbrales"
   (`docs/benchmark/2026-11-03-linux.md`). Next: the Codex review, which waits for its usage limit (2026-11-04 06:48).
+- **L11** (2026-11-03): RDD of the last slice `4af47d6..e4ac4f2` (Voron lock-wait fix, the two reports, docs),
+  lenses resilience and reliability: approved, lineage `review-ea064a0969f64ddb`. Findings: R4-001 and R3-001
+  warnings (an unlimited wait hangs on a lock that is never released, with no time limit per process): fixed, the
+  wait is limited to 10 minutes, so such a lock fails the load with a named error. R3-002 warning (no test covers
+  the fix): kept, the failure depends on how an unfair lock is handed out under slow commits and was not reproduced
+  in isolation (L10); the complete WSL run at `a881d48` exercised W5 and W6 at full scale. R4-002 and R3-003
+  suggestions (the Windows report ran with Voron's 30 s default): kept, the limit only matters when a wait reaches
+  it, which fails the run, and the Windows run finished, so no wait reached 30 s and its measurements are the same
+  under either limit; the closing report states it, and the generated report is not edited by hand.

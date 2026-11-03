@@ -14,3 +14,5 @@
 2026-11-03T14:45:22+00:00	bg-end	acceptance	wsl complete run
 2026-11-03T14:53:27+00:00	bg-start	acceptance	wsl complete run 2
 2026-11-03T16:49:29+00:00	bg-end	acceptance	wsl complete run 2
+2026-11-03T16:50:06+00:00	mark	review	RDD last slice 4af47d6..e4ac4f2
+2026-11-03T16:56:02+00:00	mark	docs	T6/T7 records
