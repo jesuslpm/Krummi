@@ -247,6 +247,10 @@ Reglas de la forma:
 - Medir el uso de memoria o de CPU, la recuperación tras una caída y el tamaño del diario por separado.
 - Medir la dispersión entre repeticiones o marcar resultados inestables.
 - Otras plataformas (D3), y máquinas virtuales, contenedores o WSL como entorno de las ejecuciones completas.
+
+  *Anotación del 2026-11-03: excepción: WSL 2 con Ubuntu, sobre un sistema de archivos ext4 de su propio disco
+  virtual, vale como Linux para las ejecuciones completas, como en las mediciones de los módulos anteriores; tiene el
+  mismo equipo que la ejecución de Windows (decisión del usuario al empezar la ejecución del módulo).*
 - Preparar el equipo (antivirus, modo de energía, procesos en segundo plano) y comprobar de antemano que hay disco y
   memoria suficientes: es responsabilidad del mantenedor.
 - Elegir desde la orden qué motores o qué cargas ejecutar, y reanudar una ejecución interrumpida.

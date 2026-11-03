@@ -248,6 +248,10 @@ Rules of the form:
 - Measuring memory or CPU use, recovery after a crash and the size of the journal separately.
 - Measuring the dispersion between repetitions or flagging unstable results.
 - Other platforms (D3), and virtual machines, containers or WSL as the environment of the full runs.
+
+  *Annotation of 2026-11-03: exception: WSL 2 with Ubuntu, on an ext4 file system of its own virtual disk, counts as
+  Linux for the full runs, as in the measurements of the earlier modules; it has the same machine as the Windows run
+  (the user's decision when the module's run started).*
 - Preparing the machine (antivirus, power mode, background processes) and checking beforehand that there is enough
   disk and memory: it is the maintainer's responsibility.
 - Choosing from the command which engines or which workloads to run, and resuming an interrupted run.
