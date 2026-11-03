@@ -65,7 +65,10 @@ Decisions within *Dejado a la implementación*:
   multimap and `u64` tables. canopydb: page cache 1 GiB (its default, so not listed as changed), WAL on, `commit_with(true)`, `begin_write`. fjall:
   `SingleWriterTxDatabase`, block cache 1 GiB, `durability(Some(PersistMode::SyncData))`. Krummi and Voron:
   defaults. canopydb and fjall have no multi-value or integer keys (K6). Every engine is built with its default
-  Cargo features (`7286171`), so fjall keeps its default LZ4 block compression.
+  Cargo features (`7286171`), so fjall keeps its default LZ4 block compression. Voron's write transactions wait for
+  the write lock without a limit (`Timeout.InfiniteTimeSpan`), as the other engines' writers do; Voron's default
+  limit of 30 s failed W5 on WSL (L10). It is a wait limit, not a storage option, so the report does not list it
+  (default taken during the run).
 - **D9 Reports.** The first complete reports go to `docs/benchmark/2026-11-03-windows.md` and `-linux.md`.
 - **D1 revised (commit `838fb35`).** There is no second binary: `cargo run` does not promise to build it. The Rust
   worker is the same `krummi-bench` executable started with `KRUMMI_BENCH_ROLE=worker` (not an option of K10). The
@@ -124,7 +127,7 @@ Decisions within *Dejado a la implementación*:
 | T3 | S7, S8, S10 (Voron program) | delegated (parallel with T2) | done: selftest equals Rust, 21 reduced processes | `fa65b43` |
 | T4 | S5, S9, S10, S11, S13 | delegated (after T2) | done: 8 cli + 8 run tests (ignored without .NET), Ctrl+C by hand | `586bb7f` |
 | T5 | S6, S14 | inline | done: CI job, AC21 change for K14, dependency test | `06a37d3` (AC21), `5ca33da` |
-| T6 | S1, S8 | inline + background runs | pending | — |
+| T6 | S1, S8 | inline + background runs | done: Windows 5/22, Linux (WSL 2) 7/22 thresholds met; Voron lock-wait fix | `9ba17b7`, `a881d48`, Linux report commit below |
 | T7 | all | inline: checks, verification, RDD, Codex, closing | pending | — |
 
 T1: library core (workload table with full and reduced counts, data generator, median and metrics, threshold and
@@ -181,10 +184,19 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   | `5ca33da..fa65b43` (Voron worker) | reliability, resilience, readability | approved | R2-001 warning (`SortedByKey` copies the key formula): fixed, it uses `Data.KeyInto`; R2-002 and R3 warnings (malformed `KRUMMI_BENCH_FAIL` ignored): fixed, it fails as in the Rust worker; R2-003 suggestion (Params comment): fixed on both sides; R2-004 suggestion (identity through `ReadOrder`): fixed; R3 warning (selftest without assertions): fixed, it compares with the pinned answers | `review-d408eabb06d29d47` |
   | `fa65b43..24baebb` (Rust worker) | risk, resilience, readability, reliability | approved | R1-001, R4-001, R2, R3-001 warnings (canopydb sets a 1 GiB page cache that the report does not list): fixed, the adapter keeps canopydb's default, which is 1 GiB; R2 warning (multi-value stride 10 unnamed): fixed, `values_per_key`; R2 suggestion (W16 repeats the repetition loop): kept, it must time opening and closing | `review-8afa7395edc131e4` |
   | `24baebb..fa4f9c8` (orchestrator, fixes) | risk, resilience, readability, reliability | approved | R1-001 suggestion and R4/R2 warnings (default features add dependencies and LZ4 in fjall): kept on purpose, K3 asks for each engine's defaults and LZ4 is fjall's default; D8 records it; R4 suggestion (no per-process timeout): kept, out of scope in the PRD (*Fuera de alcance*: Ctrl+C or the CI job limit); R2 warning (kept stores hardcoded): fixed, derived from `Load::start`; R2 suggestion (shadowed name): fixed; R3 warning (Ctrl+C untested): kept, checked by hand in T4, not portable to automate; R3 warning (failed `versions` shows `desconocido`): kept, the PRD shows unknown data as `desconocido` and a broken worker fails at its first load; R3 suggestion (stderr joined): kept, a panic's message is on its second line | `review-d8124be01bd4049e` |
-
   | `fa4f9c8..4af47d6` (fixes of the findings above) | risk, readability, reliability | approved | R3-001 warning (Voron's W19 stride may not follow `values_per_key`): dismissed with evidence, `voron/Loads.cs:485` already uses `p.ValuesPerKey`; suggestions kept: the 80/79 literals next to `meets`, the failure kinds listed on both sides, a boundary test of the clamp and running `selftest` from CI (the orchestrator already compares every load's digest with Krummi's on every run) | `review-44b9db0772ddd82e` |
 
 - **L9** (2026-11-03): checks after the fixes: `cargo fmt --all --check` ok; clippy clean; `cargo test --workspace` 512
   passed, 0 failed, 30 ignored; `cargo test --release -p krummi-bench -- --include-ignored` with
   `KRUMMI_BENCH_RAVENDB`: 34 + 8 + 8 + 9 passed (the eight end-to-end runs with Voron in 348 s). Selectorless RDD
   status: empty candidate, nothing pending. Next: T6, the complete runs.
+- **L10** (2026-11-03): T6. Windows complete run at `7e70319`: exit 1, 5,830 s, "Krummi cumple 5 de 22 umbrales"
+  (`9ba17b7`, `docs/benchmark/2026-11-03-windows.md`). First WSL complete run at `9ba17b7` stopped without a report: "El
+  motor Voron falló en la carga escrituras-concurrentes-4: Waited for 00:00:30 for transaction write lock, but could
+  not get it". Cause: Voron's write lock is a `SemaphoreSlim(1, 1)`, which is not fair, and a write transaction waits
+  30 s by default (`StorageEnvironment.cs:684`); durable commits take about 6 ms on WSL (W4 157 op/s). Not
+  reproduced in isolation: W5 at full scale with the unfixed worker in WSL passed 4 repetitions (about 153 op/s,
+  260 s), so the failure depends on how the lock is handed out and no deterministic RED exists. Fix `a881d48`: the
+  Voron writers wait without a limit (D8). RDD assessment of `9ba17b7..a881d48`: medium, `under_budget`, pending in
+  the last slice. Second WSL complete run at `a881d48`: exit 1, 6,958 s, "Krummi cumple 7 de 22 umbrales"
+  (`docs/benchmark/2026-11-03-linux.md`). Next: the Codex review, which waits for its usage limit (2026-11-04 06:48).

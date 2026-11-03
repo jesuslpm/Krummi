@@ -10,3 +10,7 @@
 2026-11-03T12:32:49+00:00	mark	acceptance	T6 complete runs
 2026-11-03T12:32:49+00:00	bg-start	acceptance	windows complete run
 2026-11-03T14:10:05+00:00	bg-end	acceptance	windows complete run
+2026-11-03T14:11:03+00:00	bg-start	acceptance	wsl complete run
+2026-11-03T14:45:22+00:00	bg-end	acceptance	wsl complete run
+2026-11-03T14:53:27+00:00	bg-start	acceptance	wsl complete run 2
+2026-11-03T16:49:29+00:00	bg-end	acceptance	wsl complete run 2
