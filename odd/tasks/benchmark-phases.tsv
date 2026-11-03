@@ -4,3 +4,6 @@
 2026-11-03T10:52:40+00:00	mark	review	assess T1-T3,T5
 2026-11-03T10:52:46+00:00	mark	implement	T4
 2026-11-03T11:21:08+00:00	mark	checks	seam
+2026-11-03T11:32:19+00:00	mark	review	RDD aed68a6..642d5ab
+2026-11-03T12:01:28+00:00	mark	fix	verifier advisories
+2026-11-03T12:06:03+00:00	mark	review	RDD aed68a6..7286171
