@@ -123,8 +123,10 @@ values, which its catalog entry keeps.
 | `crates/krummi-pager/` | The Pager: paged data file, memory mapping, locking, growth, scratch area and snapshots, journal and recovery; the only crate with `unsafe` |
 | `crates/krummi-tx/` | Transactions: the write turn and its queue, read and write transactions, the internal page API, free space |
 | `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, multi-value trees, fixed-size trees with dense nodes of their own, and the catalog of named trees |
+| `crates/krummi-bench/` | The comparative benchmark (module 6): the `krummi-bench` command, its Rust worker and engine adapters, and in `voron/` the .NET program that measures Voron; not part of the engine |
+| `docs/benchmark/` | Reports of the complete benchmark runs |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
-| `.github/workflows/` | Continuous integration: the engine checks on Linux and Windows |
+| `.github/workflows/` | Continuous integration: the engine checks and the reduced benchmark on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
 | `.claude/skills/` | Project skills: `prd`, `vibe-coding`, `closing-report`, `worktree` |
 | `.claude/hooks/` | Guard that keeps a worktree session inside its own copy |
@@ -135,6 +137,23 @@ values, which its catalog entry keeps.
 | `docs/worktrees.md` | Guide to working on several changes at once in worktree copies |
 | `scripts/worktree/` | Scripts behind the `worktree` skill, with their tests |
 | `scripts/slides/` | Speaker-notes audio for the methodology slides |
+
+## Comparative benchmark
+
+The benchmark ([PRD](docs/prd/krummi/benchmark.prd.md)) measures Krummi against Voron, LMDB (through heed), redb,
+canopydb and fjall with the same 22 loads, every commit durable, and writes a Markdown report in Spanish. In each
+load Krummi must reach at least 80% of Voron's operations per second; the command ends with code `1` when it misses
+one. It needs the .NET 10 SDK and a folder with the RavenDB 7.2.7 source code, from which it builds Voron:
+
+```powershell
+git clone --depth 1 --branch 7.2.7 https://github.com/ravendb/ravendb.git work/ravendb-7.2.7
+cargo run --release -p krummi-bench -- --ravendb work/ravendb-7.2.7 [--carpeta <carpeta>] [--informe <archivo>] [--reducido]
+```
+
+`--carpeta` is where it creates the stores (the system's temporary folder by default) and `--informe` the report's
+file (`banco-<fecha>-<hora>.md` in the current folder by default). `--reducido` divides the quantities by about 100,
+measures once and evaluates no threshold: it checks that the benchmark works, and CI runs it on both systems. A
+complete run is meant for the maintainer's machine before a release, with the machine otherwise idle.
 
 ## Checks of the engine
 

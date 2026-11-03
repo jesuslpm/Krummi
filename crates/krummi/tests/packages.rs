@@ -1,6 +1,6 @@
 //! AC-R5 (R2 of the rename-to-krummi PRD): the workspace has exactly the Krummi packages, each in a folder of the
-//! same name: `krummi`, `krummi-pager`, `krummi-tx` and, since module 5, `krummi-tree` (D1 of the trees and key
-//! operations execution).
+//! same name: `krummi`, `krummi-pager`, `krummi-tx`, since module 5 `krummi-tree` (D1 of the trees and key
+//! operations execution) and, since module 6, `krummi-bench`, the comparative benchmark (K10 and K14 of its PRD).
 
 use std::fs;
 use std::path::Path;
@@ -24,13 +24,19 @@ fn ac_r5_the_workspace_has_only_the_krummi_packages() {
         })
         .collect();
     packages.sort();
-    let expected = ["krummi", "krummi-pager", "krummi-tree", "krummi-tx"]
-        .map(|n| (n.to_owned(), n.to_owned()));
+    let expected = [
+        "krummi",
+        "krummi-bench",
+        "krummi-pager",
+        "krummi-tree",
+        "krummi-tx",
+    ]
+    .map(|n| (n.to_owned(), n.to_owned()));
     assert_eq!(packages, expected);
     let workspace = fs::read_to_string(crates.join("..").join("Cargo.toml")).unwrap();
     assert!(
         workspace
-            .contains(r#"members = ["crates/krummi-pager", "crates/krummi-tx", "crates/krummi-tree", "crates/krummi"]"#),
+            .contains(r#"members = ["crates/krummi-pager", "crates/krummi-tx", "crates/krummi-tree", "crates/krummi", "crates/krummi-bench"]"#),
         "{workspace}"
     );
 }
