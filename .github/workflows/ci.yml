@@ -81,3 +81,45 @@ jobs:
       - name: Free-space model with 100,000 operations (AC-F16)
         timeout-minutes: 30
         run: cargo test --release -p krummi-tx --test free_space -- --ignored ac_f16
+
+  # The comparative benchmark, reduced, with its six engines (K12, AC-K6): it needs the .NET 10 SDK and the RavenDB
+  # 7.2.7 source code, from which it builds Voron. Thresholds are not evaluated here (K11).
+  benchmark:
+    name: Reduced benchmark (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      KRUMMI_BENCH_RAVENDB: ${{ github.workspace }}/../ravendb-7.2.7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Get the RavenDB 7.2.7 source code
+        shell: bash
+        run: git clone --quiet --depth 1 --branch 7.2.7 https://github.com/ravendb/ravendb.git "$KRUMMI_BENCH_RAVENDB"
+
+      - name: Reduced run (AC-K6)
+        shell: bash
+        run: |
+          cargo run --release -p krummi-bench -- --ravendb "$KRUMMI_BENCH_RAVENDB" --reducido --informe "$RUNNER_TEMP/banco.md"
+          cat "$RUNNER_TEMP/banco.md"
+
+      # The benchmark's tests that need .NET and RavenDB (AC-K5, AC-K9, AC-K10, AC-K13) are ignored by default and
+      # fail when run without KRUMMI_BENCH_RAVENDB.
+      - name: Benchmark tests with Voron
+        run: cargo test --release -p krummi-bench -- --include-ignored
