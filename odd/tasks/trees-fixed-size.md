@@ -232,6 +232,9 @@ parent context must still hold. Forecast: T1 about 1,500 lines, T2 about 2,000, 
   it are documents only.
 - **L23** (2026-11-02 15:13 UTC, user decision on L19): "Fusionamos sin ella". The Codex code review is waived for
   this run; the branch is fast-forwarded into `main`, not pushed.
+- **L24** (CI after the push of `d68e6db`, run 41469704522, 2026-11-02 15:15–15:58 UTC): success on ubuntu-latest
+  and windows-latest. The AC-X13 release step ran 1 test in 126.25 s (ubuntu) and 145.98 s (windows); whole jobs
+  39 min and 43 min. Closes the CI timing item of L20 and R4-ac-x13-timeout-headroom (L22).
 
 ## Closing
 

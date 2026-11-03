@@ -193,8 +193,10 @@ Medido con un millón de claves:
 
 - **Revisión de Codex: no se hizo.** No pudo ejecutarse por el límite de uso, y decidiste fusionar sin ella (L23).
   Si se quiere más adelante, el rango es `a97017e..d5a378e` (el código; lo posterior son documentos).
-- **CI:** el cambio del flujo de trabajo (`9198c8b`) solo se verá funcionar tras un push. Lo que no está medido es el
-  tiempo en los ejecutores de GitHub del barrido de AC-X13, que tardó 56 min en release en Windows en esta máquina.
+- **CI (resuelto, L24):** tras el push, la ejecución 41469704522 sobre `d68e6db` pasó en Ubuntu y Windows. El
+  barrido de AC-X13 ejecutó su test (`1 passed; 17 filtered out`) en 126 s en `ubuntu-latest` y 146 s en
+  `windows-latest`, muy lejos del límite de 120 min; los trabajos completos tardaron 39 y 43 min. Esto también cierra
+  R4-ac-x13-timeout-headroom (RDD 6). La diferencia con los 56 min medidos en esta máquina en T3 no se investigó.
 - **R3-001 (RDD 1):** una raíz que se divide en el nivel 254 crearía una raíz ilegible. No se alcanza con 510 hijos
   por rama, y el árbol normal tiene el mismo límite.
 - **Catálogo vacío:** tras borrar todos los árboles, el catálogo conserva su página raíz (advertencia del
