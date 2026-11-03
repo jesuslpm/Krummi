@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Voron worker of the benchmark (K2, design D1 of odd/tasks/benchmark.md). RavenDbRoot is the folder with the
+    RavenDB 7.2.7 source, passed on the command line:
+
+      dotnet restore VoronBench.csproj -configfile <RavenDbRoot>/NuGet.Config -artifacts-path <dir> -p:RavenDbRoot=<RavenDbRoot>
+      dotnet build VoronBench.csproj -c Release -no-restore -artifacts-path <dir> -p:RavenDbRoot=<RavenDbRoot>
+
+    Garbage collection and tiered compilation keep the .NET defaults (K3).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>VoronBench</RootNamespace>
+  </PropertyGroup>
+
+  <Target Name="RequireRavenDbRoot" BeforeTargets="Restore;_GenerateRestoreProjectSpec;Build" Condition="'$(RavenDbRoot)' == ''">
+    <Error Text="Pass -p:RavenDbRoot=&lt;folder with the RavenDB 7.2.7 source&gt;." />
+  </Target>
+
+  <ItemGroup Condition="'$(RavenDbRoot)' != ''">
+    <ProjectReference Include="$(RavenDbRoot)/src/Voron/Voron.csproj" />
+    <None Include="$(RavenDbRoot)/libs/librvnpal/librvnpal.win.x64.dll;$(RavenDbRoot)/libs/librvnpal/librvnpal.linux.x64.so;$(RavenDbRoot)/libs/libzstd/libzstd.win.x64.dll;$(RavenDbRoot)/libs/libzstd/libzstd.linux.x64.so"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
