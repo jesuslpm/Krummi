@@ -1,14 +1,19 @@
 //! What the orchestrator and the workers say to each other (design D4). The Rust worker and the .NET program for
 //! Voron print the same lines.
 //!
-//! A worker is started as `<worker> <command> <arguments>`:
+//! A worker is started as `<worker> <command> <arguments>` (the Rust worker is `krummi-bench` with
+//! `KRUMMI_BENCH_ROLE=worker`; the Voron one is the .NET program):
 //!
 //! - `run <engine> <load> <scale> <store> [<source>]`: runs a load. `<store>` is a folder that does not exist yet,
-//!   where the worker creates its repetitions' stores; `<source>` is the closed store the load starts from (a copy
-//!   of the base store, or of the last measured repetition of W17, W19 or W21), which the worker copies or opens as
-//!   the load needs. It leaves the store of its last repetition closed at `<store>/last` for the size of K9.
+//!   which the worker creates; repetition `i` uses the store `<store>/rep-<i>`. `<source>` is the closed store the
+//!   load starts from: the base store, or the store of the last measured repetition of W17, W19 or W21. The worker
+//!   never modifies `<source>`: it copies it (not measured) into `<store>/rep-<i>` for every repetition of a
+//!   modifying load, and once into `<store>/rep-0` for a read-only load, whose repetitions all use that store
+//!   opened once (K4). It leaves the store of its last repetition closed, for the size of K9 and for the loads
+//!   that start from it; it may delete the stores of earlier repetitions.
 //! - `prepare <engine> <scale> <store>`: builds the base store (W2's data, not measured) and closes it.
-//! - `versions`: prints the versions line.
+//! - `versions`: prints the `versions` lines of the components it knows (`lmdb` for the Rust worker, `dotnet` for
+//!   the Voron program).
 //!
 //! On success it prints only protocol lines on standard output and exits with `0`. On failure it prints one line
 //! with the cause on standard error and exits with `1`; anything it printed before is ignored.
