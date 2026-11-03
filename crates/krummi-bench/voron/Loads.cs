@@ -74,6 +74,8 @@ sealed class Entries
 static class Loads
 {
     const string Bench = "bench", Multi = "multi", Fixed = "fixed";
+    /// How long a writer waits for the write lock (see `Batches`).
+    static readonly TimeSpan WriteLockWait = TimeSpan.FromMinutes(10);
 
     public static BenchFailure Missing(ReadOnlySpan<byte> key) =>
         new($"no se encuentra la clave {Convert.ToHexStringLower(key)}");
@@ -630,14 +632,15 @@ static class Loads
 
     /// Runs `body` over [0, count) in write transactions of `batch` items, each committed.
     ///
-    /// A writer waits for the write lock without a limit, as in the other engines. Voron's default limit is 30 s, and
-    /// its lock is not fair, so with slow durable commits (about 6 ms each on WSL 2) a concurrent writer of W5 or W6
-    /// could wait longer than that and fail the run.
+    /// A writer waits for the write lock up to `WriteLockWait`. Voron's default limit is 30 s, and its lock is not
+    /// fair, so with slow durable commits (about 6 ms each on WSL 2) a concurrent writer of W5 or W6 could wait longer
+    /// than that and fail the run. The longer limit still turns a lock that is never released into a named failure
+    /// of the load instead of a hang, since the orchestrator has no time limit per process.
     static void Batches(StorageEnvironment env, int count, int batch, Action<Transaction, int, int> body)
     {
         for (int from = 0; from < count; from += batch)
         {
-            using var tx = env.WriteTransaction(timeout: Timeout.InfiniteTimeSpan);
+            using var tx = env.WriteTransaction(timeout: WriteLockWait);
             body(tx, from, Math.Min(count, from + batch));
             tx.Commit();
         }
