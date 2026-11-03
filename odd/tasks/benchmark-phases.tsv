@@ -16,3 +16,5 @@
 2026-11-03T16:49:29+00:00	bg-end	acceptance	wsl complete run 2
 2026-11-03T16:50:06+00:00	mark	review	RDD last slice 4af47d6..e4ac4f2
 2026-11-03T16:56:02+00:00	mark	docs	T6/T7 records
+2026-11-03T16:56:42+00:00	mark	checks	final checks
+2026-11-03T17:00:49+00:00	mark	wait	Codex usage limit until 2026-11-04 06:48

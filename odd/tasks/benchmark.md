@@ -210,3 +210,9 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   suggestions (the Windows report ran with Voron's 30 s default): kept, the limit only matters when a wait reaches
   it, which fails the run, and the Windows run finished, so no wait reached 30 s and its measurements are the same
   under either limit; the closing report states it, and the generated report is not edited by hand.
+- **L12** (2026-11-03): fix `de31a97` (the 10-minute wait), checked with `cargo test --release -p krummi-bench --
+  --include-ignored` and `KRUMMI_BENCH_RAVENDB`: 34 + 8 + 8 + 9 passed (the eight end-to-end runs with Voron in
+  259 s). RDD of `e4ac4f2..d60b000`, lens resilience: approved without findings, lineage `review-8821f19933732e16`.
+  Final checks: `cargo fmt --all --check` ok; clippy clean; `cargo test --workspace` 512 passed, 0 failed, 30
+  ignored. The run waits for the Codex reviews of the PRD and the code (usage limit until 2026-11-04 06:48); then
+  the closing report.
