@@ -629,11 +629,15 @@ static class Loads
     }
 
     /// Runs `body` over [0, count) in write transactions of `batch` items, each committed.
+    ///
+    /// A writer waits for the write lock without a limit, as in the other engines. Voron's default limit is 30 s, and
+    /// its lock is not fair, so with slow durable commits (about 6 ms each on WSL 2) a concurrent writer of W5 or W6
+    /// could wait longer than that and fail the run.
     static void Batches(StorageEnvironment env, int count, int batch, Action<Transaction, int, int> body)
     {
         for (int from = 0; from < count; from += batch)
         {
-            using var tx = env.WriteTransaction();
+            using var tx = env.WriteTransaction(timeout: Timeout.InfiniteTimeSpan);
             body(tx, from, Math.Min(count, from + batch));
             tx.Commit();
         }
