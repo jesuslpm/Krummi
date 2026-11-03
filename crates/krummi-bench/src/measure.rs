@@ -42,6 +42,14 @@ pub fn meets(krummi: f64, voron: f64) -> bool {
 /// The ratio Krummi / Voron as the report shows it: two decimals with a comma, **truncated**, so that a shown
 /// `0,80` or more always meets the threshold and a lower one never does.
 pub fn ratio_text(krummi: f64, voron: f64) -> String {
+    // Without Voron operations there is no ratio to truncate: it is infinite, or 0 when Krummi has none either.
+    if voron <= 0.0 || !voron.is_finite() {
+        return if krummi > 0.0 {
+            "∞".into()
+        } else {
+            "0,00".into()
+        };
+    }
     let scaled = krummi * 100.0;
     let mut hundredths = (scaled / voron).floor().max(0.0) as u64;
     // Correct the floating-point division at the boundary, by the same multiplication `meets` uses.
@@ -101,6 +109,9 @@ mod tests {
         assert_eq!(ratio_text(1_029.0, 1_000.0), "1,02");
         assert_eq!(ratio_text(29.0, 100.0), "0,29");
         assert_eq!(ratio_text(12_345.0, 1_000.0), "12,34");
+        // Voron without operations (W12 with no read finished in a reduced run) must not hang.
+        assert_eq!(ratio_text(0.0, 0.0), "0,00");
+        assert_eq!(ratio_text(5.0, 0.0), "∞");
         // Below 1,000 every ratio is `0,dd`, so comparing the text compares the shown value.
         for k in 0..1_000 {
             let k = k as f64;

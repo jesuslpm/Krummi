@@ -94,6 +94,15 @@ fn cannot_use(folder: &Path, cause: &str) -> Failure {
 
 /// The report's file must not exist, also as a folder, and its folder must exist and be a folder.
 pub fn check_report(report: &Path) -> Result<(), Failure> {
+    // A path that ends with a separator, or has no file name, names a folder: it can never be the report's file,
+    // so it fails now rather than after the whole run.
+    let text = report.as_os_str().to_string_lossy();
+    let names_a_folder = text.ends_with('/')
+        || text.ends_with(std::path::MAIN_SEPARATOR)
+        || report.file_name().is_none();
+    if names_a_folder && fs::symlink_metadata(report).is_err() {
+        return Err(cannot_use(report, "no existe"));
+    }
     if fs::symlink_metadata(report).is_ok() {
         return Err(Failure::new(
             format!("El destino {} ya existe.", shown(report)),
@@ -261,6 +270,24 @@ mod tests {
                 .unwrap_err()
                 .message
                 .ends_with(": no es una carpeta.")
+        );
+        // A path that ends with a separator names a folder, which can never be the report's file.
+        let trailing = format!(
+            "{}{}",
+            dir.path().join("nada").display(),
+            std::path::MAIN_SEPARATOR
+        );
+        assert_eq!(
+            check_report(Path::new(&trailing)).unwrap_err(),
+            Failure::new(
+                format!("No se puede usar la carpeta {trailing}: no existe."),
+                1
+            )
+        );
+        let trailing_existing = format!("{}/", dir.path().display());
+        assert_eq!(
+            check_report(Path::new(&trailing_existing)).unwrap_err(),
+            Failure::new(format!("El destino {trailing_existing} ya existe."), 1)
         );
         assert_eq!(check_report(&dir.path().join("nuevo.md")), Ok(()));
         assert_eq!(check_report(Path::new("nuevo-que-no-existe.md")), Ok(()));

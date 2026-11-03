@@ -9,13 +9,13 @@ publish.workspace = true
 default-run = "krummi-bench"
 
 [dependencies]
-canopydb = { version = "0.2.5", default-features = false }
+canopydb = "0.2.5"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 ctrlc = "3.5.2"
-fjall = { version = "3.1.13", default-features = false }
-heed = { version = "0.23.1", default-features = false }
+fjall = "3.1.13"
+heed = "0.23.1"
 krummi = { version = "0.1.0", path = "../krummi" }
-redb = { version = "4.4.0", default-features = false }
+redb = "4.4.0"
 sysinfo = "0.38.4"
 
 # K14: the benchmark is not part of the engine. It may use unsafe code only where another engine's public interface
