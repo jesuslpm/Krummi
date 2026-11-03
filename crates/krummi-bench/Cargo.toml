@@ -1,0 +1,27 @@
+[package]
+name = "krummi-bench"
+version = "0.1.0"
+description = "Comparative benchmark of Krummi against Voron, LMDB, redb, canopydb and fjall (module 6)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "krummi-bench"
+
+[dependencies]
+canopydb = { version = "0.2.5", default-features = false }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+ctrlc = "3.5.2"
+fjall = { version = "3.1.13", default-features = false }
+heed = { version = "0.23.1", default-features = false }
+krummi = { version = "0.1.0", path = "../krummi" }
+redb = { version = "4.4.0", default-features = false }
+sysinfo = "0.38.4"
+
+# K14: the benchmark is not part of the engine. It may use unsafe code only where another engine's public interface
+# requires it (opening an LMDB environment), so it denies unsafe code instead of inheriting the workspace's forbid.
+[lints.rust]
+unsafe_code = "deny"
+
+[dev-dependencies]
+tempfile = "3.27.0"

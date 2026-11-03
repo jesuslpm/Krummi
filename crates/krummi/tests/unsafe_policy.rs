@@ -1,12 +1,17 @@
 //! D12 / AC21: unsafe code is allowed only in the Pager crate.
 //!
-//! Two checks: every workspace member except `krummi-pager` inherits the workspace lints, which forbid unsafe
-//! code; and no Rust source outside the Pager crate uses the `unsafe` keyword.
+//! Two checks: every workspace member except `krummi-pager` and the benchmark inherits the workspace lints, which
+//! forbid unsafe code; and no Rust source outside the Pager crate uses the `unsafe` keyword. The benchmark
+//! (`krummi-bench`) is not part of the engine (K14 of the benchmark PRD): it denies unsafe code with lints of its
+//! own and uses it only where another engine's public interface requires it, in its LMDB adapter.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const PAGER_CRATE: &str = "krummi-pager";
+const BENCH_CRATE: &str = "krummi-bench";
+/// The only file of the benchmark that may use unsafe code (K14).
+const BENCH_UNSAFE_FILE: &str = "lmdb.rs";
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
@@ -136,6 +141,15 @@ fn no_crate_but_the_pager_uses_unsafe_code() {
             }
         }
     }
+    // The benchmark may use unsafe code only in its LMDB adapter (K14).
+    found.retain(|f| {
+        let in_bench = f.contains(&format!("{BENCH_CRATE}{}", std::path::MAIN_SEPARATOR));
+        !(in_bench
+            && f.rsplit_once(':').unwrap().0.ends_with(&format!(
+                "engines{}{BENCH_UNSAFE_FILE}",
+                std::path::MAIN_SEPARATOR
+            )))
+    });
     assert!(found.is_empty(), "unsafe code outside the Pager: {found:?}");
 }
 
@@ -148,11 +162,19 @@ fn every_crate_but_the_pager_forbids_unsafe_code() {
     );
     for dir in member_dirs() {
         let manifest = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
-        let is_pager = dir.file_name().unwrap() == PAGER_CRATE;
+        let name = dir.file_name().unwrap();
         let inherits = manifest.contains("[lints]\nworkspace = true");
+        if name == BENCH_CRATE {
+            assert!(
+                !inherits && manifest.contains("[lints.rust]\nunsafe_code = \"deny\""),
+                "{}: the benchmark denies unsafe code with lints of its own (K14)",
+                dir.display()
+            );
+            continue;
+        }
         assert_eq!(
             inherits,
-            !is_pager,
+            name != PAGER_CRATE,
             "{}: only the Pager may opt out of the workspace lints",
             dir.display()
         );

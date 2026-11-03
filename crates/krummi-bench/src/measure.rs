@@ -1,0 +1,115 @@
+//! Metrics, medians and thresholds (K7, K8).
+
+/// One repetition of a load: its operations and its time in nanoseconds. Index 0 is the warm-up in a complete run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Repetition {
+    pub index: u32,
+    pub operations: u64,
+    pub nanos: u64,
+}
+
+impl Repetition {
+    /// Operations per second (K8).
+    pub fn metric(self) -> f64 {
+        self.operations as f64 * 1e9 / self.nanos.max(1) as f64
+    }
+}
+
+/// The metric of a load: the median of the metrics of its measured repetitions (K8). `warmups` repetitions, the
+/// first ones by index, are discarded. Panics if no measured repetition remains.
+pub fn load_metric(repetitions: &[Repetition], warmups: u32) -> f64 {
+    let mut metrics: Vec<f64> = repetitions
+        .iter()
+        .filter(|r| r.index >= warmups)
+        .map(|r| r.metric())
+        .collect();
+    assert!(!metrics.is_empty(), "no measured repetition");
+    metrics.sort_by(f64::total_cmp);
+    let n = metrics.len();
+    if n % 2 == 1 {
+        metrics[n / 2]
+    } else {
+        (metrics[n / 2 - 1] + metrics[n / 2]) / 2.0
+    }
+}
+
+/// Whether Krummi meets the threshold of a load: its metric is at least 0.80 times Voron's, without rounding (K7).
+/// Compared as `5 · krummi ≥ 4 · voron`, so `800` against `1000` meets it exactly.
+pub fn meets(krummi: f64, voron: f64) -> bool {
+    krummi * 5.0 >= voron * 4.0
+}
+
+/// The ratio Krummi / Voron as the report shows it: two decimals with a comma, **truncated**, so that a shown
+/// `0,80` or more always meets the threshold and a lower one never does.
+pub fn ratio_text(krummi: f64, voron: f64) -> String {
+    let scaled = krummi * 100.0;
+    let mut hundredths = (scaled / voron).floor().max(0.0) as u64;
+    // Correct the floating-point division at the boundary, by the same multiplication `meets` uses.
+    while (hundredths + 1) as f64 * voron <= scaled {
+        hundredths += 1;
+    }
+    while hundredths > 0 && hundredths as f64 * voron > scaled {
+        hundredths -= 1;
+    }
+    format!("{},{:02}", hundredths / 100, hundredths % 100)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rep(index: u32, operations: u64, nanos: u64) -> Repetition {
+        Repetition {
+            index,
+            operations,
+            nanos,
+        }
+    }
+
+    // AC-K4: the median of the measured repetitions' metrics, the warm-up discarded, also with varying counts.
+    #[test]
+    fn the_metric_is_the_median_of_the_measured_repetitions() {
+        let reps = [
+            rep(0, 1_000, 1_000_000_000), // warm-up: 1,000 op/s, discarded
+            rep(1, 3_000, 1_000_000_000), // 3,000
+            rep(2, 2_000, 2_000_000_000), // 1,000
+            rep(3, 5_000, 2_000_000_000), // 2,500
+        ];
+        assert_eq!(load_metric(&reps, 1), 2_500.0);
+        // Without discarding, the warm-up would change it.
+        assert_eq!(load_metric(&reps, 0), (1_000.0 + 2_500.0) / 2.0);
+        // Reduced run: the only repetition, without warm-up.
+        assert_eq!(load_metric(&[rep(0, 42, 1_000_000_000)], 0), 42.0);
+    }
+
+    // AC-K3: meets the threshold if and only if Krummi ≥ 0.80 · Voron, without rounding.
+    #[test]
+    fn the_threshold_is_eighty_percent_of_voron() {
+        assert!(meets(800.0, 1_000.0));
+        assert!(!meets(799.6, 1_000.0));
+        assert!(meets(2_000.0, 1_000.0));
+        assert!(!meets(0.0, 1.0));
+        assert!(meets(0.8, 1.0));
+    }
+
+    // AC-K2: the ratio is truncated, never rounded up past the threshold.
+    #[test]
+    fn the_ratio_is_truncated_to_two_decimals_with_a_comma() {
+        assert_eq!(ratio_text(799.6, 1_000.0), "0,79");
+        assert_eq!(ratio_text(800.0, 1_000.0), "0,80");
+        assert_eq!(ratio_text(0.8, 1.0), "0,80");
+        assert_eq!(ratio_text(1_029.0, 1_000.0), "1,02");
+        assert_eq!(ratio_text(29.0, 100.0), "0,29");
+        assert_eq!(ratio_text(12_345.0, 1_000.0), "12,34");
+        // Below 1,000 every ratio is `0,dd`, so comparing the text compares the shown value.
+        for k in 0..1_000 {
+            let k = k as f64;
+            assert_eq!(meets(k, 1_000.0), k >= 800.0, "{k}");
+            assert_eq!(
+                ratio_text(k, 1_000.0).as_str() >= "0,80",
+                meets(k, 1_000.0),
+                "{k}"
+            );
+        }
+    }
+}
