@@ -87,6 +87,10 @@ contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-11-03 to D11: module 5 does not store compressed pages, because leaf page compression is out of scope (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md)); the copy in transaction memory still applies to encrypted pages (module 9).*
 
+*Annotation of 2026-11-03 to objective 3 and D5: "competitive" means that, in every benchmark workload, Krummi performs at least 80% of what Voron performs. Exception to D5: Voron, which is not a Rust engine, takes part in the benchmark, built from the RavenDB source code, and is the only reference for the thresholds; the other engines give context (decisions K2 and K7 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
+
+*Annotation of 2026-11-03 to D2 and D12: the comparative benchmark is a maintainer tool, not part of the product's public surface; its dependencies do not reach the library, and it may use unsafe code only where another engine's interface requires it (decision K14 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:
@@ -279,6 +283,9 @@ Common conventions of the command-line tool; child PRD 12 sets the exact output 
 
   Exit code: `1`.
 
+*Annotation of 2026-11-03: the comparative benchmark command also ends with `1` when Krummi misses a threshold,
+even though it wrote its report (decision K13 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
+
 ## Reuse
 
 None: this is the first PRD of the product. Voron is the behavior reference; its code is neither reused nor
@@ -389,6 +396,10 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 19. **AC19** — The comparative benchmark is run with the command set by its child PRD and produces on Windows
     and on Linux a report with the same structure, the same engines, the same workloads and the same fields, in
     which Krummi meets the thresholds in force (D5).
+
+    *Annotation of 2026-11-03 to AC19: the thresholds in force are those of K7 of
+    [benchmark.prd.en.md](benchmark.prd.en.md); AC19 is required before each product release, not to close module 6
+    (decision K13).*
 20. **AC20** — Given a read of any data structure, when it returns a value, then the reference points to engine
     memory (the file projection, or the transaction's memory if the page is encrypted or compressed) and not to a
     copy made for that read; and using the reference after closing the transaction does not compile (D11). Each

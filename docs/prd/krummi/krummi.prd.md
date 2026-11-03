@@ -86,6 +86,10 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-11-03 a D11: el módulo 5 no guarda páginas comprimidas, porque la compresión de páginas hoja queda fuera de alcance (anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md)); la copia en memoria de la transacción sigue valiendo para las páginas cifradas (módulo 9).*
 
+*Anotación del 2026-11-03 al objetivo 3 y a D5: "competitivo" significa que, en cada carga del banco, Krummi rinde al menos el 80% de lo que rinde Voron. Excepción a D5: Voron, que no es un motor de Rust, entra en el banco, compilado desde el código de RavenDB, y es la única referencia de los umbrales; los demás motores dan contexto (decisiones K2 y K7 de [benchmark.prd.md](benchmark.prd.md)).*
+
+*Anotación del 2026-11-03 a D2 y D12: el banco comparativo es una herramienta del mantenedor, no de la superficie pública del producto; sus dependencias no llegan a la biblioteca, y puede usar código no seguro solo donde la interfaz de otro motor lo exige (decisión K14 de [benchmark.prd.md](benchmark.prd.md)).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
@@ -280,6 +284,9 @@ Convenciones comunes de la herramienta de línea de comandos; el PRD hijo 12 fij
 
   Código de salida: `1`.
 
+*Anotación del 2026-11-03: la orden del banco comparativo también termina con `1` cuando Krummi incumple un umbral,
+aunque haya escrito su informe (decisión K13 de [benchmark.prd.md](benchmark.prd.md)).*
+
 ## Reutilización
 
 Ninguna: es el primer PRD del producto. Voron es la referencia de comportamiento; su código no se reutiliza ni se
@@ -392,6 +399,9 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 19. **AC19** — El banco comparativo se ejecuta con la orden que fija su PRD hijo y produce en Windows y en Linux
     un informe con la misma estructura, los mismos motores, las mismas cargas y los mismos campos, en el que
     Krummi cumple los umbrales vigentes (D5).
+
+    *Anotación del 2026-11-03 a AC19: los umbrales vigentes son los de K7 de [benchmark.prd.md](benchmark.prd.md);
+    AC19 se exige antes de cada versión del producto, no para cerrar el módulo 6 (decisión K13).*
 20. **AC20** — Dada una lectura de cualquier estructura de datos, cuando devuelve un valor, entonces la referencia
     apunta a memoria del motor (la proyección del archivo, o la memoria de la transacción si la página está
     cifrada o comprimida) y no a una copia hecha para esa lectura; y usar la referencia después de cerrar la
