@@ -112,6 +112,42 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B6: en los árboles de tamaño fijo, cada valor tiene exactamente la longitud del árbol, de 0 a 2.048 bytes, fijada al crearlo (decisión X1).*
 - *B7 y B8: la longitud pedida al abrir un árbol de tamaño fijo se valida como un valor, con mínimo `0` y máximo `2048`, después del nombre; los datos de tipo de árbol distinto llevan la longitud de cada tipo de tamaño fijo (decisiones X2, X3 y X11).*
 
+*Anotaciones del 2026-11-03 por la salida de la compresión de páginas hoja (5.6), con 5.1 a 5.5 ya cerrados:*
+
+- *B2: el módulo se reparte en cinco PRD hijos, 5.1 a 5.5, y está cerrado cuando lo están los cinco; como ya lo
+  están, el módulo 5 cuenta como cerrado para el objetivo 2 del padre. 5.6 no se construye y pasa a
+  [Fuera de alcance](#fuera-de-alcance), como excepción al objetivo 2 y a D4 del padre. Esto sustituye cada mención
+  de seis PRD hijos y de la compresión de páginas hoja como contenido del módulo, en este documento y en sus PRD
+  hijos, donde lo que dejaban a 5.6 queda fuera de alcance. 5.1 a 5.5 no cambian, y la versión de formato sigue
+  siendo `9`. La compresión del diario (módulo 3), la de valores por diccionario (módulo 7) y la de claves de los
+  compact trees (módulo 15) no cambian. Motivos:*
+  - *Memoria: en un almacén en disco, una página hoja comprimida que se está leyendo ocupa su versión comprimida en
+    la caché de páginas del sistema y, además, su copia descomprimida en memoria de la transacción, más que la misma
+    página sin comprimir. Liberar esas copias al terminar cada transacción obliga a descomprimir otra vez, en cada
+    una, las hojas más usadas; guardarlas entre transacciones las deja duplicadas en memoria.*
+  - *Lecturas sin copia: D11 del padre admite descomprimir una página una sola vez en memoria de la transacción,
+    pero las referencias que devuelve una lectura valen mientras su transacción está abierta (T8), así que ninguna
+    de esas copias puede liberarse antes: una transacción de lectura que recorre entero un árbol comprimido lo
+    tendría entero descomprimido en memoria hasta cerrarse. Evitarlo exige copiar cada dato devuelto, contra D11 y
+    T16, o acortar la vida de las referencias, lo que cambia T8 y D11. El cifrado (módulo 9) tiene el mismo coste,
+    pero lo justifica la confidencialidad (G8), no un ahorro.*
+  - *CPU y complejidad: cada lectura de una hoja que no está en memoria la descomprime, y cada hoja modificada se
+    vuelve a comprimir al escribirse; con un tamaño comprimido variable, las divisiones y fusiones de las páginas
+    hoja comprimidas se complican.*
+  - *Beneficio: reduce el tamaño en disco, y el de los backups, y solo ahorra lecturas del disco cuando los datos no
+    caben en memoria. Con los datos en memoria, el caso habitual de un motor embebido, gasta más memoria y CPU para
+    ahorrar solo disco. Ninguna medición muestra hoy que haga falta, y parte de ese ahorro, el de valores parecidos
+    dentro de una tabla, lo da la compresión de valores por diccionario (módulo 7).*
+
+  *Si una medición con datos mayores que la memoria lo justifica, la compresión de páginas hoja puede volver como un
+  cambio del módulo con PRD propio fuera de su reparto, como la comprobación de organización recordada de los
+  nodos, sin reabrir su cierre; ese PRD declarará su cambio de formato (B12) y resolverá la vida de las referencias
+  sin romper D11 ni T16.*
+- *B3: deja de aplicar la frase sobre la compresión de páginas hoja; los tipos siguen siendo normal, multivalor y de
+  tamaño fijo.*
+- *B10: deja de aplicar lo que encargaba al PRD hijo 5.6; ningún árbol guarda páginas hoja comprimidas.*
+- *Reparto en PRD hijos: la fila 5.6 queda sin efecto.*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:
@@ -156,6 +192,9 @@ errores.
 | 5.4 | **Árboles multivalor** | Árboles cuyas claves tienen un conjunto ordenado de valores distintos (B3). | Las operaciones sobre los valores de una clave; el máximo de cada valor y si el valor vacío es válido; qué pasa al añadir un valor que ya está. |
 | 5.5 | **Árboles de tamaño fijo** | Árboles con claves enteras sin signo de 64 bits (B5) y valores de longitud fija (B3). | Cuándo se fija la longitud de los valores y cuál es la máxima; con qué clase y datos falla una longitud no válida al crear el árbol; si abrir un árbol con una longitud distinta de la suya es un tipo de árbol distinto o un error propio, y sus datos; qué operaciones de 5.1 y 5.2 tienen. |
 | 5.6 | **Compresión de páginas hoja** | Árboles cuyas páginas hoja se guardan comprimidas. | Cómo se elige comprimir un árbol, de qué tipos, y si se puede cambiar después; dónde vive la copia descomprimida de una página hoja (B10). |
+
+*Anotación del 2026-11-03: la fila 5.6 queda sin efecto; la compresión de páginas hoja está fuera de alcance
+(anotación del 2026-11-03 a B2).*
 
 **Antes de implementar 5.1**: su ejecución empieza por una prueba de compilación que demuestra que el modelo de
 propiedad y préstamos de Rust permite a la vez B1 y B9: varias aperturas de árboles en una escritura, también del
@@ -227,6 +266,7 @@ Con una clave vacía, el tamaño recibido es `0` y el mínimo y el máximo son l
 - Inspeccionar, verificar o rescatar árboles desde la herramienta de línea de comandos (módulo 12).
 - Cifrar las páginas de los árboles: lo cubre el cifrado de todo lo que el motor escribe (módulo 9).
 - Umbrales de rendimiento (módulo 6).
+- *Compresión de las páginas hoja de los árboles (anotación del 2026-11-03 a B2).*
 
 ## Dejado a la implementación
 
@@ -329,6 +369,9 @@ Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotac
   impiden confirmar (B7).
 - Transacciones, T8: una operación que puede modificar la transacción termina las referencias aunque falle sin
   efecto; abrir un árbol existente no las termina (B9).
+- *Padre raíz, objetivo 2, D4, D11 y módulo 5 (2026-11-03): la compresión de páginas hoja queda fuera de alcance,
+  como excepción al objetivo 2 y a D4, y el módulo 5 se reparte en cinco PRD hijos y está cerrado cuando lo están
+  los cinco, lo que sustituye la primera entrada de esta lista (anotación del 2026-11-03 a B2).*
 
 ## Referencias
 
@@ -347,5 +390,7 @@ Medido con el historial de la sesión de Claude Code. Si la persona tarda más d
 | Sesión | Inicio | Reloj | Descartado | Activo | Agente | Persona | Intervenciones |
 |---|---|---|---|---|---|---|---|
 | 31c36231 | 2026-10-24 10:22 UTC+01:00 | 36 min | 0 min | 36 min | 19 min | 17 min | 15 |
+| 41d90b46 | 2026-11-02 07:05 UTC+00:00 | 23 h 32 min | 23 h 4 min | 28 min | 7 min | 20 min | 5 |
+| **Total** |  | 24 h 8 min | 23 h 4 min | 1 h 4 min | 26 min | 38 min | 20 |
 
-<!-- prd-time: [{"session": "31c36231-b691-4c62-8559-6f87e09084cf", "start": "2026-10-24T09:22:37.952000+00:00", "wall": 2181, "discarded": 0, "agent": 1146, "human": 1035, "interventions": 15, "idle_minutes": 10}] -->
+<!-- prd-time: [{"session": "31c36231-b691-4c62-8559-6f87e09084cf", "start": "2026-10-24T09:22:37.952000+00:00", "wall": 2181, "discarded": 0, "agent": 1146, "human": 1035, "interventions": 15, "idle_minutes": 10}, {"session": "41d90b46-2095-4c1a-896a-0a2ece230cd5", "start": "2026-11-02T07:05:30.751000+00:00", "wall": 84723, "discarded": 83057, "agent": 440, "human": 1225, "interventions": 5, "idle_minutes": 10}] -->

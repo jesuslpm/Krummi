@@ -25,6 +25,12 @@ modules, and splits the product into child PRDs, each with its own execution and
 3. **Competitive, measured performance**: "competitive" means meeting the thresholds set by the benchmark child
    PRD (decision D5).
 
+*Annotation of 2026-11-03 to objective 2 and D4: exception: Krummi does not reproduce the leaf page compression of
+Voron's trees. That compression spends more memory and CPU to save disk and, with zero-copy reads (D11), would keep
+every leaf that a read transaction reads decompressed in transaction memory until it closes. The reasons are in the
+annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md). The product is still complete when the 16
+child PRDs of the split are closed, with module 5 without that compression.*
+
 **Why**: Voron is a design proven for years in production (one writer with concurrent readers that do not block,
 a write-ahead journal, automatic recovery), but it only exists for .NET. Krummi brings that design to Rust as a
 product of its own, without being tied to its on-disk format.
@@ -78,6 +84,8 @@ contain a Krummi store (D10, decision R6).*
 *Annotation of 2026-10-29 to D7: with multi-value trees, the current format version becomes `8` (decision M14 of [trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)).*
 
 *Annotation of 2026-11-02 to D7: with fixed-size trees, the current format version becomes `9` (decision X12 of [trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)).*
+
+*Annotation of 2026-11-03 to D11: module 5 does not store compressed pages, because leaf page compression is out of scope (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md)); the copy in transaction memory still applies to encrypted pages (module 9).*
 
 ### Starting state
 
@@ -200,6 +208,10 @@ execution of its own, and it counts as closed for objective 2 when all six are; 
 bytes), a value (256 MiB) and a tree name (1,024 bytes) and their errors are in B4–B8 of
 [trees.prd.en.md](trees.prd.en.md).*
 
+*Annotation of 2026-11-03 to module 5: leaf page compression leaves its content and the scope of the product
+(exception to objective 2 and D4); the module is split into five child PRDs (5.1 to 5.5) and counts as closed for
+objective 2 when the five are (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md)).*
+
 ## Validations and messages
 
 Situations common to the whole product. The library returns the error class of each row (D8); the message column
@@ -293,6 +305,7 @@ translated, and its format is not reused (D1).
 - Copying the files of an open store as a way of backing up: the backup is made with the library or the tool.
 - Migration between formats before version 1.0, and migration to an older format in any version (D7).
 - License and publication of the crate: decided before the first publication, in another PRD.
+- *Compression of the leaf pages of trees (annotation of 2026-11-03 to module 5).*
 
 ## Left to the implementation
 

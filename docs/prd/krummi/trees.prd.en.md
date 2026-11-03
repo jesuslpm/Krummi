@@ -109,6 +109,42 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B6: in fixed-size trees, each value has exactly the length of the tree, 0 to 2,048 bytes, fixed when it is created (decision X1).*
 - *B7 and B8: the length requested when opening a fixed-size tree is validated as a value, with minimum `0` and maximum `2048`, after the name; the data of different tree type carry the length of each fixed-size type (decisions X2, X3 and X11).*
 
+*Annotations of 2026-11-03 from the removal of leaf page compression (5.6), with 5.1 to 5.5 already closed:*
+
+- *B2: the module is split into five child PRDs, 5.1 to 5.5, and is closed when the five are closed; since they
+  already are, module 5 counts as closed for objective 2 of the parent. 5.6 is not built and moves to
+  [Out of scope](#out-of-scope), as an exception to objective 2 and D4 of the parent. This replaces every mention of
+  six child PRDs and of leaf page compression as content of the module, in this document and in its child PRDs,
+  where what they left to 5.6 is now out of scope. 5.1 to 5.5 do not change, and the format version stays `9`. The
+  journal compression (module 3), the dictionary value compression (module 7) and the key compression of compact
+  trees (module 15) do not change. Reasons:*
+  - *Memory: in an on-disk store, a compressed leaf page that is being read takes its compressed version in the
+    operating system page cache and, in addition, its decompressed copy in transaction memory, more than the same
+    page uncompressed. Releasing those copies at the end of each transaction forces the most used leaves to be
+    decompressed again in each one; keeping them across transactions leaves them duplicated in memory.*
+  - *Zero-copy reads: D11 of the parent allows decompressing a page only once in transaction memory, but the
+    references that a read returns are valid while its transaction is open (T8), so none of those copies can be
+    released earlier: a read transaction that walks a whole compressed tree would have all of it decompressed in
+    memory until it closes. Avoiding that requires copying each returned datum, against D11 and T16, or shortening
+    the life of the references, which changes T8 and D11. Encryption (module 9) has the same cost, but it is
+    justified by confidentiality (G8), not by a saving.*
+  - *CPU and complexity: each read of a leaf that is not in memory decompresses it, and each modified leaf is
+    compressed again when it is written; with a variable compressed size, splits and merges of compressed leaf pages
+    get more complicated.*
+  - *Benefit: it reduces the size on disk, and that of backups, and it only saves disk reads when the data does not
+    fit in memory. With the data in memory, the usual case of an embedded engine, it spends more memory and CPU to
+    save only disk. No measurement shows today that it is needed, and part of that saving, that of similar values
+    within a table, is given by dictionary value compression (module 7).*
+
+  *If a measurement with data larger than memory justifies it, leaf page compression can come back as a change of
+  the module with its own PRD outside its split, like the remembered node layout check, without reopening its
+  closure; that PRD will declare its format change (B12) and will settle the life of the references without
+  breaking D11 or T16.*
+- *B3: the sentence about leaf page compression no longer applies; the types remain normal, multi-value and
+  fixed-size.*
+- *B10: what it left to child PRD 5.6 no longer applies; no tree stores compressed leaf pages.*
+- *Split into child PRDs: the row 5.6 has no effect.*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:
@@ -153,6 +189,9 @@ the previous ones. The *Sets* column names what that child PRD must decide, besi
 | 5.4 | **Multi-value trees** | Trees whose keys have an ordered set of distinct values (B3). | The operations on the values of a key; the maximum of each value and whether the empty value is valid; what happens when adding a value that is already there. |
 | 5.5 | **Fixed-size trees** | Trees with 64-bit unsigned integer keys (B5) and fixed-length values (B3). | When the length of the values is set and what the maximum is; with what class and data an invalid length fails when creating the tree; whether opening a tree with a length different from its own is a different tree type or an error of its own, and its data; which operations of 5.1 and 5.2 they have. |
 | 5.6 | **Leaf page compression** | Trees whose leaf pages are stored compressed. | How compressing a tree is chosen, for which types, and whether it can be changed afterwards; where the decompressed copy of a leaf page lives (B10). |
+
+*Annotation of 2026-11-03: the row 5.6 has no effect; leaf page compression is out of scope
+(annotation of 2026-11-03 to B2).*
 
 **Before implementing 5.1**: its execution starts with a compilation test that shows that Rust's ownership and
 borrowing model allows B1 and B9 together: several tree handles in a write, also of the same tree, with the changes
@@ -222,6 +261,7 @@ With an empty key, the size received is `0` and the minimum and the maximum are 
 - Inspecting, verifying or rescuing trees from the command-line tool (module 12).
 - Encrypting the pages of the trees: covered by the encryption of everything the engine writes (module 9).
 - Performance thresholds (module 6).
+- *Compression of the leaf pages of trees (annotation of 2026-11-03 to B2).*
 
 ## Left to the implementation
 
@@ -322,6 +362,9 @@ This PRD changes or refines rules of earlier documents, which carry the correspo
   prevent committing (B7).
 - Transactions, T8: an operation that can modify the transaction ends the references even if it fails without
   effect; opening an existing tree does not end them (B9).
+- *Root parent, objective 2, D4, D11 and module 5 (2026-11-03): leaf page compression is out of scope, as an
+  exception to objective 2 and D4, and module 5 is split into five child PRDs and is closed when the five are
+  closed, which replaces the first entry of this list (annotation of 2026-11-03 to B2).*
 
 ## References
 
@@ -340,5 +383,7 @@ Measured from the Claude Code session history. When the person takes more than 1
 | Session | Start | Wall clock | Discarded | Active | Agent | Person | Interventions |
 |---|---|---|---|---|---|---|---|
 | 31c36231 | 2026-10-24 10:22 UTC+01:00 | 36 min | 0 min | 36 min | 19 min | 17 min | 15 |
+| 41d90b46 | 2026-11-02 07:05 UTC+00:00 | 23 h 32 min | 23 h 4 min | 28 min | 7 min | 20 min | 5 |
+| **Total** |  | 24 h 8 min | 23 h 4 min | 1 h 4 min | 26 min | 38 min | 20 |
 
-<!-- prd-time: [{"session": "31c36231-b691-4c62-8559-6f87e09084cf", "start": "2026-10-24T09:22:37.952000+00:00", "wall": 2181, "discarded": 0, "agent": 1146, "human": 1035, "interventions": 15, "idle_minutes": 10}] -->
+<!-- prd-time: [{"session": "31c36231-b691-4c62-8559-6f87e09084cf", "start": "2026-10-24T09:22:37.952000+00:00", "wall": 2181, "discarded": 0, "agent": 1146, "human": 1035, "interventions": 15, "idle_minutes": 10}, {"session": "41d90b46-2095-4c1a-896a-0a2ece230cd5", "start": "2026-11-02T07:05:30.751000+00:00", "wall": 84723, "discarded": 83057, "agent": 440, "human": 1225, "interventions": 5, "idle_minutes": 10}] -->

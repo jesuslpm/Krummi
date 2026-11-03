@@ -24,6 +24,12 @@ módulos, y reparte el producto en PRD hijos, cada uno con su propia ejecución 
 3. **Rendimiento competitivo y medido**: "competitivo" significa cumplir los umbrales que fija el PRD hijo del
    banco comparativo (decisión D5).
 
+*Anotación del 2026-11-03 al objetivo 2 y a D4: excepción: Krummi no reproduce la compresión de páginas hoja de los
+árboles de Voron. Esa compresión gasta más memoria y CPU para ahorrar disco y, con las lecturas sin copia (D11),
+retendría descomprimida en memoria de la transacción cada hoja que lee una transacción de lectura hasta cerrarse.
+Los motivos están en la anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md). El producto sigue completo
+cuando se cierran los 16 PRD hijos del reparto, con el módulo 5 sin esa compresión.*
+
 **Por qué**: Voron es un diseño probado durante años en producción (un escritor con lectores concurrentes que no
 se bloquean, diario de escritura anticipada, recuperación automática), pero solo existe para .NET. Krummi
 lleva ese diseño a Rust como producto propio, sin atarse a su formato en disco.
@@ -77,6 +83,8 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 *Anotación del 2026-10-29 a D7: con los árboles multivalor, la versión de formato vigente pasa a ser `8` (decisión M14 de [trees-multivalue.prd.md](trees-multivalue.prd.md)).*
 
 *Anotación del 2026-11-02 a D7: con los árboles de tamaño fijo, la versión de formato vigente pasa a ser `9` (decisión X12 de [trees-fixed-size.prd.md](trees-fixed-size.prd.md)).*
+
+*Anotación del 2026-11-03 a D11: el módulo 5 no guarda páginas comprimidas, porque la compresión de páginas hoja queda fuera de alcance (anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md)); la copia en memoria de la transacción sigue valiendo para las páginas cifradas (módulo 9).*
 
 ### Estado de partida
 
@@ -200,6 +208,10 @@ propia, y cuenta como cerrado para el objetivo 2 cuando lo están los seis; los 
 bytes), de valor (256 MiB) y de nombre de árbol (1.024 bytes) y sus errores están en B4–B8 de
 [trees.prd.md](trees.prd.md).*
 
+*Anotación del 2026-11-03 al módulo 5: la compresión de páginas hoja sale de su contenido y del alcance del
+producto (excepción al objetivo 2 y a D4); el módulo se reparte en cinco PRD hijos (5.1 a 5.5) y cuenta como cerrado para
+el objetivo 2 cuando lo están los cinco (anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md)).*
+
 ## Validaciones y mensajes
 
 Situaciones comunes a todo el producto. La biblioteca devuelve la clase de error de cada fila (D8); la columna de
@@ -295,6 +307,7 @@ traduce, y su formato no se reutiliza (D1).
   herramienta.
 - Migración entre formatos antes de la versión 1.0, y migración a un formato anterior en cualquier versión (D7).
 - Licencia y publicación del crate: se deciden antes de la primera publicación, en otro PRD.
+- *Compresión de las páginas hoja de los árboles (anotación del 2026-11-03 al módulo 5).*
 
 ## Dejado a la implementación
 
