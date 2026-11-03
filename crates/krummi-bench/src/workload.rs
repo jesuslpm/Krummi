@@ -59,10 +59,7 @@ impl Engine {
                 "claves duplicadas ordenadas en W19 y W20",
                 "claves enteras en W21 y W22",
             ],
-            Engine::Canopydb => &[
-                "caché de páginas de 1 GiB",
-                "confirmación que espera al disco del diario",
-            ],
+            Engine::Canopydb => &["confirmación que espera al disco del diario"],
             Engine::Fjall => &[
                 "caché de bloques de 1 GiB",
                 "llevar el diario al disco (SyncData) en cada confirmación",
