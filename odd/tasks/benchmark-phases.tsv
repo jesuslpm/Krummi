@@ -7,3 +7,5 @@
 2026-11-03T11:32:19+00:00	mark	review	RDD aed68a6..642d5ab
 2026-11-03T12:01:28+00:00	mark	fix	verifier advisories
 2026-11-03T12:06:03+00:00	mark	review	RDD aed68a6..7286171
+2026-11-03T12:32:49+00:00	mark	acceptance	T6 complete runs
+2026-11-03T12:32:49+00:00	bg-start	acceptance	windows complete run
