@@ -909,8 +909,7 @@ fn readers_with_writer<E: Store>(cx: &Context) -> Result<()> {
                 let start = Instant::now();
                 phase.store(WRITING, Ordering::Release);
                 put_batches(store, &written, p.batch)?;
-                phase.store(FINISHING, Ordering::Release);
-                Ok(W12Thread::Writer(start, Instant::now()))
+                Ok(W12Thread::Writer(start, finish(&phase)))
             } else {
                 read_until(
                     store,
@@ -993,10 +992,8 @@ fn read_until<E: Store>(
                 let key = &keys[position];
                 let sum = r.get(key)?.ok_or_else(|| missing(key))?;
                 check_sum(sums[order[position] as usize], sum)?;
-                match phase.load(Ordering::Acquire) {
-                    ENDED => return Ok(true),
-                    WRITING => tally.inside += 1,
-                    _ => tally.timed.push(Instant::now()),
+                if record(phase, &mut tally) {
+                    return Ok(true);
                 }
                 position = (position + 1) % keys.len();
             }
@@ -1009,6 +1006,26 @@ fn read_until<E: Store>(
 }
 
 /// Sets the writer's phase to `ENDED` when dropped.
+/// The writer's last step before `ENDED`: publishes `FINISHING` and then takes its end. The end is taken only once
+/// every processor sees `FINISHING`, so no reader sees `WRITING` after the end: a release store alone may still sit
+/// in the writer's store buffer while it reads the clock (R1 of the Codex code review, round 3).
+fn finish(phase: &AtomicU8) -> Instant {
+    phase.store(FINISHING, Ordering::SeqCst);
+    std::sync::atomic::fence(Ordering::SeqCst);
+    Instant::now()
+}
+
+/// Records the read a W12 reader has just ended, as `ReaderTally` says; returns whether the writer has `ENDED`, and
+/// then the read is not recorded.
+fn record(phase: &AtomicU8, tally: &mut ReaderTally) -> bool {
+    match phase.load(Ordering::Acquire) {
+        ENDED => return true,
+        WRITING => tally.inside += 1,
+        _ => tally.timed.push(Instant::now()),
+    }
+    false
+}
+
 struct SetOnDrop<'a>(&'a AtomicU8);
 
 impl Drop for SetOnDrop<'_> {
@@ -1020,6 +1037,61 @@ impl Drop for SetOnDrop<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // R1 of the Codex code review, round 3: once the writer has taken its end, no reader sees `WRITING`. The reader
+    // takes the time before each check, behind a full fence, so a `WRITING` seen with a later time than the end
+    // proves that the read was counted inside after the writer's time. Many short rounds, because a stale `WRITING`
+    // lasts well under a microsecond.
+    #[test]
+    fn no_reader_sees_writing_after_the_writers_end() {
+        const ROUNDS: usize = 20_000;
+        let phase = AtomicU8::new(NOT_STARTED);
+        let barrier = Barrier::new(2);
+        let (ends, seen) = thread::scope(|s| {
+            let writer = s.spawn(|| {
+                let mut ends = Vec::with_capacity(ROUNDS);
+                for _ in 0..ROUNDS {
+                    barrier.wait();
+                    phase.store(WRITING, Ordering::Release);
+                    let spin = Instant::now();
+                    while spin.elapsed() < Duration::from_nanos(200) {}
+                    ends.push(finish(&phase));
+                    phase.store(ENDED, Ordering::Release);
+                    barrier.wait();
+                    phase.store(NOT_STARTED, Ordering::Relaxed);
+                }
+                ends
+            });
+            // The time of the last read each round counted inside.
+            let mut seen = Vec::with_capacity(ROUNDS);
+            for _ in 0..ROUNDS {
+                barrier.wait();
+                let mut tally = ReaderTally::default();
+                let mut last_inside = None;
+                loop {
+                    let before = Instant::now();
+                    std::sync::atomic::fence(Ordering::SeqCst);
+                    let inside = tally.inside;
+                    if record(&phase, &mut tally) {
+                        break;
+                    }
+                    if tally.inside > inside {
+                        last_inside = Some(before);
+                    }
+                    tally.timed.clear();
+                }
+                seen.push(last_inside);
+                barrier.wait();
+            }
+            (writer.join().unwrap(), seen)
+        });
+        let late = ends
+            .iter()
+            .zip(&seen)
+            .filter(|(end, seen)| seen.is_some_and(|t| t > **end))
+            .count();
+        assert_eq!(late, 0, "rounds with a WRITING seen after the end");
+    }
 
     #[test]
     fn faults_match_their_engine_and_load() {

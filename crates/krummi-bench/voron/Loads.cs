@@ -403,7 +403,9 @@ static class Loads
     /// takes its start and then publishes `Writing`; after its last commit it publishes `Finishing`, takes its end
     /// and then publishes `Ended`. A reader checks the phase after every read: a read it sees end in `Writing` is
     /// inside the writer's time; one it sees end in `NotStarted` or `Finishing` gets its end time and counts if that
-    /// time is inside; at `Ended` the reader stops without counting that read.
+    /// time is inside; at `Ended` the reader stops without counting that read. `Finishing` is published with a full
+    /// fence before the end is taken, so no reader sees `Writing` after the end (a volatile write alone may not be
+    /// visible yet).
     static Plan ReadersWithWriter(int n, Params p)
     {
         int readers = (int)p.Threads, perTx = (int)p.ReadsPerTransaction, batch = (int)p.Batch;
@@ -431,7 +433,7 @@ static class Loads
                         ws = Now();
                         Volatile.Write(ref phase, Writing);
                         Insert(env, written, 0, written.Count, batch);
-                        Volatile.Write(ref phase, Finishing);
+                        Interlocked.Exchange(ref phase, Finishing);
                         we = Now();
                     }
                     finally
