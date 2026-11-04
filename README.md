@@ -125,6 +125,7 @@ values, which its catalog entry keeps.
 | `crates/krummi-tree/` | B+ trees over the page API: slotted nodes, splits and merges, multi-value trees, fixed-size trees with dense nodes of their own, and the catalog of named trees |
 | `crates/krummi-bench/` | The comparative benchmark (module 6): the `krummi-bench` command, its Rust worker and engine adapters, and in `voron/` the .NET program that measures Voron; not part of the engine |
 | `docs/benchmark/` | Reports of the complete benchmark runs |
+| `docs/performance/` | Performance plan: diagnosis and optimizations to meet the benchmark thresholds |
 | `odd/tasks/` | ODD execution documents, phase logs and closing reports |
 | `.github/workflows/` | Continuous integration: the engine checks and the reduced benchmark on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
