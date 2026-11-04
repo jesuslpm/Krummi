@@ -64,7 +64,7 @@ pub fn main(args: Vec<OsString>) -> i32 {
     };
     let result = execute(&options, &work, &sub, started, &report, &report_shown);
     remove_subfolder(&sub);
-    match result {
+    match settle(result, child::interrupted(), &report) {
         Ok((summary, code)) => {
             println!("{summary}");
             code
@@ -77,6 +77,23 @@ pub fn main(args: Vec<OsString>) -> i32 {
             eprintln!("Banco interrumpido.");
             1
         }
+    }
+}
+
+/// The run's outcome once its subfolder is gone. Ctrl+C pressed after the last worker, while the report was being
+/// written or the folders removed, still interrupts the run as before: it removes the report this run wrote (it
+/// created it as a new file, so it is its own) and ends as `Banco interrumpido.` (AC-K9).
+fn settle(
+    result: Result<(String, i32), Stop>,
+    interrupted: bool,
+    report: &Path,
+) -> Result<(String, i32), Stop> {
+    match result {
+        Ok(_) if interrupted => {
+            let _ = fs::remove_file(report);
+            Err(Stop::Interrupted)
+        }
+        other => other,
     }
 }
 
@@ -273,6 +290,24 @@ fn remove_subfolder(sub: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // R3 of the Codex code review: Ctrl+C pressed while the run is finishing (report written, folders removed) ends it
+    // as interrupted, without a report; without Ctrl+C the run keeps its result and its report.
+    #[test]
+    fn ctrl_c_while_finishing_removes_the_report_and_interrupts() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = dir.path().join("r.md");
+        fs::write(&report, "x").unwrap();
+        let kept = settle(Ok(("ok".into(), 0)), false, &report);
+        assert!(matches!(kept, Ok((ref s, 0)) if s == "ok"));
+        assert!(report.exists());
+        let interrupted = settle(Ok(("ok".into(), 0)), true, &report);
+        assert!(matches!(interrupted, Err(Stop::Interrupted)));
+        assert!(!report.exists());
+        // A failure keeps its message: it already wrote no report.
+        let failed = settle(Err(Stop::Failed(Failure::new("f", 2))), true, &report);
+        assert!(matches!(failed, Err(Stop::Failed(ref f)) if f.code == 2));
+    }
 
     #[test]
     fn a_cause_is_one_line_without_its_final_period() {
