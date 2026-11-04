@@ -174,3 +174,17 @@ warnings` clean; `cargo test --workspace` 519 passed, 0 failed, 30 ignored; `car
 -- --include-ignored` with `KRUMMI_BENCH_RAVENDB`: 41 + 8 + 8 + 9 passed, the eight end-to-end runs with Voron (the
 changed Voron W12) in 473 s. At `c148cdf` (comments only): fmt ok, clippy of `krummi-bench` clean, its 41 unit
 tests passed.
+
+## 2026-11-04 (verification, round 4)
+
+Follow-up review [2026-11-04-code-04.md](2026-11-04-code-04.md) over `c8e52eb..a06573b`, authorized by the user
+beyond the three automatic rounds. Wrapper status `approved`, `threadId` `01a1a689-9e84-79d1-bc0c-5d926fb0a501`.
+Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`. Per-ID
+outcome, quoted:
+
+- R1: "Verified resolved for the demonstrated defect"; "Negative control reproduced R1; corrected production
+  functions produced zero late observations in one million rounds."
+
+Verdict, quoted: "`approved` — R1 verified resolved; no findings remain open in the requested follow-up scope. Voron
+end-to-end verification remains limited by the external NuGet restore failure." The Voron end-to-end tests ran here
+with network access at `384e13e` (41 + 8 + 8 + 9 passed, above).
