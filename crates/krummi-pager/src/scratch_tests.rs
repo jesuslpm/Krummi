@@ -183,6 +183,21 @@ fn a_snapshot_opened_without_versions_keeps_its_page_while_newer_ones_are_writte
     });
 }
 
+/// The writer's snapshot sees what was committed when it began, not what it publishes: its own versions are newer
+/// than it, so a writer that began on an empty scratch area may skip the scratch lock too (O2).
+#[test]
+fn the_writers_snapshot_does_not_see_what_it_publishes() {
+    both_modes(|scratch| {
+        let mut writer = scratch.begin_write().unwrap();
+        let staged = writer.stage(&[(PAGE, sealed(PAGE, "b"))], &[]).unwrap();
+        assert_eq!(writer.publish(staged), 1);
+        assert_eq!(writer.snapshot().txid(), 0);
+        assert_eq!(text(writer.snapshot().page(PAGE).unwrap()), "a");
+        drop(writer);
+        assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "b");
+    });
+}
+
 #[test]
 fn close_and_drop_write_what_was_committed() {
     let tmp = tempfile::tempdir().unwrap();

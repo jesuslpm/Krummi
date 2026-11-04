@@ -88,3 +88,11 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   scratch area keeps reading "a" while another thread commits, flushes and transfers 300 newer versions. With the
   transfer's oldest-snapshot condition removed it fails (`scratch_tests.rs:174`); restored, it passes. Checks: fmt
   ok, workspace clippy clean, `cargo test --workspace` 521 passed, 0 failed, 30 ignored. Verifier scratch removed.
+- **L10** (2026-11-04): RDD of `b3c0c44..2bfeba8` (risk, reliability, resilience): approved, lineage
+  `review-d4fe1be3e1ef5a12`. R1 and R3 warnings, the same doubt: the writer's snapshot also takes `may_see_versions`
+  at open, which is right only if what the writer publishes is newer than its snapshot. It is: `register` gives the
+  writer `txid = last_committed` (`scratch.rs:528-530`) and `publish` uses `last_committed + 1`; the transaction's
+  own pages come from its `dirty` map (`krummi-tx/src/transaction.rs:198`), not from the scratch area. Pinned with
+  the new test `the_writers_snapshot_does_not_see_what_it_publishes`; with the writer's `txid` mutated to
+  `last_committed + 1` it fails (`scratch_tests.rs:194`). Checks: fmt ok, workspace clippy clean, `cargo test
+  --workspace` 522 passed, 0 failed, 30 ignored.
