@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
@@ -119,18 +119,20 @@ enum Storage {
     Memory(Mutex<sys::Reservation>),
 }
 
+/// A store in `krummi.data`. Readers get its size and newest mapping without a lock (O1 of the performance plan): a
+/// growth pushes the new mapping, then publishes its start and only then the new size, so a reader that sees a size
+/// also sees a mapping that covers it, that one or a newer one.
 struct FileStorage {
     file: sys::LockedFile,
     path: PathBuf,
-    state: Mutex<FileState>,
-}
-
-struct FileState {
-    /// Size in bytes, a multiple of the page size.
-    len: u64,
-    /// Every mapping made since the store opened; the last one covers `len`. Older mappings stay alive until
-    /// the store closes, so references into them remain valid after a growth.
-    maps: Vec<Mmap>,
+    /// Every mapping made since the store opened, each one of the whole file; the last one covers `len`. Older
+    /// mappings stay alive until the store closes, so references into them remain valid after a growth. A growth
+    /// holds this lock, so growths do not overlap.
+    maps: Mutex<Vec<Mmap>>,
+    /// Start of the last mapping in `maps`.
+    newest: AtomicPtr<u8>,
+    /// Size in bytes, a multiple of the page size; changed only while `maps` is locked.
+    len: AtomicU64,
 }
 
 impl Pager {
@@ -270,7 +272,7 @@ impl Pager {
 
     fn len(&self) -> u64 {
         match &self.storage {
-            Storage::File(f) => f.state.lock().unwrap().len,
+            Storage::File(f) => f.len.load(Ordering::Acquire),
             Storage::Memory(m) => m.lock().unwrap().committed() as u64,
         }
     }
@@ -348,8 +350,8 @@ impl Pager {
         };
         match &self.storage {
             Storage::File(f) => {
-                let state = f.state.lock().unwrap();
-                state.maps.iter().any(|map| inside(map.as_ptr(), map.len()))
+                let maps = f.maps.lock().unwrap();
+                maps.iter().any(|map| inside(map.as_ptr(), map.len()))
             }
             Storage::Memory(m) => {
                 let memory = m.lock().unwrap();
@@ -372,24 +374,22 @@ impl Pager {
         let len = usize::try_from(count.checked_mul(PAGE_SIZE_U64)?).ok()?;
         match &self.storage {
             Storage::File(f) => {
-                let state = f.state.lock().unwrap();
-                if end > state.len / PAGE_SIZE_U64 {
+                // The size first: the mapping published before it covers it (see `FileStorage`).
+                if end > f.len.load(Ordering::Acquire) / PAGE_SIZE_U64 {
                     return None;
                 }
-                let map = state
-                    .maps
-                    .last()
-                    .expect("a file store always has a mapping");
-                let offset = (first * PAGE_SIZE_U64) as usize;
-                let ptr = map[offset..offset + len].as_ptr();
-                drop(state);
-                // SAFETY: `ptr` points to `len` bytes inside a mapping owned by `self`. Mappings are only dropped
-                // with the Pager, and pushing new ones moves the `Mmap` handles but not the mapped memory, so the
-                // bytes stay valid for the lifetime of `&self`. They are not modified while the returned reference
-                // lives: page writes take `&mut self`, or go through `write_run_shared`, whose caller guarantees
-                // that no reference to those pages is alive; other programs modifying the file while the store is
-                // open is outside the scope of the PRD (P16).
-                Some(unsafe { std::slice::from_raw_parts(ptr, len) })
+                let newest = f.newest.load(Ordering::Acquire);
+                // SAFETY: `newest` is the start of a mapping owned by `self` of at least the size just read, which
+                // covers the pages from `first` to `end`, so `ptr` points to `len` bytes inside it. Mappings are only
+                // dropped with the Pager, and pushing new ones moves the `Mmap` handles but not the mapped memory,
+                // so the bytes stay valid for the lifetime of `&self`. They are not modified while the returned
+                // reference lives: page writes take `&mut self`, or go through `write_run_shared`, whose caller
+                // guarantees that no reference to those pages is alive; other programs modifying the file while the
+                // store is open is outside the scope of the PRD (P16).
+                Some(unsafe {
+                    let ptr = newest.add((first * PAGE_SIZE_U64) as usize);
+                    std::slice::from_raw_parts(ptr, len)
+                })
             }
             Storage::Memory(m) => {
                 let memory = m.lock().unwrap();
@@ -595,23 +595,28 @@ impl Pager {
         let needed = page_count.saturating_mul(PAGE_SIZE_U64);
         match &self.storage {
             Storage::File(f) => {
-                let mut state = f.state.lock().unwrap();
-                if needed <= state.len {
+                let mut maps = f.maps.lock().unwrap();
+                let len = f.len.load(Ordering::Relaxed);
+                if needed <= len {
                     return Ok(());
                 }
-                let new_len = self.next_size(state.len, needed, limit, bounded)?;
-                sys::reserve(&f.file, &f.path, state.len, new_len)
-                    .map_err(|e| self.write_failed(e, new_len - state.len))?;
+                let new_len = self.next_size(len, needed, limit, bounded)?;
+                sys::reserve(&f.file, &f.path, len, new_len)
+                    .map_err(|e| self.write_failed(e, new_len - len))?;
                 match sys::map(&f.file, &f.path, new_len) {
-                    Ok(map) => state.maps.push(map),
+                    Ok(map) => {
+                        f.newest.store(map.as_ptr().cast_mut(), Ordering::Release);
+                        maps.push(map);
+                    }
                     Err(e) => {
                         // Keep the size the store had (P11) and give the reserved space back. Windows refuses to
                         // shrink a mapped file, so there the space stays in the file, unused.
-                        let _ = f.file.set_len(state.len);
+                        let _ = f.file.set_len(len);
                         return Err(self.map_failed(e, new_len));
                     }
                 }
-                state.len = new_len;
+                // After the mapping: a reader that sees this size sees the mapping that covers it.
+                f.len.store(new_len, Ordering::Release);
             }
             Storage::Memory(m) => {
                 let mut memory = m.lock().unwrap();
@@ -901,10 +906,9 @@ fn file_pager(
         storage: Storage::File(FileStorage {
             file,
             path,
-            state: Mutex::new(FileState {
-                len,
-                maps: vec![map],
-            }),
+            newest: AtomicPtr::new(map.as_ptr().cast_mut()),
+            len: AtomicU64::new(len),
+            maps: Mutex::new(vec![map]),
         }),
         max_size,
         writes_disabled: Arc::new(AtomicBool::new(false)),

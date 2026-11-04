@@ -6,6 +6,8 @@ mod common;
 
 use std::fs;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 use common::{file_bytes, open};
 use krummi_pager::format::{
@@ -250,6 +252,37 @@ fn held_reference_survives_growth(pager: &Pager) {
     assert_eq!(reference.as_ptr(), address);
     assert_eq!(reference, &before[..]);
     assert_eq!(pager.page(2).unwrap(), &before[..]);
+}
+
+// O1 of the performance plan: readers get the store's size and newest mapping without a lock while the writer grows
+// the store, and every page a reader sees the store have is readable, all of it. A reader that saw a size beyond its
+// mapping would read past the mapping's end: there the system may have placed the newer mapping, whose start holds
+// the header pages, so the readers check the first page of the newer half and the last one; no page is written, so
+// both are blank. Several stores, because each one doubles on every growth.
+#[test]
+fn readers_see_every_page_while_the_store_grows() {
+    for _ in 0..20 {
+        let tmp = tempfile::tempdir().unwrap();
+        let pager = open(tmp.path());
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            for _ in 0..3 {
+                s.spawn(|| {
+                    while !done.load(Ordering::Relaxed) {
+                        let count = pager.page_count();
+                        for page in [count / 2, count - 1] {
+                            assert!(pager.page_is_blank(page), "page {page} of {count}");
+                        }
+                    }
+                });
+            }
+            for _ in 0..10 {
+                pager.ensure_pages(pager.page_count() + 1).unwrap();
+            }
+            done.store(true, Ordering::Relaxed);
+        });
+        pager.close().unwrap();
+    }
 }
 
 #[test]
