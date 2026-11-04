@@ -930,7 +930,7 @@ fn readers_with_writer<E: Store>(cx: &Context) -> Result<()> {
             .iter()
             .map(|f| match &f.result {
                 W12Thread::Reader(tally) => tally.reads_in(start, end),
-                W12Thread::Writer(..) => 0,
+                W12Thread::Writer(..) => unreachable!("only the last thread is the writer"),
             })
             .sum();
         let time = end - start;

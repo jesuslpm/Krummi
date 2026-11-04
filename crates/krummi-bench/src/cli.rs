@@ -150,7 +150,9 @@ fn can_create_in(folder: &Path) -> Result<(), Failure> {
 
 /// Removes what `remove` removes, retrying for up to five seconds while it fails: on Windows a file that was just
 /// written, or a folder whose child was just killed, may be held for a moment by another program (a scanner, a
-/// viewer, the child). A path that no longer exists counts as removed; the last failure is returned.
+/// viewer, the child). A path that no longer exists counts as removed; the last failure is returned. Every other
+/// error is retried, also one that will not pass, such as a denied deletion, because a held file shows on Windows as
+/// errors of different kinds; so a removal that cannot succeed reports its failure after those five seconds.
 pub(crate) fn remove_retrying(remove: impl Fn() -> io::Result<()>) -> io::Result<()> {
     retry_removal(20, Duration::from_millis(250), remove)
 }
