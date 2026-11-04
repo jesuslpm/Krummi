@@ -91,3 +91,10 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   fmt ok, workspace clippy clean, `cargo test --workspace` 520 passed, 0 failed, 30 ignored. Advisories kept: the
   test's detection depends on where the system places the mappings (loom and Miri cannot model a mapping); the
   failed-map shrink is a no-op on Windows and the poisoned-lock `unwrap`s are as before. Its scratch copy removed.
+- **L9** (2026-11-04): RDD of `7435b05..60dcdc8` (risk, reliability, resilience): approved, lineage
+  `review-eaaa09d7e0d22d6e`. R3 warning (a failed growth panics the writer before `done` is set, so the readers spin
+  and the test hangs): fixed in `cade256` with a drop guard. R3 suggestion (the readers may start after the growths):
+  fixed in `cade256` with a barrier; the mutation check still fails (`page 8 of 16`, three readers). R1 suggestion (a
+  `debug_assert` of the offset): kept out, it would repeat the size check two lines above it. RDD of
+  `60dcdc8..cade256` (reliability): approved, lineage `review-d04f3545b1bb4c40`; its suggestion (the helper sat
+  between the test and its comment) fixed in `871cb5c`.
