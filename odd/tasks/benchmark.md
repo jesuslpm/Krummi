@@ -232,3 +232,7 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   `review-91f58e65622bdb58`. R3 warning (the zero-Voron test is not byte-exact): fixed, it compares the whole W12
   row and the summary line. R2 suggestion (R1 names both a round and a finding): fixed, rounds are "round 1" in
   L13 and L14; the phase log keeps its measured labels unchanged.
+- **L18** (2026-11-04): RDD of `7dba24d..6cef8b1` (reliability): approved without findings, lineage
+  `review-d17f096f73e107b8`. Codex code review, round 1 (`docs/reviews/benchmark/2026-11-04-code.md`): `findings`,
+  R1 and R2 major, R3 and R4 minor, all fixed (`74c8697`, `6afd038`, `6c5ebd1`, `dcd39f8`); resolutions in
+  `2026-11-04-code-resolutions.md`. Checks after the fixes: workspace 516 passed; bench with Voron 38 + 8 + 8 + 9.
