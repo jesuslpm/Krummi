@@ -133,7 +133,7 @@ Decisions within *Dejado a la implementación*:
 | T4 | S5, S9, S10, S11, S13 | delegated (after T2) | done: 8 cli + 8 run tests (ignored without .NET), Ctrl+C by hand | `586bb7f` |
 | T5 | S6, S14 | inline | done: CI job, AC21 change for K14, dependency test | `06a37d3` (AC21), `5ca33da` |
 | T6 | S1, S8 | inline + background runs | done: Windows 5/22, Linux (WSL 2) 7/22 thresholds met; Voron lock-wait fix | `9ba17b7`, `a881d48`, `e4ac4f2` |
-| T7 | all | inline: checks, verification, RDD, Codex, closing | pending | — |
+| T7 | all | inline: checks, verification, RDD, Codex, closing | done | final checks at `384e13e`; Codex code review approved in round 4; [closing report](benchmark-report.md) |
 
 T1: library core (workload table with full and reduced counts, data generator, median and metrics, threshold and
 report rendering, folder size, CLI parsing and validation order, protocol types). T2: Rust worker with the five
@@ -279,3 +279,6 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
 - **L26** (2026-11-04): Codex code review, round 4, authorized by the user
   ([report](../../docs/reviews/benchmark/2026-11-04-code-04.md)): `approved`, R1 verified resolved. The Codex code
   review chain is closed with no open finding.
+- **L27** (2026-11-04): RDD of `daad8fd..c8e52eb` (readability; the L23 entry): approved, lineage
+  `review-6299c9491bc7568e`, two suggestions kept (the phase log is append-only and its times are UTC). `c148cdf..784175e`
+  assessed passive. Closing report: [benchmark-report.md](benchmark-report.md). T7 done.

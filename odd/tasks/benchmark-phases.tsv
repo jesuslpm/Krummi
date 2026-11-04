@@ -26,3 +26,12 @@
 2026-11-04T08:19:33+00:00	bg-start	review	codex-code-R2
 2026-11-04T08:29:36+00:00	bg-end	review	codex-code-R2
 2026-11-04T08:53:55+00:00	mark	wait	Codex usage limit until 11:49
+2026-11-04T11:50:29+00:00	mark	review	Codex code R3
+2026-11-04T12:03:21+00:00	mark	fix	codex-R3 R1
+2026-11-04T12:20:10+00:00	mark	review	rdd 384e13e
+2026-11-04T12:22:53+00:00	mark	wait	authorize Codex round 4
+2026-11-04T12:29:44+00:00	mark	review	codex-R4
+2026-11-04T12:29:55+00:00	bg-start	review	codex-R4
+2026-11-04T12:36:04+00:00	bg-end	review	codex-R4
+2026-11-04T12:36:53+00:00	mark	close	T7
+2026-11-04T12:36:53+00:00	end		
