@@ -25,7 +25,7 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
 | T1 | S4 | inline: baseline single-load runs at `7435b05`, Windows and WSL | done | L5 |
 | T2 | S1, S2 | inline: lock-free length and mapping, concurrency test | done | `9acf695`, L6 |
 | T3 | S3, S4 | inline: single-load runs after T2, compared with T1 | done | L7 |
-| T4 | S5 | independent verifier, RDD, Codex, closing | pending | — |
+| T4 | S5 | independent verifier, RDD, Codex, closing | done | L8–L11, [report](pager-mapping-report.md) |
 
 ## Log
 
@@ -102,3 +102,7 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   ([report](../../docs/reviews/pager-mapping/2026-11-04-code.md),
   [resolutions](../../docs/reviews/pager-mapping/2026-11-04-code-resolutions.md)): `approved`, no findings. The first
   run (13:43 UTC) stopped on the Codex usage limit without reviewing; rerun at 16:51 UTC (wait 13:48–16:51 logged).
+- **L11** (2026-11-04): RDD of the final slice `cade256..8a4a8d3` (reliability): approved, no findings, lineage
+  `review-339000624d332a31`. Final checks at `8a4a8d3`: fmt ok, workspace clippy clean, `cargo test --workspace` 520
+  passed, 0 failed, 30 ignored. Closing report: [pager-mapping-report.md](pager-mapping-report.md). Branch left
+  unmerged and unpushed.
