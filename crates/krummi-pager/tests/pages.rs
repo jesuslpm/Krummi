@@ -6,6 +6,7 @@ mod common;
 
 use std::fs;
 use std::process::Command;
+use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -259,15 +260,27 @@ fn held_reference_survives_growth(pager: &Pager) {
 // mapping would read past the mapping's end: there the system may have placed the newer mapping, whose start holds
 // the header pages, so the readers check the first page of the newer half and the last one; no page is written, so
 // both are blank. Several stores, because each one doubles on every growth.
+/// Sets its flag when dropped.
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 #[test]
 fn readers_see_every_page_while_the_store_grows() {
     for _ in 0..20 {
         let tmp = tempfile::tempdir().unwrap();
         let pager = open(tmp.path());
         let done = AtomicBool::new(false);
+        // Every reader is reading before the first growth.
+        let start = Barrier::new(4);
         thread::scope(|s| {
             for _ in 0..3 {
                 s.spawn(|| {
+                    start.wait();
                     while !done.load(Ordering::Relaxed) {
                         let count = pager.page_count();
                         for page in [count / 2, count - 1] {
@@ -276,10 +289,12 @@ fn readers_see_every_page_while_the_store_grows() {
                     }
                 });
             }
+            // The readers stop also when a growth fails, so that the test fails instead of hanging.
+            let _stop = StopOnDrop(&done);
+            start.wait();
             for _ in 0..10 {
                 pager.ensure_pages(pager.page_count() + 1).unwrap();
             }
-            done.store(true, Ordering::Relaxed);
         });
         pager.close().unwrap();
     }
