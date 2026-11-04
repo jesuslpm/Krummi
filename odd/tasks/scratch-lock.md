@@ -96,3 +96,5 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   the new test `the_writers_snapshot_does_not_see_what_it_publishes`; with the writer's `txid` mutated to
   `last_committed + 1` it fails (`scratch_tests.rs:194`). Checks: fmt ok, workspace clippy clean, `cargo test
   --workspace` 522 passed, 0 failed, 30 ignored.
+- **L11** (2026-11-04): RDD of `2bfeba8..f35f3a9` (reliability): approved, no findings, lineage
+  `review-e238fa558daf5d7c`.
