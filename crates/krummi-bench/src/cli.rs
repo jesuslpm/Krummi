@@ -114,9 +114,28 @@ pub fn check_report(report: &Path) -> Result<(), Failure> {
         _ => Path::new("."),
     };
     match fs::metadata(parent) {
-        Ok(m) if m.is_dir() => Ok(()),
+        Ok(m) if m.is_dir() => can_create_in(parent),
         Ok(_) => Err(cannot_use(parent, "no es una carpeta")),
         Err(_) => Err(cannot_use(parent, "no existe")),
+    }
+}
+
+/// Whether a new file can be created in `folder`: it creates one with a name of its own and removes it, so that a
+/// folder without write permission, or on a read-only file system, fails before the run and not when the report is
+/// written at its end.
+fn can_create_in(folder: &Path) -> Result<(), Failure> {
+    let probe = folder.join(format!(".krummi-bench-{}.tmp", std::process::id()));
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(file) => {
+            drop(file);
+            let _ = fs::remove_file(&probe);
+            Ok(())
+        }
+        Err(e) => Err(cannot_use(folder, &e.to_string())),
     }
 }
 
@@ -291,6 +310,36 @@ mod tests {
         );
         assert_eq!(check_report(&dir.path().join("nuevo.md")), Ok(()));
         assert_eq!(check_report(Path::new("nuevo-que-no-existe.md")), Ok(()));
+    }
+
+    // R2 of the Codex code review: the report's folder must accept a new file before the run, and checking it leaves
+    // the folder as it was.
+    #[test]
+    fn the_report_folder_must_accept_a_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(check_report(&dir.path().join("nuevo.md")), Ok(()));
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "the check left a file"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let locked = dir.path().join("cerrada");
+            fs::create_dir(&locked).unwrap();
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+            // A superuser writes anyway: then there is nothing to check.
+            let writable = fs::write(locked.join("probe"), "x").is_ok();
+            if !writable {
+                let failure = check_report(&locked.join("r.md")).unwrap_err();
+                let prefix = format!("No se puede usar la carpeta {}: ", locked.display());
+                assert!(failure.message.starts_with(&prefix), "{}", failure.message);
+                assert!(failure.message.ends_with('.'));
+                assert_eq!(failure.code, 1);
+            }
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        }
     }
 
     #[test]
