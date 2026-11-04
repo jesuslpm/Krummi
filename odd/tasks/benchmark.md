@@ -265,3 +265,14 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   warning (the `unreachable!` arm could panic if the writer were summed): dismissed with evidence, the sum runs over
   `finished[..readers]`, which excludes the writer at index `readers` (`worker.rs:929`), and the worker integration
   tests run W12 for the five Rust engines. Codex round 3 waits for the usage limit (11:49 UTC).
+- **L24** (2026-11-04): Codex code review, round 3 ([report](../../docs/reviews/benchmark/2026-11-04-code-03.md),
+  `findings`): R3 and R5 verified resolved; R1 still open as minor (a release store of `FINISHING` may not be visible
+  to another processor when the writer takes its end). Fixed in `384e13e` (SeqCst store and full fence; Voron
+  `Interlocked.Exchange`), with a stress test that failed 74 of 20,000 rounds before the fix. Round 3 was the last
+  automatic round, so the fix stays unverified by Codex.
+- **L25** (2026-11-04): RDD of `c8e52eb..384e13e` (risk, reliability): approved, lineage `review-58ce011a99713c98`.
+  R3-misplaced-doc warning (the `SetOnDrop` doc line had moved onto `finish`): fixed in `c148cdf`.
+  R3-probabilistic-test suggestion (the test catches the defect by chance): the test now says it is a stress test
+  whose pass is not a proof; a deterministic test of a cross-processor ordering is not possible without the
+  hardware's cooperation. RDD of `384e13e..c148cdf` (readability; the round 3 report and comments): approved,
+  lineage `review-2e6dd2c7d5373dde`.

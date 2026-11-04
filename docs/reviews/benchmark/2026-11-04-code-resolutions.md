@@ -137,3 +137,40 @@ Checks after the round 2 fixes, at `6d35cd5`: `cargo fmt --all --check` ok; clip
 518 passed, 0 failed, 30 ignored; `cargo test --release -p krummi-bench -- --include-ignored` with
 `KRUMMI_BENCH_RAVENDB`: 40 + 8 + 8 + 9 passed, the eight end-to-end runs with Voron (the changed Voron W12) in
 304 s. In WSL 2, `cargo test -p krummi-bench --lib`: 39 passed (the Windows-only test does not run there).
+
+## 2026-11-04 (verification, round 3)
+
+Follow-up review [2026-11-04-code-03.md](2026-11-04-code-03.md) over `8972ddf..c8e52eb`. Wrapper status `findings`
+(open R1), `threadId` `01a1a665-8c73-7591-9a9b-2aa40d824334`. Telemetry: coordinator `gpt-6.1-sol` / `high`;
+reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`. Per-ID outcome, quoted:
+
+- R1: "**Partially corrected, still open as minor.** Boundary timestamps fix the demonstrated writer scheduling
+  gaps. Cross-processor publication can still permit post-end counting".
+- R3: "**Verified resolved for the demonstrated defect.**"
+- R5: "**Verified resolved for the demonstrated defect.**"
+
+Verdict, quoted: "`findings` — changes requested; R1 (minor) remains open. R3 and R5 are verified resolved."
+
+## 2026-11-04 (round 3 fixes)
+
+Fix commits: `384e13e` (R1), `c148cdf` (its doc comments, from the RDD review of `384e13e`).
+
+### R1 — minor: W12 can still count reads after the writer's measured end
+
+- Disposition: fixed.
+- Fix: the writer publishes `FINISHING` with a sequentially consistent store followed by a full fence, and only then
+  takes its end (`worker.rs`, `finish`); the reader's check is `record`. In Voron, `Interlocked.Exchange` (a full
+  fence) replaces `Volatile.Write` for `Finishing` (`voron/Loads.cs`, `ReadersWithWriter`). D10 states the fence.
+- Test: `worker::tests::no_reader_sees_writing_after_the_writers_end`, a stress test of the clock/phase protocol
+  through `finish` and `record`, built like the review's harness: 20,000 rounds; the reader takes the time behind a
+  full fence before each check, and a round fails when a `WRITING` was seen with a time after the writer's end. With
+  the release store it failed with `left: 74, right: 0` (observed, debug build, Windows x64); with the fix it passed
+  four runs of four (three debug, one release). A pass does not prove the order; the test says so. The Voron side
+  runs only in the end-to-end tests, as before.
+- Status: claimed fixed, unverified until a follow-up review. Round 3 was the last automatic round.
+
+Checks after the fixes, at `384e13e`: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D
+warnings` clean; `cargo test --workspace` 519 passed, 0 failed, 30 ignored; `cargo test --release -p krummi-bench
+-- --include-ignored` with `KRUMMI_BENCH_RAVENDB`: 41 + 8 + 8 + 9 passed, the eight end-to-end runs with Voron (the
+changed Voron W12) in 473 s. At `c148cdf` (comments only): fmt ok, clippy of `krummi-bench` clean, its 41 unit
+tests passed.
