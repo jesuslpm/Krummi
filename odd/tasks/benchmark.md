@@ -225,3 +225,5 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   cells): fixed; R3 minor (reduced W17 partial write): fixed. Resolutions in `2026-11-04-prd-resolutions.md`.
 - **L15** (2026-11-04, user decision on R1): W12 with a Voron metric of 0 keeps the current behavior (`∞` or
   `0,00`, threshold met), now fixed in *Salida*, AC-K2 and AC-K3; test `a_zero_voron_metric_shows_infinity_or_zero_and_meets`.
+- **L16** (2026-11-04): Codex PRD follow-up (`docs/reviews/benchmark/2026-11-04-prd-02.md`): `approved`; R1–R3
+  verified resolved. Next: the Codex code review of `aed68a6..HEAD`.

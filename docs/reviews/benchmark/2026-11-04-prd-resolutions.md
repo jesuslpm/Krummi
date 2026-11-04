@@ -61,3 +61,16 @@ Artifact versions after the fix (uncommitted working tree, SHA-256 of the bytes)
 - Check: `cargo test -p krummi-bench --lib zero_voron`: 1 passed; `cargo fmt --all --check` ok; clippy of
   `krummi-bench` clean.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-04 (verification)
+
+Follow-up review [2026-11-04-prd-02.md](2026-11-04-prd-02.md) over `7ce3710..ba6a541`, wrapper status `approved`,
+`threadId` `01a1a576-1b04-7360-b0b1-602bfe876fb3`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review` `gpt-6.1-sol` / `high`. Per-ID outcome, quoted:
+
+- R1: "Verified resolved: zero Voron metric".
+- R2: "Verified resolved: size-table cells".
+- R3: "Verified resolved: final partial batch".
+
+Verdict, quoted: "Ready for implementation within the requested follow-up scope: R1, R2 and R3 are verified
+resolved; no findings remain open."
