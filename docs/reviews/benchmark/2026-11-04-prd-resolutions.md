@@ -40,3 +40,24 @@ Review record: `docs/reviews/benchmark/2026-11-04-prd.md`, wrapper status `findi
 on R1), `threadId` `01a1a551-888c-7843-b49e-903fce8b549d`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review` `gpt-6.1-sol` / `high`. An earlier attempt the same day (`threadId`
 `01a1a53b-8933-7a61-9e12-f7d589e20bcb`) failed on the Codex usage limit and saved no report.
+
+## 2026-11-04 (R1 decided)
+
+Artifact versions after the fix (uncommitted working tree, SHA-256 of the bytes):
+
+- `docs/prd/krummi/benchmark.prd.md`: `eb621c145f4d99879148588e81c6bd97acc9be5978b9e23d91f6c98182bdb151`
+- `docs/prd/krummi/benchmark.prd.en.md`: `9b189c30db076344ad0d07a62f68d97744d8e64dcabfcbb1c38e5f793d60a9a5`
+
+### R1 — major: W12 has no defined result when Voron completes zero reads
+
+- Disposition: fixed (user decision: keep the current behavior and fix it in the PRD).
+- Fix: *Salida* now says that when Voron's metric is 0, for example in W12 if no Voron reader finishes a read while
+  the writer writes, the ratio is shown as `∞` if Krummi's is greater than 0 and `0,00` if it is 0 too, and the
+  threshold is met, because the comparison of K7 is Krummi's metric against 0.80 times Voron's. AC-K2 adds both
+  cases and AC-K3 says the rule holds also when Voron's metric is 0; same in the translation. Test
+  `report::tests::a_zero_voron_metric_shows_infinity_or_zero_and_meets` pins both cases in a full run (report row,
+  result line, exit code `0`); `measure::tests::the_ratio_is_truncated_to_two_decimals_with_a_comma` already pinned
+  the ratio texts.
+- Check: `cargo test -p krummi-bench --lib zero_voron`: 1 passed; `cargo fmt --all --check` ok; clippy of
+  `krummi-bench` clean.
+- Status: claimed fixed, unverified until a follow-up review.

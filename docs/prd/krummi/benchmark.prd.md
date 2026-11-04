@@ -208,7 +208,9 @@ Reglas de la forma:
   K3.
 - Las operaciones por segundo y los tamaños son enteros, redondeados al más cercano, sin separador de miles. La razón
   Krummi / Voron lleva dos decimales con coma, **truncada**, no redondeada, de modo que una razón mostrada de `0,80` o
-  más siempre cumple.
+  más siempre cumple. Cuando la métrica de Voron es 0, por ejemplo en W12 si ningún lector de Voron termina una
+  lectura mientras escribe el escritor, la razón se muestra `∞` si la de Krummi es mayor que 0 y `0,00` si también es
+  0, y el umbral se cumple, porque la comparación de K7 es la métrica de Krummi frente a 0,80 veces la de Voron.
 - La columna *Umbral* dice `cumple` o `incumple`. En una ejecución reducida, *Ejecución* dice `reducida`,
   *Repeticiones* dice `1 medida`, *Resultado* dice `Ejecución reducida, sin umbrales.` y la columna *Umbral* dice
   `sin evaluar`; las demás columnas y la tabla de tamaños se muestran igual.
@@ -284,9 +286,10 @@ Comprueban este módulo. AC19 del padre lo comprueba el mantenedor antes de cada
 2. **AC-K2** — Dados unos resultados por carga y motor y unos datos del equipo inyectados para la prueba, cuando el
    banco escribe el informe y la línea de la salida estándar, entonces son idénticos byte a byte a los esperados para
    cada caso: todos los umbrales cumplidos, uno incumplido, varios incumplidos, una razón de `0,7996` (que se muestra
-   `0,79` e incumple), una razón exacta de `0,80` (por ejemplo 800 frente a 1000, que se muestra `0,80` y cumple), ejecución reducida, sin opciones cambiadas y datos del equipo desconocidos.
+   `0,79` e incumple), una razón exacta de `0,80` (por ejemplo 800 frente a 1000, que se muestra `0,80` y cumple), una métrica de Voron de 0 con la de Krummi mayor que 0 (que se muestra `∞` y cumple), las dos de 0 (que se muestra
+   `0,00` y cumple), ejecución reducida, sin opciones cambiadas y datos del equipo desconocidos.
 3. **AC-K3** — Dados unos resultados inyectados, cuando el banco evalúa cada umbral, entonces dice `cumple` si y solo
-   si la métrica de Krummi es al menos 0,80 veces la de Voron sin redondear (K7), y el código de salida es `0` si
+   si la métrica de Krummi es al menos 0,80 veces la de Voron sin redondear (K7), también cuando la de Voron es 0, y el código de salida es `0` si
    todas dicen `cumple` y `1` si alguna dice `incumple`.
 4. **AC-K4** — Dados unos tiempos y unos números de operaciones por repetición inyectados, también distintos entre
    repeticiones como en W11 y W12, cuando el banco calcula la métrica de una carga, entonces usa la mediana de las

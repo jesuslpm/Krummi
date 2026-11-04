@@ -421,6 +421,25 @@ mod tests {
         assert_eq!(several.missed(), [Load::W1, Load::W13, Load::W22]);
     }
 
+    // AC-K2 and AC-K3: a Voron metric of 0 (W12 with no Voron read finished) shows `∞` when Krummi's is positive
+    // and `0,00` when it is 0 too, and both meet the threshold (R1 of the Codex PRD review).
+    #[test]
+    fn a_zero_voron_metric_shows_infinity_or_zero_and_meets() {
+        for (krummi, ratio) in [(5.0, "∞"), (0.0, "0,00")] {
+            let mut r = run(Scale::Full, |_| 1.0);
+            r.metrics.insert((Load::W12, Engine::Voron), 0.0);
+            r.metrics.insert((Load::W12, Engine::Krummi), krummi);
+            let text = r.render();
+            assert!(
+                row(&text, Load::W12).ends_with(&format!("| {ratio} | cumple |")),
+                "{}",
+                row(&text, Load::W12)
+            );
+            assert!(text.contains("\n## Resultado\n\nKrummi cumple 22 de 22 umbrales.\n"));
+            assert_eq!(r.exit_code(), 0);
+        }
+    }
+
     // AC-K2: a reduced run shows its values and says `sin evaluar`.
     #[test]
     fn a_reduced_run_evaluates_no_threshold() {

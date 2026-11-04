@@ -209,7 +209,9 @@ Rules of the form:
   almacén* one for each workload of K9, in the same order. The engine columns are always the six, in the order of K3.
 - The operations per second and the sizes are integers, rounded to the nearest, with no thousands separator. The
   Krummi / Voron ratio carries two decimals with a comma, **truncated**, not rounded, so that a displayed ratio of
-  `0,80` or more always meets the threshold.
+  `0,80` or more always meets the threshold. When Voron's metric is 0, for example in W12 if no Voron reader finishes
+  a read while the writer writes, the ratio is shown as `∞` if Krummi's is greater than 0 and `0,00` if it is 0 too,
+  and the threshold is met, because the comparison of K7 is Krummi's metric against 0.80 times Voron's.
 - The *Umbral* column says `cumple` or `incumple`. In a reduced run, *Ejecución* says `reducida`, *Repeticiones* says
   `1 medida`, *Resultado* says `Ejecución reducida, sin umbrales.` and the *Umbral* column says `sin evaluar`; the
   other columns and the size table are shown the same.
@@ -284,10 +286,12 @@ They check this module. AC19 of the parent is checked by the maintainer before e
 2. **AC-K2** — Given results per workload and engine and machine data injected for the test, when the benchmark writes
    the report and the standard output line, then they are identical byte for byte to those expected for each case: all
    thresholds met, one missed, several missed, a ratio of `0,7996` (which is shown as `0,79` and misses), an exact
-   ratio of `0,80` (for example 800 against 1000, which is shown as `0,80` and meets), reduced run, no changed options
+   ratio of `0,80` (for example 800 against 1000, which is shown as `0,80` and meets), a Voron metric of 0 with
+   Krummi's greater than 0 (which is shown as `∞` and meets), both of 0 (which is shown as `0,00` and meets), reduced
+   run, no changed options
    and unknown machine data.
 3. **AC-K3** — Given injected results, when the benchmark evaluates each threshold, then it says `cumple` if and only
-   if Krummi's metric is at least 0.80 times Voron's unrounded (K7), and the exit code is `0` if all say `cumple` and
+   if Krummi's metric is at least 0.80 times Voron's unrounded (K7), also when Voron's is 0, and the exit code is `0` if all say `cumple` and
    `1` if any says `incumple`.
 4. **AC-K4** — Given injected times and numbers of operations per repetition, also different between repetitions as in
    W11 and W12, when the benchmark computes the metric of a workload, then it uses the median of the metrics of the
