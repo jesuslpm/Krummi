@@ -21,8 +21,8 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S3 | inline: baseline single-load runs at `b3c0c44`, Windows and WSL | done | L4 |
-| T2 | S1, S2 | inline: decide at snapshot open whether any version can apply; skip the lock in `page_and_code` and `run` | pending | — |
-| T3 | S2, S3 | inline: single-load runs after T2, compared with T1 | pending | — |
+| T2 | S1, S2 | inline: decide at snapshot open whether any version can apply; skip the lock in `page_and_code` and `run` | done | `387e758`, L5 |
+| T3 | S2, S3 | inline: single-load runs after T2, compared with T1 | done | L6–L8 |
 | T4 | S4 | independent verifier, RDD, Codex, closing | pending | — |
 
 ## Log
@@ -51,3 +51,26 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   `versions_nobody_can_read_are_retired` among them). No new test: the change adds no rule, and the field is written
   once, under the lock that orders it with `publish`. Checks: fmt ok, workspace clippy clean, `cargo test
   --workspace` 520 passed, 0 failed, 30 ignored.
+- **L6** (2026-11-04): T3, first runs at `387e758` (median op/s; Windows run once, then two more rounds alternating
+  the binaries): Windows W9 476,077 / 389,770 / 394,097 → 598,624 / 646,945 / 575,018, but W10 19,584,687 /
+  19,514,289 / 14,280,349 → 2,697,755 / 2,340,125 / 1,812,117 and W11 15.0 M / 15.0 M / 13.9 M → 6.7 M / 10.6 M / 9.9 M.
+  WSL 2 (two rounds): W9 306,985 / 431,963 → 709,969 / 702,301; W10 bimodal with both binaries (2,354,959 /
+  10,955,741 → 16,788,218 / 3,577,543).
+- **L7** (2026-11-04): the Windows W10 drop is the machine, not the code. W10 alone: before 21,164,738 / 18,895,662,
+  after 20,211,125 / 21,918,385 (and the same code with the field always `true`, 10,976,334 / 20,805,679). W9 then
+  W10 in one `measure.py` call: before 20.8 M / 19.5 M, after 2.5 M / 2.4 M, also with a 5 s pause between the loads.
+  Crossing the binaries under one parent process: after's W9 then before's W10 gave 2,316,164, and before's W9 then
+  after's W10 gave 20,828,040. A load that follows one saturating 16 threads under the same parent runs slowly on
+  this machine (likely Windows power throttling or E-core scheduling of the process tree, not proven); with the
+  scratch lock gone, W9 now saturates them. Comparison redone with each load in its own `measure.py` call,
+  alternating the binaries (`MEASURE_PAUSE` added to the script, unused there). The complete runs may show the same
+  effect on the loads after W9: noted for the closing report.
+- **L8** (2026-11-04): T3, each load in its own `measure.py` call from one background shell, two rounds alternating
+  the binaries (median op/s, before → after): W7 497,453 / 403,518 → 472,736 / 458,725 (+3 %); W8 1,056,017 / 988,946
+  → 1,038,073 / 1,079,484 (+4 %); W9 413,069 / 404,539 → 528,994 / 640,617 (+43 %); W10 1,639,397 / 2,599,821 →
+  1,573,248 / 2,645,050 (0 %: both slowed by the shared parent, L7); W11 1,269,337 / 10,545,825 → 10,927,791 /
+  14,887,534 (noise); W12 428,063 / 364,371 → 412,125 / 328,361 (−7 %); W13 14,183 / 13,653 → 15,661 / 11,635. W12
+  does not take the new path (its writer keeps versions in the scratch area); its alternated pairs over all Windows
+  rounds give +4 %, +3 %, −4 % and −10 %, no consistent direction. Result: W9 gains on both platforms (Windows +26 %
+  to +66 % per pair, WSL 2 +63 % to +131 %); the other loads are within this machine's noise. No threshold met yet:
+  the checksum (O3a, O3) remains.

@@ -1,0 +1,21 @@
+2026-11-04T18:41:58+00:00	mark	explore	T1
+2026-11-04T18:42:48+00:00	mark	wait	estimate and start of O2
+2026-11-04T18:45:33+00:00	start	plan	T1
+2026-11-04T18:47:45+00:00	bg-start	acceptance	T1 baseline windows
+2026-11-04T18:51:24+00:00	bg-end	acceptance	T1 baseline windows
+2026-11-04T18:51:24+00:00	bg-start	acceptance	T1 baseline wsl
+2026-11-04T18:57:09+00:00	bg-end	acceptance	T1 baseline wsl
+2026-11-04T18:57:19+00:00	mark	implement	T2
+2026-11-04T18:58:55+00:00	mark	checks	T2
+2026-11-04T19:06:17+00:00	mark	acceptance	T3
+2026-11-04T19:07:13+00:00	bg-start	acceptance	T3 after windows
+2026-11-04T19:10:25+00:00	bg-end	acceptance	T3 after windows
+2026-11-04T19:10:25+00:00	bg-start	acceptance	T3 after wsl
+2026-11-04T19:13:47+00:00	bg-end	acceptance	T3 after wsl
+2026-11-04T19:13:47+00:00	bg-start	acceptance	T3 rerun wsl
+2026-11-04T19:21:30+00:00	bg-end	acceptance	T3 rerun wsl
+2026-11-04T19:21:57+00:00	bg-start	acceptance	T3 rerun windows
+2026-11-04T19:36:09+00:00	bg-end	acceptance	T3 rerun windows
+2026-11-04T19:37:09+00:00	mark	fix	T3
+2026-11-04T20:11:02+00:00	bg-start	acceptance	T3 isolated windows
+2026-11-04T20:25:45+00:00	bg-end	acceptance	T3 isolated windows
