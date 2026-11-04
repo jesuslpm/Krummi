@@ -252,3 +252,11 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   open, R3 partly, new R5. Fixed in `9cb6a49` (R1: four writer phases, exact count) and `6d35cd5` (R3, R5: shared
   retried removal). Checks: workspace 518 passed; bench with Voron 40 + 8 + 8 + 9. Plan of the optimizations in
   `docs/performance/plan.md` (`7ecd78a`). Round 3 waits for the Codex usage limit (11:49 UTC).
+- **L22** (2026-11-04): RDD of `8972ddf..d05ba48` (reliability, resilience, readability): approved, lineage
+  `review-59de3858f39c465c`. Fixed in `e1aaa18`: the impossible writer arm of the W12 sum is `unreachable!` (R2-002);
+  the doc comment of `remove_retrying` says every error is retried, so a removal that cannot succeed fails after
+  five seconds (R4 and R3-002; a held file shows on Windows as errors of several kinds, so the retry is not limited
+  by kind). Kept: a folder that allows creating but not deleting files is now rejected, which R5 asks for; the
+  helper stays in `cli` beside the validation that needs it; the Voron side of the W12 count has no unit test,
+  because no test runs the Voron program outside a whole benchmark run (its `selftest` is not called by any test),
+  and its rule mirrors the Rust one, which has the deterministic boundary test.
