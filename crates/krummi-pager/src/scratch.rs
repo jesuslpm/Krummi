@@ -546,6 +546,7 @@ impl Scratch {
             seq: live.seq,
             txid: live.txid,
             writer,
+            may_see_versions: !state.versions.is_empty(),
         })
     }
 }
@@ -960,6 +961,10 @@ pub struct Snapshot<'a> {
     txid: u64,
     /// Whether it is the writer's snapshot (E3).
     writer: bool,
+    /// Whether the scratch area held any version when this snapshot opened. A version published later is newer than
+    /// the snapshot, so it never applies to it: without one at the start, its reads skip the scratch lock (O2 of the
+    /// performance plan).
+    may_see_versions: bool,
 }
 
 impl<'a> Snapshot<'a> {
@@ -991,10 +996,10 @@ impl<'a> Snapshot<'a> {
     ///
     /// If `page_number` is a header page.
     pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
-        let state = self.scratch.lock();
+        let state = self.may_see_versions.then(|| self.scratch.lock());
         let version = state
-            .versions
-            .get(&page_number)
+            .as_ref()
+            .and_then(|state| state.versions.get(&page_number))
             .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid));
         if let Some(version) = version {
             if version.page.pages() > 1 {
@@ -1042,9 +1047,10 @@ impl<'a> Snapshot<'a> {
         let Some(end) = end else {
             return Err(pager.damaged(first));
         };
-        let state = self.scratch.lock();
+        let state = self.may_see_versions.then(|| self.scratch.lock());
         let seen = |page_number: u64| {
             state
+                .as_ref()?
                 .versions
                 .get(&page_number)
                 .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid))
