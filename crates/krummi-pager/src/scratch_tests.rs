@@ -145,6 +145,44 @@ fn a_version_an_open_snapshot_reads_is_kept() {
     });
 }
 
+/// Sets its flag when dropped, so a reader loop ends even when the thread that owns it panics.
+struct SetOnDrop<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for SetOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// O2 of the performance plan: a snapshot that opened with no version in the scratch area reads the store without
+/// the scratch lock, so newer versions of its page, published and written in place meanwhile, never reach it.
+#[test]
+fn a_snapshot_opened_without_versions_keeps_its_page_while_newer_ones_are_written() {
+    both_modes(|scratch| {
+        let reader = scratch.snapshot().unwrap();
+        let done = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _done = SetOnDrop(&done);
+                for i in 0..300 {
+                    commit(&scratch, &format!("v{i}"));
+                    scratch.begin_write().unwrap().flush().unwrap();
+                    scratch.transfer().unwrap();
+                }
+            });
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                assert_eq!(text(reader.page(PAGE).unwrap()), "a");
+            }
+        });
+        assert_eq!(text(reader.page(PAGE).unwrap()), "a");
+        drop(reader);
+        assert_eq!(
+            text(scratch.snapshot().unwrap().page(PAGE).unwrap()),
+            "v299"
+        );
+    });
+}
+
 #[test]
 fn close_and_drop_write_what_was_committed() {
     let tmp = tempfile::tempdir().unwrap();

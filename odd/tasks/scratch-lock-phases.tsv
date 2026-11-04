@@ -19,3 +19,6 @@
 2026-11-04T19:37:09+00:00	mark	fix	T3
 2026-11-04T20:11:02+00:00	bg-start	acceptance	T3 isolated windows
 2026-11-04T20:25:45+00:00	bg-end	acceptance	T3 isolated windows
+2026-11-04T20:26:45+00:00	mark	verify	T4
+2026-11-04T20:50:29+00:00	mark	implement	T4
+2026-11-04T20:51:44+00:00	mark	checks	T4

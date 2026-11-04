@@ -74,3 +74,17 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   rounds give +4 %, +3 %, −4 % and −10 %, no consistent direction. Result: W9 gains on both platforms (Windows +26 %
   to +66 % per pair, WSL 2 +63 % to +131 %); the other loads are within this machine's noise. No threshold met yet:
   the checksum (O3a, O3) remains.
+- **L9** (2026-11-04): independent verifier (sonnet/high) over `b3c0c44..387e758`: S1, S2 and S4 PASS, S3 left to
+  the measurements (L4–L8), no blockers. It checked that `publish` is the only insertion into `versions`, under the
+  lock and with `txid = last_committed + 1`; that `last_committed` only grows; that a snapshot's `txid` never changes;
+  that the baseline already dropped the lock before reading the store, so the store read has the same exposure as
+  before; and that a transfer selects a page only when the oldest read snapshot is at least its newest version, so
+  no page that a snapshot opened without versions reads is written in place while it is open. Its checks: fmt ok,
+  workspace clippy clean, `cargo test --workspace` 520 passed, 0 failed, 30 ignored; the L5 mutation fails the same 6
+  tests. Advisories: the writer's snapshot is not in `live`, so a transfer can write in place a page it reads (as at
+  the baseline); no committed test pinned the concurrent case. Taken: its probe, rewritten with a drop guard so a
+  failing writer cannot hang the reader, is the new test
+  `a_snapshot_opened_without_versions_keeps_its_page_while_newer_ones_are_written`: a reader opened on an empty
+  scratch area keeps reading "a" while another thread commits, flushes and transfers 300 newer versions. With the
+  transfer's oldest-snapshot condition removed it fails (`scratch_tests.rs:174`); restored, it passes. Checks: fmt
+  ok, workspace clippy clean, `cargo test --workspace` 521 passed, 0 failed, 30 ignored. Verifier scratch removed.
