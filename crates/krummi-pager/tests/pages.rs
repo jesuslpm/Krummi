@@ -255,11 +255,6 @@ fn held_reference_survives_growth(pager: &Pager) {
     assert_eq!(pager.page(2).unwrap(), &before[..]);
 }
 
-// O1 of the performance plan: readers get the store's size and newest mapping without a lock while the writer grows
-// the store, and every page a reader sees the store have is readable, all of it. A reader that saw a size beyond its
-// mapping would read past the mapping's end: there the system may have placed the newer mapping, whose start holds
-// the header pages, so the readers check the first page of the newer half and the last one; no page is written, so
-// both are blank. Several stores, because each one doubles on every growth.
 /// Sets its flag when dropped.
 struct StopOnDrop<'a>(&'a AtomicBool);
 
@@ -269,6 +264,11 @@ impl Drop for StopOnDrop<'_> {
     }
 }
 
+// O1 of the performance plan: readers get the store's size and newest mapping without a lock while the writer grows
+// the store, and every page a reader sees the store have is readable, all of it. A reader that saw a size beyond its
+// mapping would read past the mapping's end: there the system may have placed the newer mapping, whose start holds
+// the header pages, so the readers check the first page of the newer half and the last one; no page is written, so
+// both are blank. Several stores, because each one doubles on every growth.
 #[test]
 fn readers_see_every_page_while_the_store_grows() {
     for _ in 0..20 {
