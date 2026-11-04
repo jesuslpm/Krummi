@@ -2,7 +2,10 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 /// A failure the command reports: its message, one line on standard error, and its exit code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,10 +140,37 @@ fn can_create_in(folder: &Path) -> Result<(), Failure> {
     {
         Ok(file) => {
             drop(file);
-            let _ = fs::remove_file(&probe);
-            Ok(())
+            // A probe that cannot be removed leaves the folder changed, which a failed check must not do.
+            remove_retrying(|| fs::remove_file(&probe))
+                .map_err(|e| cannot_use(folder, &e.to_string()))
         }
         Err(e) => Err(cannot_use(folder, &e.to_string())),
+    }
+}
+
+/// Removes what `remove` removes, retrying for up to five seconds while it fails: on Windows a file that was just
+/// written, or a folder whose child was just killed, may be held for a moment by another program (a scanner, a
+/// viewer, the child). A path that no longer exists counts as removed; the last failure is returned.
+pub(crate) fn remove_retrying(remove: impl Fn() -> io::Result<()>) -> io::Result<()> {
+    retry_removal(20, Duration::from_millis(250), remove)
+}
+
+fn retry_removal(
+    attempts: u32,
+    pause: Duration,
+    remove: impl Fn() -> io::Result<()>,
+) -> io::Result<()> {
+    let mut attempt = 1;
+    loop {
+        match remove() {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if attempt >= attempts => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                thread::sleep(pause);
+            }
+        }
     }
 }
 
@@ -353,6 +383,63 @@ mod tests {
                 assert_eq!(failure.code, 1);
             }
         }
+    }
+
+    // R3 and R5 of the Codex code review, round 2: a removal is retried while it fails, a missing path counts as
+    // removed, and the last failure is returned.
+    #[test]
+    fn a_removal_is_retried_until_it_succeeds() {
+        use std::cell::Cell;
+        let calls = Cell::new(0);
+        let flaky = || {
+            calls.set(calls.get() + 1);
+            if calls.get() < 3 {
+                Err(io::Error::other("ocupado"))
+            } else {
+                Ok(())
+            }
+        };
+        assert!(retry_removal(5, Duration::ZERO, flaky).is_ok());
+        assert_eq!(calls.get(), 3);
+        calls.set(0);
+        let always = || {
+            calls.set(calls.get() + 1);
+            Err(io::Error::other("ocupado"))
+        };
+        assert_eq!(
+            retry_removal(4, Duration::ZERO, always)
+                .unwrap_err()
+                .to_string(),
+            "ocupado"
+        );
+        assert_eq!(calls.get(), 4);
+        let gone = || Err(io::Error::from(io::ErrorKind::NotFound));
+        assert!(retry_removal(4, Duration::ZERO, gone).is_ok());
+    }
+
+    // R3 and R5 on Windows: a file another program holds open without sharing its deletion, as a scanner may, is
+    // removed once that program closes it.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_held_for_a_moment_is_still_removed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("informe.md");
+        fs::write(&path, "x").unwrap();
+        // FILE_SHARE_READ | FILE_SHARE_WRITE, without FILE_SHARE_DELETE.
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(3)
+            .open(&path)
+            .unwrap();
+        assert!(fs::remove_file(&path).is_err(), "the handle must block it");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        assert!(remove_retrying(|| fs::remove_file(&path)).is_ok());
+        assert!(!path.exists());
+        release.join().unwrap();
     }
 
     #[test]

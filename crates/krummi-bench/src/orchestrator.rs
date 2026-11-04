@@ -11,8 +11,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
 
@@ -64,7 +62,7 @@ pub fn main(args: Vec<OsString>) -> i32 {
     };
     let result = execute(&options, &work, &sub, started, &report, &report_shown);
     remove_subfolder(&sub);
-    match settle(result, child::interrupted(), &report) {
+    match settle(result, child::interrupted(), &report, &report_shown) {
         Ok((summary, code)) => {
             println!("{summary}");
             code
@@ -87,10 +85,14 @@ fn settle(
     result: Result<(String, i32), Stop>,
     interrupted: bool,
     report: &Path,
+    report_shown: &str,
 ) -> Result<(String, i32), Stop> {
     match result {
         Ok(_) if interrupted => {
-            let _ = fs::remove_file(report);
+            // Another program may hold the new report for a moment (a scanner, a viewer).
+            if let Err(e) = cli::remove_retrying(|| fs::remove_file(report)) {
+                eprintln!("No se pudo borrar el informe {report_shown}: {e}");
+            }
             Err(Stop::Interrupted)
         }
         other => other,
@@ -277,13 +279,8 @@ fn write_report(path: &Path, text: &str) -> io::Result<()> {
 /// Removes the work subfolder. A child that was just killed may hold its files for a moment on Windows, so it
 /// tries a few times.
 fn remove_subfolder(sub: &Path) {
-    for attempt in 0..20 {
-        match fs::remove_dir_all(sub) {
-            Ok(()) => return,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return,
-            Err(_) if attempt < 19 => thread::sleep(Duration::from_millis(250)),
-            Err(e) => eprintln!("No se pudo borrar la subcarpeta {}: {e}", sub.display()),
-        }
+    if let Err(e) = cli::remove_retrying(|| fs::remove_dir_all(sub)) {
+        eprintln!("No se pudo borrar la subcarpeta {}: {e}", sub.display());
     }
 }
 
@@ -298,14 +295,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let report = dir.path().join("r.md");
         fs::write(&report, "x").unwrap();
-        let kept = settle(Ok(("ok".into(), 0)), false, &report);
+        let kept = settle(Ok(("ok".into(), 0)), false, &report, "r.md");
         assert!(matches!(kept, Ok((ref s, 0)) if s == "ok"));
         assert!(report.exists());
-        let interrupted = settle(Ok(("ok".into(), 0)), true, &report);
+        let interrupted = settle(Ok(("ok".into(), 0)), true, &report, "r.md");
         assert!(matches!(interrupted, Err(Stop::Interrupted)));
         assert!(!report.exists());
         // A failure keeps its message: it already wrote no report.
-        let failed = settle(Err(Stop::Failed(Failure::new("f", 2))), true, &report);
+        let failed = settle(
+            Err(Stop::Failed(Failure::new("f", 2))),
+            true,
+            &report,
+            "r.md",
+        );
         assert!(matches!(failed, Err(Stop::Failed(ref f)) if f.code == 2));
     }
 
