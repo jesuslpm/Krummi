@@ -164,7 +164,16 @@ fn a_reduced_run_writes_its_report_and_leaves_no_store() {
     check_engine_cells(&rates, &Load::ALL);
     for row in &rates {
         assert_eq!(row.len(), 9, "{row:?}");
-        assert!(row[7].contains(','), "ratio {row:?}");
+        // Two decimals with a comma, or `∞` when Voron's metric is 0 and Krummi's is not (W12 when no Voron read
+        // ends while its writer writes, R4 of the Codex code review).
+        let ratio = row[7].split_once(',');
+        let decimal = ratio.is_some_and(|(units, hundredths)| {
+            !units.is_empty()
+                && units.bytes().all(|b| b.is_ascii_digit())
+                && hundredths.len() == 2
+                && hundredths.bytes().all(|b| b.is_ascii_digit())
+        });
+        assert!(decimal || row[7] == "∞", "ratio {row:?}");
         assert_eq!(row[8], "sin evaluar", "{row:?}");
     }
     let sizes = table(&report, "Tamaño del almacén (bytes)");
