@@ -98,3 +98,7 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   `debug_assert` of the offset): kept out, it would repeat the size check two lines above it. RDD of
   `60dcdc8..cade256` (reliability): approved, lineage `review-d04f3545b1bb4c40`; its suggestion (the helper sat
   between the test and its comment) fixed in `871cb5c`.
+- **L10** (2026-11-04): Codex code review of `7435b05..7488132`
+  ([report](../../docs/reviews/pager-mapping/2026-11-04-code.md),
+  [resolutions](../../docs/reviews/pager-mapping/2026-11-04-code-resolutions.md)): `approved`, no findings. The first
+  run (13:43 UTC) stopped on the Codex usage limit without reviewing; rerun at 16:51 UTC (wait 13:48–16:51 logged).

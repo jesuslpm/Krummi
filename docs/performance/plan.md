@@ -187,3 +187,4 @@ Each step closes with complete runs on Windows and Linux, so the next diagnosis 
 | Date | Optimization | Commit | Result |
 |---|---|---|---|
 | 2026-11-04 | Diagnosis of reads and writes | — | Profiles of W7, W9, W22, W2 and W21 on WSL 2 (this document) |
+| 2026-11-04 | O1, pager mapping without a lock | `9acf695` | Single-load runs, before → after: W9 +31 % on Windows and WSL 2, W10 +49 % / +116 %, W8 0 % / +21 %; no threshold met yet ([report](../../odd/tasks/pager-mapping-report.md)) |

@@ -24,3 +24,9 @@
 2026-11-04T13:32:03+00:00	bg-end	acceptance	T3 W12 rerun windows
 2026-11-04T13:32:25+00:00	mark	verify	T4
 2026-11-04T13:40:43+00:00	mark	review	T4
+2026-11-04T13:43:42+00:00	bg-start	review	codex-R1
+2026-11-04T13:48:43+00:00	bg-end	review	codex-R1
+2026-11-04T13:48:58+00:00	mark	wait	Codex usage limit until 16:50 UTC
+2026-11-04T16:51:20+00:00	mark	review	T4
+2026-11-04T16:51:20+00:00	bg-start	review	codex-R1
+2026-11-04T16:58:07+00:00	bg-end	review	codex-R1
