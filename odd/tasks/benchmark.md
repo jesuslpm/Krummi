@@ -236,3 +236,8 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   `review-d17f096f73e107b8`. Codex code review, round 1 (`docs/reviews/benchmark/2026-11-04-code.md`): `findings`,
   R1 and R2 major, R3 and R4 minor, all fixed (`74c8697`, `6afd038`, `6c5ebd1`, `dcd39f8`); resolutions in
   `2026-11-04-code-resolutions.md`. Checks after the fixes: workspace 516 passed; bench with Voron 38 + 8 + 8 + 9.
+- **L19** (2026-11-04): RDD of `6cef8b1..a935cc9` (reliability, resilience, risk): approved, lineage
+  `review-520f94853eb8bbac`. R4 and R3 warnings (both W12 counts at 0 could fail the end-to-end ratio check):
+  dismissed with evidence, `ratio_text(0, 0)` is `0,00` (`measure.rs:47-51`, pinned by its test), which the check
+  accepts as a decimal. R4 and R3 suggestions (probe name only by process id): fixed, the name adds the time in
+  nanoseconds (`14730a4`). R3 suggestion (permissions not restored if an assertion panics): fixed with a drop guard.
