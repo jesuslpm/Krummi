@@ -218,12 +218,16 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   the closing report.
 - **L13** (2026-11-04, user decision): K13 annotated in the PRD and its translation: an optimization that changes
   nothing observable of the product needs no PRD; its acceptance is that the loads it targets meet their threshold in
-  the complete runs on Windows and Linux without the other loads getting worse. The Codex PRD review (R1) reviews the
+  the complete runs on Windows and Linux without the other loads getting worse. The first round of the Codex PRD review reviews the
   annotated PRD.
-- **L14** (2026-11-04): Codex PRD review R1 (`docs/reviews/benchmark/2026-11-04-prd.md`): status `findings`. R1
+- **L14** (2026-11-04): Codex PRD review, round 1 (`docs/reviews/benchmark/2026-11-04-prd.md`): status `findings`. R1
   major (W12 when Voron completes zero reads): pending, product decision for the user; R2 minor (AC-K1 size-table
   cells): fixed; R3 minor (reduced W17 partial write): fixed. Resolutions in `2026-11-04-prd-resolutions.md`.
 - **L15** (2026-11-04, user decision on R1): W12 with a Voron metric of 0 keeps the current behavior (`∞` or
   `0,00`, threshold met), now fixed in *Salida*, AC-K2 and AC-K3; test `a_zero_voron_metric_shows_infinity_or_zero_and_meets`.
 - **L16** (2026-11-04): Codex PRD follow-up (`docs/reviews/benchmark/2026-11-04-prd-02.md`): `approved`; R1–R3
   verified resolved. Next: the Codex code review of `aed68a6..HEAD`.
+- **L17** (2026-11-04): RDD of `d60b000..7dba24d` (reliability, readability): approved, lineage
+  `review-91f58e65622bdb58`. R3 warning (the zero-Voron test is not byte-exact): fixed, it compares the whole W12
+  row and the summary line. R2 suggestion (R1 names both a round and a finding): fixed, rounds are "round 1" in
+  L13 and L14; the phase log keeps its measured labels unchanged.

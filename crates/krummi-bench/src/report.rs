@@ -425,18 +425,27 @@ mod tests {
     // and `0,00` when it is 0 too, and both meet the threshold (R1 of the Codex PRD review).
     #[test]
     fn a_zero_voron_metric_shows_infinity_or_zero_and_meets() {
-        for (krummi, ratio) in [(5.0, "∞"), (0.0, "0,00")] {
+        for (krummi, expected_row) in [
+            (
+                5.0,
+                "| lecturas-con-escritor | 5 | 0 | 12002 | 12003 | 12004 | 12005 | ∞ | cumple |",
+            ),
+            (
+                0.0,
+                "| lecturas-con-escritor | 0 | 0 | 12002 | 12003 | 12004 | 12005 | 0,00 | cumple |",
+            ),
+        ] {
             let mut r = run(Scale::Full, |_| 1.0);
             r.metrics.insert((Load::W12, Engine::Voron), 0.0);
             r.metrics.insert((Load::W12, Engine::Krummi), krummi);
             let text = r.render();
-            assert!(
-                row(&text, Load::W12).ends_with(&format!("| {ratio} | cumple |")),
-                "{}",
-                row(&text, Load::W12)
-            );
+            assert_eq!(row(&text, Load::W12), expected_row);
             assert!(text.contains("\n## Resultado\n\nKrummi cumple 22 de 22 umbrales.\n"));
             assert_eq!(r.exit_code(), 0);
+            assert_eq!(
+                r.summary_line("x.md"),
+                "Krummi cumple 22 de 22 umbrales. Informe: x.md"
+            );
         }
     }
 
