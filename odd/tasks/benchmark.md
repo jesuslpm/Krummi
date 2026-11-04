@@ -241,3 +241,7 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   dismissed with evidence, `ratio_text(0, 0)` is `0,00` (`measure.rs:47-51`, pinned by its test), which the check
   accepts as a decimal. R4 and R3 suggestions (probe name only by process id): fixed, the name adds the time in
   nanoseconds (`14730a4`). R3 suggestion (permissions not restored if an assertion panics): fixed with a drop guard.
+- **L20** (2026-11-04): RDD of `a935cc9..5ac8573` (reliability): approved, lineage `review-df58601ea9c18b8a`. Two
+  suggestions kept: the probe could still repeat a name if two checks in one process read the same clock value, and
+  no test leaves an old probe behind; the command checks the report folder once per process, so a repeat within a
+  run cannot happen, and the old name format is never produced again.
