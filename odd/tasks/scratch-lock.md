@@ -101,3 +101,6 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
 - **L12** (2026-11-04): Codex code review of `b3c0c44..0fdc957`
   ([report](../../docs/reviews/scratch-lock/2026-11-04-code.md),
   [resolutions](../../docs/reviews/scratch-lock/2026-11-04-code-resolutions.md)): `approved`, no findings.
+- **L13** (2026-11-04): RDD of `0fdc957..4c0a2aa` (readability): approved, lineage `review-bb42c9e9e1c418f7`. R2
+  warning: the resolutions stated the Codex model and effort as fact while the report says it could not see them.
+  Fixed: both O2's and O1's resolutions now say the values come from the wrapper's reading of the Codex session log.
