@@ -24,7 +24,7 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
 |---|---|---|---|---|
 | T1 | S4 | inline: baseline single-load runs at `7435b05`, Windows and WSL | done | L5 |
 | T2 | S1, S2 | inline: lock-free length and mapping, concurrency test | done | `9acf695`, L6 |
-| T3 | S3, S4 | inline: single-load runs after T2, compared with T1 | pending | — |
+| T3 | S3, S4 | inline: single-load runs after T2, compared with T1 | done | L7 |
 | T4 | S5 | independent verifier, RDD, Codex, closing | pending | — |
 
 ## Log
@@ -64,3 +64,21 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   placed the newer view right after the older one, where the last page reads another blank page. Checks: fmt ok,
   workspace clippy clean, `cargo test --workspace` 520 passed, 0 failed, 30 ignored. Not a TDD RED: the change keeps
   behavior; the mutation check stands for it.
+- **L7** (2026-11-04): T3, the same runs at `9acf695` (median op/s, before → after):
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W7 | 435,691 → 509,832 (+17 %) | 356,734 → 500,475 (+40 %) |
+  | W8 | 977,970 → 977,961 (0 %) | 907,862 → 1,095,073 (+21 %) |
+  | W9 | 359,611 → 469,375 (+31 %) | 372,642 → 490,028 (+31 %) |
+  | W10 | 11,841,551 → 17,632,828 (+49 %) | 8,893,205 → 19,215,754 (+116 %) |
+  | W11 | 11,154,322 → 13,283,250 (+19 %) | 8,247,194 → 13,149,634 (+59 %) |
+  | W12 | 483,333 → 509,161 (+5 %) | 495,771 → 712,318 (+44 %) |
+  | W13 | 18,226 → 15,577 (−15 %) | 6,313 → 7,675 (+22 %) |
+
+  W13 on Windows rerun twice more, alternating the two binaries: before 15,964 and 12,638, after 14,827 and 14,858;
+  its repetitions range from 7,671 to 19,193 within one run, so the drop is noise. W12 on Windows the same: before
+  450,989 and 331,021, after 406,608 and 427,721. No target threshold is met yet (Windows W9 469,375 against Voron's
+  3,097,061 in the complete report): W9 still scales below W8, as the scratch lock (O2) and the checksum (O3) remain.
+  The single-load runs do not match the complete reports' values (Windows W7 436 k here, 532 k there), so only the
+  before/after pairs on the same machine state are compared.
