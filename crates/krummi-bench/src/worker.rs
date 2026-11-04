@@ -1005,7 +1005,6 @@ fn read_until<E: Store>(
     }
 }
 
-/// Sets the writer's phase to `ENDED` when dropped.
 /// The writer's last step before `ENDED`: publishes `FINISHING` and then takes its end. The end is taken only once
 /// every processor sees `FINISHING`, so no reader sees `WRITING` after the end: a release store alone may still sit
 /// in the writer's store buffer while it reads the clock (R1 of the Codex code review, round 3).
@@ -1026,6 +1025,7 @@ fn record(phase: &AtomicU8, tally: &mut ReaderTally) -> bool {
     false
 }
 
+/// Sets the writer's phase to `ENDED` when dropped.
 struct SetOnDrop<'a>(&'a AtomicU8);
 
 impl Drop for SetOnDrop<'_> {
@@ -1041,7 +1041,8 @@ mod tests {
     // R1 of the Codex code review, round 3: once the writer has taken its end, no reader sees `WRITING`. The reader
     // takes the time before each check, behind a full fence, so a `WRITING` seen with a later time than the end
     // proves that the read was counted inside after the writer's time. Many short rounds, because a stale `WRITING`
-    // lasts well under a microsecond.
+    // lasts well under a microsecond. A stress test: with a release store alone it failed in 74 of 20,000 rounds on
+    // Windows x64, but a pass does not prove the order.
     #[test]
     fn no_reader_sees_writing_after_the_writers_end() {
         const ROUNDS: usize = 20_000;
