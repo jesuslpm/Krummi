@@ -247,3 +247,8 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   suggestions kept: the probe could still repeat a name if two checks in one process read the same clock value, and
   no test leaves an old probe behind; the command checks the report folder once per process, so a repeat within a
   run cannot happen, and the old name format is never produced again.
+- **L21** (2026-11-04): Codex code review, round 2 (`docs/reviews/benchmark/2026-11-04-code-02.md`): the wrapper
+  said `error` (usage limit at the final message) but the report is complete: R2 and R4 verified resolved; R1 still
+  open, R3 partly, new R5. Fixed in `9cb6a49` (R1: four writer phases, exact count) and `6d35cd5` (R3, R5: shared
+  retried removal). Checks: workspace 518 passed; bench with Voron 40 + 8 + 8 + 9. Plan of the optimizations in
+  `docs/performance/plan.md` (`7ecd78a`). Round 3 waits for the Codex usage limit (11:49 UTC).

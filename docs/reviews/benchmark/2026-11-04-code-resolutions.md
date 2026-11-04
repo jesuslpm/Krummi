@@ -70,3 +70,70 @@ Checks after the fixes, at `dcd39f8`: `cargo fmt --all --check` ok; `cargo clipp
 warnings` clean; `cargo test --workspace` 516 passed, 0 failed, 30 ignored; `cargo test --release -p krummi-bench
 -- --include-ignored` with `KRUMMI_BENCH_RAVENDB`: 38 + 8 + 8 + 9 passed, the eight end-to-end runs with Voron
 (which build the changed Voron program and run W12) in 362 s.
+
+## 2026-11-04 (verification, round 2)
+
+Follow-up review [2026-11-04-code-02.md](2026-11-04-code-02.md) over `6cef8b1..8972ddf`. The wrapper returned
+`error`, because Codex hit its usage limit while writing its final message (`threadId`
+`01a1a5a4-656a-75c1-b968-cd9638e3bea9`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`); the report itself is complete and has its verdict, so it is
+taken as round 2. Per-ID outcome, quoted:
+
+- R1: "**Still open.** Phase gating removes ordinary pre-start counting, but its boundaries still differ from the
+  measured interval."
+- R2: "**Verified resolved for the original defect.**"
+- R3: "**Partially corrected, still open.** Late interruption now changes success to interruption, but report
+  removal can silently fail."
+- R4: "**Verified resolved.**"
+- New R5 (minor): "The report-folder probe can leave a file after initial validation fails".
+
+Verdict, quoted: "`findings` — changes requested: R1 (major), R3 (minor) and new regression R5 (minor) remain open;
+original R2 and R4 are verified resolved."
+
+## 2026-11-04 (round 2 fixes)
+
+Fix commits: `9cb6a49` (R1), `6d35cd5` (R3, R5).
+
+### R1 — major: W12 counting still differs from the writer's measured interval
+
+- Disposition: fixed.
+- Fix: the writer has four phases. It takes its start and then publishes `WRITING`; after its last commit it
+  publishes `FINISHING`, takes its end and then publishes `ENDED` (also on failure). A reader checks the phase after
+  every read: a read it sees end in `WRITING` counts, since it ended after the start was taken and before the end
+  was; a read it sees end in `NOT_STARTED` or `FINISHING` gets its end time, and counts when that time is inside the
+  writer's start and end; at `ENDED` the reader stops and that read, which ended after the end, does not count. So a
+  pause of the writer at either boundary no longer drops reads inside its time, and readers keep reading until the
+  end is taken, so the time no longer grows while they are stopped. A read ends when its reader records it, right
+  after its value's checksum; the scenario of a read that ends before the start and is recorded during `WRITING` is
+  a read recorded inside, by that definition, written in D10. Same in both workers (`worker.rs`, `read_until`,
+  `ReaderTally`, `readers_with_writer`; `voron/Loads.cs`, `ReadersWithWriter`).
+- Test: `worker::tests::a_w12_reader_counts_exactly_the_reads_that_end_in_the_writers_time`, whose store plays the
+  writer's steps with pauses: the start taken at read 3, `WRITING` at read 6, `FINISHING` at read 16, the end taken
+  at read 19, `ENDED` at read 22. It expects 16 reads (3–5, 6–15, 16–18) of 23. With the round-1 rule it fails with
+  `left: 10, right: 16` (observed); with the fix it passes. The Voron side runs in the end-to-end tests.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R3 — minor: finalization interruption can still leave the report when removal fails
+
+- Disposition: fixed.
+- Fix: the report removal of an interrupted run is retried for up to five seconds while it fails, with the same
+  helper that already removed the work subfolder (`cli::remove_retrying`, now shared); if it still fails, the
+  command says `No se pudo borrar el informe <informe>: <causa>` before `Banco interrumpido.`, as it does for the
+  subfolder.
+- Test: `cli::tests::a_removal_is_retried_until_it_succeeds` (retries, the last failure returned, a missing path is
+  removed) and, on Windows, `cli::tests::a_file_held_for_a_moment_is_still_removed`: a handle opened without
+  `FILE_SHARE_DELETE` blocks the removal for 300 ms, and the retried removal then succeeds.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R5 — minor: the report-folder probe can leave a file after initial validation fails
+
+- Disposition: fixed.
+- Fix: the probe's removal uses the same retried removal; if it still fails, the check fails with
+  `No se puede usar la carpeta <carpeta>: <causa>.` instead of succeeding with the probe left behind.
+- Test: the two tests of R3, which cover the shared helper.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Checks after the round 2 fixes, at `6d35cd5`: `cargo fmt --all --check` ok; clippy clean; `cargo test --workspace`
+518 passed, 0 failed, 30 ignored; `cargo test --release -p krummi-bench -- --include-ignored` with
+`KRUMMI_BENCH_RAVENDB`: 40 + 8 + 8 + 9 passed, the eight end-to-end runs with Voron (the changed Voron W12) in
+304 s. In WSL 2, `cargo test -p krummi-bench --lib`: 39 passed (the Windows-only test does not run there).
