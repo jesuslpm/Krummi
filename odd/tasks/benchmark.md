@@ -220,3 +220,6 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   nothing observable of the product needs no PRD; its acceptance is that the loads it targets meet their threshold in
   the complete runs on Windows and Linux without the other loads getting worse. The Codex PRD review (R1) reviews the
   annotated PRD.
+- **L14** (2026-11-04): Codex PRD review R1 (`docs/reviews/benchmark/2026-11-04-prd.md`): status `findings`. R1
+  major (W12 when Voron completes zero reads): pending, product decision for the user; R2 minor (AC-K1 size-table
+  cells): fixed; R3 minor (reduced W17 partial write): fixed. Resolutions in `2026-11-04-prd-resolutions.md`.
