@@ -82,3 +82,12 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   3,097,061 in the complete report): W9 still scales below W8, as the scratch lock (O2) and the checksum (O3) remain.
   The single-load runs do not match the complete reports' values (Windows W7 436 k here, 532 k there), so only the
   before/after pairs on the same machine state are compared.
+- **L8** (2026-11-04): independent verifier (sonnet/high) over `7435b05..60dcdc8`: S1–S5 PASS, no blockers. It
+  checked the ordering argument (growths serialized by the `maps` lock; a `len` read with Acquire makes its
+  growth's `newest` visible), the failed-map path (shrunk before anything is published), the SAFETY comment and the
+  bounds of `newest.add(first * PAGE_SIZE)` (`end <= len / PAGE_SIZE` is checked first; the mapped length fits in
+  `usize`), and every other user of `len()`, `page_count()` and `maps` (bounds checks only). Mutation reproduced in a
+  scratch copy: the test failed in 4 of 4 runs (three `page 8 of 16`, one `STATUS_ACCESS_VIOLATION`). Its checks:
+  fmt ok, workspace clippy clean, `cargo test --workspace` 520 passed, 0 failed, 30 ignored. Advisories kept: the
+  test's detection depends on where the system places the mappings (loom and Miri cannot model a mapping); the
+  failed-map shrink is a no-op on Windows and the poisoned-lock `unwrap`s are as before. Its scratch copy removed.
