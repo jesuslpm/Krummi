@@ -188,3 +188,4 @@ Each step closes with complete runs on Windows and Linux, so the next diagnosis 
 |---|---|---|---|
 | 2026-11-04 | Diagnosis of reads and writes | — | Profiles of W7, W9, W22, W2 and W21 on WSL 2 (this document) |
 | 2026-11-04 | O1, pager mapping without a lock | `9acf695` | Single-load runs, before → after: W9 +31 % on Windows and WSL 2, W10 +49 % / +116 %, W8 0 % / +21 %; no threshold met yet ([report](../../odd/tasks/pager-mapping-report.md)) |
+| 2026-11-04 | O2, scratch lookup without a lock | `387e758` | Single-load runs, before → after: W9 +26 % to +66 % on Windows, +63 % to +131 % on WSL 2; the other loads within noise; a load after W9 can run slowly on Windows under the same parent process ([report](../../odd/tasks/scratch-lock-report.md)) |

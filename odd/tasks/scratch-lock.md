@@ -98,3 +98,6 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   --workspace` 522 passed, 0 failed, 30 ignored.
 - **L11** (2026-11-04): RDD of `2bfeba8..f35f3a9` (reliability): approved, no findings, lineage
   `review-e238fa558daf5d7c`.
+- **L12** (2026-11-04): Codex code review of `b3c0c44..0fdc957`
+  ([report](../../docs/reviews/scratch-lock/2026-11-04-code.md),
+  [resolutions](../../docs/reviews/scratch-lock/2026-11-04-code-resolutions.md)): `approved`, no findings.
