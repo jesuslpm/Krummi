@@ -260,3 +260,7 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   helper stays in `cli` beside the validation that needs it; the Voron side of the W12 count has no unit test,
   because no test runs the Voron program outside a whole benchmark run (its `selftest` is not called by any test),
   and its rule mirrors the Rust one, which has the deterministic boundary test.
+- **L23** (2026-11-04): RDD of `d05ba48..daad8fd` (reliability): approved, lineage `review-183151eac0a9f867`. R3-001
+  warning (the `unreachable!` arm could panic if the writer were summed): dismissed with evidence, the sum runs over
+  `finished[..readers]`, which excludes the writer at index `readers` (`worker.rs:929`), and the worker integration
+  tests run W12 for the five Rust engines. Codex round 3 waits for the usage limit (11:49 UTC).
