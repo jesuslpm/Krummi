@@ -94,9 +94,11 @@ Decisions within *Dejado a la implementación*:
   - W12 and W13 (one process): 4 reader threads, reader `t` cycles through `read_order(W12, t, N)` (restarting when
     exhausted), opening a new read transaction every 1,000 reads; one writer does `p.writes` writes of `p.batch`
     entries `B + w·batch + j`. All five start together; the time is the writer's, from its first operation to its
-    last commit; a reader checks the writer's phase after every read and counts only the reads that end while it
-    writes (the writer publishes it after taking its start and before taking its end, R1 of the Codex code
-    review); when the writer finished it stops without counting that read. W12 operations: the reads counted; W13: `writes · batch`; both lines carry the writer's nanoseconds.
+    last commit; W12 counts exactly the reads that end in that time (R1 of the Codex code review, rounds 1 and 2).
+    The writer takes its start, publishes `WRITING`, writes, publishes `FINISHING`, takes its end and publishes
+    `ENDED`. A reader checks the phase after every read: a read it sees end in `WRITING` counts; one it sees end in
+    `NOT_STARTED` or `FINISHING` gets its end time and counts if it is in the writer's time; at `ENDED` it stops
+    without counting that read. A read ends when its reader records it, right after its value's checksum. W12 operations: the reads counted; W13: `writes · batch`; both lines carry the writer's nanoseconds.
     Readers check each value's byte sum. Digests: W12 the readers' first pass keys, threads in order; W13 the
     writer's keys and values.
   - W14: remove indices `0..N` in increasing order, writes of 1,000. W15: remove `0..N/2`, then insert `B + j` for

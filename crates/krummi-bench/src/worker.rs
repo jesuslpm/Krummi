@@ -904,32 +904,36 @@ fn readers_with_writer<E: Store>(cx: &Context) -> Result<()> {
         let phase = AtomicU8::new(NOT_STARTED);
         let finished = parallel(readers + 1, |t| {
             if t == readers {
-                // The writer publishes `WRITING` after taking its start and `DONE` before taking its end, so every
-                // read its readers count ends inside the time it reports. When it ends, also by a failure, the
-                // readers stop.
+                // The writer: when it ends, also by a failure, the readers stop (`ENDED`).
                 let _stop = SetOnDrop(&phase);
                 let start = Instant::now();
                 phase.store(WRITING, Ordering::Release);
                 put_batches(store, &written, p.batch)?;
-                phase.store(DONE, Ordering::Release);
-                Ok((0, Some(Instant::now() - start)))
+                phase.store(FINISHING, Ordering::Release);
+                Ok(W12Thread::Writer(start, Instant::now()))
             } else {
-                let reads = read_until(
+                read_until(
                     store,
                     &phase,
                     &orders[t],
                     &reader_keys[t],
                     &sums,
                     p.reads_per_transaction,
-                )?;
-                Ok((reads, None))
+                )
+                .map(W12Thread::Reader)
             }
         })?;
-        let time = finished[readers]
-            .result
-            .1
-            .expect("the writer reports its time");
-        let reads = finished[..readers].iter().map(|f| f.result.0).sum();
+        let W12Thread::Writer(start, end) = finished[readers].result else {
+            unreachable!("the last thread is the writer")
+        };
+        let reads = finished[..readers]
+            .iter()
+            .map(|f| match &f.result {
+                W12Thread::Reader(tally) => tally.reads_in(start, end),
+                W12Thread::Writer(..) => 0,
+            })
+            .sum();
+        let time = end - start;
         Ok(vec![
             (Load::W12, reads, time),
             (Load::W13, p.writes * p.batch, time),
@@ -937,14 +941,42 @@ fn readers_with_writer<E: Store>(cx: &Context) -> Result<()> {
     })
 }
 
-/// The writer's phase in W12 and W13, which its readers check after every read.
+/// The writer's phase in W12 and W13, which its readers check after every read (K8: W12 counts the reads that end
+/// in the writer's time, from its start to its end). The writer takes its start and then publishes `WRITING`; after
+/// its last commit it publishes `FINISHING`, takes its end and then publishes `ENDED`. So a read that a reader sees
+/// end in `WRITING` is inside the writer's time without a clock; one it sees end in `NOT_STARTED` or `FINISHING` may
+/// be inside or not, so the reader takes its end time; at `ENDED` the reader stops, and that read is outside.
 const NOT_STARTED: u8 = 0;
 const WRITING: u8 = 1;
-const DONE: u8 = 2;
+const FINISHING: u8 = 2;
+const ENDED: u8 = 3;
+
+/// What a thread of W12 and W13 returns.
+enum W12Thread {
+    Reader(ReaderTally),
+    /// The writer's start and end.
+    Writer(Instant, Instant),
+}
+
+/// What a W12 reader recorded: the reads it saw end while the writer was `WRITING`, and the end times of those it
+/// saw end in another phase before `ENDED`. A read ends when its reader records it, right after its value's
+/// checksum.
+#[derive(Debug, Default)]
+struct ReaderTally {
+    inside: u64,
+    timed: Vec<Instant>,
+}
+
+impl ReaderTally {
+    /// The reads that ended in the writer's time, `start` and `end` included.
+    fn reads_in(&self, start: Instant, end: Instant) -> u64 {
+        let timed = self.timed.iter().filter(|&&t| start <= t && t <= end);
+        self.inside + timed.count() as u64
+    }
+}
 
 /// A W12 reader: cycles through its keys, a new read transaction every `per_transaction` reads, until `phase` is
-/// `DONE`; returns the reads that ended while it was `WRITING` (K8: the reads that end in the writer's time). A read
-/// that ends before the writer starts or after it ends is not counted.
+/// `ENDED`, recording each read as `ReaderTally` says.
 fn read_until<E: Store>(
     store: &E,
     phase: &AtomicU8,
@@ -952,8 +984,8 @@ fn read_until<E: Store>(
     keys: &[[u8; KEY_LEN]],
     sums: &[u64],
     per_transaction: u64,
-) -> Result<u64> {
-    let mut count = 0;
+) -> Result<ReaderTally> {
+    let mut tally = ReaderTally::default();
     let mut position = 0;
     loop {
         let stopped = store.read(|r| {
@@ -962,26 +994,26 @@ fn read_until<E: Store>(
                 let sum = r.get(key)?.ok_or_else(|| missing(key))?;
                 check_sum(sums[order[position] as usize], sum)?;
                 match phase.load(Ordering::Acquire) {
-                    DONE => return Ok(true),
-                    WRITING => count += 1,
-                    _ => {}
+                    ENDED => return Ok(true),
+                    WRITING => tally.inside += 1,
+                    _ => tally.timed.push(Instant::now()),
                 }
                 position = (position + 1) % keys.len();
             }
             Ok(false)
         })?;
         if stopped {
-            return Ok(count);
+            return Ok(tally);
         }
     }
 }
 
-/// Sets the writer's phase to `DONE` when dropped.
+/// Sets the writer's phase to `ENDED` when dropped.
 struct SetOnDrop<'a>(&'a AtomicU8);
 
 impl Drop for SetOnDrop<'_> {
     fn drop(&mut self) {
-        self.0.store(DONE, Ordering::Release);
+        self.0.store(ENDED, Ordering::Release);
     }
 }
 
@@ -1058,19 +1090,34 @@ mod tests {
         assert!(copy_folder(&from, &to).is_err(), "the target must be new");
     }
 
-    /// A store whose reads drive the writer's phase: read 10 starts the writer, read 20 ends it.
+    /// A store whose reads play the writer's steps, with the pauses between them that scheduling can cause: read 3
+    /// takes the writer's start, read 6 publishes `WRITING`, read 16 `FINISHING`, read 19 takes its end and read 22
+    /// publishes `ENDED`. The sleeps keep a clock with coarse ticks from giving two of those instants one value.
     struct PhasedStore {
         phase: std::sync::Arc<AtomicU8>,
         reads: std::sync::atomic::AtomicU64,
+        start: std::sync::Mutex<Option<Instant>>,
+        end: std::sync::Mutex<Option<Instant>>,
     }
 
     struct PhasedReader<'a>(&'a PhasedStore);
 
     impl crate::engines::Reader for PhasedReader<'_> {
         fn get(&self, _key: &[u8]) -> Result<Option<u64>> {
-            match self.0.reads.fetch_add(1, Ordering::Relaxed) {
-                10 => self.0.phase.store(WRITING, Ordering::Release),
-                20 => self.0.phase.store(DONE, Ordering::Release),
+            let store = self.0;
+            let pause = || thread::sleep(Duration::from_millis(2));
+            match store.reads.fetch_add(1, Ordering::Relaxed) {
+                3 => {
+                    pause();
+                    *store.start.lock().unwrap() = Some(Instant::now());
+                }
+                6 => store.phase.store(WRITING, Ordering::Release),
+                16 => store.phase.store(FINISHING, Ordering::Release),
+                19 => {
+                    *store.end.lock().unwrap() = Some(Instant::now());
+                    pause();
+                }
+                22 => store.phase.store(ENDED, Ordering::Release),
                 _ => {}
             }
             Ok(Some(7))
@@ -1118,19 +1165,26 @@ mod tests {
         }
     }
 
-    // W12 (R1 of the Codex code review): a reader counts only the reads that end while the writer writes, not
-    // those that end before it starts or after it ends.
+    // W12 (R1 of the Codex code review, rounds 1 and 2): a reader counts exactly the reads that end in the writer's
+    // time, also when the writer pauses between taking its start and publishing it, or between its last commit and
+    // taking its end: reads 3-5 (after the start, before `WRITING`), 6-15 (`WRITING`) and 16-18 (`FINISHING`, before
+    // the end); not reads 0-2, before the start, nor 19-21, after the end, nor 22, at `ENDED`.
     #[test]
-    fn a_w12_reader_counts_only_the_reads_that_end_while_the_writer_writes() {
+    fn a_w12_reader_counts_exactly_the_reads_that_end_in_the_writers_time() {
         let phase = std::sync::Arc::new(AtomicU8::new(NOT_STARTED));
         let store = PhasedStore {
             phase: phase.clone(),
             reads: Default::default(),
+            start: Default::default(),
+            end: Default::default(),
         };
         let keys = [key(0), key(1), key(2)];
-        let counted = read_until(&store, &phase, &[0, 1, 2], &keys, &[7, 7, 7], 4).unwrap();
-        assert_eq!(counted, 10);
-        assert_eq!(store.reads.load(Ordering::Relaxed), 21);
+        let tally = read_until(&store, &phase, &[0, 1, 2], &keys, &[7, 7, 7], 4).unwrap();
+        let start = store.start.lock().unwrap().unwrap();
+        let end = store.end.lock().unwrap().unwrap();
+        assert_eq!(tally.reads_in(start, end), 3 + 10 + 3, "{tally:?}");
+        assert_eq!(tally.inside, 10);
+        assert_eq!(store.reads.load(Ordering::Relaxed), 23);
     }
 
     #[test]

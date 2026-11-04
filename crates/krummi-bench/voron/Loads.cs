@@ -4,6 +4,7 @@
 
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -398,9 +399,11 @@ static class Loads
 
     /// W12 and W13: 4 readers cycle through their read orders, a new read transaction every `ReadsPerTransaction`
     /// reads, while one writer does `Writes` writes of `Batch` new entries. All five start together; the time is the
-    /// writer's. A reader counts only the reads that end while the writer writes: the writer publishes `Writing`
-    /// after taking its start and `Done` before taking its end, and a reader checks the phase after every read, so
-    /// a read that ends before the writer starts or after it ends is not counted; at `Done` it stops.
+    /// writer's, and W12 counts the reads that end in it, as the Rust worker does (its `read_until`): the writer
+    /// takes its start and then publishes `Writing`; after its last commit it publishes `Finishing`, takes its end
+    /// and then publishes `Ended`. A reader checks the phase after every read: a read it sees end in `Writing` is
+    /// inside the writer's time; one it sees end in `NotStarted` or `Finishing` gets its end time and counts if that
+    /// time is inside; at `Ended` the reader stops without counting that read.
     static Plan ReadersWithWriter(int n, Params p)
     {
         int readers = (int)p.Threads, perTx = (int)p.ReadsPerTransaction, batch = (int)p.Batch;
@@ -414,10 +417,11 @@ static class Loads
             k.FeedTo(readDigest);
         return new Plan([(W12, readDigest), (W13, written.FeedTo(new Digest()))], (env, _) =>
         {
-            const int NotStarted = 0, Writing = 1, Done = 2;
+            const int NotStarted = 0, Writing = 1, Finishing = 2, Ended = 3;
             long ws = 0, we = 0;
             int phase = NotStarted;
             var counts = new ulong[readers];
+            var timed = new List<long>[readers];
             Together(readers + 1, t =>
             {
                 if (t == readers)
@@ -427,12 +431,12 @@ static class Loads
                         ws = Now();
                         Volatile.Write(ref phase, Writing);
                         Insert(env, written, 0, written.Count, batch);
-                        Volatile.Write(ref phase, Done);
+                        Volatile.Write(ref phase, Finishing);
                         we = Now();
                     }
                     finally
                     {
-                        Volatile.Write(ref phase, Done);
+                        Volatile.Write(ref phase, Ended);
                     }
                     return;
                 }
@@ -440,6 +444,7 @@ static class Loads
                 uint[] order = orders[t];
                 int pos = 0;
                 ulong count = 0;
+                var ends = new List<long>();
                 while (true)
                 {
                     using var tx = env.ReadTransaction();
@@ -450,19 +455,24 @@ static class Loads
                         if (sum != valueSums[order[pos]])
                             throw WrongSum(valueSums[order[pos]], sum);
                         int now = Volatile.Read(ref phase);
-                        if (now == Done)
+                        if (now == Ended)
                         {
                             counts[t] = count;
+                            timed[t] = ends;
                             return;
                         }
                         if (now == Writing)
                             count++;
+                        else
+                            ends.Add(Now());
                         pos = pos + 1 == n ? 0 : pos + 1;
                     }
                 }
             });
             ulong nanos = Nanos(ws, we);
-            return [new Rep(W12, counts.Aggregate(0UL, (a, c) => a + c), nanos), new Rep(W13, (ulong)written.Count, nanos)];
+            ulong reads = counts.Aggregate(0UL, (a, c) => a + c)
+                + (ulong)timed.Sum(ends => ends.Count(e => ws <= e && e <= we));
+            return [new Rep(W12, reads, nanos), new Rep(W13, (ulong)written.Count, nanos)];
         });
     }
 
