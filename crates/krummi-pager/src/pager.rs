@@ -605,8 +605,9 @@ impl Pager {
                     .map_err(|e| self.write_failed(e, new_len - len))?;
                 match sys::map(&f.file, &f.path, new_len) {
                     Ok(map) => {
-                        f.newest.store(map.as_ptr().cast_mut(), Ordering::Release);
+                        let start = map.as_ptr().cast_mut();
                         maps.push(map);
+                        f.newest.store(start, Ordering::Release);
                     }
                     Err(e) => {
                         // Keep the size the store had (P11) and give the reserved space back. Windows refuses to
