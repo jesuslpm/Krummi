@@ -124,7 +124,12 @@ pub fn check_report(report: &Path) -> Result<(), Failure> {
 /// folder without write permission, or on a read-only file system, fails before the run and not when the report is
 /// written at its end.
 fn can_create_in(folder: &Path) -> Result<(), Failure> {
-    let probe = folder.join(format!(".krummi-bench-{}.tmp", std::process::id()));
+    // The process id and the time make the name unique, so a probe left by an earlier run (a removal that failed,
+    // a crash) never makes this one fail with an existing file.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let probe = folder.join(format!(".krummi-bench-{}-{nanos}.tmp", std::process::id()));
     match fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -326,9 +331,18 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            /// Gives the folder its permissions back when dropped, also when an assertion fails, so that the
+            /// temporary folder can be removed.
+            struct Unlock<'a>(&'a Path);
+            impl Drop for Unlock<'_> {
+                fn drop(&mut self) {
+                    let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o755));
+                }
+            }
             let locked = dir.path().join("cerrada");
             fs::create_dir(&locked).unwrap();
             fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+            let _unlock = Unlock(&locked);
             // A superuser writes anyway: then there is nothing to check.
             let writable = fs::write(locked.join("probe"), "x").is_ok();
             if !writable {
@@ -338,7 +352,6 @@ mod tests {
                 assert!(failure.message.ends_with('.'));
                 assert_eq!(failure.code, 1);
             }
-            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         }
     }
 
