@@ -216,3 +216,7 @@ fixes the shared library and protocol (Writer trigger a). Forecast: T1 about 900
   Final checks: `cargo fmt --all --check` ok; clippy clean; `cargo test --workspace` 512 passed, 0 failed, 30
   ignored. The run waits for the Codex reviews of the PRD and the code (usage limit until 2026-11-04 06:48); then
   the closing report.
+- **L13** (2026-11-04, user decision): K13 annotated in the PRD and its translation: an optimization that changes
+  nothing observable of the product needs no PRD; its acceptance is that the loads it targets meet their threshold in
+  the complete runs on Windows and Linux without the other loads getting worse. The Codex PRD review (R1) reviews the
+  annotated PRD.
