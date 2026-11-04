@@ -11,7 +11,7 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Barrier;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -901,27 +901,35 @@ fn readers_with_writer<E: Store>(cx: &Context) -> Result<()> {
     cx.data(Load::W13, digest)?;
 
     cx.modifying::<E>(Tree::Normal, |store| {
-        let done = AtomicBool::new(false);
+        let phase = AtomicU8::new(NOT_STARTED);
         let finished = parallel(readers + 1, |t| {
             if t == readers {
-                // The writer: when it ends, also by a failure, the readers stop.
-                let _stop = SetOnDrop(&done);
+                // The writer publishes `WRITING` after taking its start and `DONE` before taking its end, so every
+                // read its readers count ends inside the time it reports. When it ends, also by a failure, the
+                // readers stop.
+                let _stop = SetOnDrop(&phase);
+                let start = Instant::now();
+                phase.store(WRITING, Ordering::Release);
                 put_batches(store, &written, p.batch)?;
-                Ok(0)
+                phase.store(DONE, Ordering::Release);
+                Ok((0, Some(Instant::now() - start)))
             } else {
-                read_until(
+                let reads = read_until(
                     store,
-                    &done,
+                    &phase,
                     &orders[t],
                     &reader_keys[t],
                     &sums,
                     p.reads_per_transaction,
-                )
+                )?;
+                Ok((reads, None))
             }
         })?;
-        let writer = &finished[readers];
-        let time = writer.end - writer.start;
-        let reads = finished[..readers].iter().map(|f| f.result).sum();
+        let time = finished[readers]
+            .result
+            .1
+            .expect("the writer reports its time");
+        let reads = finished[..readers].iter().map(|f| f.result.0).sum();
         Ok(vec![
             (Load::W12, reads, time),
             (Load::W13, p.writes * p.batch, time),
@@ -929,11 +937,17 @@ fn readers_with_writer<E: Store>(cx: &Context) -> Result<()> {
     })
 }
 
-/// A W12 reader: cycles through its keys, a new read transaction every `per_transaction` reads, until `done`;
-/// returns the reads it finished before. A read that ends after `done` is not counted.
+/// The writer's phase in W12 and W13, which its readers check after every read.
+const NOT_STARTED: u8 = 0;
+const WRITING: u8 = 1;
+const DONE: u8 = 2;
+
+/// A W12 reader: cycles through its keys, a new read transaction every `per_transaction` reads, until `phase` is
+/// `DONE`; returns the reads that ended while it was `WRITING` (K8: the reads that end in the writer's time). A read
+/// that ends before the writer starts or after it ends is not counted.
 fn read_until<E: Store>(
     store: &E,
-    done: &AtomicBool,
+    phase: &AtomicU8,
     order: &[u32],
     keys: &[[u8; KEY_LEN]],
     sums: &[u64],
@@ -947,10 +961,11 @@ fn read_until<E: Store>(
                 let key = &keys[position];
                 let sum = r.get(key)?.ok_or_else(|| missing(key))?;
                 check_sum(sums[order[position] as usize], sum)?;
-                if done.load(Ordering::Acquire) {
-                    return Ok(true);
+                match phase.load(Ordering::Acquire) {
+                    DONE => return Ok(true),
+                    WRITING => count += 1,
+                    _ => {}
                 }
-                count += 1;
                 position = (position + 1) % keys.len();
             }
             Ok(false)
@@ -961,12 +976,12 @@ fn read_until<E: Store>(
     }
 }
 
-/// Sets the flag when dropped.
-struct SetOnDrop<'a>(&'a AtomicBool);
+/// Sets the writer's phase to `DONE` when dropped.
+struct SetOnDrop<'a>(&'a AtomicU8);
 
 impl Drop for SetOnDrop<'_> {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::Release);
+        self.0.store(DONE, Ordering::Release);
     }
 }
 
@@ -1041,6 +1056,81 @@ mod tests {
         assert_eq!(fs::read(to.join("a")).unwrap(), b"abc");
         assert_eq!(fs::read(to.join("sub").join("b")).unwrap(), b"de");
         assert!(copy_folder(&from, &to).is_err(), "the target must be new");
+    }
+
+    /// A store whose reads drive the writer's phase: read 10 starts the writer, read 20 ends it.
+    struct PhasedStore {
+        phase: std::sync::Arc<AtomicU8>,
+        reads: std::sync::atomic::AtomicU64,
+    }
+
+    struct PhasedReader<'a>(&'a PhasedStore);
+
+    impl crate::engines::Reader for PhasedReader<'_> {
+        fn get(&self, _key: &[u8]) -> Result<Option<u64>> {
+            match self.0.reads.fetch_add(1, Ordering::Relaxed) {
+                10 => self.0.phase.store(WRITING, Ordering::Release),
+                20 => self.0.phase.store(DONE, Ordering::Release),
+                _ => {}
+            }
+            Ok(Some(7))
+        }
+        fn scan(&self, _: Option<&[u8]>, _: u64) -> Result<(u64, u64)> {
+            unreachable!()
+        }
+        fn values(&self, _: &[u8]) -> Result<(u64, u64)> {
+            unreachable!()
+        }
+        fn get_fixed(&self, _: u64) -> Result<Option<u64>> {
+            unreachable!()
+        }
+    }
+
+    impl crate::engines::Writer for PhasedReader<'_> {
+        fn put(&mut self, _: &[u8], _: &[u8]) -> Result<()> {
+            unreachable!()
+        }
+        fn remove(&mut self, _: &[u8]) -> Result<()> {
+            unreachable!()
+        }
+        fn add(&mut self, _: &[u8], _: &[u8]) -> Result<()> {
+            unreachable!()
+        }
+        fn put_fixed(&mut self, _: u64, _: &[u8]) -> Result<()> {
+            unreachable!()
+        }
+    }
+
+    impl Store for PhasedStore {
+        type Reader<'t> = PhasedReader<'t>;
+        type Writer<'t> = PhasedReader<'t>;
+        fn open(_: &Path, _: Tree) -> Result<Self> {
+            unreachable!()
+        }
+        fn close(self) -> Result<()> {
+            Ok(())
+        }
+        fn read<R>(&self, f: impl FnOnce(&Self::Reader<'_>) -> Result<R>) -> Result<R> {
+            f(&PhasedReader(self))
+        }
+        fn write<R>(&self, _: impl FnOnce(&mut Self::Writer<'_>) -> Result<R>) -> Result<R> {
+            unreachable!()
+        }
+    }
+
+    // W12 (R1 of the Codex code review): a reader counts only the reads that end while the writer writes, not
+    // those that end before it starts or after it ends.
+    #[test]
+    fn a_w12_reader_counts_only_the_reads_that_end_while_the_writer_writes() {
+        let phase = std::sync::Arc::new(AtomicU8::new(NOT_STARTED));
+        let store = PhasedStore {
+            phase: phase.clone(),
+            reads: Default::default(),
+        };
+        let keys = [key(0), key(1), key(2)];
+        let counted = read_until(&store, &phase, &[0, 1, 2], &keys, &[7, 7, 7], 4).unwrap();
+        assert_eq!(counted, 10);
+        assert_eq!(store.reads.load(Ordering::Relaxed), 21);
     }
 
     #[test]

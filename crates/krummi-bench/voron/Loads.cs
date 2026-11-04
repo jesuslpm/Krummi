@@ -398,7 +398,9 @@ static class Loads
 
     /// W12 and W13: 4 readers cycle through their read orders, a new read transaction every `ReadsPerTransaction`
     /// reads, while one writer does `Writes` writes of `Batch` new entries. All five start together; the time is the
-    /// writer's. A reader checks after every read whether the writer finished and then stops without counting it.
+    /// writer's. A reader counts only the reads that end while the writer writes: the writer publishes `Writing`
+    /// after taking its start and `Done` before taking its end, and a reader checks the phase after every read, so
+    /// a read that ends before the writer starts or after it ends is not counted; at `Done` it stops.
     static Plan ReadersWithWriter(int n, Params p)
     {
         int readers = (int)p.Threads, perTx = (int)p.ReadsPerTransaction, batch = (int)p.Batch;
@@ -412,8 +414,9 @@ static class Loads
             k.FeedTo(readDigest);
         return new Plan([(W12, readDigest), (W13, written.FeedTo(new Digest()))], (env, _) =>
         {
+            const int NotStarted = 0, Writing = 1, Done = 2;
             long ws = 0, we = 0;
-            int done = 0;
+            int phase = NotStarted;
             var counts = new ulong[readers];
             Together(readers + 1, t =>
             {
@@ -422,12 +425,14 @@ static class Loads
                     try
                     {
                         ws = Now();
+                        Volatile.Write(ref phase, Writing);
                         Insert(env, written, 0, written.Count, batch);
+                        Volatile.Write(ref phase, Done);
                         we = Now();
                     }
                     finally
                     {
-                        Volatile.Write(ref done, 1);
+                        Volatile.Write(ref phase, Done);
                     }
                     return;
                 }
@@ -444,12 +449,14 @@ static class Loads
                         ulong sum = Get(tx, tree, mine.Key(pos));
                         if (sum != valueSums[order[pos]])
                             throw WrongSum(valueSums[order[pos]], sum);
-                        if (Volatile.Read(ref done) == 1)
+                        int now = Volatile.Read(ref phase);
+                        if (now == Done)
                         {
                             counts[t] = count;
                             return;
                         }
-                        count++;
+                        if (now == Writing)
+                            count++;
                         pos = pos + 1 == n ? 0 : pos + 1;
                     }
                 }
