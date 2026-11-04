@@ -23,7 +23,7 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
 | T1 | S3 | inline: baseline single-load runs at `b3c0c44`, Windows and WSL | done | L4 |
 | T2 | S1, S2 | inline: decide at snapshot open whether any version can apply; skip the lock in `page_and_code` and `run` | done | `387e758`, L5 |
 | T3 | S2, S3 | inline: single-load runs after T2, compared with T1 | done | L6–L8 |
-| T4 | S4 | independent verifier, RDD, Codex, closing | pending | — |
+| T4 | S4 | independent verifier, RDD, Codex, closing | done | L9–L14, [report](scratch-lock-report.md) |
 
 ## Log
 
@@ -103,4 +103,9 @@ Test runner: `cargo test`. No PRD: an optimization without an observable change 
   [resolutions](../../docs/reviews/scratch-lock/2026-11-04-code-resolutions.md)): `approved`, no findings.
 - **L13** (2026-11-04): RDD of `0fdc957..4c0a2aa` (readability): approved, lineage `review-bb42c9e9e1c418f7`. R2
   warning: the resolutions stated the Codex model and effort as fact while the report says it could not see them.
-  Fixed: both O2's and O1's resolutions now say the values come from the wrapper's reading of the Codex session log.
+  Fixed: both [O2's](../../docs/reviews/scratch-lock/2026-11-04-code-resolutions.md) and
+  [O1's](../../docs/reviews/pager-mapping/2026-11-04-code-resolutions.md) resolutions now say the values come from the wrapper's reading of the Codex session log.
+- **L14** (2026-11-04): RDD of `4c0a2aa..312ecdf` (readability): approved, lineage `review-b3eb0eed8c3c4597`; its
+  suggestion (name the two resolution files in L13) applied with the closing report. Final checks at `f35f3a9`, the
+  last code change: fmt ok, workspace clippy clean, `cargo test --workspace` 522 passed, 0 failed, 30 ignored.
+  Closing report: [scratch-lock-report.md](scratch-lock-report.md). Branch left unmerged and unpushed.
