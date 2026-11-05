@@ -26,7 +26,7 @@ at run time. Branch `perf/fast-xxh3` from `main` `c245fee`. Delivery: single bra
 | T1 | S2 | inline: test that pins xxh3-64 to values recorded with `xxhash-rust` | done | `f034f8f`, L4 |
 | T2 | S1 | inline: replace `xxhash-rust` with `twox-hash` in `krummi-pager` | done | `8c80d79`, L5 |
 | T3 | S3, S4 | inline: single-load runs before and after, Windows and WSL 2 | done | L8 |
-| T4 | S2 | independent verifier (risk items 1 and 5), RDD, Codex, closing | in progress | L6, L7, `3fdb108` |
+| T4 | S2 | independent verifier (risk items 1 and 5), RDD, Codex, closing | done | L6–L12, [report](fast-xxh3-report.md) |
 
 ## Log
 
@@ -99,3 +99,11 @@ at run time. Branch `perf/fast-xxh3` from `main` `c245fee`. Delivery: single bra
   at the `1 passed` check with the wrong cause (`did not run`). Fixed: the step sets `shell: bash` (GitHub's
   `bash --noprofile --norc -eo pipefail`). Its script under `set -eo pipefail`, with one recorded value changed:
   it stops at `cargo test` (exit 101, `56 bytes`), not at the check.
+- **L11** (2026-11-05): RDD of the last slice `ccd0834..e85311f` (resilience): approved, no findings, lineage
+  `review-d931b6a637d20618`.
+- **L12** (2026-11-05): Codex code review of `c245fee..e85311f`
+  ([report](../../docs/reviews/fast-xxh3/2026-11-05-code.md),
+  [resolutions](../../docs/reviews/fast-xxh3/2026-11-05-code-resolutions.md)): `approved`, no findings. Final checks
+  at `8c80d79`, the last Rust change (later commits touch only the CI file and docs): fmt ok, workspace clippy clean,
+  `cargo test --workspace` 523 passed, 0 failed, 30 ignored. Closing report:
+  [fast-xxh3-report.md](fast-xxh3-report.md). Branch left unmerged and unpushed.
