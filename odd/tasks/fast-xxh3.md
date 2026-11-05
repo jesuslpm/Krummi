@@ -37,3 +37,24 @@ at run time. Branch `perf/fast-xxh3` from `main` `c245fee`. Delivery: single bra
   competitors (`canopydb`, `fjall`, `lsm-tree`, `sfa`), which keep it. `twox-hash` 2.1.5 is already in the lock
   through `lz4_flex`. No test pins checksum values today. Risk: item 1 (the checksum is part of the stored format;
   a different value makes every existing store unreadable) and item 5 (a dependency changes): independent verifier.
+- **L4** (2026-11-05): T1 in `f034f8f`. Test `xxh3_keeps_the_values_of_the_stored_format` (`format.rs`): 16 values
+  printed by `xxhash-rust` 0.8.19 at `c245fee`, for lengths at the edges of each xxh3 input class (0, 1, 3, 4, 8,
+  9, 16, 17, 128, 129, 240, 241), a journal record header (56), a page without its checksum (8,184), a page (8,192)
+  and a run of 12 pages (98,304); the input is built from 64-bit arithmetic so it is the same on every target. The
+  empty input gives `0x2d06800538d394c2`, xxh3-64's published value for it. Passes with the old crate.
+- **L5** (2026-11-05): T2 in `8c80d79`. `twox-hash` 2.1.5 (`default-features = false`, features `std` and
+  `xxhash3_64`) replaces `xxhash-rust` in `krummi-pager`; `format.rs` gets `pub(crate) fn xxh3_64`, the one place
+  that names the crate, and `journal.rs` imports it. The T1 test passes with the new crate. Mutation check, not
+  committed: with `oneshot_with_seed(1, ..)` it fails (`0 bytes`). Only the AVX2 path runs on this machine (both
+  platforms share the CPU), so the test does not reach the SSE2 or scalar paths here.
+- **L6** (2026-11-05): independent verifier (sonnet/high) over `c245fee..8c80d79`: S1, S2 and S3 PASS, S4 left to
+  the measurements, no blockers. Every former `xxh3_64` call now goes through `format::xxh3_64` with the same
+  slices; no other crate of the engine hashes stored data. A probe outside the workspace compared
+  `XxHash3_64::oneshot` with `xxhash_rust::xxh3::xxh3_64` on 25,266 inputs (lengths 0 to 4,200 and up to 1 MiB + 13,
+  three contents, aligned and offset), with twox-hash's dispatch automatic and forced to AVX2, SSE2 and scalar
+  (`RUSTFLAGS="--cfg _internal_xxhash3_force_<variant>"`): 0 mismatches in each build; the 16 recorded constants
+  recomputed with `xxhash-rust` 0.8.19 from `c245fee`: 0 mismatches. `std` is what enables the run-time detection
+  (`all(target_arch = "x86_64", feature = "std")`); `lz4_flex` asks twox-hash only for `xxhash32`, behind its
+  `frame` feature, which Krummi does not enable. Its checks: fmt ok, workspace clippy clean, `cargo test -p
+  krummi-pager` passed. Advisory kept out: running the test under the forced SSE2 and scalar cfgs in CI; those cfgs
+  are internal to twox-hash and may change. Verifier scratch removed.
