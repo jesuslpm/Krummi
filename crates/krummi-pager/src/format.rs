@@ -283,6 +283,41 @@ pub fn verify_run(first: u64, run: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    /// Values recorded with `xxhash-rust` 0.8.19, the crate that wrote every existing store (O3a of the performance
+    /// plan). The lengths cover each of xxh3's input classes (0, 1–3, 4–8, 9–16, 17–128, 129–240, longer) at their
+    /// edges, a journal record header (56), a page without its checksum (8,184), a page and a run of 12 pages.
+    #[test]
+    fn xxh3_keeps_the_values_of_the_stored_format() {
+        let recorded = [
+            (0, 0x2d06_8005_38d3_94c2),
+            (1, 0xc44b_dff4_074e_ecdb),
+            (3, 0xa1c4_a825_9b82_7291),
+            (4, 0xbb4e_3d89_ee0b_271d),
+            (8, 0x79d0_2238_b80e_37b1),
+            (9, 0xf64c_ecc4_271f_f461),
+            (16, 0x222e_9aea_d6bd_dd51),
+            (17, 0x47aa_d6b3_75eb_4bba),
+            (56, 0xf9c9_dc3a_32cf_9d0b),
+            (128, 0x421a_9c90_5c6e_66ba),
+            (129, 0x9e24_1480_0f83_768a),
+            (240, 0xb714_c5fd_2274_4964),
+            (241, 0xbc42_4a2c_480d_d281),
+            (8_184, 0x9791_3c4e_003f_6213),
+            (8_192, 0x4583_0b92_71bf_697a),
+            (98_304, 0x6dc9_3d83_b430_09f0),
+        ];
+        for (len, value) in recorded {
+            assert_eq!(xxh3_64(&xxh3_input(len)), value, "{len} bytes");
+        }
+    }
+
+    /// Bytes that are not periodic in any short stride, so every lane of the hash reads different values.
+    fn xxh3_input(len: usize) -> Vec<u8> {
+        (0..len as u64)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect()
+    }
+
     fn header_pages(header: &Header) -> Vec<u8> {
         let mut pages = vec![0; HEADER_PAGES as usize * PAGE_SIZE];
         write_header_pages(&mut pages, header);
