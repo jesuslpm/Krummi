@@ -163,6 +163,8 @@ An alteration made while the store is open that matches the integrity code of a 
 is not what was written or end in a panic instead of an error; alterations made while the store is closed are
 detected as until now (decision C7 of [trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)).*
 
+*Annotation of 2026-11-05: exception to G6. In the read transactions, the integrity of a page is checked the first time it is read in each opening and the first time after the engine rewrites it, and it is remembered until closing. A change of a remembered page made while the store is open by something that is not the engine (a hardware or memory failure, or a foreign program) may return data that is not what was written or end in a panic until reopening. The write transactions, backup, compaction, migration and verification still check everything they read, so no write seals a damage (decision I8 of [pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,
@@ -369,6 +371,8 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
     *Annotation of 2026-10-30 to AC10: the criterion does not change, because its alterations are made with the store
     closed and a newly opened store remembers no node; the residual risk of the exception to G6 only affects alterations
     made while the store is open (decision C7 of [trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)).*
+
+    *Annotation of 2026-11-05 to AC10: the criterion does not change, because a newly opened store remembers no page as intact; the residual risk of the exception to G6 only affects alterations made while the store is open (decision I8 of [pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)).*
 11. **AC11** — Given a disk with no space, when a write transaction does not fit, then it fails with the
     disk-full error class, applies no change, the store still allows read transactions and, when space is freed,
     a following write commits without reopening (G7).

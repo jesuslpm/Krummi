@@ -61,6 +61,11 @@ its own in the store; its entry stays in the leaf, with its key.
 - *V9, Output and AC-V12: the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
 - *Out of scope: fixed-size trees have no values off their leaf; each value has the length of the tree, 0 to 2,048 bytes (decision X1).*
 
+*Annotations of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)):*
+
+- *V7: a damaged value stored off its leaf still fails every time it is needed, because a failed check is never remembered (decision I1). The guarantee that the engine never returns a value with a damaged byte has the exception of decision I8: a change of the pages of an already remembered value made while the store is open by something that is not the engine is not detected in the read transactions until reopening.*
+- *Left to the implementation: it ceases to be open whether the integrity of a value stored off its leaf is checked on every read or once per transaction; the read transactions check it the first time they read the value in each opening and after each rewrite by the engine, and remember and forget it whole, and the write transactions check it on every read (decisions I1 to I4).*
+
 ### Starting state
 
 Verified on 2026-10-27 in the code:

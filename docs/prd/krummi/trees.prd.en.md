@@ -145,6 +145,10 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *B10: what it left to child PRD 5.6 no longer applies; no tree stores compressed leaf pages.*
 - *Split into child PRDs: the row 5.6 has no effect.*
 
+*Annotation of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)):*
+
+- *Reuse: the integrity check of the pages ceases to be made on every read of the data file. The read transactions make it the first time they read a page in each opening and after each rewrite by the engine; the write transactions, on every read (decisions I2 and I3), with the residual risk of decision I8, which replaces that of C7.*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

@@ -53,6 +53,11 @@ In this document, the **length** of a fixed-size tree is the number of bytes tha
 | X14 | **Remembered layout check** (refines C1): the pages of a fixed-size tree are nodes for the purposes of C1–C8 and use the remembered check like the other nodes and over the same bytes: it is remembered that the content of a node passed the layout check, identified by its page number and by its integrity code, in the store's memory of remembered nodes, shared with the other trees. The guarantee and the residual risk of C7 apply to them. Whether what is remembered is used for all their nodes or only from a certain number of entries is left to the implementation, as for the other nodes (left to the implementation of the remembered check). |
 | X15 | **Type of a tree** (extends A3): a new catalog operation, **Type**, receives a name and returns the type of the tree that has it, with its length when it is fixed-size, or that it does not exist; it does not fail because it does not exist, like Exists. It is valid for the three types and is in both kinds of transaction. It validates the size of the name (B4), never fails with different tree type (B3) and only reads the catalog: it can fail with the failures reading the catalog (damage, out of memory, input and output), but never with damage in the pages of the tree itself. Its precedence is that of Exists: first the invalid size of the name and then the failures reading the catalog. It modifies nothing: it does not end the references or the scans (X8) and is not a change for T10. It sees what its transaction sees, like Exists and List (A3): in a write, with its own changes to the catalog (trees created, deleted, renamed or recreated with another type), and in a read, its snapshot; it returns the same as List reports for that name. |
 
+*Annotations of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)):*
+
+- *X10: a damaged page still fails in every operation that needs it, except for the residual risk of decision I8, which replaces that of C7.*
+- *AC-X19: its first part is refined as AC-C1 (the integrity of each node is checked on its first read, not on all of them), and its fourth part (a byte changed with the store open in a remembered leaf) is replaced by AC-I8.*
+
 ### Starting state
 
 Verified on 2026-11-02 in the code:

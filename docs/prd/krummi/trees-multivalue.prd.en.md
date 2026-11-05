@@ -60,6 +60,8 @@ In this document, the **values of a key** are the set of values that a key of a 
 - *M4: the handles of fixed-size trees are a third type with the same rule (decision X4).*
 - *M14, Output and AC-M18: the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
 
+*Annotation of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)): M11, the residual risk of C7 is replaced by that of decision I8: a change of a remembered page made while the store is open by something that is not the engine is not detected in the read transactions until reopening.*
+
 ### Starting state
 
 Verified on 2026-10-29 in the code:

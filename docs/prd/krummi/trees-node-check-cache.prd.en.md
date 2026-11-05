@@ -56,6 +56,13 @@ affected documents (see [Annotations to other PRDs](#annotations-to-other-prds))
 - *C1 and Out of scope: the pages of fixed-size trees are nodes that use the remembered check, over the same bytes as the others (decision X14).*
 - *Output: the current format version becomes `9` (decision X12).*
 
+*Annotations of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)):*
+
+- *Objective, Flow, C2, C5, C7 and the first point of Out of scope: the integrity is no longer checked on every read. The read transactions check it the first time they read a page in each opening and after each rewrite by the engine; the write transactions, on every read (decisions I2 and I3). What is remembered of a node is looked up with the code stored in its page as it is read.*
+- *C3: the reads of nodes of the data file or, in temporary mode, of the store's memory use what is remembered.*
+- *C7: the residual risk is extended with that of decision I8: a change of a remembered page made while the store is open by something that is not the engine is not detected in the read transactions until reopening, whether the code matches or not.*
+- *AC-C1: the integrity of each node is checked on its first read, not on all of them. AC-C7 is replaced by AC-I8.*
+
 ### Starting state
 
 Verified on 2026-10-30 in the code:
