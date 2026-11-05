@@ -209,6 +209,11 @@ Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotac
   almacén abierto en una hoja recordada) se sustituye por AC-I8.
 - Árboles y operaciones por clave (A9), árboles multivalor (M11) y árboles de tamaño fijo (X10): una página dañada
   sigue fallando en cada operación que la necesite, salvo el riesgo residual de I8, que sustituye al de C7.
+- Valores grandes, V7 y Dejado a la implementación: un valor fuera de su hoja dañado sigue fallando cada vez que se
+  necesita (I1), salvo el riesgo residual de I8; deja de estar abierto si su integridad se comprueba en cada lectura
+  o una vez por transacción, porque lo fijan I1 a I4.
+- Módulo de árboles, Reutilización: la comprobación de integridad de las páginas deja de hacerse en cada lectura del
+  archivo de datos y sigue I2 e I3, con el riesgo residual de I8.
 
 ## Referencias
 

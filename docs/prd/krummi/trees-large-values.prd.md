@@ -60,6 +60,11 @@ en páginas propias del almacén; su entrada sigue en la hoja, con su clave.
 - *V9, Salida y AC-V12: la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
 - *Fuera de alcance: los árboles de tamaño fijo no tienen valores fuera de su hoja; cada valor tiene la longitud del árbol, de 0 a 2.048 bytes (decisión X1).*
 
+*Anotaciones del 2026-11-05 desde la integridad recordada de las páginas ([pager-integrity-once.prd.md](pager-integrity-once.prd.md)):*
+
+- *V7: un valor fuera de su hoja dañado sigue fallando cada vez que se necesita, porque una comprobación fallida nunca se recuerda (decisión I1). La garantía de que el motor nunca devuelve un valor con algún byte dañado tiene la excepción de la decisión I8: un cambio de las páginas de un valor ya recordado, hecho con el almacén abierto por algo que no es el motor, no se detecta en las transacciones de lectura hasta reabrir.*
+- *Dejado a la implementación: deja de estar abierto si la integridad de un valor fuera de su hoja se comprueba en cada lectura o una vez por transacción; las transacciones de lectura la comprueban la primera vez que leen el valor en cada apertura y tras cada reescritura del motor, y lo recuerdan y olvidan entero, y las de escritura en cada lectura (decisiones I1 a I4).*
+
 ### Estado de partida
 
 Verificado el 2026-10-27 en el código:

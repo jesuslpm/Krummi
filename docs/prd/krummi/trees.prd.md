@@ -148,6 +148,10 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *B10: deja de aplicar lo que encargaba al PRD hijo 5.6; ningún árbol guarda páginas hoja comprimidas.*
 - *Reparto en PRD hijos: la fila 5.6 queda sin efecto.*
 
+*Anotación del 2026-11-05 desde la integridad recordada de las páginas ([pager-integrity-once.prd.md](pager-integrity-once.prd.md)):*
+
+- *Reutilización: la comprobación de integridad de las páginas deja de hacerse en cada lectura del archivo de datos. Las transacciones de lectura la hacen la primera vez que leen una página en cada apertura y tras cada reescritura del motor; las de escritura, en cada lectura (decisiones I2 e I3), con el riesgo residual de la decisión I8, que sustituye al de C7.*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:
