@@ -25,3 +25,11 @@ Artifact versions after the fixes: commit `7050669`
 Review record: [2026-11-05-prd.md](2026-11-05-prd.md), wrapper status `findings` (R1 open), thread
 `01a1ad0b-e2df-7572-80f3-664146eeaf34`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-05 (verification)
+
+Follow-up [2026-11-05-prd-02.md](2026-11-05-prd-02.md) over `21a8d11..d7869a6`, wrapper status `approved`, thread
+`01a1ad14-090b-75d0-be03-acda7cff6530`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer `krummi-review`
+`gpt-6.1-sol` / `high`.
+
+- R1: «verified resolved». Verdict: «Ready for implementation within the requested follow-up scope.»
