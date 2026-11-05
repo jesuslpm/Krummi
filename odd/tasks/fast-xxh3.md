@@ -85,3 +85,12 @@ at run time. Branch `perf/fast-xxh3` from `main` `c245fee`. Delivery: single bra
   W9 +25 % to +52 % on both platforms. No threshold met yet: Windows W7 726,311–763,664 here against Voron's
   1,271,825 in the complete report of 2026-11-03 (single-load and complete runs are not comparable, L7 of
   [pager-mapping.md](pager-mapping.md)); O3 (verify once per opening) remains.
+- **L9** (2026-11-05): RDD of `42c77f9..f7a055b` (resilience, readability): approved, lineage
+  `review-d465ddadaa76ee5b`. R4 warning: the step stays green when its filter matches no test (`cargo test` exits 0)
+  or when twox-hash drops a forced cfg. Fixed in `8fca09f`: the step runs the test with `--exact` and fails unless
+  the output says `1 passed`, and first fails unless the locked twox-hash's `src/xxhash3/large.rs` still names
+  `_internal_xxhash3_force_<variant>`; it runs on Linux only (same hash code on both systems, and `python3` for
+  `cargo metadata`). Its script, run locally: passes; with the test name changed it fails (`did not run with sse2`);
+  with the cfg name changed it fails (`no longer reads _internal_xxhash3_force_sse2`). The L7 limit is closed as far
+  as a rename goes. R2 warning (the plan row put W11 and W12 within noise, though they gain in all four pairs):
+  fixed in `e4e1ff4`. R2 suggestion (the CI comment omitted the limit): the comment now states it and the guard.
