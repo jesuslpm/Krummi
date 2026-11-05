@@ -60,6 +60,8 @@ umbral de subida (M2).
 - *M4: las aperturas de los árboles de tamaño fijo son un tercer tipo con la misma regla (decisión X4).*
 - *M14, Salida y AC-M18: la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
 
+*Anotación del 2026-11-05 desde la integridad recordada de las páginas ([pager-integrity-once.prd.md](pager-integrity-once.prd.md)): M11, el riesgo residual de C7 se sustituye por el de la decisión I8: un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor no se detecta en las transacciones de lectura hasta reabrir.*
+
 ### Estado de partida
 
 Verificado el 2026-10-29 en el código:

@@ -163,6 +163,8 @@ de un contenido recordado puede devolver datos que no son los escritos o termina
 las alteraciones hechas con el almacén cerrado se detectan como hasta ahora (decisión C7 de
 [trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)).*
 
+*Anotación del 2026-11-05: excepción a G6. En las transacciones de lectura, la integridad de una página se comprueba la primera vez que se lee en cada apertura y la primera vez después de que el motor la reescriba, y se recuerda hasta cerrar. Un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor (un fallo del hardware o de la memoria, o un programa ajeno) puede devolver datos que no son los escritos o terminar en un pánico hasta reabrir. Las transacciones de escritura, el backup, la compactación, la migración y la verificación siguen comprobando todo lo que leen, así que ninguna escritura sella un daño (decisión I8 de [pager-integrity-once.prd.md](pager-integrity-once.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,
@@ -372,6 +374,10 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
     *Anotación del 2026-10-30 a AC10: el criterio no cambia, porque sus alteraciones se hacen con el almacén cerrado y
     un almacén recién abierto no recuerda ningún nodo; el riesgo residual de la excepción a G6 solo afecta a
     alteraciones con el almacén abierto (decisión C7 de [trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)).*
+
+    *Anotación del 2026-11-05 a AC10: el criterio no cambia, porque un almacén recién abierto no recuerda ninguna
+    página como íntegra; el riesgo residual de la excepción a G6 solo afecta a alteraciones con el almacén abierto
+    (decisión I8 de [pager-integrity-once.prd.md](pager-integrity-once.prd.md)).*
 11. **AC11** — Dado un disco sin espacio, cuando una transacción de escritura no cabe, entonces falla con la clase
     de error de disco lleno, no aplica ningún cambio, el almacén sigue permitiendo transacciones de lectura y,
     al liberar espacio, una escritura siguiente se confirma sin reabrir (G7).

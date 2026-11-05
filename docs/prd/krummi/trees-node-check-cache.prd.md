@@ -57,6 +57,13 @@ documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 - *C1 y Fuera de alcance: las páginas de los árboles de tamaño fijo son nodos que usan lo recordado, sobre los mismos bytes que los demás (decisión X14).*
 - *Salida: la versión de formato vigente pasa a ser `9` (decisión X12).*
 
+*Anotaciones del 2026-11-05 desde la integridad recordada de las páginas ([pager-integrity-once.prd.md](pager-integrity-once.prd.md)):*
+
+- *Objetivo, Flujo, C2, C5, C7 y el primer punto de Fuera de alcance: la integridad ya no se comprueba en cada lectura. Las transacciones de lectura la comprueban la primera vez que leen una página en cada apertura y tras cada reescritura del motor; las de escritura, en cada lectura (decisiones I2 e I3). Lo recordado de un nodo se busca con el código guardado en su página tal como se lee.*
+- *C3: usan lo recordado las lecturas de nodos del archivo de datos o, en modo temporal, de la memoria del almacén.*
+- *C7: el riesgo residual se amplía con el de la decisión I8: un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor no se detecta en las transacciones de lectura hasta reabrir, coincida o no el código.*
+- *AC-C1: la integridad de cada nodo se comprueba en su primera lectura, no en todas. AC-C7 se sustituye por AC-I8.*
+
 ### Estado de partida
 
 Verificado el 2026-10-30 en el código:
