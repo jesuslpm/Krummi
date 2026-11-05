@@ -94,3 +94,8 @@ at run time. Branch `perf/fast-xxh3` from `main` `c245fee`. Delivery: single bra
   with the cfg name changed it fails (`no longer reads _internal_xxhash3_force_sse2`). The L7 limit is closed as far
   as a rename goes. R2 warning (the plan row put W11 and W12 within noise, though they gain in all four pairs):
   fixed in `e4e1ff4`. R2 suggestion (the CI comment omitted the limit): the comment now states it and the guard.
+- **L10** (2026-11-05): RDD of `f7a055b..ccd0834` (resilience): approved, lineage `review-9bd2e648ba72501b`. R4
+  warning: without `shell: bash` the step runs under `bash -e`, without `pipefail`, so a failing test would end
+  at the `1 passed` check with the wrong cause (`did not run`). Fixed: the step sets `shell: bash` (GitHub's
+  `bash --noprofile --norc -eo pipefail`). Its script under `set -eo pipefail`, with one recorded value changed:
+  it stops at `cargo test` (exit 101, `56 bytes`), not at the check.
