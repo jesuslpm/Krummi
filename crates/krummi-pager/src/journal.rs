@@ -28,10 +28,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use xxhash_rust::xxh3::xxh3_64;
-
 use crate::error::{Error, Result};
-use crate::format::PAGE_SIZE;
+use crate::format::{PAGE_SIZE, xxh3_64};
 use crate::pager::Pager;
 use crate::sys::{self, AlignedBuf};
 

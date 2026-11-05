@@ -724,8 +724,8 @@ dependencies = [
  "rustix",
  "tempfile",
  "trybuild",
+ "twox-hash",
  "windows-sys",
- "xxhash-rust",
  "zerocopy",
 ]
 

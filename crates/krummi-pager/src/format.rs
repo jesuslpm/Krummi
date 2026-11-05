@@ -26,7 +26,6 @@
 //! length of the tree's values, and nodes of their own, with their keys and that length little endian; the pages keep
 //! their layout.
 
-use xxhash_rust::xxh3::xxh3_64;
 use zerocopy::little_endian::{U32, U64};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -215,6 +214,13 @@ pub fn header_copies(start: &[u8]) -> [Option<Header>; 2] {
         Header::decode(&start[HEADER_A_OFFSET..]),
         Header::decode(&start[HEADER_B_OFFSET..]),
     ]
+}
+
+/// The xxh3-64 of `bytes`, the hash of every checksum in the store and its journal. `twox-hash` picks its AVX2, SSE2
+/// or scalar code at run time, where `xxhash-rust` fixed it at compile time (O3a of the performance plan); both give
+/// the same values.
+pub(crate) fn xxh3_64(bytes: &[u8]) -> u64 {
+    twox_hash::XxHash3_64::oneshot(bytes)
 }
 
 /// The checksum of a page or a run: of everything after the checksum itself.
