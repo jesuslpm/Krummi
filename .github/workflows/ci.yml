@@ -58,6 +58,8 @@ jobs:
       # Each variant builds in its own target folder, so the other steps keep their build.
       - name: Checksum values with each xxh3 variant
         if: runner.os == 'Linux'
+        # `shell: bash` adds pipefail, so a failing test stops the step at `cargo test`, before the check that it ran.
+        shell: bash
         run: |
           manifest=$(cargo metadata --format-version 1 | python3 -c 'import json, sys; print(next(p["manifest_path"] for p in json.load(sys.stdin)["packages"] if p["name"] == "twox-hash"))')
           dispatch="$(dirname "$manifest")/src/xxhash3/large.rs"
