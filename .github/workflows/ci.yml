@@ -50,6 +50,18 @@ jobs:
       - name: Tests
         run: cargo test --workspace --no-fail-fast
 
+      # The checksum is part of the stored format. twox-hash picks AVX2, SSE2 or scalar code at run time, and the
+      # runners take the AVX2 path, so the recorded values are checked again with each of the other two forced
+      # through twox-hash's internal cfgs (O3a of the performance plan). Each variant builds in its own target
+      # folder, so the other steps keep their build.
+      - name: Checksum values with each xxh3 variant
+        shell: bash
+        run: |
+          for variant in sse2 scalar; do
+            RUSTFLAGS="--cfg _internal_xxhash3_force_$variant" CARGO_TARGET_DIR="target/xxh3-$variant" \
+              cargo test -p krummi-pager --lib format::tests::xxh3_keeps_the_values_of_the_stored_format
+          done
+
       # AC10 in full: flips every byte of a store, one at a time (65,536 reopens), for the Pager's pages and
       # for a store written through transactions.
       - name: Every-byte damage sweep (AC10)
