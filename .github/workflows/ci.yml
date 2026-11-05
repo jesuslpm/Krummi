@@ -52,14 +52,23 @@ jobs:
 
       # The checksum is part of the stored format. twox-hash picks AVX2, SSE2 or scalar code at run time, and the
       # runners take the AVX2 path, so the recorded values are checked again with each of the other two forced
-      # through twox-hash's internal cfgs (O3a of the performance plan). Each variant builds in its own target
-      # folder, so the other steps keep their build.
+      # through twox-hash's internal cfgs (O3a of the performance plan). Those cfgs are not public: a twox-hash that
+      # drops one would silently run the AVX2 path, so the step first checks that the locked twox-hash still reads
+      # each cfg, and then that the test really ran. The hash code is the same on both systems, so Linux is enough.
+      # Each variant builds in its own target folder, so the other steps keep their build.
       - name: Checksum values with each xxh3 variant
-        shell: bash
+        if: runner.os == 'Linux'
         run: |
+          manifest=$(cargo metadata --format-version 1 | python3 -c 'import json, sys; print(next(p["manifest_path"] for p in json.load(sys.stdin)["packages"] if p["name"] == "twox-hash"))')
+          dispatch="$(dirname "$manifest")/src/xxhash3/large.rs"
+          test=format::tests::xxh3_keeps_the_values_of_the_stored_format
           for variant in sse2 scalar; do
+            grep -q "_internal_xxhash3_force_$variant" "$dispatch" \
+              || { echo "twox-hash no longer reads _internal_xxhash3_force_$variant"; exit 1; }
             RUSTFLAGS="--cfg _internal_xxhash3_force_$variant" CARGO_TARGET_DIR="target/xxh3-$variant" \
-              cargo test -p krummi-pager --lib format::tests::xxh3_keeps_the_values_of_the_stored_format
+              cargo test -p krummi-pager --lib -- --exact "$test" | tee "$RUNNER_TEMP/xxh3-$variant.txt"
+            grep -q "test result: ok. 1 passed" "$RUNNER_TEMP/xxh3-$variant.txt" \
+              || { echo "$test did not run with $variant"; exit 1; }
           done
 
       # AC10 in full: flips every byte of a store, one at a time (65,536 reopens), for the Pager's pages and
