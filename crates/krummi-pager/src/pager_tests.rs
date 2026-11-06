@@ -625,4 +625,11 @@ fn rewriting_an_interior_page_of_a_run_makes_it_checked_again() {
     assert!(pager.is_remembered(first) && !pager.is_remembered(first + 2));
     pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
     assert_eq!(checks(&pager), before + 2, "checked again");
+
+    // An interior page of the remembered run, read as a page of its own through a bad reference, is checked.
+    let damage = pager
+        .run_with(first + 1, 1, Integrity::UseRemembered)
+        .unwrap_err();
+    assert_eq!(damage.kind(), ErrorKind::Damaged);
+    assert_eq!(checks(&pager), before + 3);
 }

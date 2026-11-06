@@ -387,7 +387,12 @@ impl Pager {
         let Some(run) = self.raw_pages(first, count) else {
             return Err(self.damaged(first));
         };
-        if integrity == Integrity::UseRemembered && self.remembered.contains(first, count) {
+        // A remembered run still has to name its first page: the interior pages of a value run, remembered with it,
+        // carry no page number, so a bad reference to one of them as a page of its own is checked, and fails.
+        if integrity == Integrity::UseRemembered
+            && run[8..16] == first.to_le_bytes()
+            && self.remembered.contains(first, count)
+        {
             return Ok(run);
         }
         #[cfg(any(test, feature = "test-hooks"))]

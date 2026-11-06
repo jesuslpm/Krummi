@@ -223,6 +223,12 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_reservation_reports_the_bytes_it_asked_for() {
+        // The bits of 2^60 pages take 2^57 bytes, more address space than any system gives.
+        assert_eq!(Remembered::new(1 << 60, 64).err(), Some(1 << 57));
+    }
+
+    #[test]
     fn a_run_is_remembered_only_while_every_page_of_it_is() {
         let remembered = Remembered::new(1 << 20, 1 << 16).unwrap();
         remembered.remember(100, 200);
