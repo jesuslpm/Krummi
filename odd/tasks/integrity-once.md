@@ -62,7 +62,7 @@ reopen, which are disk only.
 |---|---|---|---|---|
 | T1 | S1–S11 | inline: `Remembered` bitmap in the pager; read transactions use it, the writer checks and remembers; forget before every in-place write, the test byte flip bypasses it; AC-I1–AC-I11, AC-I8 replacing AC-C7 and AC-X19 part 4 | done | `d6ae1c7`, L5 |
 | T2 | S12 | inline: single-load runs before and after, Windows and WSL 2; the complete runs after O4 | done; S12 met but for the 0.05 rule, see L16 | L8, L16 |
-| T3 | all | independent verifier (risk item 4), RDD, Codex, closing | done; R1 of Codex pending | L6–L15, [report](integrity-once-report.md) |
+| T3 | all | independent verifier (risk item 4), RDD, Codex, closing | done; R1 of Codex accepted as a residual (L17) | L6–L15, [report](integrity-once-report.md) |
 
 ## Log
 
@@ -210,3 +210,5 @@ reopen, which are disk only.
   +2 %, W15 +1 % / +5 %, W17 +9 % / +3 % on WSL 2, W16 +1 % / −32 % with reps from 254 to 606. Read: the drops are
   the run-to-run spread the 2026-11-05 history row already found too large for the 0.05 rule, not a loss of O3 or
   O4; the rule stays unmet as written, for the user.
+- **L17** (2026-11-06): the user accepted Codex R1's residual ("Sí", after the recommendation of option 1). I1 is
+  annotated in the PRD and its translation, and the decision is recorded in the code review resolutions.

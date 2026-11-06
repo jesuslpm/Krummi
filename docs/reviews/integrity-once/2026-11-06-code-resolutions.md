@@ -94,3 +94,22 @@ resolved.» The 64 TiB question stays open.
   making it optional (`c29ac23`) leaves a read of the wrong length from a run's first page unchecked once the mark is
   replaced, which only a bad reference makes. The three-round limit is reached; the finding stays open.
 - Status: open.
+
+## 2026-11-06 (user decision)
+
+### R1 — major (reopened): Run extent validation disappears when its length mark is replaced
+
+- Disposition: residual accepted by the user ("Sí", after the recommendation to accept it). The other two options
+  were memory beyond I6, or checking a value again once its mark is replaced (against AC-I1).
+- Rationale:
+  - The unchecked read needs a reference whose length disagrees with its run. That reference is in a leaf that
+    passed its own integrity and layout checks, so disk damage cannot produce it. Only an engine bug or an xxh3-64
+    collision can.
+  - The mark must also have been replaced.
+  - Rechecking on eviction would cost large-value reads (W18, 0.65 / 0.77 of Voron) whenever the shared table
+    evicts marks. More memory breaks I6.
+  - The run header holds only its code and first page number (`crates/krummi-pager/src/format.rs:17-20`). Holding
+    the length there would close the gap at no cost, but it is a format change with its own PRD.
+- Record: annotation of 2026-11-06 to I1 of `docs/prd/krummi/pager-integrity-once.prd.md` and its translation. No
+  code change: the code stays as `bcb71ce`.
+- Status: closed by the user's decision.
