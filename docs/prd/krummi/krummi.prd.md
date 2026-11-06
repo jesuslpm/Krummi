@@ -167,6 +167,8 @@ las alteraciones hechas con el almacén cerrado se detectan como hasta ahora (de
 
 *Anotación del 2026-11-05: excepción a G6. En las transacciones de lectura, la integridad de una página se comprueba la primera vez que se lee en cada apertura y la primera vez después de que el motor la reescriba, y se recuerda hasta cerrar. Un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor (un fallo del hardware o de la memoria, o un programa ajeno) puede devolver datos que no son los escritos o terminar en un pánico hasta reabrir. Las transacciones de escritura, el backup, la compactación, la migración y la verificación siguen comprobando todo lo que leen, así que ninguna escritura sella un daño (decisión I8 de [pager-integrity-once.prd.md](pager-integrity-once.prd.md)).*
 
+*Anotación del 2026-11-06: la anotación anterior decía que las transacciones de escritura siguen comprobando todo lo que leen; ahora usan las páginas recordadas como las de lectura. La excepción a G6 se amplía: una escritura puede sellar en una versión nueva un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor, y el daño queda guardado. AC10 no cambia (decisiones S2 y S3 de [pager-writer-checks.prd.md](pager-writer-checks.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,

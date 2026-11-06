@@ -64,6 +64,11 @@ documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 - *C7: el riesgo residual se amplía con el de la decisión I8: un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor no se detecta en las transacciones de lectura hasta reabrir, coincida o no el código.*
 - *AC-C1: la integridad de cada nodo se comprueba en su primera lectura, no en todas. AC-C7 se sustituye por AC-I8.*
 
+*Anotaciones del 2026-11-06 desde las comprobaciones de la escritura ([pager-writer-checks.prd.md](pager-writer-checks.prd.md)):*
+
+- *C3, el paso 4 del Flujo y el punto de Fuera de alcance sobre no recordar la organización de las páginas que modifica la escritura: esas páginas comprueban su organización la primera vez que se leen después de cada cambio, con una memoria propia de cada transacción que no usa ni alimenta la memoria compartida (S1). C1 y C4 valen para la memoria compartida.*
+- *C7: el riesgo residual se amplía con el de S3.*
+
 ### Estado de partida
 
 Verificado el 2026-10-30 en el código:

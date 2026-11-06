@@ -58,6 +58,8 @@ In this document, the **length** of a fixed-size tree is the number of bytes tha
 - *X10: a damaged page still fails in every operation that needs it, except for the residual risk of decision I8, which replaces that of C7.*
 - *AC-X19: its first part is refined as AC-C1 (the integrity of each node is checked on its first read, not on all of them), and its fourth part (a byte changed with the store open in a remembered leaf) is replaced by AC-I8.*
 
+*Annotation of 2026-11-06 from the write checks ([pager-writer-checks.prd.en.md](pager-writer-checks.prd.en.md)): the fourth part of AC-X19, which AC-I8 had replaced, moves to AC-S6.*
+
 ### Starting state
 
 Verified on 2026-11-02 in the code:

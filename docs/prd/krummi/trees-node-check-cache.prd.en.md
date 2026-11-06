@@ -63,6 +63,11 @@ affected documents (see [Annotations to other PRDs](#annotations-to-other-prds))
 - *C7: the residual risk is extended with that of decision I8: a change of a remembered page made while the store is open by something that is not the engine is not detected in the read transactions until reopening, whether the code matches or not.*
 - *AC-C1: the integrity of each node is checked on its first read, not on all of them. AC-C7 is replaced by AC-I8.*
 
+*Annotations of 2026-11-06 from the write checks ([pager-writer-checks.prd.en.md](pager-writer-checks.prd.en.md)):*
+
+- *C3, step 4 of the Flow and the Out of scope item about not remembering the layout of the pages the write modifies: those pages check their layout the first time they are read after each change, with a memory of each transaction that neither uses nor feeds the shared memory (S1). C1 and C4 hold for the shared memory.*
+- *C7: the residual risk widens with S3's.*
+
 ### Starting state
 
 Verified on 2026-10-30 in the code:

@@ -58,6 +58,8 @@ En este documento, la **longitud** de un árbol de tamaño fijo es el número de
 - *X10: una página dañada sigue fallando en cada operación que la necesite, salvo el riesgo residual de la decisión I8, que sustituye al de C7.*
 - *AC-X19: su primera parte se precisa como AC-C1 (la integridad de cada nodo se comprueba en su primera lectura, no en todas), y su cuarta parte (un byte cambiado con el almacén abierto en una hoja recordada) se sustituye por AC-I8.*
 
+*Anotación del 2026-11-06 desde las comprobaciones de la escritura ([pager-writer-checks.prd.md](pager-writer-checks.prd.md)): la cuarta parte de AC-X19, que AC-I8 había sustituido, pasa a AC-S6.*
+
 ### Estado de partida
 
 Verificado el 2026-11-02 en el código:

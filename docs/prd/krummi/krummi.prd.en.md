@@ -167,6 +167,8 @@ detected as until now (decision C7 of [trees-node-check-cache.prd.en.md](trees-n
 
 *Annotation of 2026-11-05: exception to G6. In the read transactions, the integrity of a page is checked the first time it is read in each opening and the first time after the engine rewrites it, and it is remembered until closing. A change of a remembered page made while the store is open by something that is not the engine (a hardware or memory failure, or a foreign program) may return data that is not what was written or end in a panic until reopening. The write transactions, backup, compaction, migration and verification still check everything they read, so no write seals a damage (decision I8 of [pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)).*
 
+*Annotation of 2026-11-06: the previous annotation said that write transactions keep checking everything they read; they now use the remembered pages, as read transactions do. The exception to G6 widens: a write can seal into a new version a change to a remembered page made while the store is open by something other than the engine, and the damage stays stored. AC10 does not change (decisions S2 and S3 of [pager-writer-checks.prd.en.md](pager-writer-checks.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,
