@@ -611,12 +611,47 @@ impl AlignedBuf {
         let ptr = std::ptr::NonNull::new(ptr).ok_or_else(out_of_memory)?;
         Ok(AlignedBuf { ptr, len })
     }
+
+    /// The bytes of `parts`, one after another, then zeros up to `len` rounded up to a multiple of
+    /// [`DIRECT_ALIGN`], or the out-of-memory error. Only the bytes after the parts are zeroed: the commit builds its
+    /// records and group writes this way, without zeroing what it then overwrites (O4 of the performance plan).
+    ///
+    /// # Panics
+    ///
+    /// If the parts are longer than `len`.
+    pub(crate) fn from_parts(parts: &[&[u8]], len: usize) -> io::Result<AlignedBuf> {
+        let out_of_memory = || io::Error::from(io::ErrorKind::OutOfMemory);
+        let filled: usize = parts.iter().map(|part| part.len()).sum();
+        assert!(filled <= len, "{filled} bytes of parts do not fit in {len}");
+        let len = len
+            .max(1)
+            .checked_next_multiple_of(DIRECT_ALIGN)
+            .ok_or_else(out_of_memory)?;
+        let layout =
+            std::alloc::Layout::from_size_align(len, DIRECT_ALIGN).map_err(|_| out_of_memory())?;
+        // SAFETY: `layout` has a non-zero size.
+        let ptr = unsafe { std::alloc::alloc(layout) };
+        let ptr = std::ptr::NonNull::new(ptr).ok_or_else(out_of_memory)?;
+        let mut at = 0;
+        for part in parts {
+            // SAFETY: `at + part.len() <= filled <= len`, so the bytes are inside the allocation, which nothing
+            // else references yet and which does not overlap `part`.
+            unsafe {
+                std::ptr::copy_nonoverlapping(part.as_ptr(), ptr.as_ptr().add(at), part.len())
+            };
+            at += part.len();
+        }
+        // SAFETY: `at == filled <= len`: the rest of the allocation.
+        unsafe { std::ptr::write_bytes(ptr.as_ptr().add(at), 0, len - at) };
+        // Every byte is now written: by a part or by the zeros.
+        Ok(AlignedBuf { ptr, len })
+    }
 }
 
 impl std::ops::Deref for AlignedBuf {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        // SAFETY: `ptr` points to `len` initialized (zeroed, then written) bytes owned by `self`.
+        // SAFETY: `ptr` points to `len` initialized bytes owned by `self`: zeroed, or written by `from_parts`.
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 }
@@ -632,7 +667,7 @@ impl Drop for AlignedBuf {
     fn drop(&mut self) {
         let layout = std::alloc::Layout::from_size_align(self.len, DIRECT_ALIGN)
             .expect("the layout was valid when allocated");
-        // SAFETY: `ptr` was allocated by `alloc_zeroed` with this same layout and is freed only here.
+        // SAFETY: `ptr` was allocated by `alloc_zeroed` or `alloc` with this same layout and is freed only here.
         unsafe { std::alloc::dealloc(self.ptr.as_ptr(), layout) };
     }
 }
@@ -766,6 +801,19 @@ mod rename_info_tests {
 #[cfg(test)]
 mod journal_file_tests {
     use super::*;
+
+    #[test]
+    fn an_aligned_buffer_from_parts_holds_them_and_then_zeros() {
+        let buf = AlignedBuf::from_parts(&[b"abc", &[7u8; 5000]], 6000).unwrap();
+        assert_eq!(buf.len(), 2 * DIRECT_ALIGN);
+        assert_eq!(buf.as_ptr() as usize % DIRECT_ALIGN, 0);
+        assert_eq!(&buf[..3], b"abc");
+        assert!(buf[3..5003].iter().all(|&b| b == 7));
+        assert!(buf[5003..].iter().all(|&b| b == 0));
+        let empty = AlignedBuf::from_parts(&[], 0).unwrap();
+        assert_eq!(empty.len(), DIRECT_ALIGN);
+        assert!(empty.iter().all(|&b| b == 0));
+    }
 
     #[test]
     fn aligned_buffers_are_zeroed_aligned_and_rounded_up() {
