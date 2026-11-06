@@ -893,6 +893,53 @@ mod tests {
         }
     }
 
+    /// Pages for the record tests: compressible, half compressible and incompressible, the same on every target.
+    fn sample_pages() -> Vec<[u8; PAGE_SIZE]> {
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        let mut noise = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x as u8
+        };
+        let mut pages = vec![[7u8; PAGE_SIZE], [0u8; PAGE_SIZE], [0u8; PAGE_SIZE]];
+        for (i, b) in pages[1].iter_mut().enumerate() {
+            *b = if i % 2 == 0 { noise() } else { 0 };
+        }
+        for b in pages[2].iter_mut() {
+            *b = noise();
+        }
+        pages
+    }
+
+    /// The bytes of encoded records stay those of the stored format (O4 of the performance plan reworked how they
+    /// are built): xxh3 of whole records, padding included, recorded before the change.
+    #[test]
+    fn records_keep_the_bytes_of_the_stored_format() {
+        let pages = sample_pages();
+        let cases: [(&[usize], u64); 5] = [
+            (&[0], 0x77e2_0393_c801_ffcf),
+            (&[1], 0xd1dc_e62a_7d7b_951c),
+            // Incompressible: stored raw.
+            (&[2], 0xeada_2d4b_fb84_365e),
+            (&[0, 1, 2], 0x2961_573a_66f2_f326),
+            (&[2, 2, 0, 1], 0x9a4e_fa2e_b661_0539),
+        ];
+        let mut got = Vec::new();
+        for (i, (which, expected)) in cases.into_iter().enumerate() {
+            let entries: Vec<(u64, &[u8; PAGE_SIZE])> = which
+                .iter()
+                .enumerate()
+                .map(|(n, &p)| (100 + n as u64 * 3, &pages[p]))
+                .collect();
+            let record = encode_record(40 + i as u64, 7, &entries).unwrap();
+            got.push((xxh3_64(&record), expected));
+        }
+        for (i, (got, expected)) in got.into_iter().enumerate() {
+            assert_eq!(got, expected, "case {i}");
+        }
+    }
+
     #[test]
     fn every_byte_of_a_record_header_is_checked() {
         let record = encode_record(5, 4, &[(9, &[1u8; PAGE_SIZE])]).unwrap();
