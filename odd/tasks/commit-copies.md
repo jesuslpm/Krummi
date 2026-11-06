@@ -101,3 +101,22 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   2026-11-05 were run singly, two rounds with the order swapped, `pre` = `3ec8641` (before O3) and `head` = the
   O4 head build of the complete run (`work/o4/full.sh`); ratio head / pre per round: Windows W10 1.05, 1.10; WSL 2
   W2 1.02, 1.03; W14 1.00, 1.02; W15 1.01, 1.05; W16 1.01, 0.68 (reps 254–606); W17 1.09, 1.03.
+- **L11** (2026-11-06): Codex R1 ([report](../../docs/reviews/commit-copies/2026-11-06-code.md),
+  [resolutions](../../docs/reviews/commit-copies/2026-11-06-code-resolutions.md)): `findings`, one blocker, R1: by
+  K13's annotation of 2026-11-04, O4's acceptance is that its target loads meet their threshold in the complete runs,
+  and none of the nine does; and S4's single-load runs left out W1, W3, W13, W15 and W19. The missing runs were made
+  (`work/o4/rest.sh`, same binaries and method as L7; W13 runs in W12's process, so it was measured as W12); ratio
+  after / before per round:
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W1 | 0.997, 1.039 | 1.011, 1.011 |
+  | W3 | 0.958, 1.014 | 1.019, 0.994 |
+  | W13 | 1.016, 1.109 | 1.066, 1.063 |
+  | W15 | 1.015, 1.036 | 0.843, 1.043 |
+  | W19 | 1.054, 1.048 | 1.014, 1.040 |
+  | W12 (not a target, same process) | 0.963, 0.965 | 0.968, 1.008 |
+
+  WSL W15's first round has `before` reps from 27,939 to 35,059 and `after` from 25,314 to 34,415. The thresholds
+  part of R1 is a product decision, pending for the user: O1, O2 and O3a closed as steps with no threshold met yet,
+  but K13 does not say so.
