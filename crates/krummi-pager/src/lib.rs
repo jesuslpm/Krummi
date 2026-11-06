@@ -9,6 +9,7 @@ pub mod format;
 mod journal;
 mod pager;
 mod recovery;
+mod remembered;
 mod scratch;
 mod sys;
 mod temp;
@@ -18,8 +19,8 @@ pub use checked::{CHECKED_SLOTS, set_remember_checked};
 pub use error::{Error, ErrorKind, Result, SizeSubject, TreeKind};
 pub use journal::{JOURNAL_PREFIX, RELEASE_FILE_LIMIT};
 pub use pager::{
-    DATA_FILE, INITIAL_SIZE, Info, MAX_GROWTH_STEP, MIN_MAX_SIZE, NEW_DATA_FILE, OpenOptions,
-    Pager, TEMPORARY_RESERVATION, growth_target,
+    DATA_FILE, INITIAL_SIZE, Info, Integrity, MAX_GROWTH_STEP, MIN_MAX_SIZE, NEW_DATA_FILE,
+    OpenOptions, Pager, TEMPORARY_RESERVATION, growth_target,
 };
 pub use scratch::{
     Memory, PayloadBuf, RunBuf, Scratch, ScratchWriter, SealedPage, Snapshot, Staged,
@@ -32,6 +33,7 @@ pub use temp::TEMP_DIR;
 #[cfg(feature = "test-hooks")]
 pub mod testing {
     pub use crate::checked::with_checked_slots;
+    pub use crate::remembered::with_remembered_commits_failing;
     pub use crate::sys::Op;
     pub use crate::sys::faults::{
         Action, Context, Model, Recorded, abort_at, adopt, context, count, inject, materialize,

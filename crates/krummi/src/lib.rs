@@ -73,6 +73,8 @@ mod check_tests;
 #[cfg(test)]
 mod fixed_tests;
 #[cfg(test)]
+mod integrity_tests;
+#[cfg(test)]
 mod multi_tests;
 #[cfg(test)]
 mod tests;

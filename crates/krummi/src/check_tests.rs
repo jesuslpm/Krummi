@@ -11,19 +11,19 @@ use krummi_tree::{catalog, fixed, leaf_of};
 use super::*;
 
 /// A value of 16 bytes.
-fn value16(i: usize) -> Vec<u8> {
+pub(crate) fn value16(i: usize) -> Vec<u8> {
     format!("{i:016}").into_bytes()
 }
 
 /// A key of `len` bytes that starts with `i`, so that a few of them fill a leaf.
-fn long_key(i: usize, len: usize) -> Vec<u8> {
+pub(crate) fn long_key(i: usize, len: usize) -> Vec<u8> {
     let mut key = format!("{i:04}").into_bytes();
     key.resize(len, b'.');
     key
 }
 
 /// Runs `check` with a store on disk and with a temporary one.
-fn on_both(check: impl Fn(&mut Store)) {
+pub(crate) fn on_both(check: impl Fn(&mut Store)) {
     let tmp = tempfile::tempdir().unwrap();
     for mut store in [
         Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
@@ -40,24 +40,24 @@ fn remembered(store: &Store) -> u64 {
 }
 
 /// Writes every committed version into the store's pages, out of the scratch area.
-fn transfer(store: &Store) {
+pub(crate) fn transfer(store: &Store) {
     assert!(store.engine.transfer_now());
 }
 
 /// The root page of tree `name`.
-fn root_of(store: &Store, name: &str) -> u64 {
+pub(crate) fn root_of(store: &Store, name: &str) -> u64 {
     let read = store.read().unwrap();
     catalog::lookup(&read.inner, name).unwrap().unwrap().root
 }
 
 /// The leaf of `key` in the tree with root `root`.
-fn leaf(store: &Store, root: u64, key: &[u8]) -> u64 {
+pub(crate) fn leaf(store: &Store, root: u64, key: &[u8]) -> u64 {
     let read = store.read().unwrap();
     leaf_of(&read.inner, root, key).unwrap()
 }
 
 /// The page a damage error names.
-fn damaged_page<T: std::fmt::Debug>(result: Result<T>) -> u64 {
+pub(crate) fn damaged_page<T: std::fmt::Debug>(result: Result<T>) -> u64 {
     match result {
         Err(Error::Damaged {
             page: Some(page), ..
@@ -67,7 +67,7 @@ fn damaged_page<T: std::fmt::Debug>(result: Result<T>) -> u64 {
 }
 
 /// Commits the normal tree `name` with `count` keys of `len` bytes, the value of each key its number in text.
-fn commit_tree(store: &Store, name: &str, count: usize, len: usize) {
+pub(crate) fn commit_tree(store: &Store, name: &str, count: usize, len: usize) {
     let mut write = store.write().unwrap();
     let tree = write.open_tree_with(name, OpenMode::CreateNew).unwrap();
     for i in 0..count {
@@ -328,63 +328,11 @@ fn ac_c6_an_inconsistent_entry_fails_although_its_layout_is_remembered() {
     });
 }
 
-/// AC-C7 (C2, C7): a byte of a remembered node changed in the store's pages without its integrity code, while the
-/// store is open, makes the next read fail with the damage class and its page.
-#[test]
-fn ac_c7_a_byte_changed_in_a_remembered_node_is_detected() {
-    on_both(|store| {
-        commit_tree(store, "n", 200, 64);
-        transfer(store);
-        let key = long_key(3, 64);
-        let read = store.read().unwrap();
-        let tree = read.open_tree("n").unwrap();
-        assert!(read.get(&tree, &key).unwrap().is_some());
-        drop(read);
-        let page = leaf(store, root_of(store, "n"), &key);
-
-        store.engine.flip_byte_in_place(page, 100).unwrap();
-        let read = store.read().unwrap();
-        let tree = read.open_tree("n").unwrap();
-        assert_eq!(damaged_page(read.get(&tree, &key)), page);
-        drop(read);
-
-        // A byte of a key, which keeps the layout valid: only the integrity code can catch it.
-        let other = long_key(190, 64);
-        let read = store.read().unwrap();
-        let tree = read.open_tree("n").unwrap();
-        let other_page = leaf(store, root_of(store, "n"), &other);
-        assert_ne!(other_page, page, "another leaf, still intact");
-        assert!(read.get(&tree, &other).unwrap().is_some(), "remembered");
-        let at = read
-            .inner
-            .page(other_page)
-            .unwrap()
-            .windows(other.len())
-            .position(|w| w == other)
-            .expect("the key in its leaf");
-        drop(read);
-        store
-            .engine
-            .flip_byte_in_place(other_page, at + 10)
-            .unwrap();
-        let read = store.read().unwrap();
-        let tree = read.open_tree("n").unwrap();
-        assert_eq!(damaged_page(read.get(&tree, &other)), other_page);
-    });
-}
-
 /// AC-C8 (C5, C6): with a table of four slots, the nodes of a tree of several leaves and a damaged node compete for
-/// the same slots while four threads read them at once, a thousand rounds each at least, every round reading every
-/// node, and a write changes them and transfers them: every read returns the data of its snapshot, and the damaged
-/// node fails on every read. The writer waits for every reader to finish two rounds before and after each commit
-/// and each transfer, so the readers are reading while the nodes change and move, and each reader sees every
-/// generation.
+/// the same slots while four threads read them at once, as [`concurrent_reads_while_a_write_moves_nodes`] does; the
+/// node's layout is damaged and its integrity code right.
 #[test]
 fn ac_c8_concurrent_reads_with_competing_slots() {
-    const KEYS: usize = 24;
-    const GENERATIONS: usize = 20;
-    const READERS: usize = 4;
-    const ROUNDS: usize = 1000;
     let tmp = tempfile::tempdir().unwrap();
     let stores = krummi_pager::testing::with_checked_slots(4, || {
         [
@@ -392,12 +340,34 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
             Store::open_temporary(&StoreOptions::default()).unwrap(),
         ]
     });
-    for store in stores {
+    for store in &stores {
         assert_eq!(
             store.engine.checked_slots(),
             4,
             "the stores got the test's table"
         );
+    }
+    concurrent_reads_while_a_write_moves_nodes(stores, |store, bad_page| {
+        damage_layout(store, bad_page);
+        transfer(store);
+    });
+}
+
+/// Four threads read the nodes of a tree of several leaves and a damaged node at once, a thousand rounds each at
+/// least, every round reading every node, while a write changes the tree and transfers it: every read returns the
+/// data of its snapshot, and the damaged node fails on every read with the damage class and its page. `damage`
+/// damages the root of tree `bad`, committed and not transferred yet, and leaves it in the store's pages. The writer
+/// waits for every reader to finish two rounds before and after each commit and each transfer, so the readers are
+/// reading while the nodes change and move, and each reader sees every generation (AC-C8, AC-I9).
+pub(crate) fn concurrent_reads_while_a_write_moves_nodes(
+    stores: impl IntoIterator<Item = Store>,
+    damage: impl Fn(&mut Store, u64),
+) {
+    const KEYS: usize = 24;
+    const GENERATIONS: usize = 20;
+    const READERS: usize = 4;
+    const ROUNDS: usize = 1000;
+    for mut store in stores {
         let key = |i: usize| long_key(i, 1500);
         let mut write = store.write().unwrap();
         let good = write.open_tree_with("good", OpenMode::CreateNew).unwrap();
@@ -408,8 +378,7 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
         write.set(&bad, b"bad", b"bad").unwrap();
         write.commit().unwrap();
         let bad_page = root_of(&store, "bad");
-        damage_layout(&store, bad_page);
-        transfer(&store);
+        damage(&mut store, bad_page);
 
         let rounds: [AtomicUsize; READERS] = Default::default();
         let done = AtomicBool::new(false);
@@ -542,15 +511,15 @@ fn ac_c9_reopening_forgets_the_remembered_nodes() {
 }
 
 /// The length of the values of the fixed-size trees of AC-X19.
-const FIXED_LEN: usize = 8;
+pub(crate) const FIXED_LEN: usize = 8;
 
 /// The value of `key` in the fixed-size trees of AC-X19.
-fn fixed_value(key: u64) -> [u8; FIXED_LEN] {
+pub(crate) fn fixed_value(key: u64) -> [u8; FIXED_LEN] {
     (key * 7).to_le_bytes()
 }
 
 /// Commits the fixed-size tree `name` of values of [`FIXED_LEN`] bytes with the keys `0..count`.
-fn commit_fixed(store: &Store, name: &str, count: u64) {
+pub(crate) fn commit_fixed(store: &Store, name: &str, count: u64) {
     let mut write = store.write().unwrap();
     let tree = write
         .open_fixed_tree_with(name, FIXED_LEN, OpenMode::CreateNew)
@@ -562,13 +531,13 @@ fn commit_fixed(store: &Store, name: &str, count: u64) {
 }
 
 /// The leaf of `key` in the fixed-size tree with root `root`.
-fn fixed_leaf(store: &Store, root: u64, key: u64) -> u64 {
+pub(crate) fn fixed_leaf(store: &Store, root: u64, key: u64) -> u64 {
     let read = store.read().unwrap();
     fixed::leaf_of(&read.inner, root, FIXED_LEN, key).unwrap()
 }
 
 /// Checks that Leer of `key` in the fixed-size tree `name` of a read returns its value.
-fn read_fixed(read: &ReadTransaction<'_>, name: &str, key: u64) {
+pub(crate) fn read_fixed(read: &ReadTransaction<'_>, name: &str, key: u64) {
     let tree = read.open_fixed_tree(name, FIXED_LEN).unwrap();
     let value = fixed_value(key);
     assert_eq!(
@@ -579,7 +548,7 @@ fn read_fixed(read: &ReadTransaction<'_>, name: &str, key: u64) {
 }
 
 /// The keys of the fixed-size tree of AC-X19: 1,500 of them fill three leaves under a root branch.
-const FIXED_KEYS: u64 = 1500;
+pub(crate) const FIXED_KEYS: u64 = 1500;
 
 /// AC-X19, first part (X14, C1, C2, C4, AC-C1): the nodes of a fixed-size tree of two levels in the store's pages
 /// are checked once each: the first Leer of a key remembers the two nodes of its path, the root and the leaf; reading
@@ -666,45 +635,6 @@ fn ac_x19_a_damaged_layout_of_a_fixed_size_leaf_in_the_scratch_area_fails_every_
         assert_eq!(damaged_page(read.get_fixed(&tree, 700)), page);
         assert_eq!(damaged_page(read.get_fixed(&tree, 700)), page);
         drop((read, keeper));
-    });
-}
-
-/// AC-X19, fourth part (X14, C2, C7, AC-C7): a byte of a remembered fixed-size leaf changed in the store's pages
-/// without its integrity code, while the store is open, makes the next read fail with the damage class and its page:
-/// a byte of its header, and a byte of a value, which keeps the layout valid, so that only the integrity code can
-/// catch it.
-#[test]
-fn ac_x19_a_byte_changed_in_a_remembered_fixed_size_node_is_detected() {
-    on_both(|store| {
-        commit_fixed(store, "f", FIXED_KEYS);
-        transfer(store);
-        read_fixed(&store.read().unwrap(), "f", 100);
-        let page = fixed_leaf(store, root_of(store, "f"), 100);
-        store.engine.flip_byte_in_place(page, 2).unwrap();
-        let read = store.read().unwrap();
-        let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
-        assert_eq!(damaged_page(read.get_fixed(&tree, 100)), page);
-        drop(read);
-
-        let read = store.read().unwrap();
-        read_fixed(&read, "f", 1400);
-        let other = fixed_leaf(store, root_of(store, "f"), 1400);
-        assert_ne!(other, page, "another leaf, still intact");
-        let mut entry = 1400u64.to_le_bytes().to_vec();
-        entry.extend(fixed_value(1400));
-        let at = read
-            .inner
-            .page(other)
-            .unwrap()
-            .windows(entry.len())
-            .position(|w| w == entry)
-            .expect("the entry in its leaf");
-        drop(read);
-        // The first byte of the value.
-        store.engine.flip_byte_in_place(other, at + 8).unwrap();
-        let read = store.read().unwrap();
-        let tree = read.open_fixed_tree("f", FIXED_LEN).unwrap();
-        assert_eq!(damaged_page(read.get_fixed(&tree, 1400)), other);
     });
 }
 

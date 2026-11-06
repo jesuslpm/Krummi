@@ -57,9 +57,10 @@ pub trait PageSource {
     /// The payload of page `page_number` as the transaction sees it, without copying it (D11).
     fn page(&self, page_number: u64) -> Result<&[u8]>;
 
-    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
-    /// verified, or `None` when no read verifies it, as for a version of the scratch area (C2, C3 of the remembered
-    /// node layout check PRD).
+    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code stored in the page as
+    /// read, which this read verified or a read of this opening already did (I2 of the remembered page integrity
+    /// PRD), or `None` when no read verifies it, as for a version of the scratch area (C2, C3 of the remembered node
+    /// layout check PRD).
     fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
         Ok((self.page(page_number)?, None))
     }
@@ -228,7 +229,8 @@ fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Resu
 /// so no path loops. Otherwise it fails with the damage class and the number of the page it was asked for, as when
 /// its checksum fails (G6).
 ///
-/// The layout of a content whose integrity code its read has just verified is checked once while the store is open:
+/// The layout of a content whose integrity code was verified, by its read or by an earlier one of the opening (I2 of
+/// the remembered page integrity PRD), is checked once while the store is open:
 /// a content that passes is remembered by its page number and code, and a later read of the same content does not
 /// check it again (C1–C3 of the remembered node layout check PRD). The nodes of every format share that memory,
 /// which does not know their format, so every read checks the kind against the format: a remembered node of

@@ -15,6 +15,7 @@ use crate::format::{
     self, FORMAT_VERSION, HEADER_PAGES, Header, HeaderRead, PAGE_HEADER_SIZE, PAGE_SIZE,
     PAGE_SIZE_U64,
 };
+use crate::remembered::{MAX_FILE_PAGES, Remembered};
 use crate::sys;
 
 /// Name of the data file of a store (P3).
@@ -88,6 +89,26 @@ pub struct Pager {
     data_syncs: AtomicU64,
     /// The contents whose layout the layers above already checked (C1–C6 of the remembered node layout check PRD).
     checked: Checked,
+    /// The pages whose integrity a read already verified in this opening (I1–I7 of the remembered page integrity
+    /// PRD).
+    remembered: Remembered,
+    /// Integrity checks of the store's pages and runs so far (tests).
+    #[cfg(feature = "test-hooks")]
+    integrity_checks: AtomicU64,
+}
+
+/// How a read of the store's pages treats their integrity (I2, I3 of the remembered page integrity PRD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Integrity {
+    /// Check it, and leave the remembered pages as they are: the reads outside any transaction, such as the
+    /// metadata page when the store opens, so that nothing is remembered when it has opened (I5).
+    Check,
+    /// Check it even when the page is remembered, and remember it when it passes: the reads of a write
+    /// transaction (I3).
+    CheckAndRemember,
+    /// Skip the check when the page is remembered; otherwise check it and remember it when it passes: the reads of
+    /// a read transaction (I2).
+    UseRemembered,
 }
 
 #[derive(Clone, Copy)]
@@ -201,6 +222,12 @@ impl Pager {
             writes_disabled: Arc::new(AtomicBool::new(false)),
             data_syncs: AtomicU64::new(0),
             checked: Checked::new()?,
+            remembered: Remembered::new(reserved / PAGE_SIZE_U64, INITIAL_SIZE / PAGE_SIZE_U64)
+                .map_err(|_| Error::OutOfMemory {
+                    requested: remembered_bytes(INITIAL_SIZE),
+                })?,
+            #[cfg(feature = "test-hooks")]
+            integrity_checks: AtomicU64::new(0),
             header: Mutex::new(HeaderState::new(
                 Header::new_store(),
                 0,
@@ -293,11 +320,25 @@ impl Pager {
     ///
     /// If `page_number` is a header page.
     pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], u64)> {
+        self.page_and_code_with(page_number, Integrity::Check)
+    }
+
+    /// As [`page_and_code`](Self::page_and_code), treating the page's integrity as `integrity` says. The code is
+    /// the one stored in the page as read, also when the check is skipped (C2).
+    ///
+    /// # Panics
+    ///
+    /// If `page_number` is a header page.
+    pub fn page_and_code_with(
+        &self,
+        page_number: u64,
+        integrity: Integrity,
+    ) -> Result<(&[u8], u64)> {
         assert!(
             page_number >= HEADER_PAGES,
             "header pages are not read through Pager::page"
         );
-        let run = self.run(page_number, 1)?;
+        let run = self.run_with(page_number, 1, integrity)?;
         Ok((&run[PAGE_HEADER_SIZE..], format::recorded_checksum(run)))
     }
 
@@ -331,14 +372,47 @@ impl Pager {
     ///
     /// If `first` is a header page.
     pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.run_with(first, count, Integrity::Check)
+    }
+
+    /// As [`run`](Self::run), treating the run's integrity as `integrity` says. A run is remembered by its first
+    /// page (I1).
+    ///
+    /// # Panics
+    ///
+    /// If `first` is a header page.
+    pub fn run_with(&self, first: u64, count: u64, integrity: Integrity) -> Result<&[u8]> {
         assert!(
             first >= HEADER_PAGES,
             "header pages are not read through Pager::run"
         );
-        match self.raw_pages(first, count) {
-            Some(run) if format::verify_run(first, run) => Ok(run),
-            _ => Err(self.damaged(first)),
+        let Some(run) = self.raw_pages(first, count) else {
+            return Err(self.damaged(first));
+        };
+        if integrity == Integrity::UseRemembered && self.remembered.contains(first) {
+            return Ok(run);
         }
+        #[cfg(feature = "test-hooks")]
+        self.integrity_checks.fetch_add(1, Ordering::Relaxed);
+        if !format::verify_run(first, run) {
+            return Err(self.damaged(first));
+        }
+        if integrity != Integrity::Check {
+            self.remembered.remember(first);
+        }
+        Ok(run)
+    }
+
+    /// Integrity checks of the store's pages and runs since it opened (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn integrity_checks(&self) -> u64 {
+        self.integrity_checks.load(Ordering::Relaxed)
+    }
+
+    /// Whether the integrity of page `page_number`, or of the run that starts there, is remembered (tests).
+    #[cfg(feature = "test-hooks")]
+    pub fn is_remembered(&self, page_number: u64) -> bool {
+        self.remembered.contains(page_number)
     }
 
     /// Whether `bytes` are inside the store's pages: a mapping of `krummi.data`, the newest or an older one that
@@ -499,6 +573,19 @@ impl Pager {
                     .is_some_and(|end| end <= self.page_count()),
             "{count} pages from page {first} cannot be written"
         );
+        // Before writing, so that a write that fails or stops halfway leaves them forgotten too (I4).
+        self.remembered.forget(first, count);
+        // SAFETY: the caller guarantees what `write_unremembered` requires.
+        unsafe { self.write_unremembered(first, pages) }
+    }
+
+    /// Writes the bytes of whole pages as pages `first` on, as [`Pager::write_run_shared`], but without forgetting
+    /// them: a change the engine does not make, for the tests that alter a page with the store open (I8).
+    ///
+    /// # Safety
+    ///
+    /// As [`Pager::write_run_shared`].
+    pub(crate) unsafe fn write_unremembered(&self, first: u64, pages: &[u8]) -> Result<()> {
         self.check_writable()?;
         // SAFETY: the caller guarantees what `write_at` requires.
         let result = unsafe { self.write_at(first, pages) };
@@ -601,6 +688,7 @@ impl Pager {
                     return Ok(());
                 }
                 let new_len = self.next_size(len, needed, limit, bounded)?;
+                self.remember_up_to(len, new_len)?;
                 sys::reserve(&f.file, &f.path, len, new_len)
                     .map_err(|e| self.write_failed(e, new_len - len))?;
                 match sys::map(&f.file, &f.path, new_len) {
@@ -635,6 +723,7 @@ impl Pager {
                     });
                 }
                 let new_len = new_len.min(reserved);
+                self.remember_up_to(len, new_len)?;
                 memory
                     .commit(new_len as usize)
                     .map_err(|_| Error::OutOfMemory {
@@ -643,6 +732,16 @@ impl Pager {
             }
         }
         Ok(())
+    }
+
+    /// Commits the remembered bits of a store growing from `len` to `new_len` bytes, before it grows: no memory for
+    /// them is the out-of-memory class, and the store keeps its size (I6).
+    fn remember_up_to(&self, len: u64, new_len: u64) -> Result<()> {
+        self.remembered
+            .ensure(new_len / PAGE_SIZE_U64)
+            .map_err(|_| Error::OutOfMemory {
+                requested: remembered_bytes(new_len) - remembered_bytes(len),
+            })
     }
 
     /// Closes the store: flushes it to the disk and releases its lock, which is released even if the flush
@@ -915,7 +1014,19 @@ fn file_pager(
         writes_disabled: Arc::new(AtomicBool::new(false)),
         data_syncs: AtomicU64::new(0),
         checked: Checked::new()?,
+        remembered: Remembered::new(MAX_FILE_PAGES, len / PAGE_SIZE_U64).map_err(|_| {
+            Error::OutOfMemory {
+                requested: remembered_bytes(len),
+            }
+        })?,
+        #[cfg(feature = "test-hooks")]
+        integrity_checks: AtomicU64::new(0),
     })
+}
+
+/// The memory that remembering the pages of a store of `len` bytes takes: one bit per page (I6).
+fn remembered_bytes(len: u64) -> u64 {
+    (len / PAGE_SIZE_U64).div_ceil(8)
 }
 
 /// Removes the `krummi.data.new` left by an interrupted creation, unless another opener holds it (P8).

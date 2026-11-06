@@ -55,7 +55,7 @@ use crate::error::{Error, Result};
 use crate::format::Header;
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
 use crate::journal::{Journal, RAW_ENTRY};
-use crate::pager::{Info, Pager};
+use crate::pager::{Info, Integrity, Pager};
 use crate::recovery;
 use crate::sys;
 use crate::temp::{Slot, TempArea};
@@ -284,8 +284,9 @@ impl Scratch {
         page[PAGE_HEADER_SIZE + offset] ^= 0xFF;
         // SAFETY: borrowing this area mutably means no snapshot of it is alive, and every reference into the store's
         // pages borrows a snapshot or this area, so none is alive; holding `flushing` keeps the transfer thread from
-        // writing pages in place meanwhile, the only other writer while the store is open.
-        unsafe { pager.write_run_shared(page_number, &page) }
+        // writing pages in place meanwhile, the only other writer while the store is open. The page stays
+        // remembered: the flip stands for a change the engine does not make (I8).
+        unsafe { pager.write_unremembered(page_number, &page) }
     }
 
     /// Information about the store (P12).
@@ -1022,7 +1023,10 @@ impl<'a> Snapshot<'a> {
         drop(state);
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
         // writes this page while the snapshot is open, because any newer version is newer than the snapshot.
-        let (page, code) = self.scratch.pager().page_and_code(page_number)?;
+        let (page, code) = self
+            .scratch
+            .pager()
+            .page_and_code_with(page_number, self.integrity())?;
         Ok((page, Some(code)))
     }
 
@@ -1079,7 +1083,17 @@ impl<'a> Snapshot<'a> {
             Some((ptr, len)) => Ok(unsafe { std::slice::from_raw_parts(ptr, len) }),
             // None of these pages has a version up to this snapshot in the scratch area: as in `Snapshot::page`, the
             // store has what it sees, and no flush writes these pages while the snapshot is open.
-            None => pager.run(first, count),
+            None => pager.run_with(first, count, self.integrity()),
+        }
+    }
+
+    /// How this snapshot's reads of the store treat its integrity: a read transaction uses the remembered pages,
+    /// the writer checks every page it reads (I2, I3 of the remembered page integrity PRD).
+    fn integrity(&self) -> Integrity {
+        if self.writer {
+            Integrity::CheckAndRemember
+        } else {
+            Integrity::UseRemembered
         }
     }
 }

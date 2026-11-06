@@ -304,6 +304,19 @@ impl Engine {
         self.scratch.pager().checked_slots()
     }
 
+    /// Integrity checks of the store's pages and runs since it opened (tests of the remembered page integrity PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn integrity_checks(&self) -> u64 {
+        self.scratch.pager().integrity_checks()
+    }
+
+    /// Whether the integrity of page `page_number`, or of the run that starts there, is remembered (tests of the
+    /// remembered page integrity PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn is_remembered(&self, page_number: u64) -> bool {
+        self.scratch.pager().is_remembered(page_number)
+    }
+
     /// Sets the minimum time between transfer passes and the growth of the scratch area since the last pass from
     /// which a pass starts without waiting for it (tests).
     #[cfg(feature = "test-hooks")]
