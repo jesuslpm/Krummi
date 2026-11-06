@@ -61,8 +61,8 @@ reopen, which are disk only.
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1–S11 | inline: `Remembered` bitmap in the pager; read transactions use it, the writer checks and remembers; forget before every in-place write, the test byte flip bypasses it; AC-I1–AC-I11, AC-I8 replacing AC-C7 and AC-X19 part 4 | done | `d6ae1c7`, L5 |
-| T2 | S12 | inline: single-load runs before and after, Windows and WSL 2; the complete runs after O4 | single-load done | L8 |
-| T3 | all | independent verifier (risk item 4), RDD, Codex, closing | done; R1 of Codex and AC-I12 pending | L6–L15, [report](integrity-once-report.md) |
+| T2 | S12 | inline: single-load runs before and after, Windows and WSL 2; the complete runs after O4 | done; S12 met but for the 0.05 rule, see L16 | L8, L16 |
+| T3 | all | independent verifier (risk item 4), RDD, Codex, closing | done; R1 of Codex pending | L6–L15, [report](integrity-once-report.md) |
 
 ## Log
 
@@ -198,3 +198,15 @@ reopen, which are disk only.
   The three-round limit is reached. Pending for the user, one question at a time at the close: R1 (exact run
   extents need memory beyond I6, or AC-I1 yields when a mark is replaced) and the 64 TiB ceiling. Default while
   waiting: the code stays as `bcb71ce` (bits for every page, the length mark as an extra check).
+- **L16** (2026-11-06): S12, the complete runs after O3 and O4 at `2fdf8e9` ([Windows](../../docs/benchmark/2026-11-06-windows.md),
+  [Linux](../../docs/benchmark/2026-11-06-linux.md)) against the 2026-11-05 ones at `3ec8641`. W7 and W22 raise
+  their ratio with Voron by more than 0.05 and meet their threshold: W7 0.50 → 1.23 on Windows and 0.54 → 1.03 on
+  Linux, W22 0.52 → 1.27 and 0.38 → 1.21 (W8, W9 and, on Linux, W20 cross theirs too: 10 of 22 thresholds on
+  both, from 6 and 5). "Ninguna carga baja su razón con Voron más de 0,05" is not met to the letter: Windows W10
+  (−0.57), W11 (−0.06), W20 (−0.29) and Linux W2, W4–W6, W14–W17 (−0.07 to −0.85). Krummi's own op/s rise in
+  Windows W11 and W20 (Voron rose more) and fall in Windows W10 (−30 %) and Linux W2, W4–W6, W14–W17 (−4 % to
+  −20 %). Single-load runs of those loads, two rounds against `3ec8641` with the order swapped (L10 of
+  [commit-copies.md](commit-copies.md)), show none lower: W10 +5 % / +10 % on Windows, W2 +2 % / +3 %, W14 +0 % /
+  +2 %, W15 +1 % / +5 %, W17 +9 % / +3 % on WSL 2, W16 +1 % / −32 % with reps from 254 to 606. Read: the drops are
+  the run-to-run spread the 2026-11-05 history row already found too large for the 0.05 rule, not a loss of O3 or
+  O4; the rule stays unmet as written, for the user.

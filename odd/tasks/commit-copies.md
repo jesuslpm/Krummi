@@ -24,6 +24,7 @@ optimization without an observable change (K13 annotation of 2026-11-04).
 | T1 | S2 | inline: pin the bytes of journal records (compressed, raw, several pages) to values recorded before the change | done | `489bd4e`, L5 |
 | T2 | S1, S2 | inline: build records and group writes without zeroing what they overwrite; reuse the compression buffers across commits | done | `cf61713`, L6 |
 | T3 | S3, S4 | inline: single-load runs of the write loads, before and after, Windows and WSL 2 | done | L7 |
+| T5 | S4 | inline: complete runs on Windows and WSL 2 after O4 | done | L10 |
 | T4 | all | RDD, Codex, closing; independent verifier only if a risk item applies | pending | |
 
 ## Log
@@ -93,3 +94,10 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   (`-Range 13489d1..4e1e38d`) ended in `error` at 11:36 UTC: Codex's usage limit, until 13:30; no report, no
   change. Default taken: the complete runs (S4) go first, at `4e1e38d`, and the Codex review after them, so that
   neither disturbs the other; a Codex fix that touches the commit path would mean running them again.
+- **L10** (2026-11-06): T5, the complete runs at `2fdf8e9` (the only uncommitted file was the phase log), Windows
+  11:39–13:06 and WSL 2 13:07–15:26 UTC: [Windows](../../docs/benchmark/2026-11-06-windows.md) and
+  [Linux](../../docs/benchmark/2026-11-06-linux.md), 10 of 22 thresholds on both; the comparison with 2026-11-05 is
+  L16 of [integrity-once.md](integrity-once.md) and the plan's History. The loads whose Krummi op/s fell against
+  2026-11-05 were run singly, two rounds with the order swapped, `pre` = `3ec8641` (before O3) and `head` = the
+  O4 head build of the complete run (`work/o4/full.sh`); ratio head / pre per round: Windows W10 1.05, 1.10; WSL 2
+  W2 1.02, 1.03; W14 1.00, 1.02; W15 1.01, 1.05; W16 1.01, 0.68 (reps 254–606); W17 1.09, 1.03.

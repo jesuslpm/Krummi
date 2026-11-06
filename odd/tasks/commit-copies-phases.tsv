@@ -14,3 +14,12 @@
 2026-11-06T11:30:22+00:00	mark	fix	T4
 2026-11-06T11:36:34+00:00	bg-start	review	codex-R1
 2026-11-06T11:37:27+00:00	bg-end	review	codex-R1
+2026-11-06T11:38:31+00:00	mark	acceptance	benchmark
+2026-11-06T11:38:31+00:00	bg-start	acceptance	complete windows
+2026-11-06T13:06:45+00:00	bg-end	acceptance	complete windows
+2026-11-06T13:06:45+00:00	bg-start	acceptance	complete wsl
+2026-11-06T15:26:34+00:00	bg-end	acceptance	complete wsl
+2026-11-06T15:31:37+00:00	bg-start	acceptance	full check windows
+2026-11-06T15:33:14+00:00	bg-end	acceptance	full check windows
+2026-11-06T15:33:14+00:00	bg-start	acceptance	full check wsl
+2026-11-06T16:06:40+00:00	bg-end	acceptance	full check wsl

@@ -16,8 +16,11 @@ Rama `perf/integrity-once` (de `prd/integrity-once` con los informes del 2026-11
   AC-X19.
 - **Aceptación:** ejecuciones de una sola carga antes (`3ec8641`) y después (`5a9f9f0`), Windows y WSL 2 (L8): W7
   +87 % a +126 %, W8 +99 % a +145 %, W9 +163 % a +233 %, W22 +104 % a +261 %, W20 +72 % a +114 %, W10 0 % a
-  +21 %; ninguna carga de lectura empeora. AC-I12 (ejecuciones completas) **pendiente**: el usuario pidió el banco al
-  final, tras O4 (L2), así que medirá O3 y O4 juntos.
+  +21 %; ninguna carga de lectura empeora. AC-I12 (ejecuciones completas tras O4, `2fdf8e9`, L16): W7 y W22 suben su
+  razón con Voron más de 0,05 y cumplen su umbral (W7 0,50 → 1,23 en Windows y 0,54 → 1,03 en Linux; W22 0,52 → 1,27
+  y 0,38 → 1,21; 10 de 22 umbrales en ambas, antes 6 y 5). «Ninguna carga baja su razón más de 0,05» **no se cumple
+  a la letra**: bajan Windows W10, W11 y W20 y Linux W2, W4–W6 y W14–W17; las ejecuciones de una sola carga contra
+  `3ec8641` no muestran ninguna más lenta (W10 +5 % / +10 %; W2, W14, W15, W17 +0 % a +9 %; W16 disperso).
 - **Revisiones y verificación:** verificador independiente sin bloqueos (L6); cinco revisiones RDD aprobadas
   (tabla abajo); revisión cruzada de Codex en tres rondas: R2, R3 y R4 resueltos y verificados, R1 reabierto y
   pendiente de una decisión de producto (abajo).
@@ -157,7 +160,7 @@ en la tabla de contenidos comprobados. Las lecturas al azar con un hilo se dupli
   perder su marca, una lectura con otra longitud desde su primera página (solo una referencia corrupta) no se
   comprueba. Las alternativas: más memoria que I6, o recomprobar el valor cuando pierde su marca (contra AC-I1).
 - **Decisión de producto, tope de 64 TiB:** P10 no fija más límite que el disco.
-- **AC-I12:** ejecuciones completas en Windows y Linux, tras O4.
+- **AC-I12:** la regla de 0,05 no se cumple a la letra (L16); queda para el usuario.
 - **RED no observado antes del código** (L5): se sustituyó por tres mutaciones que fallan las pruebas.
 - Avisos de RDD sin cambios: colisión improbable del número de página en los datos de un valor; la prueba de reserva
   supone 64 bits.
