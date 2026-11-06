@@ -1,0 +1,14 @@
+2026-11-06T07:02:21+00:00	mark	explore	
+2026-11-06T07:02:21+00:00	mark	wait	estimate of O3, O4 and the complete runs
+2026-11-06T07:02:41+00:00	start	plan	T0
+2026-11-06T07:03:10+00:00	mark	explore	T0
+2026-11-06T07:08:18+00:00	mark	implement	T1
+2026-11-06T07:18:58+00:00	mark	checks	T1
+2026-11-06T07:19:38+00:00	bg-start	checks	T1 workspace tests
+2026-11-06T07:24:58+00:00	bg-end	checks	T1 workspace tests
+2026-11-06T07:25:27+00:00	mark	verify	T3
+2026-11-06T07:38:10+00:00	mark	acceptance	T2
+2026-11-06T07:38:21+00:00	bg-start	acceptance	T2 windows
+2026-11-06T07:38:26+00:00	bg-end	acceptance	T2 windows
+2026-11-06T07:38:26+00:00	bg-start	acceptance	T2 wsl
+2026-11-06T07:38:45+00:00	mark	review	T3
