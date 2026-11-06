@@ -53,8 +53,11 @@ On Linux the single and concurrent durable writes (W4–W6) meet their threshold
   Record with `samply record --save-only --unstable-presymbolicate -o <load>.json.gz -- <worker command>`.
 - **Reading a profile.** Open it with `samply load <load>.json.gz`, or aggregate the self and inclusive share per
   function from the profile and its `.syms.json` sidecar (inline frames expanded).
-- **Accepting an optimization.** The complete runs on Windows and Linux are the acceptance (K13 annotation): the
-  target loads meet their threshold and no other load gets worse beyond noise. Noise: compare with the previous
+- **Accepting an optimization.** The complete runs on Windows and Linux are the acceptance (K13 annotation of
+  2026-11-04): the target loads meet their threshold and no other load gets worse beyond noise. An optimization may
+  close as an intermediate step when single-load runs before and after measure what it improves, even if its target
+  loads do not meet their threshold yet; the threshold stays the goal of the next ones (K13 annotation of
+  2026-11-06). Noise: compare with the previous
   complete report of the same platform; a load counts as worse when its ratio drops by more than 0.05 (default
   taken for this plan, to calibrate with a repeated run). While iterating, the single-load worker run measures
   before and after.

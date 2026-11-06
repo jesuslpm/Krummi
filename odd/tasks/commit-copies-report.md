@@ -1,4 +1,4 @@
-# O4, menos búferes puestos a cero en el commit: implementada y verificada; sus cargas objetivo no cumplen el umbral
+# O4, menos búferes puestos a cero en el commit: implementada y verificada; aceptada como paso intermedio
 
 Informe de cierre de `commit-copies` (2026-11-06). Enfoque de ejecución: ODD, sin PRD (anotación del 2026-11-04 a
 K13). Fuente: O4 del [plan de rendimiento](../../docs/performance/plan.md). Documento de ejecución:
@@ -21,8 +21,8 @@ Rama `perf/commit-copies`, que parte de `perf/integrity-once` (`13489d1`), sin f
 - **Ejecuciones completas** tras O3 y O4 (`2fdf8e9`, L10): [Windows](../../docs/benchmark/2026-11-06-windows.md) y
   [Linux](../../docs/benchmark/2026-11-06-linux.md), 10 de 22 umbrales en ambas (antes 6 y 5). **Ninguna de las nueve
   cargas objetivo de O4 cumple su umbral** (Krummi / Voron de 0,24 a 0,53 en Windows y de 0,31 a 0,76 en Linux), y
-  es lo que la anotación de K13 fija como aceptación: R1 de Codex, pendiente de tu decisión. Las cargas cuyo número de
-  Krummi bajó respecto al 2026-11-05 no bajan medidas sueltas contra `3ec8641`.
+  es lo que la anotación de K13 del 2026-11-04 fijaba como aceptación: R1 de Codex. Las cargas cuyo número de
+  Krummi bajó respecto al 2026-11-05 no bajan medidas sueltas contra `3ec8641`. Aceptada como paso intermedio (anotación de K13 del 2026-11-06).
 
 ## RDD reviews
 
@@ -140,9 +140,9 @@ alcanza todavía 0,80 veces Voron.
 
 ## Pending (non-blocking)
 
-- **Decisión de producto, R1 de Codex (blocker):** la anotación de K13 acepta una optimización sin PRD solo si sus
-  cargas objetivo cumplen su umbral, y ninguna de las de O4 lo cumple. O1, O2 y O3a se cerraron como pasos sin
-  umbrales cumplidos, pero K13 no lo prevé.
+- **R1 de Codex (blocker), resuelto por decisión del usuario** ("Sí", L13): K13 tiene una anotación del 2026-11-06
+  que permite cerrar una optimización sin PRD como paso intermedio cuando las ejecuciones de una sola carga miden lo
+  que mejora. Los umbrales siguen como objetivo de O5–O8, que el plan propone con el diagnóstico del 2026-11-06.
 - La reserva de memoria fallida de la lista de partes y del búfer de grupo no se puede provocar en una prueba (no hay
   punto de fallo para ella): el camino de un registro por escritura se revisó, pero no se ejecutó.
 - W12, una carga de lectura que no es objetivo de O4, da 0,96 / 0,97 en Windows, medida en el mismo proceso que W13.

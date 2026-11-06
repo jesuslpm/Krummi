@@ -42,3 +42,18 @@ Follow-up report: [2026-11-06-code-02.md](2026-11-06-code-02.md), wrapper status
 - **R1, thresholds:** "Still open". Pending for the user.
 
 The loop stops after two rounds: a third could only repeat that the threshold part waits for the user's decision.
+
+## 2026-11-06 (user decision)
+
+### R1 — blocker: O4 does not satisfy its required performance acceptance
+
+- Disposition: resolved by a user decision. Asked whether to accept O4 as an intermediate step and clarify K13 that
+  way, or keep it open until its targets meet their threshold, the user answered "Sí".
+- Fix: K13 gets an annotation of 2026-11-06 (`docs/prd/krummi/benchmark.prd.md` and its translation). It lets an
+  optimization without a PRD close as an intermediate step, even though its target loads do not meet their
+  threshold yet, when single-load runs before and after measure what it improves. The threshold remains the goal of
+  the next optimizations, and the condition that no other load gets worse does not change. The plan's
+  *Measurement method* says the same.
+- Evidence: O4's single-load runs before and after are L7 and L11 of `odd/tasks/commit-copies.md`. The threshold
+  work continues as O5–O8 of `docs/performance/plan.md`, from the diagnosis of 2026-11-06.
+- Status: claimed, unverified until a follow-up review.

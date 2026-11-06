@@ -25,7 +25,7 @@ optimization without an observable change (K13 annotation of 2026-11-04).
 | T2 | S1, S2 | inline: build records and group writes without zeroing what they overwrite; reuse the compression buffers across commits | done | `cf61713`, L6 |
 | T3 | S3, S4 | inline: single-load runs of the write loads, before and after, Windows and WSL 2 | done | L7 |
 | T5 | S4 | inline: complete runs on Windows and WSL 2 after O4 | done | L10 |
-| T4 | all | RDD, Codex, closing; independent verifier only if a risk item applies | done; Codex R1 pending for the user | L8–L12, [report](commit-copies-report.md) |
+| T4 | all | RDD, Codex, closing; independent verifier only if a risk item applies | done; Codex R1 resolved by the user's decision (L13) | L8–L12, [report](commit-copies-report.md) |
 
 ## Log
 
@@ -124,3 +124,6 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   missing runs verified on Windows; WSL's result files then copied to `work/o4/`; the thresholds part stays open.
   The loop stops at two rounds. No independent verifier: risk item 1 only if the bytes change, and the golden hashes
   pin them. Closing report: [commit-copies-report.md](commit-copies-report.md).
+- **L13** (2026-11-06): the user's decision on Codex R1, verbatim: "Sí". The question was whether to accept O4 as
+  an intermediate step and clarify K13 that way, or keep it open. K13 annotated (2026-11-06) in both languages, and
+  the plan's acceptance rule updated. Then the write diagnosis after O4 and O5–O8 went into the plan (`f20f890`).
