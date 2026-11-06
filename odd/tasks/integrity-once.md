@@ -212,3 +212,6 @@ reopen, which are disk only.
   O4; the rule stays unmet as written, for the user.
 - **L17** (2026-11-06): the user accepted Codex R1's residual ("Sí", after the recommendation of option 1). I1 is
   annotated in the PRD and its translation, and the decision is recorded in the code review resolutions.
+- **L18** (2026-11-06): the user accepted the 64 TiB ceiling of a store on disk (answer "1.", the recommended
+  option). P10 is annotated in the pager PRD and its translation, and the decision is recorded in the code review
+  resolutions.

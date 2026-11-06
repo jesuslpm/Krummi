@@ -113,3 +113,12 @@ resolved.» The 64 TiB question stays open.
 - Record: annotation of 2026-11-06 to I1 of `docs/prd/krummi/pager-integrity-once.prd.md` and its translation. No
   code change: the code stays as `bcb71ce`.
 - Status: closed by the user's decision.
+
+### The 64 TiB ceiling (open question of the review)
+
+- Disposition: accepted by the user (option 1 of three: accept and annotate P10; raise the ceiling, at more
+  reserved address space per open store; remove it with a remembered map that can move, which needs
+  synchronization with readers).
+- Record: annotation of 2026-11-06 to P10 of `docs/prd/krummi/pager.prd.md` and its translation. No code change
+  (`MAX_FILE_PAGES`, `crates/krummi-pager/src/remembered.rs:22`).
+- Status: closed by the user's decision.

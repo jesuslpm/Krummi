@@ -163,7 +163,7 @@ en la tabla de contenidos comprobados. Las lecturas al azar con un hilo se dupli
   longitud desde la primera página de un valor no se comprueba. Solo la provoca una referencia equivocada en una hoja
   que pasó su comprobación. Queda anotado en I1. Cerrarlo sin coste pediría guardar la longitud en el encabezado del
   valor, un cambio de formato con PRD.
-- **Decisión de producto, tope de 64 TiB:** P10 no fija más límite que el disco.
+- **Tope de 64 TiB, aceptado por el usuario** (L18): anotado en P10 del PRD del Pager.
 - **AC-I12:** la regla de 0,05 no se cumple a la letra (L16); queda para el usuario.
 - **RED no observado antes del código** (L5): se sustituyó por tres mutaciones que fallan las pruebas.
 - Avisos de RDD sin cambios: colisión improbable del número de página en los datos de un valor; la prueba de reserva
