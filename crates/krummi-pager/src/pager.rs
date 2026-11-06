@@ -387,12 +387,7 @@ impl Pager {
         let Some(run) = self.raw_pages(first, count) else {
             return Err(self.damaged(first));
         };
-        // A remembered run still has to name its first page: the interior pages of a value run, remembered with it,
-        // carry no page number, so a bad reference to one of them as a page of its own is checked, and fails.
-        if integrity == Integrity::UseRemembered
-            && run[8..16] == first.to_le_bytes()
-            && self.remembered.contains(first, count)
-        {
+        if integrity == Integrity::UseRemembered && self.remembered_run(first, count, run) {
             return Ok(run);
         }
         #[cfg(any(test, feature = "test-hooks"))]
@@ -401,9 +396,43 @@ impl Pager {
             return Err(self.damaged(first));
         }
         if integrity != Integrity::Check {
-            self.remembered.remember(first, count);
+            self.remember_run(first, count, run);
         }
         Ok(run)
+    }
+
+    /// Whether the `count` pages from page `first`, whose bytes are `run`, passed the integrity check as one run of
+    /// exactly that length and are still remembered (I1). A page, or a run of one page, is its bit. A longer run is
+    /// the bits of its interior pages and, for its first page, a mark of its stored code and its length in the table
+    /// of checked contents (C1–C5): never its first page's bit, so the first page read alone, a shorter or longer run
+    /// from it, or a run from one of its interior pages is checked. A run must also name its first page: interior
+    /// pages carry no page number, so a bad reference to one of them as a page of its own is checked too.
+    fn remembered_run(&self, first: u64, count: u64, run: &[u8]) -> bool {
+        if run.get(8..16) != Some(&first.to_le_bytes()[..]) {
+            return false;
+        }
+        match count {
+            0 => false,
+            1 => self.remembered.contains(first, 1),
+            _ => {
+                self.remembered.contains(first + 1, count - 1)
+                    && self
+                        .checked
+                        .contains(first, run_mark(format::recorded_checksum(run), count))
+            }
+        }
+    }
+
+    /// Remembers the run of `count` pages from page `first`, whose bytes `run` just passed the integrity check (I1);
+    /// see [`Pager::remembered_run`].
+    fn remember_run(&self, first: u64, count: u64, run: &[u8]) {
+        if count == 1 {
+            self.remembered.remember(first, 1);
+        } else {
+            self.remembered.remember(first + 1, count - 1);
+            self.checked
+                .remember_run(first, run_mark(format::recorded_checksum(run), count));
+        }
     }
 
     /// Integrity checks of the store's pages and runs since it opened (tests).
@@ -412,10 +441,17 @@ impl Pager {
         self.integrity_checks.load(Ordering::Relaxed)
     }
 
-    /// Whether the integrity of page `page_number` is remembered, also as a page of a run (tests).
+    /// Whether the integrity of page `page_number` is remembered as a page, or as an interior page of a run (tests).
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn is_remembered(&self, page_number: u64) -> bool {
         self.remembered.contains(page_number, 1)
+    }
+
+    /// Whether the run of `count` pages from page `first` is remembered as one run of that length (tests).
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn is_run_remembered(&self, first: u64, count: u64) -> bool {
+        self.raw_pages(first, count)
+            .is_some_and(|run| self.remembered_run(first, count, run))
     }
 
     /// Whether `bytes` are inside the store's pages: a mapping of `krummi.data`, the newest or an older one that
@@ -1022,6 +1058,12 @@ fn file_pager(
         #[cfg(any(test, feature = "test-hooks"))]
         integrity_checks: AtomicU64::new(0),
     })
+}
+
+/// The mark a remembered run of `count` pages with stored code `code` leaves for its first page in the table of
+/// checked contents: never `0`, the empty slot, and never a node's code but by a collision of 64-bit values.
+fn run_mark(code: u64, count: u64) -> u64 {
+    (code ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15)).max(1)
 }
 
 /// The memory that remembering the pages of a store of `len` bytes takes: one bit per page (I6).

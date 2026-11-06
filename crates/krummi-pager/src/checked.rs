@@ -95,6 +95,15 @@ impl Checked {
         }
     }
 
+    /// Remembers the mark `mark` for page `page`, the first page of a value run whose integrity a read verified
+    /// (I1 of the remembered page integrity PRD), replacing what its slot held. It is no content whose layout passed,
+    /// so it does not count as one; a node read from that page has its own code, which does not match the mark.
+    pub(crate) fn remember_run(&self, page: u64, mark: u64) {
+        if mark != 0 && ENABLED.load(Ordering::Relaxed) {
+            self.slot(page).store(mark, Ordering::Relaxed);
+        }
+    }
+
     /// Slots of the table.
     pub(crate) fn slots(&self) -> usize {
         self.slots.len()

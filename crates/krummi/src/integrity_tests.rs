@@ -23,9 +23,14 @@ fn checks_of<T>(store: &Store, f: impl FnOnce() -> T) -> (T, u64) {
     (result, checks(store) - before)
 }
 
-/// Whether the integrity of page `page`, or of the value run that starts there, is remembered.
+/// Whether the integrity of page `page` is remembered.
 fn is_remembered(store: &Store, page: u64) -> bool {
     store.engine.is_remembered(page)
+}
+
+/// Whether the value run `(first, count)` is remembered as one run of that length.
+fn is_run_remembered(store: &Store, (first, count): (u64, u64)) -> bool {
+    store.engine.is_run_remembered(first, count)
 }
 
 /// A value that the tree keeps off its leaf, in a run of three pages.
@@ -85,8 +90,11 @@ fn ac_i1_each_page_and_value_is_checked_on_its_first_read() {
         let read = store.read().unwrap();
         let ((), first) = checks_of(store, || read_tree_with_big_value(&read, "t"));
         assert!(first > 0, "the first reads check");
-        let (big, _) = run_of(store, "t", b"big");
-        assert!(is_remembered(store, big), "the value is remembered whole");
+        let big = run_of(store, "t", b"big");
+        assert!(
+            is_run_remembered(store, big),
+            "the value is remembered whole"
+        );
         let ((), again) = checks_of(store, || read_tree_with_big_value(&read, "t"));
         assert_eq!(again, 0, "the same transaction does not check again");
         drop(read);
@@ -249,7 +257,7 @@ fn ac_i5_a_reused_value_run_is_checked_for_its_new_content() {
         transfer(store);
         read_tree_with_big_value(&store.read().unwrap(), "t");
         let (first, count) = run_of(store, "t", b"big");
-        assert!(is_remembered(store, first));
+        assert!(is_run_remembered(store, (first, count)));
 
         let mut write = store.write().unwrap();
         let tree = write.open_tree("t").unwrap();
@@ -266,7 +274,7 @@ fn ac_i5_a_reused_value_run_is_checked_for_its_new_content() {
             (first, count),
             "the same pages"
         );
-        assert!(!is_remembered(store, first));
+        assert!(!is_run_remembered(store, (first, count)));
 
         let read = store.read().unwrap();
         let tree = read.open_tree("t").unwrap();
@@ -274,7 +282,7 @@ fn ac_i5_a_reused_value_run_is_checked_for_its_new_content() {
             read.get(&tree, b"other").unwrap().unwrap().to_vec()
         });
         assert!(value == big_value(9), "what was written");
-        assert!(checked > 0 && is_remembered(store, first));
+        assert!(checked > 0 && is_run_remembered(store, (first, count)));
         let (_, again) = checks_of(store, || {
             read.get(&tree, b"other").unwrap().unwrap().to_vec()
         });

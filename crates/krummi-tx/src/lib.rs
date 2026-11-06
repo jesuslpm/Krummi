@@ -317,6 +317,13 @@ impl Engine {
         self.scratch.pager().is_remembered(page_number)
     }
 
+    /// Whether the run of `count` pages from page `first` is remembered as one run of that length (tests of the
+    /// remembered page integrity PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn is_run_remembered(&self, first: u64, count: u64) -> bool {
+        self.scratch.pager().is_run_remembered(first, count)
+    }
+
     /// Sets the minimum time between transfer passes and the growth of the scratch area since the last pass from
     /// which a pass starts without waiting for it (tests).
     #[cfg(feature = "test-hooks")]

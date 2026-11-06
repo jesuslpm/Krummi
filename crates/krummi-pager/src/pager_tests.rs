@@ -619,10 +619,12 @@ fn rewriting_an_interior_page_of_a_run_makes_it_checked_again() {
     assert_eq!(checks(&pager), before + 1, "the first read checks it");
     pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
     assert_eq!(checks(&pager), before + 1, "remembered");
-    assert!((first..first + 3).all(|page| pager.is_remembered(page)));
+    assert!(pager.is_run_remembered(first, 3));
+    assert!(pager.is_remembered(first + 1) && pager.is_remembered(first + 2));
 
     pager.write_run(first + 2, &run[2 * PAGE_SIZE..]).unwrap();
-    assert!(pager.is_remembered(first) && !pager.is_remembered(first + 2));
+    assert!(pager.is_remembered(first + 1) && !pager.is_remembered(first + 2));
+    assert!(!pager.is_run_remembered(first, 3));
     pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
     assert_eq!(checks(&pager), before + 2, "checked again");
 
@@ -632,4 +634,43 @@ fn rewriting_an_interior_page_of_a_run_makes_it_checked_again() {
         .unwrap_err();
     assert_eq!(damage.kind(), ErrorKind::Damaged);
     assert_eq!(checks(&pager), before + 3);
+}
+
+/// I1 of the remembered page integrity PRD: a remembered run is remembered as one run of exactly its length, so its
+/// first page read alone, or a shorter run from it, is checked as before and fails; so does a read of no pages, under
+/// every policy.
+#[test]
+fn a_remembered_run_does_not_vouch_for_another_extent() {
+    let mut pager = Pager::open_temporary(&options()).unwrap();
+    let first = HEADER_PAGES + 4;
+    pager.ensure_pages(first + 3).unwrap();
+    let mut run = vec![7u8; 3 * PAGE_SIZE];
+    format::seal_run(first, &mut run);
+    pager.write_run(first, &run).unwrap();
+    pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
+    assert!(pager.is_run_remembered(first, 3));
+
+    for count in [0, 1, 2] {
+        for integrity in [
+            Integrity::Check,
+            Integrity::CheckAndRemember,
+            Integrity::UseRemembered,
+        ] {
+            let error = pager.run_with(first, count, integrity).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                ErrorKind::Damaged,
+                "{count} pages, {integrity:?}"
+            );
+        }
+    }
+    assert!(
+        pager
+            .page_and_code_with(first, Integrity::UseRemembered)
+            .is_err()
+    );
+    assert!(
+        pager.is_run_remembered(first, 3),
+        "the run itself stays remembered"
+    );
 }
