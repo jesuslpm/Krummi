@@ -186,6 +186,13 @@ se hacen con lecturas de un solo hilo (I7).
     W7 y W22 la suben más de 0,05; y el informe de cierre incluye esas comparaciones, si W7 y W22 cumplen su umbral y
     las ejecuciones de una sola carga de lectura antes y después (I9).
 
+    *Anotación del 2026-11-06: una carga cuya razón baja más de 0,05 entre dos ejecuciones completas cuenta como
+    peor solo si las ejecuciones de una sola carga, antes y después en la misma sesión, confirman la bajada. Las
+    ejecuciones completas de días distintos se mueven más que 0,05 también en los motores que no cambian. Con
+    esta lectura, AC-I12 se cumple tras O3 y O4: ninguna de las cargas que bajaron en las ejecuciones completas
+    del 2026-11-06 baja en sus ejecuciones de una sola carga contra el commit anterior a O3 (decisión del
+    usuario).*
+
 ## Anotaciones a otros PRD
 
 Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotaciones correspondientes:

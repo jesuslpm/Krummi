@@ -58,8 +58,10 @@ On Linux the single and concurrent durable writes (W4–W6) meet their threshold
   close as an intermediate step when single-load runs before and after measure what it improves, even if its target
   loads do not meet their threshold yet; the threshold stays the goal of the next ones (K13 annotation of
   2026-11-06). Noise: compare with the previous
-  complete report of the same platform; a load counts as worse when its ratio drops by more than 0.05 (default
-  taken for this plan, to calibrate with a repeated run). While iterating, the single-load worker run measures
+  complete report of the same platform. A load whose ratio drops by more than 0.05 counts as worse only when
+  single-load runs, before and after in the same session with the order alternated, confirm the drop. Complete runs
+  on different days move by more than 0.05, also for the engines that do not change (annotation of 2026-11-06 to
+  AC-I12 of [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md)). While iterating, the single-load worker run measures
   before and after.
 
 ## Diagnosis

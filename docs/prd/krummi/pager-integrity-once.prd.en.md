@@ -182,6 +182,12 @@ area, to alter bytes and to simulate the lack of memory. The counts of checks ar
     0.05 and W7 and W22 raise it by more than 0.05; and the closing report includes those comparisons, whether W7 and
     W22 meet their threshold and the single-workload runs of a read workload before and after (I9).
 
+    *Annotation of 2026-11-06: a workload whose ratio drops by more than 0.05 between two full runs counts as
+    worse only when single-workload runs, before and after in the same session, confirm the drop. Full runs on
+    different days move by more than 0.05, also for the engines that do not change. Read this way, AC-I12 is
+    met after O3 and O4: none of the workloads that dropped in the full runs of 2026-11-06 drops in its
+    single-workload runs against the commit before O3 (user's decision).*
+
 ## Annotations to other PRDs
 
 This PRD changes or refines rules of earlier documents, which carry the corresponding annotations:

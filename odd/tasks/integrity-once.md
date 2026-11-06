@@ -61,7 +61,7 @@ reopen, which are disk only.
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1–S11 | inline: `Remembered` bitmap in the pager; read transactions use it, the writer checks and remembers; forget before every in-place write, the test byte flip bypasses it; AC-I1–AC-I11, AC-I8 replacing AC-C7 and AC-X19 part 4 | done | `d6ae1c7`, L5 |
-| T2 | S12 | inline: single-load runs before and after, Windows and WSL 2; the complete runs after O4 | done; S12 met but for the 0.05 rule, see L16 | L8, L16 |
+| T2 | S12 | inline: single-load runs before and after, Windows and WSL 2; the complete runs after O4 | done; S12 met under the annotation of L19 | L8, L16 |
 | T3 | all | independent verifier (risk item 4), RDD, Codex, closing | done; R1 of Codex accepted as a residual (L17) | L6–L15, [report](integrity-once-report.md) |
 
 ## Log
@@ -215,3 +215,6 @@ reopen, which are disk only.
 - **L18** (2026-11-06): the user accepted the 64 TiB ceiling of a store on disk (answer "1.", the recommended
   option). P10 is annotated in the pager PRD and its translation, and the decision is recorded in the code review
   resolutions.
+- **L19** (2026-11-06): the user agreed ("Sí") to count AC-I12 as met. The rule now reads: a drop of more than 0.05
+  between complete runs counts only when single-load runs in one session confirm it, and the single-load runs of
+  L16 confirm none. AC-I12 is annotated in the PRD and its translation, and the plan's noise rule says the same.

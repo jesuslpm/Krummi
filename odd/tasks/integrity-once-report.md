@@ -1,4 +1,4 @@
-# O3, integridad recordada de las páginas: implementada y verificada; W7 y W22 cumplen su umbral, la regla de 0,05 no se cumple a la letra
+# O3, integridad recordada de las páginas: implementada, verificada y aceptada (AC-I12 cumplido tras O4)
 
 Informe de cierre de `integrity-once` (2026-11-06). Enfoque de ejecución: ODD. Fuente de producto:
 [pager-integrity-once.prd.md](../../docs/prd/krummi/pager-integrity-once.prd.md). Documento de ejecución:
@@ -20,7 +20,7 @@ Rama `perf/integrity-once` (de `prd/integrity-once` con los informes del 2026-11
   razón con Voron más de 0,05 y cumplen su umbral (W7 0,50 → 1,23 en Windows y 0,54 → 1,03 en Linux; W22 0,52 → 1,27
   y 0,38 → 1,21; 10 de 22 umbrales en ambas, antes 6 y 5). «Ninguna carga baja su razón más de 0,05» **no se cumple
   a la letra**: bajan Windows W10, W11 y W20 y Linux W2, W4–W6 y W14–W17; las ejecuciones de una sola carga contra
-  `3ec8641` no muestran ninguna más lenta (W10 +5 % / +10 %; W2, W14, W15, W17 +0 % a +9 %; W16 disperso).
+  `3ec8641` no muestran ninguna más lenta (W10 +5 % / +10 %; W2, W14, W15, W17 +0 % a +9 %; W16 disperso). Por la anotación de AC-I12 del 2026-11-06 (L19), AC-I12 se cumple.
 - **Revisiones y verificación:** verificador independiente sin bloqueos (L6); cinco revisiones RDD aprobadas
   (tabla abajo); revisión cruzada de Codex en tres rondas: R2, R3 y R4 resueltos y verificados, R1 reabierto y
   pendiente de una decisión de producto (abajo).
@@ -164,7 +164,7 @@ en la tabla de contenidos comprobados. Las lecturas al azar con un hilo se dupli
   que pasó su comprobación. Queda anotado en I1. Cerrarlo sin coste pediría guardar la longitud en el encabezado del
   valor, un cambio de formato con PRD.
 - **Tope de 64 TiB, aceptado por el usuario** (L18): anotado en P10 del PRD del Pager.
-- **AC-I12:** la regla de 0,05 no se cumple a la letra (L16); queda para el usuario.
+- **AC-I12, cumplido por decisión del usuario** (L19): una bajada de más de 0,05 entre ejecuciones completas cuenta solo si la confirman las ejecuciones de una sola carga de la misma sesión, y ninguna se confirma. Queda anotado en AC-I12 y en la regla de ruido del plan.
 - **RED no observado antes del código** (L5): se sustituyó por tres mutaciones que fallan las pruebas.
 - Avisos de RDD sin cambios: colisión improbable del número de página en los datos de un valor; la prueba de reserva
   supone 64 bits.
