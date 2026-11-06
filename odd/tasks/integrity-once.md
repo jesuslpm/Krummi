@@ -107,3 +107,14 @@ reopen, which are disk only.
   AC-I5; the writer using the remembered bit fails AC-I2 and both AC-I8. Checks: fmt ok, workspace clippy clean,
   `cargo test --workspace` 537 passed, 0 failed, 30 ignored. One commit for the whole behavior (about 1,000 lines,
   over the 400 heuristic): the code is one change whose tests need all of it, and it is the high-risk unit (item 4).
+- **L6** (2026-11-06): independent verifier (sonnet/high) over `08ffc84..d6ae1c7`: AC-I1 to AC-I11 and I1 to I8
+  PASS, no blockers. It traced every in-place page write to `write_run_shared` (the test byte flip is the only
+  bypass) and confirmed L4's argument in the code: the transfer writes a version only when every open snapshot's
+  txid is at least that version's, a snapshot registered later reads it from the scratch area until it is written,
+  and the writer reads it there too, so no read of the data file overlaps a forget and its write. Visibility:
+  `Remembered::ensure` publishes the committed words before `len`, so a reader of page `p < len` finds its word.
+  Its checks, in its own target folder: fmt ok, clippy clean, `remembered` 5 passed, `integrity_tests` 12 passed,
+  `check_tests` 13 passed, the four engine crates all passed; `integrity_tests` and `check_tests` looped 25 times
+  with 4 threads, 0 failures. Advisory: a disk store reserves 16 GiB of address space for its bits; under
+  `ulimit -v` or strict overcommit on Linux, opening could fail as memory exhausted (it ran on Windows only).
+  Verifier scratch removed.
