@@ -53,6 +53,16 @@ pub fn with_checked_slots<T>(slots: usize, f: impl FnOnce() -> T) -> T {
     f()
 }
 
+/// The low bits of a value run's mark, which hold its length: up to 65,535 pages, more than the longest value
+/// (32,769 pages, V1 of the large values PRD).
+const RUN_LENGTH_MASK: u64 = 0xFFFF;
+
+/// The high bits of the mark of a value run with stored code `code`: the code's high 48 bits changed by a constant
+/// whose high bits are not zero, so they never equal the high bits of a node's code `code` itself.
+fn run_mark_high(code: u64) -> u64 {
+    (code ^ 0x5A17_3C4E_9D2B_0000) & !RUN_LENGTH_MASK
+}
+
 /// The table of a store.
 pub(crate) struct Checked {
     /// Allocated once when the store opens and never resized.
@@ -95,13 +105,23 @@ impl Checked {
         }
     }
 
-    /// Remembers the mark `mark` for page `page`, the first page of a value run whose integrity a read verified
-    /// (I1 of the remembered page integrity PRD), replacing what its slot held. It is no content whose layout passed,
-    /// so it does not count as one; a node read from that page has its own code, which does not match the mark.
-    pub(crate) fn remember_run(&self, page: u64, mark: u64) {
-        if mark != 0 && ENABLED.load(Ordering::Relaxed) {
-            self.slot(page).store(mark, Ordering::Relaxed);
+    /// Remembers that the value run of `length` pages from page `page`, with stored code `code`, passed the integrity
+    /// check (I1 of the remembered page integrity PRD), replacing what its slot held. Its mark keeps the code's high
+    /// 48 bits, changed by a constant so that a node's code never matches it, and the length in the low 16 bits. It
+    /// is no content whose layout passed, so it does not count as one.
+    pub(crate) fn remember_run(&self, page: u64, code: u64, length: u64) {
+        debug_assert!(length > 0 && length <= RUN_LENGTH_MASK);
+        if ENABLED.load(Ordering::Relaxed) {
+            self.slot(page)
+                .store(run_mark_high(code) | length, Ordering::Relaxed);
         }
+    }
+
+    /// The length of the value run from page `page` with stored code `code`, when its slot still holds the run's mark.
+    pub(crate) fn run_length(&self, page: u64, code: u64) -> Option<u64> {
+        let slot = self.slot(page).load(Ordering::Relaxed);
+        (ENABLED.load(Ordering::Relaxed) && slot & !RUN_LENGTH_MASK == run_mark_high(code))
+            .then_some(slot & RUN_LENGTH_MASK)
     }
 
     /// Slots of the table.

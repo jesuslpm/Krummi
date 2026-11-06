@@ -688,6 +688,14 @@ fn a_remembered_run_does_not_vouch_for_another_extent() {
         assert_eq!(pager.integrity_checks(), checks + 1, "checked");
     }
 
+    // Its first page rewritten alone with the same bytes: the run is forgotten and checked again, and passes.
+    pager.write_run(first, &run[..PAGE_SIZE]).unwrap();
+    assert!(!pager.is_run_remembered(first, 3));
+    let checks = pager.integrity_checks();
+    pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
+    assert_eq!(pager.integrity_checks(), checks + 1);
+    assert!(pager.is_run_remembered(first, 3));
+
     // Its first page rewritten alone, as a page of its own: the run is checked again, and fails.
     let mut page = vec![9u8; PAGE_SIZE];
     format::seal_run(first, &mut page);

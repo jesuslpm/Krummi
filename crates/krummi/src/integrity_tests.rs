@@ -119,6 +119,36 @@ fn ac_i1_each_page_and_value_is_checked_on_its_first_read() {
     disk.close().unwrap();
 }
 
+/// AC-I1 (I1, C5): a value off its leaf stays remembered when the table of checked contents, which holds the mark of
+/// its length, gives the mark's slot to a node: with one slot, every read of the value also checks the layout of its
+/// leaf, which takes the slot, and the value is still not checked again.
+#[test]
+fn ac_i1_a_value_stays_remembered_when_its_mark_is_replaced() {
+    let tmp = tempfile::tempdir().unwrap();
+    let stores = krummi_pager::testing::with_checked_slots(1, || {
+        [
+            Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+            Store::open_temporary(&StoreOptions::default()).unwrap(),
+        ]
+    });
+    for store in stores {
+        commit_tree_with_big_value(&store, "t");
+        transfer(&store);
+        let read = store.read().unwrap();
+        let tree = read.open_tree("t").unwrap();
+        let get = || read.get(&tree, b"big").unwrap().unwrap().to_vec();
+        let first = checks_of(&store, get);
+        assert!(first.1 > 0);
+        for _ in 0..3 {
+            let (value, again) = checks_of(&store, get);
+            assert!(value == big_value(1));
+            assert_eq!(again, 0, "the value and its path stay remembered");
+        }
+        drop(read);
+        store.close().unwrap();
+    }
+}
+
 /// AC-I2 (I2, I3): a write transaction checks every page it reads from the store's pages, also the remembered ones:
 /// the nodes of a key it reads twice, the leaf it copies and the free-space map page it copies to reserve pages. A
 /// later read transaction does not check again the nodes the write did not change.

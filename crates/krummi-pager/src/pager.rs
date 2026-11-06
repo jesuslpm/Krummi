@@ -401,37 +401,31 @@ impl Pager {
         Ok(run)
     }
 
-    /// Whether the `count` pages from page `first`, whose bytes are `run`, passed the integrity check as one run of
-    /// exactly that length and are still remembered (I1). A page, or a run of one page, is its bit. A longer run is
-    /// the bits of its interior pages and, for its first page, a mark of its stored code and its length in the table
-    /// of checked contents (C1–C5): never its first page's bit, so the first page read alone, a shorter or longer run
-    /// from it, or a run from one of its interior pages is checked. A run must also name its first page: interior
-    /// pages carry no page number, so a bad reference to one of them as a page of its own is checked too.
+    /// Whether the `count` pages from page `first`, whose bytes are `run`, passed the integrity check and are still
+    /// remembered (I1). Every page of a remembered run has its bit, so a write of any of them forgets the run (I4).
+    /// A run of several pages also leaves, for its first page, a mark of its stored code and its length in the table
+    /// of checked contents (C1–C5): while the mark is there, a read of another length from that page (its first page
+    /// alone, a shorter or a longer run) is checked. The table is fixed and shared, so another content can take the
+    /// mark's slot; the run then stays remembered by its bits, and only such a read with the wrong length would skip
+    /// the check. A run must also name its first page: interior pages carry no page number, so a read of one of them
+    /// as a page of its own is checked.
     fn remembered_run(&self, first: u64, count: u64, run: &[u8]) -> bool {
-        if run.get(8..16) != Some(&first.to_le_bytes()[..]) {
-            return false;
-        }
-        match count {
-            0 => false,
-            1 => self.remembered.contains(first, 1),
-            _ => {
-                self.remembered.contains(first + 1, count - 1)
-                    && self
-                        .checked
-                        .contains(first, run_mark(format::recorded_checksum(run), count))
-            }
-        }
+        count > 0
+            && run.get(8..16) == Some(&first.to_le_bytes()[..])
+            && self.remembered.contains(first, count)
+            && self
+                .checked
+                .run_length(first, format::recorded_checksum(run))
+                .is_none_or(|length| length == count)
     }
 
     /// Remembers the run of `count` pages from page `first`, whose bytes `run` just passed the integrity check (I1);
     /// see [`Pager::remembered_run`].
     fn remember_run(&self, first: u64, count: u64, run: &[u8]) {
-        if count == 1 {
-            self.remembered.remember(first, 1);
-        } else {
-            self.remembered.remember(first + 1, count - 1);
+        self.remembered.remember(first, count);
+        if count > 1 {
             self.checked
-                .remember_run(first, run_mark(format::recorded_checksum(run), count));
+                .remember_run(first, format::recorded_checksum(run), count);
         }
     }
 
@@ -1058,12 +1052,6 @@ fn file_pager(
         #[cfg(any(test, feature = "test-hooks"))]
         integrity_checks: AtomicU64::new(0),
     })
-}
-
-/// The mark a remembered run of `count` pages with stored code `code` leaves for its first page in the table of
-/// checked contents: never `0`, the empty slot, and never a node's code but by a collision of 64-bit values.
-fn run_mark(code: u64, count: u64) -> u64 {
-    (code ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15)).max(1)
 }
 
 /// The memory that remembering the pages of a store of `len` bytes takes: one bit per page (I6).
