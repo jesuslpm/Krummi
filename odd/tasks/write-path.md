@@ -27,7 +27,7 @@ its ancestry is pager-integrity-once → pager → krummi.
 | T0 | S4 | inline: finish the PRD (translation, annotations to other PRDs, elaboration time) | done | L5 |
 | T1 | S1–S3 | delegated writer (long-session backstop): O5 | done | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
 | T2 | S4 (S1 of the PRD) | delegated writer (long-session backstop): O6 | done | `f7b19d8`, L8 |
-| T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | pending | |
+| T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
 | T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | pending | |
 | T5 | S5 | inline: complete runs on Windows and WSL 2 | pending | |
 | T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | pending | |
@@ -104,3 +104,32 @@ its ancestry is pager-integrity-once → pager → krummi.
     - R1-001 and R3-bytes-pin-weakened (suggestion, warning): the pin now keeps page 1 as well (`f5e1d1c`). The
       value is computed on base and change alike.
     - R3-s1-no-merge-coverage (suggestion): handed to T3's writer, which adds a delete-and-merge case to AC-S1.
+- **L10** (2026-11-06): T3, O7, commit `2b11374`.
+  - Every store read of a write transaction goes through `Snapshot::page_and_code` or `Snapshot::run`, and now uses
+    `Integrity::UseRemembered`: tree descent, copy for write, free-space map, meta page (`slot`) and value runs.
+    `CheckAndRemember` and `Snapshot::integrity()` are removed. Opening still uses `Check`.
+  - Tests replaced:
+    - `ac_i2_a_write_checks_every_page_it_reads` → two AC-S4 tests.
+    - `ac_i8_a_write_detects_a_remembered_page_damaged_while_open` → `ac_s6_a_write_uses_a_remembered_leaf_altered_while_open`.
+    - The fixed-size AC-I8 test (the fourth part of AC-X19) → `ac_s6_a_write_uses_a_remembered_fixed_size_leaf_altered_while_open`.
+  - Tests added: AC-S5, and an AC-S1 case with merges and page reuse that passes at once, as expected.
+  - RED: AC-S4 failed (127 checks where 0 were expected), and both AC-S6 failed (damage).
+  - README updated.
+  - Checks: fmt ok, clippy clean, 555 passed, 0 failed, 30 ignored (parent rerun).
+  - `1ac73e3` clarifies a test comment (RDD suggestion).
+- **L11** (2026-11-06): reviews of O7.
+  - RDD of `6e32369..2b11374`: lenses risk and reliability. Approved, lineage `review-ef52b399f8a44a80`.
+    - R1-001 (warning) is the residual S3 accepts.
+    - R3-bytes-pin-comment-ambiguous (suggestion) fixed in `1ac73e3`.
+  - Independent verifier of O6 and O7 (risk items 2 and 6): PASS, no blockers.
+    - The whole suite plus a probe that hashes a changed page's bytes at each passed check and asserts them on every
+      trusted read: 0 violations. Its negative control (the flag no longer cleared) fires at once.
+    - S2 probes:
+      - A rewritten page damaged while open fails on every writer read and refuses commit.
+      - A page read by an abandoned write stays remembered.
+    - Differential on a fixed workload: `6794ebc`, `6e32369` and `2b11374` give identical results, journal writes and
+      data-file pages (all but 0 and 2).
+    - Advisories:
+      - A3: S2 does not name the meta page. The writer now reads it like readers do, and opening still checks it.
+      - A4: AC-S1 asserts against the transaction's own event log, but the hash probe covers the same invariant
+        independently.
