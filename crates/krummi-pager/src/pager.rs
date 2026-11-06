@@ -97,17 +97,15 @@ pub struct Pager {
     integrity_checks: AtomicU64,
 }
 
-/// How a read of the store's pages treats their integrity (I2, I3 of the remembered page integrity PRD).
+/// How a read of the store's pages treats their integrity (I2, I3 of the remembered page integrity PRD, S2 of the
+/// writer checks PRD).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Integrity {
     /// Check it, and leave the remembered pages as they are: the reads outside any transaction, such as the
     /// metadata page when the store opens, so that nothing is remembered when it has opened (I5).
     Check,
-    /// Check it even when the page is remembered, and remember it when it passes: the reads of a write
-    /// transaction (I3).
-    CheckAndRemember,
     /// Skip the check when the page is remembered; otherwise check it and remember it when it passes: the reads of
-    /// a read transaction (I2).
+    /// read and write transactions (I2, S2).
     UseRemembered,
 }
 
@@ -395,7 +393,7 @@ impl Pager {
         if !format::verify_run(first, run) {
             return Err(self.damaged(first));
         }
-        if integrity != Integrity::Check {
+        if integrity == Integrity::UseRemembered {
             self.remember_run(first, count, run);
         }
         Ok(run)

@@ -1,6 +1,7 @@
-//! Layout checks of the nodes a write transaction changes (the writer checks PRD, S1: AC-S1 to AC-S3 and the layout
-//! part of AC-S7), through the public API and the write transaction's record of the pages it changes, the reads of
-//! those pages and the layout checks the tree code reports.
+//! Layout checks of the nodes a write transaction changes (the writer checks PRD, S1: AC-S1 to AC-S3, and AC-S7),
+//! through the public API and the write transaction's record of the pages it changes, the reads of those pages and the
+//! layout checks the tree code reports. AC-S4 to AC-S6, about the integrity of what a write reads (S2), are with the
+//! remembered page integrity tests.
 
 use std::collections::BTreeMap;
 
@@ -176,6 +177,65 @@ fn ac_s1_each_changed_node_is_checked_once_after_each_change() {
     });
 }
 
+/// AC-S1 (S1), with merges and reused pages: a write that removes most keys of a tree, which merges its nodes and
+/// frees their pages, and the next write, whose new keys take those pages again, check the layout of each changed node
+/// once after each change, and never on a read without a change before it.
+#[test]
+fn ac_s1_merged_nodes_and_reused_pages_are_checked_once_after_each_change() {
+    on_both(|store| {
+        commit_tree(store, "n", COUNT, LONG);
+        let height_before = height(&store.read().unwrap().inner, root_of(store, "n")).unwrap();
+        let free_before = store.info().free_pages;
+
+        let mut write = store.write().unwrap();
+        write.inner.record_layout();
+        let tree = write.open_tree("n").unwrap();
+        for i in 10..COUNT {
+            assert!(write.remove(&tree, &long_key(i, LONG)).unwrap());
+        }
+        for i in 0..10 {
+            assert!(write.get(&tree, &long_key(i, LONG)).unwrap().is_some());
+        }
+        let (checks, skips) = assert_checked_once_per_change(&write.inner.take_layout_log());
+        assert!(
+            checks > 0 && skips > 0,
+            "removals: {checks} checks, {skips} skips"
+        );
+        write.commit().unwrap();
+        let height_after = height(&store.read().unwrap().inner, root_of(store, "n")).unwrap();
+        assert!(height_after < height_before, "the branches merged");
+        let freed = store.info().free_pages - free_before;
+        assert!(freed > 10, "the merges freed {freed} pages");
+
+        let frontier = store.engine.frontier();
+        let mut write = store.write().unwrap();
+        write.inner.record_layout();
+        let mut record = Record::default();
+        let tree = write.open_tree("n").unwrap();
+        for i in COUNT..COUNT + 40 {
+            write.set(&tree, &long_key(i, LONG), b"again").unwrap();
+        }
+        record.load(&write, 40, "keys on reused pages");
+        for i in COUNT..COUNT + 40 {
+            assert_eq!(
+                write.get(&tree, &long_key(i, LONG)).unwrap(),
+                Some(&b"again"[..])
+            );
+        }
+        record.load(&write, 0, "reads");
+        write.commit().unwrap();
+        assert_eq!(
+            store.engine.frontier(),
+            frontier,
+            "no page beyond the frontier"
+        );
+        assert!(
+            store.info().free_pages < free_before + freed,
+            "the new keys reused freed pages"
+        );
+    });
+}
+
 /// The value of `key` in the fixed-size tree of AC-S1.
 fn fixed_long(key: u64) -> Vec<u8> {
     let mut value = key.to_le_bytes().to_vec();
@@ -268,8 +328,8 @@ fn ac_s3_the_next_write_checks_a_changed_node_again() {
     }
 }
 
-/// AC-S7, the part of the layout (S1, C3): a committed version of a node still in the scratch area, read twice by a
-/// write that does not change it, has its layout checked on each read, and not its integrity.
+/// AC-S7 (S1, S2, C3, I3): a committed version of a node still in the scratch area, read twice by a write that does not
+/// change it, has its layout checked on each read, and its integrity on none.
 #[test]
 fn ac_s7_a_version_in_the_scratch_area_is_checked_on_every_read_of_a_write() {
     on_both(|store| {

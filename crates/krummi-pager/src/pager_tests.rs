@@ -651,11 +651,7 @@ fn a_remembered_run_does_not_vouch_for_another_extent() {
     assert!(pager.is_run_remembered(first, 3));
 
     for count in [0, 1, 2] {
-        for integrity in [
-            Integrity::Check,
-            Integrity::CheckAndRemember,
-            Integrity::UseRemembered,
-        ] {
+        for integrity in [Integrity::Check, Integrity::UseRemembered] {
             let error = pager.run_with(first, count, integrity).unwrap_err();
             assert_eq!(
                 error.kind(),

@@ -63,7 +63,8 @@ pub trait PageSource {
 
     /// The payload of page `page_number`, as [`page`](Self::page), with what its read tells about its layout check:
     /// the integrity code stored in the page as read, which this read verified or a read of this opening already did
-    /// (I2 of the remembered page integrity PRD); for a page the write transaction changed, whether its layout passed
+    /// (I2 of the remembered page integrity PRD, S2 of the writer checks PRD); for a page the write transaction
+    /// changed, whether its layout passed
     /// the check since its last change (S1 of the writer checks PRD); or nothing, as for a version of the scratch area
     /// (C2, C3 of the remembered node layout check PRD).
     fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {

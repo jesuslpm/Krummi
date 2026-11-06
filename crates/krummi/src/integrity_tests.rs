@@ -1,13 +1,14 @@
-//! Remembered page integrity (the remembered page integrity PRD, AC-I1 to AC-I11), through the public API and the
-//! engine's test hooks: how many integrity checks the engine makes, which pages it remembers, where pages live, damage
-//! that appears while the store is open, and memory that the system does not provide.
+//! Remembered page integrity (the remembered page integrity PRD, AC-I1 to AC-I11, with AC-I2 and AC-I8 replaced by
+//! AC-S4 and AC-S6 of the writer checks PRD, which also has AC-S5 here), through the public API and the engine's test
+//! hooks: how many integrity checks the engine makes, which pages it remembers, where pages live, damage that appears
+//! while the store is open, and memory that the system does not provide.
 
 use krummi_tree::catalog;
 
 use super::*;
 use crate::check_tests::{
     FIXED_KEYS, FIXED_LEN, commit_fixed, commit_tree, concurrent_reads_while_a_write_moves_nodes,
-    damaged_page, fixed_leaf, leaf, long_key, on_both, read_fixed, root_of, transfer,
+    damaged_page, fixed_leaf, leaf, long_key, on_both, root_of, transfer,
 };
 use crate::value_tests::pattern;
 
@@ -149,26 +150,30 @@ fn ac_i1_a_value_stays_remembered_when_its_mark_is_replaced() {
     }
 }
 
-/// AC-I2 (I2, I3): a write transaction checks every page it reads from the store's pages, also the remembered ones:
-/// the nodes of a key it reads twice, the leaf it copies and the free-space map page it copies to reserve pages. A
-/// later read transaction does not check again the nodes the write did not change.
+/// AC-S4 (S2, I1, I2), first part: the nodes of a tree remembered by an earlier read, the free-space map page remembered
+/// by an earlier write and a remembered value off its leaf, all in the store's pages: a write that reads a key twice,
+/// stores keys that split nodes and move the reference of the value to another leaf, removes keys that merge nodes,
+/// reserves pages, reads the value and commits computes the integrity of none of them. It replaces AC-I2.
 #[test]
-fn ac_i2_a_write_checks_every_page_it_reads() {
+fn ac_s4_a_write_uses_the_remembered_pages() {
     on_both(|store| {
-        commit_tree(store, "t", 200, 64);
+        commit_tree(store, "t", 400, 64);
         commit_tree(store, "d", 200, 64);
         let mut write = store.write().unwrap();
+        let tree = write.open_tree("t").unwrap();
+        write.set(&tree, b"big", &big_value(1)).unwrap();
         write.delete_tree("d").unwrap();
         write.commit().unwrap();
         transfer(store);
 
-        // The nodes of key 0 and key 150, remembered by a read; the map page, by a write that copies it to reserve
-        // pages and rolls back.
-        let (k0, k150) = (long_key(0, 64), long_key(150, 64));
+        // Every node of the tree and the value, remembered by a read; the map page, by a write that copies it to
+        // reserve pages and rolls back.
         let read = store.read().unwrap();
         let tree = read.open_tree("t").unwrap();
-        read.get(&tree, &k0).unwrap().unwrap();
-        read.get(&tree, &k150).unwrap().unwrap();
+        for i in 0..400 {
+            assert!(read.get(&tree, &long_key(i, 64)).unwrap().is_some());
+        }
+        assert!(read.get(&tree, b"big").unwrap() == Some(&big_value(1)[..]));
         drop(read);
         let mut write = store.write().unwrap();
         let tree = write.open_tree("t").unwrap();
@@ -177,37 +182,90 @@ fn ac_i2_a_write_checks_every_page_it_reads() {
         }
         drop(write);
         let root = root_of(store, "t");
-        let (leaf0, leaf150) = (leaf(store, root, &k0), leaf(store, root, &k150));
-        assert_ne!(leaf0, leaf150);
-        for page in [root, leaf0, leaf150, krummi_tx::MAP_PAGE] {
+        let (k0, k399) = (long_key(0, 64), long_key(399, 64));
+        let (leaf0, big_leaf) = (leaf(store, root, &k0), leaf(store, root, b"big"));
+        assert_eq!(leaf(store, root, &k399), big_leaf, "the last leaf");
+        let big = run_of(store, "t", b"big");
+        for page in [root, leaf0, big_leaf, krummi_tx::MAP_PAGE] {
             assert!(is_remembered(store, page), "page {page} is remembered");
         }
+        assert!(is_run_remembered(store, big), "the value is remembered");
+        let free = store.info().free_pages;
 
         let mut write = store.write().unwrap();
         let tree = write.open_tree("t").unwrap();
-        let (_, first) = checks_of(store, || write.get(&tree, &k0).unwrap().unwrap().to_vec());
-        let (_, second) = checks_of(store, || write.get(&tree, &k0).unwrap().unwrap().to_vec());
-        assert!(first >= 2, "the root and the leaf at least");
-        assert_eq!(second, first, "the same pages are checked again");
-        // A new value for key 0 changes its leaf; new keys of 1,500 bytes take pages from the map.
-        let (_, copies) = checks_of(store, || {
-            write.set(&tree, &k0, b"changed").unwrap();
-            for i in 2000..2010 {
-                write.set(&tree, &long_key(i, 1500), b"y").unwrap();
+        let ((), checked) = checks_of(store, || {
+            for _ in 0..2 {
+                assert_eq!(write.get(&tree, &k0).unwrap(), Some(&b"0"[..]));
             }
+            // Keys after the last ones split the last leaf, which holds the value's reference, and take pages from
+            // the map.
+            for i in 1000..1100 {
+                write.set(&tree, &long_key(i, 64), b"x").unwrap();
+            }
+            // Removing most of the first keys leaves their leaves under a quarter full, which merges them.
+            for i in 0..380 {
+                assert!(write.remove(&tree, &long_key(i, 64)).unwrap());
+            }
+            assert!(write.get(&tree, b"big").unwrap() == Some(&big_value(1)[..]));
+            write.commit().unwrap();
         });
-        assert!(copies >= 2, "the leaf and the map page it copies");
-        write.commit().unwrap();
-
-        let read = store.read().unwrap();
-        let tree = read.open_tree("t").unwrap();
-        let (_, unchanged) = checks_of(store, || read.get(&tree, &k150).unwrap().unwrap().to_vec());
-        assert!(is_remembered(store, leaf150));
+        assert_eq!(checked, 0, "no integrity check of a remembered page");
+        let root_after = root_of(store, "t");
+        assert_ne!(
+            leaf(store, root_after, b"big"),
+            big_leaf,
+            "the value's reference moved to another leaf"
+        );
+        assert!(store.info().free_pages > free, "merges freed pages");
         assert_eq!(
-            unchanged, 0,
-            "the nodes the write did not change are not checked again"
+            run_of(store, "t", b"big"),
+            big,
+            "the value stays in its run"
         );
     });
+}
+
+/// AC-S4 (S2, I1, I5), second part: a page of the store's pages that nobody read in the opening is checked on its
+/// first read by a write, and not on the next ones, of that write, of another write or of a read.
+#[test]
+fn ac_s4_a_write_remembers_a_page_on_its_first_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    commit_tree(&disk, "t", 200, 64);
+    transfer(&disk);
+    disk.close().unwrap();
+    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
+    commit_tree(&temporary, "t", 200, 64);
+    transfer(&temporary);
+
+    for store in [disk, temporary] {
+        let key = long_key(150, 64);
+        let root = root_of(&store, "t");
+        assert!(!is_remembered(&store, root), "not read in this opening");
+        let get = |write: &WriteTransaction<'_>| {
+            let tree = write.open_tree("t").unwrap();
+            checks_of(&store, || write.get(&tree, &key).unwrap().unwrap().to_vec())
+        };
+        let write = store.write().unwrap();
+        let (value, first) = get(&write);
+        assert_eq!(value, b"150");
+        assert!(first >= 2, "the root and the leaf at least");
+        let page = leaf(&store, root, &key);
+        assert!(is_remembered(&store, root) && is_remembered(&store, page));
+        assert_eq!(get(&write).1, 0, "the same write does not check again");
+        drop(write);
+        let write = store.write().unwrap();
+        assert_eq!(get(&write).1, 0, "another write does not check again");
+        drop(write);
+        let read = store.read().unwrap();
+        let tree = read.open_tree("t").unwrap();
+        let (_, again) = checks_of(&store, || read.get(&tree, &key).unwrap().unwrap().to_vec());
+        assert_eq!(again, 0, "a read does not check again");
+        drop(read);
+        store.close().unwrap();
+    }
 }
 
 /// AC-I3 (I3): committed versions still in the scratch area and the copies a write changes are not checked.
@@ -382,93 +440,224 @@ fn ac_i7_a_page_not_read_yet_and_damaged_while_open_fails() {
     });
 }
 
-/// AC-I8 (I3, I5, I8), normal tree: a remembered leaf with no version left to transfer, altered with the store open,
-/// makes a write transaction that reads it fail with the damage class and its page in that operation, and the write
-/// cannot commit; after reopening, the first read of the page fails the same way. It replaces AC-C7.
+/// AC-S5 (S2, T11, G6): a page of the data file altered with the store closed makes every read of a write that reads
+/// it fail with the damage class and its page, twice, and the write cannot commit. A temporary store, which cannot be
+/// closed, does the same with a page not read since the transfer wrote it, altered while it is open.
 #[test]
-fn ac_i8_a_write_detects_a_remembered_page_damaged_while_open() {
+fn ac_s5_a_write_fails_on_every_read_of_a_damaged_page() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut page_on_disk = None;
-    for (index, mut store) in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
-        Store::open_temporary(&StoreOptions::default()).unwrap(),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        commit_tree(&store, "n", 200, 64);
-        transfer(&store);
-        let key = long_key(3, 64);
-        let read = store.read().unwrap();
-        let tree = read.open_tree("n").unwrap();
-        assert!(read.get(&tree, &key).unwrap().is_some());
-        drop(read);
-        let page = leaf(&store, root_of(&store, "n"), &key);
-        assert!(is_remembered(&store, page));
+    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    commit_tree(&disk, "t", 3, 64);
+    transfer(&disk);
+    let on_disk = root_of(&disk, "t");
+    disk.close().unwrap();
+    damage_file(tmp.path(), on_disk, 100);
+    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let mut temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
+    commit_tree(&temporary, "t", 3, 64);
+    transfer(&temporary);
+    let in_memory = root_of(&temporary, "t");
+    assert!(!is_remembered(&temporary, in_memory));
+    temporary.engine.flip_byte_in_place(in_memory, 100).unwrap();
 
-        // A byte of a key, which keeps the layout valid: only the integrity check can catch it.
-        let read = store.read().unwrap();
-        let at = read
-            .inner
-            .page(page)
-            .unwrap()
-            .windows(key.len())
-            .position(|w| w == key)
-            .expect("the key in its leaf");
-        drop(read);
-        store.engine.flip_byte_in_place(page, at + 10).unwrap();
-        assert!(
-            is_remembered(&store, page),
-            "the flip is no write of the engine"
-        );
-
+    for (store, page) in [(disk, on_disk), (temporary, in_memory)] {
+        let key = long_key(1, 64);
         let write = store.write().unwrap();
-        let tree = write.open_tree("n").unwrap();
+        let tree = write.open_tree("t").unwrap();
         assert_eq!(damaged_page(write.get(&tree, &key)), page);
-        assert!(write.commit().is_err(), "the write cannot commit (T11)");
-        if index == 0 {
-            page_on_disk = Some((page, key));
-        }
+        assert_eq!(damaged_page(write.get(&tree, &key)), page, "again");
+        assert!(!is_remembered(&store, page), "a failure is not remembered");
+        assert_eq!(
+            damaged_page(write.commit()),
+            page,
+            "the write cannot commit"
+        );
         store.close().unwrap();
     }
-
-    let (page, key) = page_on_disk.unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
-    let read = store.read().unwrap();
-    let tree = read.open_tree("n").unwrap();
-    assert_eq!(damaged_page(read.get(&tree, &key)), page);
-    drop(read);
-    store.close().unwrap();
 }
 
-/// AC-I8 (I3, I8, X14), fixed-size tree: the same with a byte of a value of a remembered fixed-size leaf. It replaces
-/// the fourth part of AC-X19.
-#[test]
-fn ac_i8_a_write_detects_a_remembered_fixed_size_leaf_damaged_while_open() {
-    on_both(|store| {
-        commit_fixed(store, "f", FIXED_KEYS);
-        transfer(store);
-        read_fixed(&store.read().unwrap(), "f", 1400);
-        let page = fixed_leaf(store, root_of(store, "f"), 1400);
-        assert!(is_remembered(store, page));
-        let read = store.read().unwrap();
-        let mut entry = 1400u64.to_le_bytes().to_vec();
-        entry.extend(crate::check_tests::fixed_value(1400));
-        let at = read
-            .inner
-            .page(page)
-            .unwrap()
-            .windows(entry.len())
-            .position(|w| w == entry)
-            .expect("the entry in its leaf");
-        drop(read);
-        store.engine.flip_byte_in_place(page, at + 8).unwrap();
+/// The trees of AC-S6: a normal tree and a fixed-size one.
+#[derive(Clone, Copy, Debug)]
+enum Kind {
+    Normal,
+    Fixed,
+}
 
-        let write = store.write().unwrap();
-        let tree = write.open_fixed_tree("f", FIXED_LEN).unwrap();
-        assert_eq!(damaged_page(write.get_fixed(&tree, 1400)), page);
-        assert!(write.commit().is_err(), "the write cannot commit (T11)");
-    });
+/// The index of the key AC-S6 alters, and of another key of its leaf.
+const AC_S6_KEYS: [usize; 2] = [3, 4];
+/// The key of the fixed-size tree of AC-S6 for index `i` is this plus `i`.
+const FIXED_BASE: u64 = 1397;
+
+/// A transaction that reads a tree of AC-S6.
+#[derive(Clone, Copy)]
+enum Source<'a, 's> {
+    Read(&'a ReadTransaction<'s>),
+    Write(&'a WriteTransaction<'s>),
+}
+
+impl Kind {
+    /// The value of key `i` of the normal tree: the tree keeps it in its leaf, and it appears once in the leaf.
+    fn value(i: usize) -> Vec<u8> {
+        format!("value of {i:04}").into_bytes()
+    }
+
+    /// Commits the tree and moves it to the store's pages.
+    fn commit(self, store: &Store) {
+        match self {
+            Kind::Normal => {
+                let mut write = store.write().unwrap();
+                let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
+                for i in 0..200 {
+                    write.set(&tree, &long_key(i, 64), &Kind::value(i)).unwrap();
+                }
+                write.commit().unwrap();
+            }
+            Kind::Fixed => commit_fixed(store, "t", FIXED_KEYS),
+        }
+        transfer(store);
+    }
+
+    /// The leaf of key `i`.
+    fn leaf(self, store: &Store, i: usize) -> u64 {
+        let root = root_of(store, "t");
+        match self {
+            Kind::Normal => leaf(store, root, &long_key(i, 64)),
+            Kind::Fixed => fixed_leaf(store, root, FIXED_BASE + i as u64),
+        }
+    }
+
+    /// The value of key `i` as `source` reads it.
+    fn get(self, source: Source<'_, '_>, i: usize) -> Result<Vec<u8>> {
+        let key = long_key(i, 64);
+        let fixed_key = FIXED_BASE + i as u64;
+        let value = match (self, source) {
+            (Kind::Normal, Source::Read(read)) => read.get(&read.open_tree("t")?, &key)?,
+            (Kind::Normal, Source::Write(write)) => write.get(&write.open_tree("t")?, &key)?,
+            (Kind::Fixed, Source::Read(read)) => {
+                read.get_fixed(&read.open_fixed_tree("t", FIXED_LEN)?, fixed_key)?
+            }
+            (Kind::Fixed, Source::Write(write)) => {
+                write.get_fixed(&write.open_fixed_tree("t", FIXED_LEN)?, fixed_key)?
+            }
+        };
+        Ok(value.expect("the key is there").to_vec())
+    }
+
+    /// Changes the value of key `i` in `write`.
+    fn change(self, write: &mut WriteTransaction<'_>, i: usize) {
+        match self {
+            Kind::Normal => {
+                let tree = write.open_tree("t").unwrap();
+                write.set(&tree, &long_key(i, 64), b"changed").unwrap();
+            }
+            Kind::Fixed => {
+                let tree = write.open_fixed_tree("t", FIXED_LEN).unwrap();
+                let key = FIXED_BASE + i as u64;
+                write.set_fixed(&tree, key, &[0xAB; FIXED_LEN]).unwrap();
+            }
+        }
+    }
+
+    /// Flips, with the store open, the first byte of the value of key `i` in its leaf `page`, a byte that keeps the
+    /// leaf's layout coherent, so that only the integrity check can find it. Returns the value with the byte flipped.
+    fn flip_value(self, store: &mut Store, page: u64, i: usize) -> Vec<u8> {
+        let (entry, offset) = match self {
+            Kind::Normal => (Kind::value(i), 0),
+            Kind::Fixed => {
+                let key = FIXED_BASE + i as u64;
+                let mut entry = key.to_le_bytes().to_vec();
+                entry.extend(crate::check_tests::fixed_value(key));
+                (entry, 8)
+            }
+        };
+        let read = store.read().unwrap();
+        let payload = read.inner.page(page).unwrap();
+        let mut found = payload
+            .windows(entry.len())
+            .enumerate()
+            .filter(|(_, w)| *w == entry);
+        let (at, _) = found.next().expect("the entry in its leaf");
+        assert!(found.next().is_none(), "the entry appears once");
+        drop(read);
+        store.engine.flip_byte_in_place(page, at + offset).unwrap();
+        let mut value = entry[offset..].to_vec();
+        value[0] ^= 0xFF;
+        value
+    }
+}
+
+/// AC-S6 (S2, S3, I5) for a tree of `kind`: a remembered leaf with no version left to transfer, with a byte of the
+/// value of one of its entries altered while the store is open, keeping its layout coherent. A write that reads it
+/// without changing it returns the altered byte without failing. After reopening, the first read of the leaf fails
+/// with the damage class and its page; when another write changes another entry of the leaf and commits before, the
+/// leaf is read after the transfer and a new opening without a damage error and returns the altered byte. A temporary
+/// store, which cannot be reopened, reads it after the transfer the same way.
+fn ac_s6(kind: Kind) {
+    let [altered, other] = AC_S6_KEYS;
+    for change_before in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+        let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
+        for (on_disk, mut store) in [(true, disk), (false, temporary)] {
+            let what = format!("{kind:?}, change before {change_before}, on disk {on_disk}");
+            kind.commit(&store);
+            let read = store.read().unwrap();
+            kind.get(Source::Read(&read), altered).unwrap();
+            drop(read);
+            let page = kind.leaf(&store, altered);
+            assert_eq!(kind.leaf(&store, other), page, "{what}: the same leaf");
+            assert!(is_remembered(&store, page), "{what}");
+            let flipped = kind.flip_value(&mut store, page, altered);
+
+            let write = store.write().unwrap();
+            let read_by_write = kind.get(Source::Write(&write), altered);
+            assert_eq!(
+                read_by_write.unwrap(),
+                flipped,
+                "{what}: the write reads it"
+            );
+            drop(write);
+            if change_before {
+                let mut write = store.write().unwrap();
+                kind.change(&mut write, other);
+                write.commit().unwrap();
+                transfer(&store);
+                assert_eq!(kind.leaf(&store, altered), page, "{what}: the same page");
+            }
+            if !on_disk {
+                if change_before {
+                    let read = store.read().unwrap();
+                    let value = kind.get(Source::Read(&read), altered);
+                    assert_eq!(value.unwrap(), flipped, "{what}: sealed with the change");
+                }
+                store.close().unwrap();
+                continue;
+            }
+            store.close().unwrap();
+            let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+            let read = store.read().unwrap();
+            let value = kind.get(Source::Read(&read), altered);
+            if change_before {
+                assert_eq!(value.unwrap(), flipped, "{what}: sealed with the change");
+            } else {
+                assert_eq!(damaged_page(value), page, "{what}: found after reopening");
+            }
+            drop(read);
+            store.close().unwrap();
+        }
+    }
+}
+
+/// AC-S6 in a normal tree. It replaces AC-I8, which replaced AC-C7.
+#[test]
+fn ac_s6_a_write_uses_a_remembered_leaf_altered_while_open() {
+    ac_s6(Kind::Normal);
+}
+
+/// AC-S6 in a fixed-size tree. It replaces AC-I8's part for these trees, and so the fourth part of AC-X19.
+#[test]
+fn ac_s6_a_write_uses_a_remembered_fixed_size_leaf_altered_while_open() {
+    ac_s6(Kind::Fixed);
 }
 
 /// AC-I9 (I4, I7): four threads read correct pages and a damaged one at once while a write changes the correct ones

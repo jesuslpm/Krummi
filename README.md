@@ -95,8 +95,9 @@ path copying, and reads return values without copying them. Opening and creating
 create new, open or create, create or empty, empty), and the key operations follow a .NET `Dictionary`. A page whose
 layout is inconsistent is reported as damage, never trusted. A read transaction verifies a page's checksum the first
 time it reads it from the data file while the store stays open, and again after the engine rewrites it; a write
-transaction verifies every page it reads. A node whose layout already passed with that same checksum is not checked
-again while the store stays open, as `cargo run --release -p krummi --example node_check_timing` measures. Scans follow Rust's `BTreeMap::range`: two bounds,
+transaction does the same with the pages it reads from the data file. A node whose layout already passed with that same
+checksum is not checked again while the store stays open, as `cargo run --release -p krummi --example node_check_timing`
+measures; a node a write transaction changed is checked the first time it reads it after each change. Scans follow Rust's `BTreeMap::range`: two bounds,
 each included, excluded or open, and an optional prefix, consumed from the front or the back; a scan keeps the
 path from the root at each end and reads no page until it is used, and a range removal frees the subtrees wholly
 inside the interval in one descent. `cargo run --release -p krummi --example tree_timing` measures storing, reading

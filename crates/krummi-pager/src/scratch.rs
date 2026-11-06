@@ -1015,11 +1015,13 @@ impl<'a> Snapshot<'a> {
         }
         drop(state);
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
-        // writes this page while the snapshot is open, because any newer version is newer than the snapshot.
+        // writes this page while the snapshot is open, because any newer version is newer than the snapshot. Read and
+        // write transactions alike use the remembered pages (I2 of the remembered page integrity PRD, S2 of the
+        // writer checks PRD).
         let (page, code) = self
             .scratch
             .pager()
-            .page_and_code_with(page_number, self.integrity())?;
+            .page_and_code_with(page_number, Integrity::UseRemembered)?;
         Ok((page, Some(code)))
     }
 
@@ -1075,18 +1077,9 @@ impl<'a> Snapshot<'a> {
             // that the scratch area keeps while this snapshot is open, and never written again.
             Some((ptr, len)) => Ok(unsafe { std::slice::from_raw_parts(ptr, len) }),
             // None of these pages has a version up to this snapshot in the scratch area: as in `Snapshot::page`, the
-            // store has what it sees, and no flush writes these pages while the snapshot is open.
-            None => pager.run_with(first, count, self.integrity()),
-        }
-    }
-
-    /// How this snapshot's reads of the store treat its integrity: a read transaction uses the remembered pages,
-    /// the writer checks every page it reads (I2, I3 of the remembered page integrity PRD).
-    fn integrity(&self) -> Integrity {
-        if self.writer {
-            Integrity::CheckAndRemember
-        } else {
-            Integrity::UseRemembered
+            // store has what it sees, and no flush writes these pages while the snapshot is open. A remembered run is
+            // used without checking it, by read and write transactions alike (I2, S2).
+            None => pager.run_with(first, count, Integrity::UseRemembered),
         }
     }
 }

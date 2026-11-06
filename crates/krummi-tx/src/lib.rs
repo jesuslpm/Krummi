@@ -58,7 +58,8 @@ pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageCheck {
     /// A page of the store, with the integrity code stored in it as read, which this read verified or a read of this
-    /// opening already did (I2 of the remembered page integrity PRD): the store's memory of checked contents applies.
+    /// opening already did (I2 of the remembered page integrity PRD, S2 of the writer checks PRD): the store's memory
+    /// of checked contents applies.
     Verified(u64),
     /// A page the write transaction changed, and whether its layout passed the check since its last change. It never
     /// uses the store's memory of checked contents, although it keeps the integrity code of the page it was copied
