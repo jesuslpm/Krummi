@@ -15,7 +15,7 @@ Rama `perf/commit-copies`, que parte de `perf/integrity-once` (`13489d1`), sin f
   de registros completos, grabados con el código anterior, siguen pasando. `cargo test --workspace`: 546 pasadas, 0
   fallidas, 30 ignoradas.
 - **Cargas sueltas (S3, S4):** antes `13489d1` y después `cf61713`, dos rondas con el orden cambiado (L7, L11).
-  Windows: W21 +17 % a +20 %, W14 +9 % a +10 %, W13 +2 % a +11 %, W2 +4 % a +9 %, W19 +5 %; el resto, dentro del ruido.
+  Windows: W21 +17 % a +20 %, W14 +9 % a +10 %, W13 +2 % a +11 %, W2 +3 % a +9 %, W19 +5 %; el resto, dentro del ruido.
   WSL 2: W13 +6 % / +7 %; el resto, dentro del ruido. Las bajadas sueltas (W17 en Windows, W4 y W15 en WSL) no se
   repiten en las rondas siguientes.
 - **Ejecuciones completas** tras O3 y O4 (`2fdf8e9`, L10): [Windows](../../docs/benchmark/2026-11-06-windows.md) y
@@ -47,7 +47,7 @@ Los commits posteriores a `4e1e38d` son solo documentación e informes.
 
 - Estimación: 7 h – 11 h para O3, O4 y las ejecuciones completas juntas. Inicio: 2026-11-06 07:02:41 UTC. Fin:
   17:37:10 UTC. **Total: 10 h 34 min de reloj, dentro de la estimación**, sin esperas por el usuario. O3 tomó 2 h
-  20 min activas ([su informe](integrity-once-report.md)); la diferencia de 2 min entre el fin de O3 y el inicio
+  20 min activas ([su informe](integrity-once-report.md)); los 1 min 23 s entre el fin de O3 (09:23:17) y el inicio
   del registro de O4 no está en ningún registro de fases.
 - El registro de fases de O4 empieza a las 09:24:40: el mapa de O4 lo hizo un explorador durante la revisión de
   Codex de O3 (L2), dentro del tiempo de O3.
