@@ -40,3 +40,39 @@ clean, `cargo test --workspace` 541 passed, 0 failed, 30 ignored.
 Review record: [2026-11-06-code.md](2026-11-06-code.md), wrapper status `findings` (R1, R2 open, one product
 question), thread `01a1affb-269a-78c3-9b6e-9aed79a5c18f`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-06 (verification)
+
+Follow-up [2026-11-06-code-02.md](2026-11-06-code-02.md) over `362674a..7c9c6f3`, wrapper status `findings`,
+thread `01a1b00c-4761-77f3-aaf8-a1d38d9209e9`: R1 and R2 «verified resolved»; R3 (major) and R4 (minor) opened
+against `e5ea536`; the 64 TiB question still open. Verdict: «Changes requested: R3 (major) and R4 (minor) remain
+open; R1 and R2 are verified resolved.»
+
+## 2026-11-06
+
+Fix commit: `c29ac23`.
+
+### R3 — major: Shared table eviction makes unchanged values repeat integrity checks
+
+- Disposition: fixed.
+- Fix: a run is remembered by the bits of all its pages again, and the mark in the table of checked contents only
+  adds a check: its slot keeps the run's length (`Checked::remember_run`, `run_length`; high bits from the stored
+  code changed by a constant, so a node's code never matches). While the mark is there, a read of another length is
+  checked (R1 stays fixed); when another content takes the slot, the run stays remembered by its bits.
+- Evidence: `integrity_tests::ac_i1_a_value_stays_remembered_when_its_mark_is_replaced` (one slot, so every read
+  of the value also takes the slot for its leaf's layout): after the first read, three more reads of the value make
+  0 integrity checks, on disk and in a temporary store. Under `e5ea536` this is the reported repetition.
+- Residual, recorded: once the mark's slot is taken, a read of the wrong length from that first page (only a bad
+  reference) is not detected until the run is written again or the store reopens.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R4 — minor: Rewriting only a run's head does not reliably invalidate it
+
+- Disposition: fixed.
+- Fix: the first page's bit is part of the run again, so any write of it forgets the run, also with the same bytes.
+- Evidence: `pager::tests::a_remembered_run_does_not_vouch_for_another_extent` rewrites the first page alone with
+  its own bytes: the run is no longer remembered, and the next read checks it once and passes.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Checks after the fix: `cargo fmt --all --check` ok, `cargo clippy --workspace --all-targets -- -D warnings`
+clean, `cargo test --workspace` 542 passed, 0 failed, 30 ignored.

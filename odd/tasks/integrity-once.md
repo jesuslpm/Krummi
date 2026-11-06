@@ -182,3 +182,10 @@ reopen, which are disk only.
   checked again and fails. Kept as an advisory: a run's mark lives in the shared table of checked contents, so with
   that table off (the measurement switch of C9) or the slot taken by another page, the run is checked again on each
   read; that only costs time.
+- **L13** (2026-11-06): Codex follow-up ([report](../../docs/reviews/integrity-once/2026-11-06-code-02.md)): R1 and
+  R2 verified resolved; R3 (major), the run's mark could be taken by another content, which made an unchanged value
+  checked on every read against AC-I1; R4 (minor), a rewrite of the first page alone with the same bytes did not
+  forget the run. Both fixed in `c29ac23`: a run is remembered by the bits of all its pages, and its mark, which now
+  keeps its length, only adds a check while it is there. One bit per page cannot hold a run's length, so after its
+  mark is taken a read of the wrong length from its first page (a bad reference only) goes unchecked: residual risk,
+  recorded. Checks: fmt ok, clippy clean, `cargo test --workspace` 542 passed, 0 failed, 30 ignored.
