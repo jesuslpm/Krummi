@@ -10,6 +10,9 @@ mod map;
 mod space;
 mod transaction;
 
+#[cfg(test)]
+mod bytes_tests;
+
 use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};

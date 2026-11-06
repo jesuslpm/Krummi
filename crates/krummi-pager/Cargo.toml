@@ -12,7 +12,9 @@ publish.workspace = true
 test-hooks = []
 
 [dependencies]
-lz4_flex = { version = "0.12.0", default-features = false, features = ["safe-encode", "safe-decode", "checked-decode"] }
+# D12, annotation of 2026-11-06: compression uses the encoder without `safe-encode` (same bytes, faster); decoding
+# stays safe and checked.
+lz4_flex = { version = "0.12.0", default-features = false, features = ["safe-decode", "checked-decode"] }
 memmap2 = "0.9.12"
 twox-hash = { version = "2.1.5", default-features = false, features = ["std", "xxhash3_64"] }
 zerocopy = { version = "0.8.63", features = ["derive"] }

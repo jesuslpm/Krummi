@@ -606,7 +606,8 @@ impl Journal {
         }
         let durable_upto = state.synced_upto;
         drop(state);
-        let written = shared.write_group(&group, durable_upto);
+        let mut group = group;
+        let written = shared.write_group(&mut group, durable_upto);
         shared.finish_group(group, written.map_err(|e| (e.kind(), e.to_string())));
         match &shared.lock().failed {
             Some(failure) => Err(pager.fail_flush(io::Error::new(failure.0, failure.1.clone()))),
@@ -727,8 +728,10 @@ impl Shared {
                 let group: Vec<Queued> = state.queue.drain(..).collect();
                 (group, state.synced_upto)
             };
-            let written =
-                panic::catch_unwind(AssertUnwindSafe(|| self.write_group(&group, durable_upto)));
+            let mut group = group;
+            let written = panic::catch_unwind(AssertUnwindSafe(|| {
+                self.write_group(&mut group, durable_upto)
+            }));
             let stopped = written.is_err();
             let outcome = match written {
                 Ok(result) => result.map_err(|e| (e.kind(), e.to_string())),
@@ -745,8 +748,10 @@ impl Shared {
     }
 
     /// Writes a group: each record says which commits were durable when it was written (J9), the records of each
-    /// file go in one write, and then each file is made durable.
-    fn write_group(&self, group: &[Queued], durable_upto: u64) -> io::Result<()> {
+    /// file go in one write, and then each file is made durable. A record alone in its file's write goes from its
+    /// own buffer, without a copy (O5 of the performance plan); its header is rewritten in place, as a retry does
+    /// again.
+    fn write_group(&self, group: &mut [Queued], durable_upto: u64) -> io::Result<()> {
         let mut runs: Vec<(usize, usize)> = Vec::new();
         for (i, queued) in group.iter().enumerate() {
             match runs.last_mut() {
@@ -761,31 +766,35 @@ impl Shared {
             }
         }
         for &(start, end) in &runs {
-            let records = &group[start..end];
-            let file = &records[0].file;
-            let total: usize = records.iter().map(|q| q.record.len()).sum();
-            // The list of parts is allocated fallibly too, so that no memory for it also takes the fallback.
-            let mut parts: Vec<&[u8]> = Vec::new();
-            let grouped = parts.try_reserve_exact(records.len()).ok().and_then(|()| {
-                parts.extend(records.iter().map(|q| &q.record[..]));
-                AlignedBuf::from_parts(&parts, total).ok()
-            });
+            let records = &mut group[start..end];
+            let grouped = if records.len() > 1 {
+                let total: usize = records.iter().map(|q| q.record.len()).sum();
+                // The list of parts is allocated fallibly too, so that no memory for it also takes the fallback.
+                let mut parts: Vec<&[u8]> = Vec::new();
+                parts.try_reserve_exact(records.len()).ok().and_then(|()| {
+                    parts.extend(records.iter().map(|q| &q.record[..]));
+                    AlignedBuf::from_parts(&parts, total).ok()
+                })
+            } else {
+                None
+            };
             match grouped {
                 Some(mut buf) => {
                     let mut at = 0;
-                    for queued in records {
+                    for queued in records.iter() {
                         set_durable_upto(&mut buf[at..at + RECORD_HEADER], durable_upto);
                         at += queued.record.len();
                     }
-                    sys::write_at(&file.file, &file.path, records[0].offset, &buf[..total])?;
+                    let first = &records[0];
+                    sys::write_at(&first.file.file, &first.file.path, first.offset, &buf[..at])?;
                 }
-                // No memory for one buffer: one write per record, still one flush.
+                // A record alone, or no memory for one buffer: one write per record from its own buffer, without a
+                // copy, still one flush.
                 None => {
-                    for queued in records {
-                        let mut record =
-                            AlignedBuf::from_parts(&[&queued.record], queued.record.len())?;
-                        set_durable_upto(&mut record[..RECORD_HEADER], durable_upto);
-                        sys::write_at(&file.file, &file.path, queued.offset, &record)?;
+                    for queued in records.iter_mut() {
+                        set_durable_upto(&mut queued.record[..RECORD_HEADER], durable_upto);
+                        let file = &queued.file;
+                        sys::write_at(&file.file, &file.path, queued.offset, &queued.record)?;
                     }
                 }
             }

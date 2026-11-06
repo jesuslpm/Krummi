@@ -52,7 +52,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::error::{Error, Result};
-use crate::format::Header;
+use crate::format::{self, Header};
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
 use crate::journal::{Journal, RAW_ENTRY};
 use crate::pager::{Info, Integrity, Pager};
@@ -63,8 +63,6 @@ use crate::transfer::{self, Demand, Pacing, Signal};
 
 /// The payload of a page being changed by a write transaction.
 pub type PayloadBuf = Box<[u8; PAGE_PAYLOAD_SIZE]>;
-/// A whole page, sealed with its header and checksum, ready to be published.
-pub type SealedPage = Box<[u8; PAGE_SIZE]>;
 /// A value run of whole pages (D1 of the large values execution): the run's 16-byte header, then its content. A write
 /// transaction fills it and seals it with [`seal_run`](crate::format::seal_run) to publish it.
 pub type RunBuf = Box<[u8]>;
@@ -84,11 +82,6 @@ pub enum Memory {
 /// A zeroed page payload, or the out-of-memory class if the system does not provide it (P13).
 pub fn alloc_payload() -> Result<PayloadBuf> {
     alloc::<PAGE_PAYLOAD_SIZE>()
-}
-
-/// A zeroed whole page, or the out-of-memory class if the system does not provide it (P13).
-pub fn alloc_sealed() -> Result<SealedPage> {
-    alloc::<PAGE_SIZE>()
 }
 
 /// A zeroed run of `pages` pages, or the out-of-memory class if the system does not provide it (P13).
@@ -1147,39 +1140,45 @@ impl<'a> ScratchWriter<'a> {
         outcome
     }
 
-    /// Commits `pages`, each sealed for its number, and the value `runs`, each sealed with
-    /// [`seal_run`](crate::format::seal_run) for its first page: copies them into the temporary area, puts them in
-    /// the journal's queue, a run's pages as raw entries (D5 of the large values execution), and publishes them for
-    /// the next writer (E2). Returns the number of the commit, which read snapshots see once it is durable (E3;
-    /// [`Scratch::wait_durable`]). On failure nothing is published (J12).
-    pub fn commit(&mut self, pages: &[(u64, SealedPage)], runs: &[(u64, RunBuf)]) -> Result<u64> {
+    /// Commits the payloads of `pages` and the value `runs`, each sealed with
+    /// [`seal_run`](crate::format::seal_run) for its first page: seals the pages into the temporary area, puts them
+    /// in the journal's queue from there, a run's pages as raw entries (D5 of the large values execution), and
+    /// publishes them for the next writer (E2). Returns the number of the commit, which read snapshots see once it is
+    /// durable (E3; [`Scratch::wait_durable`]). On failure nothing is published (J12).
+    pub fn commit(&mut self, pages: &[(u64, PayloadBuf)], runs: &[(u64, RunBuf)]) -> Result<u64> {
         let staged = self.stage(pages, runs)?;
         let scratch = self.snapshot.scratch;
         if let Some(journal) = &scratch.shared.journal {
             let txid = scratch.lock().last_committed + 1;
-            let run_pages = runs.iter().flat_map(|(first, run)| {
-                (*first..)
-                    .zip(run.as_chunks::<PAGE_SIZE>().0)
-                    .map(|(n, page)| (n | RAW_ENTRY, page))
-            });
-            let refs: Vec<(u64, &[u8; PAGE_SIZE])> = pages
+            // The journal reads the sealed pages from their slots (O5 of the performance plan): the staged pages
+            // come first, in the order of `pages`, then each run's pages.
+            let refs: Vec<(u64, &[u8; PAGE_SIZE])> = staged
+                .0
                 .iter()
-                .map(|(n, p)| (*n, &**p))
-                .chain(run_pages)
+                .enumerate()
+                .map(|(i, (number, slot, index))| {
+                    let entry = if i < pages.len() {
+                        *number
+                    } else {
+                        number | RAW_ENTRY
+                    };
+                    (entry, slot.page_at(*index))
+                })
                 .collect();
             journal.enqueue(scratch.pager(), txid, &refs)?;
         }
         Ok(self.publish(staged))
     }
 
-    /// Copies `pages`, each sealed for its number, and the value `runs`, each sealed for its first page, into the
-    /// temporary area, a run into contiguous slots (D5), ready to be published (J7). Nothing is visible yet;
-    /// dropping the result gives the slots back.
+    /// Seals the payloads of `pages` for their numbers straight into the temporary area, and copies the value `runs`,
+    /// each sealed for its first page, into it, a run into contiguous slots (D5), ready to be published (J7). Nothing
+    /// is visible yet; dropping the result gives the slots back. The staged pages are those of `pages`, in order,
+    /// then those of each run.
     ///
     /// # Panics
     ///
     /// If a page is a header page or beyond the end of the store, or a run is not a whole number of pages.
-    pub fn stage(&self, pages: &[(u64, SealedPage)], runs: &[(u64, RunBuf)]) -> Result<Staged> {
+    pub fn stage(&self, pages: &[(u64, PayloadBuf)], runs: &[(u64, RunBuf)]) -> Result<Staged> {
         let scratch = self.snapshot.scratch;
         let pager = scratch.pager();
         let page_count = pager.page_count();
@@ -1194,12 +1193,15 @@ impl<'a> ScratchWriter<'a> {
             .map_err(|_| Error::OutOfMemory {
                 requested: (entries * size_of::<(u64, Arc<Slot>, usize)>()) as u64,
             })?;
-        for (page_number, page) in pages {
+        for (page_number, payload) in pages {
             assert!(
                 (HEADER_PAGES..page_count).contains(page_number),
                 "page {page_number} cannot be published"
             );
-            let slot = scratch.shared.area.store(page, pager)?;
+            let slot = scratch.shared.area.store_with(1, pager, |slot| {
+                let page = slot.try_into().expect("one page");
+                format::seal_page(*page_number, &payload[..], page);
+            })?;
             staged.push((*page_number, Arc::new(slot), 0));
         }
         for (first, run) in runs {

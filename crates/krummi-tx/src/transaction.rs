@@ -10,10 +10,9 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_page, seal_run};
+use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
 use krummi_pager::{
-    PayloadBuf, RunBuf, ScratchWriter, SealedPage, Snapshot, alloc_payload, alloc_run,
-    alloc_sealed, growth_target,
+    PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, alloc_run, growth_target,
 };
 
 use crate::map;
@@ -432,8 +431,8 @@ impl<'e> WriteTransaction<'e> {
         let finished = self.finish_space();
         self.track(finished)?;
         let meta_written = self.dirty.contains_key(&META_PAGE);
-        let sealed = self.seal();
-        let pages = self.track(sealed)?;
+        // The pager seals the pages straight into the temporary area (O5 of the performance plan).
+        let pages: Vec<(u64, PayloadBuf)> = std::mem::take(&mut self.dirty).into_iter().collect();
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
         let committed = self.writer.commit(&pages, &runs);
@@ -753,16 +752,6 @@ impl<'e> WriteTransaction<'e> {
     fn memory(&self, new_pages: u64) -> u64 {
         let pages = self.dirty.len() as u64 + self.run_pages + new_pages;
         self.engine.scratch.scratch_bytes() + pages * PAGE_SIZE_U64
-    }
-
-    fn seal(&mut self) -> Result<Vec<(u64, SealedPage)>> {
-        let mut pages = Vec::with_capacity(self.dirty.len());
-        for (page_number, payload) in std::mem::take(&mut self.dirty) {
-            let mut page = alloc_sealed()?;
-            seal_page(page_number, &payload[..], &mut page);
-            pages.push((page_number, page));
-        }
-        Ok(pages)
     }
 
     /// Seals the value runs in place, each as a whole (D1, D5).

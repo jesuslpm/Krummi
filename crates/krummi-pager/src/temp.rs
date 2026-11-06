@@ -17,7 +17,7 @@
 //! held whole while any of its pages keeps a version, so the scratch area counts them whole for the maximum size
 //! until its last version leaves, not page by page (`State::hold` in the `scratch` module).
 //!
-//! A slot is written once, by [`TempArea::store`] or [`TempArea::store_run`], before anyone else can see it, and
+//! A slot is written once, by [`TempArea::store_with`] or [`TempArea::store_run`], before anyone else can see it, and
 //! only read afterwards. Dropping it gives all its pages back to the area at once, merged with the free ranges next
 //! to them, and the area may hand them out again; the scratch area drops a version only when no snapshot can hold a
 //! reference to it, so a slot is never rewritten or released while it is borrowed.
@@ -89,7 +89,7 @@ enum Keep {
 }
 
 // SAFETY: the chunks own their memory like a `Box<[u8]>` or an `MmapMut` do. Slots are written only by
-// `TempArea::store` before anyone else can reach them, and read through shared references afterwards (see the
+// `TempArea::store_with` before anyone else can reach them, and read through shared references afterwards (see the
 // module documentation), so sharing the area between threads is sound.
 unsafe impl Send for TempArea {}
 // SAFETY: see `Send`.
@@ -141,6 +141,7 @@ impl TempArea {
 
     /// Copies `page` into a free slot and returns it. A failure to grow the area is classified like a write of the
     /// store, with `pager` refusing writes after an I/O failure (G12, T12).
+    #[cfg(test)]
     pub(crate) fn store(
         self: &Arc<TempArea>,
         page: &[u8; PAGE_SIZE],
@@ -163,7 +164,26 @@ impl TempArea {
             "a run of {} bytes is not a whole number of pages",
             run.len()
         );
-        let pages = run.len() / PAGE_SIZE;
+        self.store_with(run.len() / PAGE_SIZE, pager, |slots| {
+            slots.copy_from_slice(run);
+        })
+    }
+
+    /// Takes `pages` contiguous free slots of one chunk as [`TempArea::store_run`] does, has `fill` write every byte
+    /// of them, and returns them: the commit seals its pages straight into their slots this way, without a sealed
+    /// copy first (O5 of the performance plan). The slots are nobody else's until this returns, so no reader sees
+    /// them half written. If `fill` panics, the slots go back to the area.
+    ///
+    /// # Panics
+    ///
+    /// If `pages` is 0.
+    pub(crate) fn store_with(
+        self: &Arc<TempArea>,
+        pages: usize,
+        pager: &Pager,
+        fill: impl FnOnce(&mut [u8]),
+    ) -> Result<Slot> {
+        assert!(pages > 0, "a slot holds at least one page");
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let (chunk, index) = match state.take(pages) {
             Some(slots) => slots,
@@ -172,17 +192,22 @@ impl TempArea {
         let ptr = slot_ptr(state.chunk(chunk), index, pages);
         state.held += 1;
         drop(state);
-        // SAFETY: `ptr` points to `pages` slots of a live chunk, taken under the lock from its free ranges or from the
-        // chunk `grow` just added: nobody holds a reference to them (a slot is free only once its `Slot` is dropped,
-        // and a new chunk was never handed out) and nobody else writes them (nobody else can take them now).
-        unsafe { std::ptr::copy_nonoverlapping(run.as_ptr(), ptr.as_ptr(), run.len()) };
-        Ok(Slot {
+        // Built first, so that a panic in `fill` gives the slots back.
+        let slot = Slot {
             area: Arc::clone(self),
             ptr,
             chunk,
             index,
             pages,
-        })
+        };
+        // SAFETY: `ptr` points to `pages` slots of a live chunk, taken under the lock from its free ranges or from the
+        // chunk `grow` just added: nobody holds a reference to them (a slot is free only once its `Slot` is dropped,
+        // and a new chunk was never handed out, nor is `slot` yet) and nobody else writes them (nobody else can take
+        // them now). Their bytes are initialized: a heap chunk is allocated zeroed and a file chunk is mapped. The
+        // reference ends before `slot` is returned, after which they are only read.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), pages * PAGE_SIZE) };
+        fill(bytes);
+        Ok(slot)
     }
 
     /// Adds a chunk for `pages` slots that no free range fits and takes them from it, returning its number and the
@@ -420,6 +445,8 @@ impl Drop for Slot {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::AssertUnwindSafe;
+
     use super::*;
     use crate::pager::OpenOptions;
     use crate::sys::Op;
@@ -578,6 +605,31 @@ mod tests {
             let whole = area.store_run(&run(FIRST_CHUNK_PAGES, 5), pager).unwrap();
             assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES]);
             drop(whole);
+            area.remove().unwrap();
+        });
+    }
+
+    /// O5: slots filled in place hold what the filler wrote over whatever a freed slot held before, and a filler
+    /// that panics gives its slots back.
+    #[test]
+    fn slots_filled_in_place_hold_what_was_written_and_a_panic_holds_nothing() {
+        both_modes(|area, pager| {
+            drop(area.store_run(&run(2, 1), pager).unwrap());
+            let filled = run(3, 9);
+            let slot = area
+                .store_with(3, pager, |slots| {
+                    assert_eq!(slots.len(), 3 * PAGE_SIZE);
+                    slots.copy_from_slice(&filled);
+                })
+                .unwrap();
+            assert_holds(&slot, &filled);
+            let panicked = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                area.store_with(1, pager, |_| panic!("filler"))
+            }));
+            assert!(panicked.is_err());
+            assert_eq!(area.state.lock().unwrap().held, 1, "only the filled slot");
+            drop(slot);
+            assert_eq!(area.state.lock().unwrap().held, 0);
             area.remove().unwrap();
         });
     }

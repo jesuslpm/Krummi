@@ -5,7 +5,7 @@ use std::io;
 
 use super::*;
 use crate::error::ErrorKind;
-use crate::format::{seal_page, seal_run};
+use crate::format::seal_run;
 use crate::pager::OpenOptions;
 use crate::sys::Op;
 use crate::sys::faults::{self, Action};
@@ -32,10 +32,10 @@ fn the_writer_stays_on_its_thread_and_is_never_shared() {
     <ScratchWriter<'static> as NotSync<_>>::check();
 }
 
-fn sealed(page_number: u64, text: &str) -> SealedPage {
-    let mut page = alloc_sealed().unwrap();
-    seal_page(page_number, text.as_bytes(), &mut page);
-    page
+fn payload(text: &str) -> PayloadBuf {
+    let mut payload = alloc_payload().unwrap();
+    payload[..text.len()].copy_from_slice(text.as_bytes());
+    payload
 }
 
 fn text(payload: &[u8]) -> &str {
@@ -62,7 +62,7 @@ fn store(folder: Option<&std::path::Path>) -> Scratch {
 fn commit(scratch: &Scratch, text: &str) -> u64 {
     let mut writer = scratch.begin_write().unwrap();
     writer.flush().unwrap();
-    let staged = writer.stage(&[(PAGE, sealed(PAGE, text))], &[]).unwrap();
+    let staged = writer.stage(&[(PAGE, payload(text))], &[]).unwrap();
     writer.publish(staged)
 }
 
@@ -189,7 +189,7 @@ fn a_snapshot_opened_without_versions_keeps_its_page_while_newer_ones_are_writte
 fn the_writers_snapshot_does_not_see_what_it_publishes() {
     both_modes(|scratch| {
         let mut writer = scratch.begin_write().unwrap();
-        let staged = writer.stage(&[(PAGE, sealed(PAGE, "b"))], &[]).unwrap();
+        let staged = writer.stage(&[(PAGE, payload("b"))], &[]).unwrap();
         assert_eq!(writer.publish(staged), 1);
         assert_eq!(writer.snapshot().txid(), 0);
         assert_eq!(text(writer.snapshot().page(PAGE).unwrap()), "a");
