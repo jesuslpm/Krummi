@@ -118,3 +118,12 @@ reopen, which are disk only.
   with 4 threads, 0 failures. Advisory: a disk store reserves 16 GiB of address space for its bits; under
   `ulimit -v` or strict overcommit on Linux, opening could fail as memory exhausted (it ran on Windows only).
   Verifier scratch removed.
+- **L7** (2026-11-06): RDD of `08ffc84..d6ae1c7` (risk, resilience, reliability; item 4 escalated): approved,
+  lineage `review-b598396ed8c88c55`. R4 warning: every store on disk reserved 16 GiB of address space, which can fail
+  where address space is capped, and the error reported a few bytes instead of the reservation. R3 suggestion: a
+  run remembered by its first page only would skip the check after a rewrite of an interior page alone. Both taken
+  in the fix commit: the reservation covers 64 TiB of store (1 GiB of address space, less than a temporary store's
+  64 GiB), a failed reservation reports its bytes, and a run is remembered with every page and skipped only while
+  all are remembered (unit tests in `remembered.rs` and `pager_tests.rs`). Checks: fmt ok, clippy clean,
+  `cargo test --workspace` 539 passed, 0 failed, 30 ignored. The first single-load rounds failed at once (the script
+  passed a relative path to the binaries, which Python on Windows did not find), so nothing was measured.
