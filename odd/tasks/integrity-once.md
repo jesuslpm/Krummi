@@ -160,3 +160,9 @@ reopen, which are disk only.
   guard it fails, mutation not committed). R3 warning: the bytes an out-of-memory opening reports were untested;
   `a_failed_reservation_reports_the_bytes_it_asked_for` pins them. Checks: fmt ok, clippy clean,
   `cargo test --workspace` 540 passed, 0 failed, 30 ignored.
+- **L10** (2026-11-06): RDD of `f247ef0..362674a` (risk, reliability): approved, lineage `review-14d2b05e2c604d05`.
+  Kept as advisories, not changed: R3 warning, a value whose payload at bytes 8 to 16 of an interior page encodes
+  that page's own number would still let a bad reference to it skip the check (only an engine bug reaches a bad
+  reference, and the chance is one in 2^64 for content not built to match); R3 suggestions, the test does not read
+  a run starting at an interior page, and the reservation test assumes a 64-bit target (the engine's targets are
+  64-bit).
