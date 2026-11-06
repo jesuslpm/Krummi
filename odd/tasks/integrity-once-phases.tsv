@@ -12,3 +12,14 @@
 2026-11-06T07:38:26+00:00	bg-end	acceptance	T2 windows
 2026-11-06T07:38:26+00:00	bg-start	acceptance	T2 wsl
 2026-11-06T07:38:45+00:00	mark	review	T3
+2026-11-06T07:43:51+00:00	mark	fix	T3
+2026-11-06T07:50:31+00:00	mark	acceptance	T2
+2026-11-06T07:50:31+00:00	bg-start	acceptance	T2 windows
+2026-11-06T07:58:59+00:00	bg-end	acceptance	T2 windows
+2026-11-06T08:07:13+00:00	bg-end	acceptance	T2 wsl
+2026-11-06T08:07:32+00:00	bg-start	acceptance	T2 windows 2
+2026-11-06T08:07:33+00:00	bg-end	acceptance	T2 windows 2
+2026-11-06T08:07:45+00:00	bg-start	acceptance	T2 windows 3
+2026-11-06T08:13:58+00:00	bg-end	acceptance	T2 windows 3
+2026-11-06T08:13:59+00:00	bg-start	acceptance	T2 wsl 2
+2026-11-06T08:22:46+00:00	bg-end	acceptance	T2 wsl 2

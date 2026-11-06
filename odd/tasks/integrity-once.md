@@ -61,7 +61,7 @@ reopen, which are disk only.
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1–S11 | inline: `Remembered` bitmap in the pager; read transactions use it, the writer checks and remembers; forget before every in-place write, the test byte flip bypasses it; AC-I1–AC-I11, AC-I8 replacing AC-C7 and AC-X19 part 4 | done | `d6ae1c7`, L5 |
-| T2 | S12 | inline: single-load runs before and after, Windows and WSL 2 | pending | |
+| T2 | S12 | inline: single-load runs before and after, Windows and WSL 2; the complete runs after O4 | single-load done | L8 |
 | T3 | all | independent verifier (risk item 4), RDD, Codex, closing | pending | |
 
 ## Log
@@ -127,3 +127,26 @@ reopen, which are disk only.
   all are remembered (unit tests in `remembered.rs` and `pager_tests.rs`). Checks: fmt ok, clippy clean,
   `cargo test --workspace` 539 passed, 0 failed, 30 ignored. The first single-load rounds failed at once (the script
   passed a relative path to the binaries, which Python on Windows did not find), so nothing was measured.
+- **L8** (2026-11-06): T2, single-load runs of the read loads at full scale, before (`3ec8641`, the binary of the
+  complete runs) against after (`5a9f9f0`), two rounds alternating the binaries, each load in its own `measure.py`
+  call, nothing else running; W18, W20 and W22 read the last store of W17, W19 and W21 of the same binary (median
+  op/s, before → after, per pair):
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W7 | 650,682 → 1,217,780 (+87 %); 477,129 → 1,078,306 (+126 %) | 617,077 → 1,317,268 (+113 %); 657,847 → 1,339,518 (+104 %) |
+  | W8 | 1,124,867 → 2,761,418 (+145 %); 1,402,542 → 2,789,667 (+99 %) | 1,408,256 → 3,352,744 (+138 %); 1,473,006 → 3,524,479 (+139 %) |
+  | W9 | 1,240,354 → 4,107,427 (+231 %); 1,164,677 → 3,883,338 (+233 %) | 1,064,473 → 2,801,475 (+163 %); 949,874 → 2,612,879 (+175 %) |
+  | W10 | 22,832,458 → 26,986,911 (+18 %); 22,132,806 → 26,621,304 (+20 %); 23,101,090 → 28,033,427 (+21 %) | 21,491,624 → 24,025,789 (+12 %); 22,640,403 → 22,741,384 (0 %); 22,862,666 → 25,910,853 (+13 %) |
+  | W11 | 14,818,478 → 18,405,305 (+24 %); 16,642,815 → 19,694,182 (+18 %) | 14,568,778 → 14,978,557 (+3 %); 14,745,826 → 14,621,673 (−1 %) |
+  | W12 | 401,568 → 504,402 (+26 %); 271,236 → 454,063 (+67 %) | 913,678 → 1,283,877 (+41 %); 915,983 → 1,200,791 (+31 %) |
+  | W13 | 15,108 → 12,831 (−15 %); 9,512 → 11,368 (+20 %) | 8,359 → 8,701 (+4 %); 7,793 → 8,252 (+6 %) |
+  | W18 | 62,958 → 74,193 (+18 %); 67,700 → 96,922 (+43 %) | 71,652 → 91,860 (+28 %); 76,447 → 78,177 (+2 %) |
+  | W20 | 6,745,071 → 13,307,003 (+97 %); 5,607,975 → 9,619,695 (+72 %) | 7,332,068 → 15,703,699 (+114 %); 6,272,802 → 11,429,247 (+82 %) |
+  | W22 | 918,413 → 3,317,313 (+261 %); 1,112,940 → 3,841,695 (+245 %) | 1,114,986 → 2,277,805 (+104 %); 1,066,426 → 3,417,862 (+220 %) |
+
+  W10 shown with its three later pairs: the first two rounds gave +11 % / −21 % on Windows and +89 % / −41 % on WSL
+  2, a scan that hashes one page per many entries, so those were noise. W13 (the writer beside W12's readers) moves
+  both ways within its noise. Every read load gains or holds; W7 roughly doubles and W22 gains 2–3.6 times. The
+  complete runs of S12 run after O4 (L2). The first attempt at W18, W20 and W22 failed because the script gave W17,
+  which starts empty, a source store; fixed before these runs.
