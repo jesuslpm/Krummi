@@ -107,6 +107,71 @@ The commit takes 55.5 % of W2's samples and 59.4 % of W21's (`WriteTransaction::
 - A W2 repetition takes about 37 s for 1M inserts in 1,000 writes, so the CPU per write dominates over the 1,000
   durable commits (about 6 ms each on WSL 2).
 
+### Writes after O1–O4 (profiled on WSL 2 at `0fd0fdb`, 2026-11-06)
+
+After the complete runs of 2026-11-06, every read load meets its threshold except W11, W12 and W18. No write load
+meets it except W4–W6. Ratios, Windows / Linux:
+
+| Load | Windows | Linux |
+|---|---|---|
+| W1 | 0.47 | 0.76 |
+| W2 | 0.24 | 0.31 |
+| W3 | 0.53 | 0.55 |
+| W13 | 0.41 | 0.73 |
+| W14 | 0.35 | 0.39 |
+| W15 | 0.27 | 0.35 |
+| W17 | 0.39 | 0.60 |
+| W19 | 0.31 | 0.35 |
+| W21 | 0.49 | 0.44 |
+
+Eight write loads were profiled at full scale with the method above. The profiles are in `~/prof/` of WSL and the
+aggregator is `work/prof/agg.py`; neither is in git. The shares are of the samples of the committing thread. Windows
+was not profiled: samply needs administrator rights there.
+
+| Load | Commit (`commit_with`) | Tree change | Biggest costs |
+|---|---|---|---|
+| W2 | 66.2 % | 33.2 % | LZ4 39.9 %, copies 16.2 %, node layout check 12.1 %, page checksum 8.7 % |
+| W15 | 64.7 % | 34.1 % | LZ4 37.7 %, copies 16.1 %, page checksum 13.0 %, node layout check 5.0 % |
+| W14 | 62.1 % | 37.0 % | LZ4 36.1 %, copies 16.2 %, page checksum 10.9 %, node layout check 8.7 % |
+| W19 | 55.2 % | about 45 % | LZ4 37.9 %, node layout check about 12 %, copies 10.5 %, page checksum about 4.8 % |
+| W21 | 59.0 % | 40.2 % | copies 29.2 %, LZ4 22.8 %, page checksum 12.3 % |
+| W17 | 72.3 % | 12.3 % | copies 37.8 %, zeroing 13.1 %, LZ4 8.1 %, page checksum 7.3 % (few samples) |
+| W1 | 9.8 % | 88.2 % | node layout check 63.4 %, LZ4 6.4 %, page checksum 4.9 % |
+| W3 | 14.3 % | 81.7 % | node layout check 57.0 %, copies 8.4 %, LZ4 3.7 % |
+
+- **LZ4.** Compression (`encode_record_in`, `crates/krummi-pager/src/journal.rs:216`) runs on the committing thread
+  over whole 8 KiB pages. Voron instead journals each changed page as a diff against its version before the
+  transaction: 8-byte words, skipping unchanged runs. It then compresses the diff (`WriteAheadJournal.cs:1864-1885`,
+  `:1949` of RavenDB 7.2.7). `CompressTxAboveSizeInBytes` is 0 by default, so Voron always compresses. A random insert
+  changes one cell and a few offsets of an 8 KiB leaf, so Voron compresses and writes far fewer bytes (inferred: 10
+  to 30 times fewer).
+- **Copies.** The libc `memmove` is unsymbolized and named here by its callers. It stays at 15–29 % (38 % in W17),
+  split about evenly among four callers:
+  - `enqueue`: the raw payload.
+  - `seal_page` (`format.rs:232`).
+  - `store_run` (`temp.rs:160`).
+  - `AlignedBuf::from_parts`: the record.
+
+  Between `page_mut` and the journal write, Krummi copies each changed page five or six times: `copy_for_write`, seal,
+  stage, raw payload, record and group buffer. Voron copies it once, into its scratch area.
+- **Node layout check.** `node::is_valid` and `cell_len_at` (`crates/krummi-tree/src/node.rs:109`, `:196`) are called
+  from `node_at_with` (`crates/krummi-tree/src/lib.rs:256`). A page the transaction changed has no integrity code,
+  so its layout is checked in full on every read (C3 of
+  [trees-node-check-cache.prd.md](../prd/krummi/trees-node-check-cache.prd.md)). A sequential load reads the same
+  few changed leaves and branches thousands of times per transaction, so this check takes 57–63 % of W1 and W3. The
+  2026-11-04 profile missed it because it covered only W2 and W21.
+- **Page checksum on the way down.** `page_and_code` → `run_with` (`scratch.rs:999`, `pager.rs:382`) takes
+  5.7–10.2 %, more than sealing (2.7–5.0 %). The writer checks every page it reads, even a remembered one (I3 of
+  [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md)), so a clean leaf can be hashed up to
+  three times per insert: on the descent, in `insert_cell` and in `copy_for_write`. Voron checks each data file page
+  once per process (`StorageEnvironment.cs:1561-1576`).
+- **Against 2026-11-04.**
+  - Zeroing fell from 7.1 % to 2.9 % in W2 and from 17.5 % to 1.6 % in W21: that is O4.
+  - LZ4's share rose (32.5 % → 39.9 % in W2, 14.9 % → 22.8 % in W21) because the other costs shrank.
+  - Copies did not fall.
+  - `pwrite` and `fsync` run on the journal thread and take under 0.5 % of the committing thread.
+  - No lock or allocator hotspot appeared.
+
 ## Optimizations
 
 ### O1 — Read the pager's mapping without a lock
@@ -172,6 +237,63 @@ The commit takes 55.5 % of W2's samples and 59.4 % of W21's (`WriteTransaction::
 - **Risk:** data and irreversible effects only if the bytes change (item 1); the byte-for-byte invariant is what its
   tests pin.
 
+### O5 — Copy each changed page once in the commit
+
+- **Kind:** optimization without observable change → ODD, no PRD.
+- **What:** O4 left these copies out (L3 of [commit-copies.md](../../odd/tasks/commit-copies.md)). Remove them:
+  - Seal each changed page straight into its slot of the temporary area, instead of into a separate sealed page.
+  - Build the journal record from those slots, without copying the raw payload.
+  - Write a group without copying its records into a second buffer: lay the records out in place in one aligned
+    buffer, or use vectored writes.
+- **Targets:** W2, W14, W15, W17, W19, W21.
+- **Invariants to keep:**
+  - The journal record bytes and the data file bytes stay the same as today. O4's golden record hashes pin the
+    record bytes.
+  - A failure at any stage leaves the store as today.
+- **Risk:** item 1 only if the bytes change; item 4 if the temporary area is written while readers may read it.
+
+### O6 — Check the layout of a changed node once per change
+
+- **Kind:** changes C3 of [trees-node-check-cache.prd.md](../prd/krummi/trees-node-check-cache.prd.md), under which
+  the pages the write itself changes are checked on every read → PRD amendment first.
+- **What:** a node the transaction changed is checked the first time it is read after its last change. That check
+  is remembered until the transaction changes the node again. The memory is per transaction, because it covers only
+  the transaction's own pages. Pages that other transactions confirmed, in the temporary area, keep C3 as it is.
+- **Targets:** W1 and W3 (57–63 %), and W2, W14 and W19 (5–12 %).
+- **Invariants to keep:**
+  - A node written by a damaged code path is still caught before it is used after its change.
+  - The check of store pages (C1–C2) does not change.
+- **Risk:** item 6, because no test would catch a remembered check that survives a change. Its tests change a
+  checked node and read it again.
+
+### O7 — Hash each store page once per write transaction
+
+- **Kind:** changes I3 of [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md), under which the
+  writer checks every page it reads, on every read → PRD amendment first. The lighter form below also changes how
+  I3 reads, so it goes in the same amendment.
+- **What:** two forms:
+  - Lighter: the writer checks a store page the first time the transaction reads it, and trusts the same bytes for
+    the rest of the transaction. That is one check per page per transaction instead of up to three per insert.
+  - Fuller: like Voron and the readers, the writer uses the remembered pages.
+- **Targets:** W2, W14, W15 and W21 (5.7–10.2 %), and every write load a little.
+- **Invariants to keep:** no damaged page is sealed into a new version, which is the reason for I3. A page read for
+  the first time in a transaction is checked.
+- **Risk:** item 6, as in O6.
+
+### O8 — Journal the changed bytes of each page
+
+- **Kind:** changes the journal format and its recovery ([journal.prd.md](../prd/krummi/journal.prd.md): J16 and the
+  record format) → PRD first.
+- **What:** as Voron does, journal each changed page as its difference from its version before the transaction:
+  runs of changed 8-byte words, then compressed. A new page is journaled as its non-zero runs. Recovery applies the
+  differences in order over the data file page.
+- **Targets:** W2, W14, W15 and W19 (LZ4 36–40 %) and W21 (23 %). It also cuts the bytes every write load writes.
+- **Invariants to keep:**
+  - Recovery restores every committed transaction and nothing else, as today (journal PRD).
+  - A torn data file page is still restored. The PRD needs the proof: each difference applies over a page whose
+    earlier versions are in the journal or in the data file.
+- **Risk:** item 1 (the stored format) and item 3 (the journal format). It is the largest of the four.
+
 ## Order
 
 1. O1: it removes the largest cost under concurrency and needs no product decision.
@@ -179,6 +301,12 @@ The commit takes 55.5 % of W2's samples and 59.4 % of W21's (`WriteTransaction::
 3. O3a: small and independent; every load gains.
 4. O3: write its PRD while O1 and O2 run; it is the largest cost at one thread.
 5. O4, then a new diagnosis of the writes on Windows, where W4 still misses.
+6. O5: it needs no product decision, and every commit-bound write load gains. Run it while the PRD amendments
+   of O6 and O7 are written; one amendment can cover both, since both are about what the writer checks.
+7. O6: it removes the largest single cost of W1 and W3.
+8. O7.
+9. O8: the largest lever for the random-key loads, and the largest change. Write its PRD after O5–O7 have measured
+   what is left.
 
 Each step closes with complete runs on Windows and Linux, so the next diagnosis starts from measured numbers.
 
