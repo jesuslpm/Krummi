@@ -1,4 +1,4 @@
-# O3, integridad recordada de las páginas: implementada y verificada; aceptación completa pendiente de las ejecuciones tras O4
+# O3, integridad recordada de las páginas: implementada y verificada; W7 y W22 cumplen su umbral, la regla de 0,05 no se cumple a la letra
 
 Informe de cierre de `integrity-once` (2026-11-06). Enfoque de ejecución: ODD. Fuente de producto:
 [pager-integrity-once.prd.md](../../docs/prd/krummi/pager-integrity-once.prd.md). Documento de ejecución:
@@ -41,14 +41,17 @@ Rama `perf/integrity-once` (de `prd/integrity-once` con los informes del 2026-11
 | `95ec765..c5062a4` | risk, reliability | approved | R1/R3 warnings: el residuo de R1 de Codex, registrado; sugerencias de longitud fuera de rango y marca vacía, corregidas en `bcb71ce` | `review-dcfd54d316821ac3` |
 
 Evaluación sin revisión: `d6ae1c7..71fcbff` dio `under_budget` y se revisó dentro del tramo siguiente. Los commits
-`bcb71ce..8ee5401` (una corrección de 20 líneas y documentación) quedan para la revisión RDD del último tramo de O4.
+`bcb71ce..8ee5401` (una corrección de 20 líneas y documentación) se revisaron con el primer tramo de O4,
+`c5062a4..ba2a3ae` (risk, resilience, reliability; approved; `review-8c24a99484b62d18`; sus avisos de O3 son la
+marca antigua que deja una longitud fuera de rango, segura, y R1 de Codex, ya pendiente).
+
 
 ## Time
 
 - Estimación: 7 h – 11 h para O3, O4 y las ejecuciones completas juntas. Inicio: 2026-11-06 07:02:41 UTC. Fin de
   O3: 09:23:17 UTC.
-- **Duración activa de O3: 2 h 20 min**; la estimación cubre las tres partes, así que se compara al final de la
-  ejecución.
+- **Duración activa de O3: 2 h 20 min**; la estimación cubre las tres partes; el total, 07:02:41–17:37:10 UTC (10 h 34 min
+  de reloj, sin esperas), está en el [informe de O4](commit-copies-report.md).
 - Esperas por el usuario: 07:02:21–07:02:41 (20 s), la estimación.
 
 ### Time by phase

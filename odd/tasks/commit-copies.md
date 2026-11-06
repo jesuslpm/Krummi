@@ -25,7 +25,7 @@ optimization without an observable change (K13 annotation of 2026-11-04).
 | T2 | S1, S2 | inline: build records and group writes without zeroing what they overwrite; reuse the compression buffers across commits | done | `cf61713`, L6 |
 | T3 | S3, S4 | inline: single-load runs of the write loads, before and after, Windows and WSL 2 | done | L7 |
 | T5 | S4 | inline: complete runs on Windows and WSL 2 after O4 | done | L10 |
-| T4 | all | RDD, Codex, closing; independent verifier only if a risk item applies | pending | |
+| T4 | all | RDD, Codex, closing; independent verifier only if a risk item applies | done; Codex R1 pending for the user | L8–L12, [report](commit-copies-report.md) |
 
 ## Log
 
@@ -120,3 +120,7 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   WSL W15's first round has `before` reps from 27,939 to 35,059 and `after` from 25,314 to 34,415. The thresholds
   part of R1 is a product decision, pending for the user: O1, O2 and O3a closed as steps with no threshold met yet,
   but K13 does not say so.
+- **L12** (2026-11-06): Codex follow-up ([report](../../docs/reviews/commit-copies/2026-11-06-code-02.md)): the
+  missing runs verified on Windows; WSL's result files then copied to `work/o4/`; the thresholds part stays open.
+  The loop stops at two rounds. No independent verifier: risk item 1 only if the bytes change, and the golden hashes
+  pin them. Closing report: [commit-copies-report.md](commit-copies-report.md).

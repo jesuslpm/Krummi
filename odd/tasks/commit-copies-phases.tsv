@@ -35,3 +35,8 @@
 2026-11-06T17:29:26+00:00	bg-end	acceptance	T3 W13 windows
 2026-11-06T17:29:26+00:00	bg-start	acceptance	T3 W13 wsl
 2026-11-06T17:32:19+00:00	bg-end	acceptance	T3 W13 wsl
+2026-11-06T17:32:45+00:00	mark	review	T4
+2026-11-06T17:32:49+00:00	bg-start	review	codex-R2
+2026-11-06T17:36:40+00:00	bg-end	review	codex-R2
+2026-11-06T17:37:10+00:00	mark	close	T4
+2026-11-06T17:37:10+00:00	end		
