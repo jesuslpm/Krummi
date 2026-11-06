@@ -601,3 +601,28 @@ fn child_helper_try_open() {
         Err(e) => println!("TRY_OPEN={:?}", e.kind()),
     }
 }
+
+/// I1 and I4 of the remembered page integrity PRD: a run read by a read transaction is remembered with every page of
+/// it, so rewriting only one of its interior pages makes the next read check the run again.
+#[test]
+fn rewriting_an_interior_page_of_a_run_makes_it_checked_again() {
+    let mut pager = Pager::open_temporary(&options()).unwrap();
+    let first = HEADER_PAGES + 4;
+    pager.ensure_pages(first + 3).unwrap();
+    let mut run = vec![7u8; 3 * PAGE_SIZE];
+    format::seal_run(first, &mut run);
+    pager.write_run(first, &run).unwrap();
+
+    let checks = |pager: &Pager| pager.integrity_checks();
+    let before = checks(&pager);
+    pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
+    assert_eq!(checks(&pager), before + 1, "the first read checks it");
+    pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
+    assert_eq!(checks(&pager), before + 1, "remembered");
+    assert!((first..first + 3).all(|page| pager.is_remembered(page)));
+
+    pager.write_run(first + 2, &run[2 * PAGE_SIZE..]).unwrap();
+    assert!(pager.is_remembered(first) && !pager.is_remembered(first + 2));
+    pager.run_with(first, 3, Integrity::UseRemembered).unwrap();
+    assert_eq!(checks(&pager), before + 2, "checked again");
+}

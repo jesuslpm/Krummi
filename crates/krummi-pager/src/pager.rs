@@ -93,7 +93,7 @@ pub struct Pager {
     /// PRD).
     remembered: Remembered,
     /// Integrity checks of the store's pages and runs so far (tests).
-    #[cfg(feature = "test-hooks")]
+    #[cfg(any(test, feature = "test-hooks"))]
     integrity_checks: AtomicU64,
 }
 
@@ -223,10 +223,8 @@ impl Pager {
             data_syncs: AtomicU64::new(0),
             checked: Checked::new()?,
             remembered: Remembered::new(reserved / PAGE_SIZE_U64, INITIAL_SIZE / PAGE_SIZE_U64)
-                .map_err(|_| Error::OutOfMemory {
-                    requested: remembered_bytes(INITIAL_SIZE),
-                })?,
-            #[cfg(feature = "test-hooks")]
+                .map_err(|requested| Error::OutOfMemory { requested })?,
+            #[cfg(any(test, feature = "test-hooks"))]
             integrity_checks: AtomicU64::new(0),
             header: Mutex::new(HeaderState::new(
                 Header::new_store(),
@@ -375,8 +373,8 @@ impl Pager {
         self.run_with(first, count, Integrity::Check)
     }
 
-    /// As [`run`](Self::run), treating the run's integrity as `integrity` says. A run is remembered by its first
-    /// page (I1).
+    /// As [`run`](Self::run), treating the run's integrity as `integrity` says. A run is remembered with every page
+    /// of it, and only while every one of them is (I1).
     ///
     /// # Panics
     ///
@@ -389,30 +387,30 @@ impl Pager {
         let Some(run) = self.raw_pages(first, count) else {
             return Err(self.damaged(first));
         };
-        if integrity == Integrity::UseRemembered && self.remembered.contains(first) {
+        if integrity == Integrity::UseRemembered && self.remembered.contains(first, count) {
             return Ok(run);
         }
-        #[cfg(feature = "test-hooks")]
+        #[cfg(any(test, feature = "test-hooks"))]
         self.integrity_checks.fetch_add(1, Ordering::Relaxed);
         if !format::verify_run(first, run) {
             return Err(self.damaged(first));
         }
         if integrity != Integrity::Check {
-            self.remembered.remember(first);
+            self.remembered.remember(first, count);
         }
         Ok(run)
     }
 
     /// Integrity checks of the store's pages and runs since it opened (tests).
-    #[cfg(feature = "test-hooks")]
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn integrity_checks(&self) -> u64 {
         self.integrity_checks.load(Ordering::Relaxed)
     }
 
-    /// Whether the integrity of page `page_number`, or of the run that starts there, is remembered (tests).
-    #[cfg(feature = "test-hooks")]
+    /// Whether the integrity of page `page_number` is remembered, also as a page of a run (tests).
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn is_remembered(&self, page_number: u64) -> bool {
-        self.remembered.contains(page_number)
+        self.remembered.contains(page_number, 1)
     }
 
     /// Whether `bytes` are inside the store's pages: a mapping of `krummi.data`, the newest or an older one that
@@ -1014,12 +1012,9 @@ fn file_pager(
         writes_disabled: Arc::new(AtomicBool::new(false)),
         data_syncs: AtomicU64::new(0),
         checked: Checked::new()?,
-        remembered: Remembered::new(MAX_FILE_PAGES, len / PAGE_SIZE_U64).map_err(|_| {
-            Error::OutOfMemory {
-                requested: remembered_bytes(len),
-            }
-        })?,
-        #[cfg(feature = "test-hooks")]
+        remembered: Remembered::new(MAX_FILE_PAGES, len / PAGE_SIZE_U64)
+            .map_err(|requested| Error::OutOfMemory { requested })?,
+        #[cfg(any(test, feature = "test-hooks"))]
         integrity_checks: AtomicU64::new(0),
     })
 }

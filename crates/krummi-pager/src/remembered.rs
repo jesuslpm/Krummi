@@ -2,8 +2,8 @@
 //! integrity PRD).
 //!
 //! One bit per page of the store, set when a read verifies the page and cleared before the engine writes it in
-//! place (I4). A value stored off its leaf is remembered by the bit of its first page and forgotten with every page
-//! of its range (I1). The bits live in a reserved address range that never moves and is committed, zeroed, as the
+//! place (I4). A value stored off its leaf is remembered and forgotten with every page of its range, and is only
+//! remembered while every one of them is (I1). The bits live in a reserved address range that never moves and is committed, zeroed, as the
 //! store grows: readers find a page's bit without a lock, and a growth only commits more of the range before the
 //! store publishes its new size, so every page a reader can reach already has its bit. One bit per page is 16 KiB
 //! per GiB of store (I6); what the system commits is rounded up to its memory pages.
@@ -15,10 +15,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::format::PAGE_SIZE;
 use crate::sys;
 
-/// Pages a store on disk can have before a growth finds no room for their bits: 1 PiB of store, whose bits take
-/// 16 GiB of address space and no memory until the store reaches that size. A store with a smaller maximum size
-/// could reserve less, but recovery grows a store beyond its maximum (P10), so every store on disk reserves this.
-pub(crate) const MAX_FILE_PAGES: u64 = (1 << 50) / PAGE_SIZE as u64;
+/// Pages a store on disk can have before a growth finds no room for their bits, which is the out-of-memory class
+/// (I6): 64 TiB of store, whose bits take 1 GiB of address space and no memory until the store reaches that size,
+/// less than the reservation of a temporary store. A store with a smaller maximum size could reserve less, but
+/// recovery grows a store beyond its maximum (P10), so every store on disk reserves this.
+pub(crate) const MAX_FILE_PAGES: u64 = (64 << 40) / PAGE_SIZE as u64;
 
 /// What the reservation is rounded up to: a multiple of the page size of every system the engine runs on.
 const RESERVE_ALIGN: usize = 64 << 10;
@@ -61,19 +62,22 @@ unsafe impl Send for Remembered {}
 unsafe impl Sync for Remembered {}
 
 impl Remembered {
-    /// Room for the bits of `max_pages` pages, with those of the first `pages` committed and clear. Fails when the
-    /// system gives neither the address space nor the memory.
-    pub(crate) fn new(max_pages: u64, pages: u64) -> io::Result<Remembered> {
+    /// Room for the bits of `max_pages` pages, with those of the first `pages` committed and clear. Fails with the
+    /// bytes it asked for when the system gives neither the address space nor the memory: the reservation's, or the
+    /// committed bits'.
+    pub(crate) fn new(max_pages: u64, pages: u64) -> Result<Remembered, u64> {
         let reserve = bytes_for(max_pages.max(pages))
             .and_then(|bytes| bytes.checked_next_multiple_of(RESERVE_ALIGN))
-            .ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))?;
-        let reservation = sys::Reservation::new(reserve)?;
+            .ok_or(u64::MAX)?;
+        let reservation = sys::Reservation::new(reserve).map_err(|_| reserve as u64)?;
         let remembered = Remembered {
             words: reservation.ptr().as_ptr().cast::<AtomicU64>(),
             committed: AtomicU64::new(0),
             reservation: Mutex::new((reservation, 0)),
         };
-        remembered.ensure(pages)?;
+        remembered
+            .ensure(pages)
+            .map_err(|_| bytes_for(pages).map_or(u64::MAX, |bytes| bytes as u64))?;
         Ok(remembered)
     }
 
@@ -104,34 +108,30 @@ impl Remembered {
         Ok(())
     }
 
-    /// Whether page `page` is remembered.
-    pub(crate) fn contains(&self, page: u64) -> bool {
-        self.word(page)
-            .is_some_and(|word| word.load(Ordering::Acquire) & bit(page) != 0)
+    /// Whether all the `count` pages from page `first` are remembered.
+    pub(crate) fn contains(&self, first: u64, count: u64) -> bool {
+        count > 0
+            && words(first, count).all(|(page, mask)| {
+                self.word(page)
+                    .is_some_and(|word| word.load(Ordering::Acquire) & mask == mask)
+            })
     }
 
-    /// Remembers page `page`.
-    pub(crate) fn remember(&self, page: u64) {
-        if let Some(word) = self.word(page) {
-            word.fetch_or(bit(page), Ordering::AcqRel);
+    /// Remembers the `count` pages from page `first`.
+    pub(crate) fn remember(&self, first: u64, count: u64) {
+        for (page, mask) in words(first, count) {
+            if let Some(word) = self.word(page) {
+                word.fetch_or(mask, Ordering::AcqRel);
+            }
         }
     }
 
     /// Forgets the `count` pages from page `first`. Never fails and needs no memory (I4).
     pub(crate) fn forget(&self, first: u64, count: u64) {
-        let end = first.saturating_add(count);
-        let mut page = first;
-        while page < end {
-            let in_word = (end - page).min(64 - page % 64);
-            let mask = if in_word == 64 {
-                u64::MAX
-            } else {
-                ((1u64 << in_word) - 1) << (page % 64)
-            };
+        for (page, mask) in words(first, count) {
             if let Some(word) = self.word(page) {
                 word.fetch_and(!mask, Ordering::AcqRel);
             }
-            page += in_word;
         }
     }
 
@@ -153,8 +153,24 @@ fn bytes_for(pages: u64) -> Option<usize> {
     usize::try_from(words.checked_mul(size_of::<u64>() as u64)?).ok()
 }
 
-fn bit(page: u64) -> u64 {
-    1 << (page % 64)
+/// The words that hold the bits of the `count` pages from page `first`: for each, a page in it and the mask of
+/// those pages' bits.
+fn words(first: u64, count: u64) -> impl Iterator<Item = (u64, u64)> {
+    let end = first.saturating_add(count);
+    let mut page = first;
+    std::iter::from_fn(move || {
+        (page < end).then(|| {
+            let in_word = (end - page).min(64 - page % 64);
+            let mask = if in_word == 64 {
+                u64::MAX
+            } else {
+                ((1u64 << in_word) - 1) << (page % 64)
+            };
+            let at = page;
+            page += in_word;
+            (at, mask)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -164,24 +180,22 @@ mod tests {
     #[test]
     fn a_page_is_remembered_until_it_is_forgotten() {
         let remembered = Remembered::new(1 << 20, 200).unwrap();
-        assert!(!remembered.contains(70));
-        remembered.remember(70);
-        assert!(remembered.contains(70));
-        assert!(!remembered.contains(69) && !remembered.contains(71));
+        assert!(!remembered.contains(70, 1));
+        remembered.remember(70, 1);
+        assert!(remembered.contains(70, 1));
+        assert!(!remembered.contains(69, 1) && !remembered.contains(71, 1));
         remembered.forget(70, 1);
-        assert!(!remembered.contains(70));
+        assert!(!remembered.contains(70, 1));
     }
 
     #[test]
     fn forgetting_a_range_clears_every_page_of_it_and_nothing_else() {
         let remembered = Remembered::new(1 << 20, 400).unwrap();
-        for page in 0..400 {
-            remembered.remember(page);
-        }
+        remembered.remember(0, 400);
         remembered.forget(10, 300);
         for page in 0..400 {
             assert_eq!(
-                remembered.contains(page),
+                remembered.contains(page, 1),
                 !(10..310).contains(&page),
                 "page {page}"
             );
@@ -193,12 +207,12 @@ mod tests {
         let remembered = Remembered::new(1 << 20, 64).unwrap();
         // A system page of bits is committed at least, so go well beyond it.
         let far = 1 << 18;
-        remembered.remember(far);
-        assert!(!remembered.contains(far));
+        remembered.remember(far, 1);
+        assert!(!remembered.contains(far, 1));
         remembered.ensure(far + 1).unwrap();
-        assert!(!remembered.contains(far));
-        remembered.remember(far);
-        assert!(remembered.contains(far));
+        assert!(!remembered.contains(far, 1));
+        remembered.remember(far, 1);
+        assert!(remembered.contains(far, 1));
     }
 
     #[test]
@@ -206,5 +220,16 @@ mod tests {
         let remembered = Remembered::new(1 << 10, 64).unwrap();
         let error = remembered.ensure(1 << 30).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::OutOfMemory);
+    }
+
+    #[test]
+    fn a_run_is_remembered_only_while_every_page_of_it_is() {
+        let remembered = Remembered::new(1 << 20, 1 << 16).unwrap();
+        remembered.remember(100, 200);
+        assert!(remembered.contains(100, 200));
+        assert!(!remembered.contains(100, 201), "a longer run");
+        remembered.forget(250, 1);
+        assert!(!remembered.contains(100, 200), "a page inside it rewritten");
+        assert!(remembered.contains(100, 150) && !remembered.contains(0, 0));
     }
 }
