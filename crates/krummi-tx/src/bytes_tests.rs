@@ -85,7 +85,7 @@ fn commits_keep_the_bytes_of_the_journal_and_the_data_file() {
     let journal = writes.iter().fold(FNV_START, |hash, (offset, bytes)| {
         fnv(fnv(hash, &offset.to_le_bytes()), bytes)
     });
-    // Pages 0 and 2 vary by a few bytes from run to run, also before O5, so every other page is pinned.
+    // Pages 0 and 2 vary by a few bytes from run to run, also before O5, so every page but those two is pinned.
     let file = std::fs::read(tmp.path().join("krummi.data")).unwrap();
     let page = krummi_pager::format::PAGE_SIZE;
     let data = fnv(fnv(FNV_START, &file[page..2 * page]), &file[3 * page..]);
