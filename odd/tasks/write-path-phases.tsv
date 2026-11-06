@@ -1,2 +1,7 @@
 2026-11-06T20:58:15+00:00	mark	wait	estimate
 2026-11-06T20:58:15+00:00	start	docs	T0
+2026-11-06T21:00:05+00:00	mark	implement	T1
+2026-11-06T21:17:54+00:00	mark	checks	T1
+2026-11-06T21:23:12+00:00	mark	implement	T2
+2026-11-06T21:47:27+00:00	mark	checks	T2
+2026-11-06T21:52:00+00:00	mark	review	T6
