@@ -29,3 +29,16 @@ Review record: [2026-11-06-code.md](2026-11-06-code.md), wrapper status `finding
 `01a1b19d-f226-7b80-87d0-e91b622b9a35`. The telemetry gives the requested settings: coordinator `gpt-6.1-sol` /
 `high`, reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`. The report says the effective settings were not
 independently exposed. An earlier attempt at 11:36 UTC ended in `error` (Codex's usage limit) with no report.
+
+## 2026-11-06 (verification)
+
+Follow-up report: [2026-11-06-code-02.md](2026-11-06-code-02.md), wrapper status `findings`, threadId
+`01a1b1eb-a4d1-7eb2-abdc-0c14ab102002`. The telemetry gives the requested settings: coordinator `gpt-6.1-sol` /
+`high`, reviewer `krummi-review` `gpt-6.1-sol` / `high`.
+
+- **R1, missing single-load runs:** "Windows component verified resolved". The WSL pairs were "not fully verified",
+  because the reviewer could not read the WSL result files. They are now copied to `work/o4/wsl-before.tsv` and
+  `wsl-after.tsv` (ignored by git), whose last rows hold every pair of L11.
+- **R1, thresholds:** "Still open". Pending for the user.
+
+The loop stops after two rounds: a third could only repeat that the threshold part waits for the user's decision.
