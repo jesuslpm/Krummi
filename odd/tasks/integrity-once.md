@@ -175,3 +175,10 @@ reopen, which are disk only.
   contents, never by its first page's bit, and a read of no pages fails as damage. Open product question for the
   user, after the loop: the 64 TiB ceiling of a store on disk (P10 sets no limit but the disk). Checks: fmt ok,
   clippy clean, `cargo test --workspace` 541 passed, 0 failed, 30 ignored.
+- **L12** (2026-11-06): RDD of `362674a..95ec765` (risk, reliability): approved, lineage
+  `review-ed093f8836c99912`. Its R3 warning (no test rewrites a run's first page alone) and R3 suggestion (no test
+  of a longer run or a run from an interior page) taken in `6d9c923`: the extent test now reads 4 pages from the first
+  page and 2 from an interior page (checked, damage) and, after the first page is rewritten alone, the run is
+  checked again and fails. Kept as an advisory: a run's mark lives in the shared table of checked contents, so with
+  that table off (the measurement switch of C9) or the slot taken by another page, the run is checked again on each
+  read; that only costs time.
