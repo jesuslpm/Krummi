@@ -90,6 +90,8 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-11-03 a D2 y D12: el banco comparativo es una herramienta del mantenedor, no de la superficie pública del producto; sus dependencias no llegan a la biblioteca, y puede usar código no seguro solo donde la interfaz de otro motor lo exige (decisión K14 de [benchmark.prd.md](benchmark.prd.md)).*
 
+*Anotación del 2026-11-06 a D12: el Pager puede usar el compresor del diario en su modo con código no seguro (`lz4_flex` sin `safe-encode`). Ese modo produce los mismos bytes que el modo seguro y comprime entre un 30 % y un 50 % más rápido, medido sobre páginas de un almacén real. La descompresión sigue en su modo seguro y comprobado. D12 sigue rigiendo el código del propio motor, y la comprobación automática lo cubre como hasta ahora (decisión del usuario, O5 del plan de rendimiento).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

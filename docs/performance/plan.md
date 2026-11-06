@@ -248,6 +248,10 @@ was not profiled: samply needs administrator rights there.
   - Build the journal record from those slots, without copying the raw payload.
   - Write a group without copying its records into a second buffer: lay the records out in place in one aligned
     buffer, or use vectored writes.
+  - Compress with `lz4_flex`'s encoder without `safe-encode`. Measured on the 22,080 pages of a base store, in
+    records of 1,000 pages: 1,691–1,788 MB/s against 1,133–1,315 MB/s, with identical output. Allowed by the
+    annotation of 2026-11-06 to D12 of [krummi.prd.md](../prd/krummi/krummi.prd.md). The same pages compress to
+    0.756 of their size.
 - **Targets:** W2, W14, W15, W17, W19, W21.
 - **Invariants to keep:**
   - The journal record bytes and the data file bytes stay the same as today. O4's golden record hashes pin the

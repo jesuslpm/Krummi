@@ -91,6 +91,8 @@ contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-11-03 to D2 and D12: the comparative benchmark is a maintainer tool, not part of the product's public surface; its dependencies do not reach the library, and it may use unsafe code only where another engine's interface requires it (decision K14 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
 
+*Annotation of 2026-11-06 to D12: the Pager may use the journal compressor in its mode with unsafe code (`lz4_flex` without `safe-encode`). That mode produces the same bytes as the safe mode and compresses 30 % to 50 % faster, measured on pages of a real store. Decompression stays in its safe, checked mode. D12 still governs the engine's own code, and the automatic check covers it as before (user's decision, O5 of the performance plan).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:
