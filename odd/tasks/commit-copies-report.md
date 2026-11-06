@@ -40,7 +40,7 @@ Los commits posteriores a `4e1e38d` son solo documentación e informes.
   intento anterior, a las 11:36 UTC, falló por el límite de uso de Codex.
 - Ronda 2 ([informe](../../docs/reviews/commit-copies/2026-11-06-code-02.md)): las mediciones que faltaban,
   verificadas en Windows; las de WSL se copiaron después a `work/o4/` para poder comprobarlas. Los umbrales siguen
-  abiertos. El bucle se detuvo en dos rondas: una tercera solo podía repetir que falta tu decisión.
+  abiertos. El bucle esperó tu decisión antes de la tercera ronda.
 - Ronda 3 ([informe](../../docs/reviews/commit-copies/2026-11-06-code-03.md)): approved; R1 resuelto con la anotación de K13 del 2026-11-06.
 - [Resoluciones](../../docs/reviews/commit-copies/2026-11-06-code-resolutions.md).
 
