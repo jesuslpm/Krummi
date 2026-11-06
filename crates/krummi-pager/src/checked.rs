@@ -110,8 +110,8 @@ impl Checked {
     /// 48 bits, changed by a constant so that a node's code never matches it, and the length in the low 16 bits. It
     /// is no content whose layout passed, so it does not count as one.
     pub(crate) fn remember_run(&self, page: u64, code: u64, length: u64) {
-        debug_assert!(length > 0 && length <= RUN_LENGTH_MASK);
-        if ENABLED.load(Ordering::Relaxed) {
+        // A length the mark cannot hold leaves no mark: the run is then remembered by its bits alone.
+        if (1..=RUN_LENGTH_MASK).contains(&length) && ENABLED.load(Ordering::Relaxed) {
             self.slot(page)
                 .store(run_mark_high(code) | length, Ordering::Relaxed);
         }
@@ -120,8 +120,12 @@ impl Checked {
     /// The length of the value run from page `page` with stored code `code`, when its slot still holds the run's mark.
     pub(crate) fn run_length(&self, page: u64, code: u64) -> Option<u64> {
         let slot = self.slot(page).load(Ordering::Relaxed);
-        (ENABLED.load(Ordering::Relaxed) && slot & !RUN_LENGTH_MASK == run_mark_high(code))
-            .then_some(slot & RUN_LENGTH_MASK)
+        let length = slot & RUN_LENGTH_MASK;
+        // A mark has a length, so an empty slot is none even when a code's high bits make the mark's zero.
+        (ENABLED.load(Ordering::Relaxed)
+            && length > 0
+            && slot & !RUN_LENGTH_MASK == run_mark_high(code))
+        .then_some(length)
     }
 
     /// Slots of the table.
@@ -143,6 +147,34 @@ impl Checked {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_mark_keeps_its_length_and_never_matches_a_node() {
+        let checked = Checked::new().unwrap();
+        let code = 0x1234_5678_9ABC_DEF0;
+        assert_eq!(checked.run_length(7, code), None);
+        checked.remember_run(7, code, 3);
+        assert_eq!(checked.run_length(7, code), Some(3));
+        assert_eq!(
+            checked.run_length(7, code ^ (1 << 40)),
+            None,
+            "another code"
+        );
+        assert!(
+            !checked.contains(7, code),
+            "a node with that code is not checked"
+        );
+        checked.remember_run(7, code, RUN_LENGTH_MASK + 1);
+        assert_eq!(
+            checked.run_length(7, code),
+            Some(3),
+            "a length it cannot hold leaves no mark"
+        );
+        // A code whose mark has no high bits: an empty slot is no mark of length 0.
+        let zero = 0x5A17_3C4E_9D2B_0000;
+        assert_eq!(run_mark_high(zero), 0);
+        assert_eq!(checked.run_length(9, zero), None);
+    }
 
     #[test]
     fn a_content_is_found_only_with_its_page_and_its_code() {
