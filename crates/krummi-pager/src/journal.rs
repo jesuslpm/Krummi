@@ -764,9 +764,14 @@ impl Shared {
             let records = &group[start..end];
             let file = &records[0].file;
             let total: usize = records.iter().map(|q| q.record.len()).sum();
-            let parts: Vec<&[u8]> = records.iter().map(|q| &q.record[..]).collect();
-            match AlignedBuf::from_parts(&parts, total) {
-                Ok(mut buf) => {
+            // The list of parts is allocated fallibly too, so that no memory for it also takes the fallback.
+            let mut parts: Vec<&[u8]> = Vec::new();
+            let grouped = parts.try_reserve_exact(records.len()).ok().and_then(|()| {
+                parts.extend(records.iter().map(|q| &q.record[..]));
+                AlignedBuf::from_parts(&parts, total).ok()
+            });
+            match grouped {
+                Some(mut buf) => {
                     let mut at = 0;
                     for queued in records {
                         set_durable_upto(&mut buf[at..at + RECORD_HEADER], durable_upto);
@@ -775,7 +780,7 @@ impl Shared {
                     sys::write_at(&file.file, &file.path, records[0].offset, &buf[..total])?;
                 }
                 // No memory for one buffer: one write per record, still one flush.
-                Err(_) => {
+                None => {
                     for queued in records {
                         let mut record =
                             AlignedBuf::from_parts(&[&queued.record], queued.record.len())?;
