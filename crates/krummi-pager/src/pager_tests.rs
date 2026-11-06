@@ -643,7 +643,7 @@ fn rewriting_an_interior_page_of_a_run_makes_it_checked_again() {
 fn a_remembered_run_does_not_vouch_for_another_extent() {
     let mut pager = Pager::open_temporary(&options()).unwrap();
     let first = HEADER_PAGES + 4;
-    pager.ensure_pages(first + 3).unwrap();
+    pager.ensure_pages(first + 4).unwrap();
     let mut run = vec![7u8; 3 * PAGE_SIZE];
     format::seal_run(first, &mut run);
     pager.write_run(first, &run).unwrap();
@@ -673,4 +673,30 @@ fn a_remembered_run_does_not_vouch_for_another_extent() {
         pager.is_run_remembered(first, 3),
         "the run itself stays remembered"
     );
+
+    // A longer run from its first page, and a run from one of its interior pages, are checked and fail.
+    for (from, count) in [(first, 4), (first + 1, 2)] {
+        let checks = pager.integrity_checks();
+        let error = pager
+            .run_with(from, count, Integrity::UseRemembered)
+            .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            ErrorKind::Damaged,
+            "{count} pages from {from}"
+        );
+        assert_eq!(pager.integrity_checks(), checks + 1, "checked");
+    }
+
+    // Its first page rewritten alone, as a page of its own: the run is checked again, and fails.
+    let mut page = vec![9u8; PAGE_SIZE];
+    format::seal_run(first, &mut page);
+    pager.write_run(first, &page).unwrap();
+    assert!(!pager.is_run_remembered(first, 3));
+    let checks = pager.integrity_checks();
+    let error = pager
+        .run_with(first, 3, Integrity::UseRemembered)
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Damaged);
+    assert_eq!(pager.integrity_checks(), checks + 1);
 }
