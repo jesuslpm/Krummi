@@ -193,3 +193,8 @@ reopen, which are disk only.
   R1 and R3 warnings: the residual of L13 (a read of the wrong length from a run's first page after its mark's slot
   was taken), kept as recorded. Suggestions taken in `bcb71ce`: a length beyond the mark's 16 bits leaves no mark, and
   an empty slot is never a mark of length 0 (`checked::tests::a_run_mark_keeps_its_length_and_never_matches_a_node`).
+- **L15** (2026-11-06): Codex third round ([report](../../docs/reviews/integrity-once/2026-11-06-code-03.md)), after
+  one rerun of a provider refusal: R3 and R4 verified resolved, R2 still resolved, R1 reopened (the residual of L13).
+  The three-round limit is reached. Pending for the user, one question at a time at the close: R1 (exact run
+  extents need memory beyond I6, or AC-I1 yields when a mark is replaced) and the 64 TiB ceiling. Default while
+  waiting: the code stays as `bcb71ce` (bits for every page, the length mark as an extra check).

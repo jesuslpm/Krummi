@@ -76,3 +76,21 @@ Fix commit: `c29ac23`.
 
 Checks after the fix: `cargo fmt --all --check` ok, `cargo clippy --workspace --all-targets -- -D warnings`
 clean, `cargo test --workspace` 542 passed, 0 failed, 30 ignored.
+
+## 2026-11-06 (verification)
+
+A first run of the third round ended with wrapper status `error`, before any review: the provider flagged the request
+as a possible cybersecurity risk (thread `01a1b020-f97d-7671-8e05-4837f7212a26`, no report). It was rerun once
+unchanged. Follow-up [2026-11-06-code-03.md](2026-11-06-code-03.md) over `7c9c6f3..5a6479b`, wrapper status
+`findings`, thread `01a1b024-d3ff-7171-99ab-e4be239a758a`: R2 remains resolved, R3 and R4 «verified resolved», R1
+reopened. Verdict: «Changes requested: R1 (major) is reopened; R3 and R4 are verified resolved, and R2 remains
+resolved.» The 64 TiB question stays open.
+
+### R1 — major (reopened): Run extent validation disappears when its length mark is replaced
+
+- Disposition: pending, a product decision for the user. One bit per page (I6) cannot hold a run's length, so an
+  exact extent for every remembered run needs memory beyond I6, or a mark that can be replaced. Keeping the mark
+  required (`e5ea536`) made unchanged values checked on every read once their mark was replaced, against AC-I1 (R3);
+  making it optional (`c29ac23`) leaves a read of the wrong length from a run's first page unchecked once the mark is
+  replaced, which only a bad reference makes. The three-round limit is reached; the finding stays open.
+- Status: open.
