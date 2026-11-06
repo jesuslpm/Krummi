@@ -57,3 +57,9 @@ The loop stops after two rounds: a third could only repeat that the threshold pa
 - Evidence: O4's single-load runs before and after are L7 and L11 of `odd/tasks/commit-copies.md`. The threshold
   work continues as O5–O8 of `docs/performance/plan.md`, from the diagnosis of 2026-11-06.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-06 (verification, round 3)
+
+Follow-up report: [2026-11-06-code-03.md](2026-11-06-code-03.md), wrapper status `approved`, threadId
+`01a1b266-1f7b-7ed3-8d0a-e2d99392ccc8`. Verdict, quoted: "Approved — R1 is verified resolved under the amended
+acceptance contract; no findings remain open in the requested scope."
