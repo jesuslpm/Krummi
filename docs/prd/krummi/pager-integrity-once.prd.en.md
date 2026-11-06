@@ -185,8 +185,13 @@ area, to alter bytes and to simulate the lack of memory. The counts of checks ar
     *Annotation of 2026-11-06: a workload whose ratio drops by more than 0.05 between two full runs counts as
     worse only when single-workload runs, before and after in the same session, confirm the drop. Full runs on
     different days move by more than 0.05, also for the engines that do not change. Read this way, AC-I12 is
-    met after O3 and O4: none of the workloads that dropped in the full runs of 2026-11-06 drops in its
-    single-workload runs against the commit before O3 (user's decision).*
+    met after O3 and O4. Of the workloads that dropped in the full runs of 2026-11-06:
+    - Windows W11 and W20 drop because Voron rises, not because Krummi falls.
+    - Measured singly against the commit before O3, Windows W10 and Linux W2, W4, W5, W14, W15 and W17 do not drop.
+    - Linux W6 is 6 % and 1 % lower in two rounds, and 3 % and 6 % higher in two more.
+    - W16 scatters: from 254 to 606 operations per second.
+
+    (User's decision.)*
 
 ## Annotations to other PRDs
 

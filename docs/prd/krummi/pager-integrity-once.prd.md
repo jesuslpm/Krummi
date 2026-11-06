@@ -189,9 +189,14 @@ se hacen con lecturas de un solo hilo (I7).
     *Anotación del 2026-11-06: una carga cuya razón baja más de 0,05 entre dos ejecuciones completas cuenta como
     peor solo si las ejecuciones de una sola carga, antes y después en la misma sesión, confirman la bajada. Las
     ejecuciones completas de días distintos se mueven más que 0,05 también en los motores que no cambian. Con
-    esta lectura, AC-I12 se cumple tras O3 y O4: ninguna de las cargas que bajaron en las ejecuciones completas
-    del 2026-11-06 baja en sus ejecuciones de una sola carga contra el commit anterior a O3 (decisión del
-    usuario).*
+    esta lectura, AC-I12 se cumple tras O3 y O4. De las cargas que bajaron en las ejecuciones completas del
+    2026-11-06:
+    - Windows W11 y W20 bajan porque sube Voron, no Krummi.
+    - Medidas sueltas contra el commit anterior a O3, no bajan Windows W10 ni Linux W2, W4, W5, W14, W15 y W17.
+    - W6 de Linux queda un 6 % y un 1 % por debajo en dos rondas, y un 3 % y un 6 % por encima en otras dos.
+    - W16 se dispersa: de 254 a 606 operaciones por segundo.
+
+    (Decisión del usuario.)*
 
 ## Anotaciones a otros PRD
 
