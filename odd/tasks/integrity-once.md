@@ -150,3 +150,13 @@ reopen, which are disk only.
   both ways within its noise. Every read load gains or holds; W7 roughly doubles and W22 gains 2–3.6 times. The
   complete runs of S12 run after O4 (L2). The first attempt at W18, W20 and W22 failed because the script gave W17,
   which starts empty, a source store; fixed before these runs.
+- **L9** (2026-11-06): RDD of the last slice `d6ae1c7..f247ef0` (risk, reliability): approved, lineage
+  `review-c952ab83310012c9`. R1 warning (and R3 suggestion): a store on disk can no longer grow past 64 TiB, the
+  out-of-memory class; kept, it is the deliberate answer to L7's address-space warning, and stores that large are
+  out of any realistic use. R3 warning: with a run remembered page by page, a bad reference to one of its interior
+  pages as a page of its own would skip the check. Fixed in `5482072`: a remembered page is used only when it names its
+  own number (bytes 8 to 16), which interior pages of a run do not, so such a read is checked and fails; the test
+  `rewriting_an_interior_page_of_a_run_makes_it_checked_again` reads one and gets the damage class (without the
+  guard it fails, mutation not committed). R3 warning: the bytes an out-of-memory opening reports were untested;
+  `a_failed_reservation_reports_the_bytes_it_asked_for` pins them. Checks: fmt ok, clippy clean,
+  `cargo test --workspace` 540 passed, 0 failed, 30 ignored.
