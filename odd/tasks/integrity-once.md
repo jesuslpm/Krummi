@@ -166,3 +166,12 @@ reopen, which are disk only.
   reference, and the chance is one in 2^64 for content not built to match); R3 suggestions, the test does not read
   a run starting at an interior page, and the reservation test assumes a 64-bit target (the engine's targets are
   64-bit).
+- **L11** (2026-11-06): Codex code review of `08ffc84..362674a`
+  ([report](../../docs/reviews/integrity-once/2026-11-06-code.md),
+  [resolutions](../../docs/reviews/integrity-once/2026-11-06-code-resolutions.md)): `findings`. R1 (major): after
+  a run was remembered, its first page alone or a shorter run from it skipped the check, though the base failed
+  them as damage; R2 (minor): a remembered read of no pages panicked. Both fixed in `e5ea536`: a run of several
+  pages is remembered by its interior pages' bits and a mark of its code and length in the table of checked
+  contents, never by its first page's bit, and a read of no pages fails as damage. Open product question for the
+  user, after the loop: the 64 TiB ceiling of a store on disk (P10 sets no limit but the disk). Checks: fmt ok,
+  clippy clean, `cargo test --workspace` 541 passed, 0 failed, 30 ignored.
