@@ -76,3 +76,15 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   W14 on Windows (+17–20 %, +9–10 %), the loads with the most pages per commit; the rest within noise. W1, W3, W13,
   W15 and W19 were not run singly: they share the commit path of the measured ones and the complete runs measure
   them (S4). Raw output: `work/o4/win.out`, `wsl.out`, `win-extra.out`, `wsl-extra.out` (not committed).
+- **L8** (2026-11-06): RDD review of `c5062a4..ba2a3ae` (O3's last code fix `bcb71ce` and O4): lenses risk,
+  resilience, reliability; approved, lineage `review-8c24a99484b62d18`, acknowledged. Findings:
+  - R4-001 (warning): an open store keeps up to 8 MiB of raw payload and about as much LZ4 output between commits.
+    Accepted: the bound is the journal's queue limit, which already lets a store hold 8 MiB of queued records, and a
+    larger commit gives the memory back; recorded as a trade-off for the closing report.
+  - R3-group-parts-vec-infallible-alloc (warning): `write_group` collected the list of parts infallibly, so no memory
+    for it aborted instead of taking the per-record fallback. Fixed in the next commit: the list is reserved with
+    `try_reserve_exact` and its failure takes the fallback. No test: allocation failure cannot be injected there
+    (`Op::Alloc` covers no `Vec`), as before O4. Checks: fmt ok, clippy clean, 546 passed, 0 failed, 30 ignored.
+  - R3-stale-run-mark-after-overlong-length (suggestion, O3): a length beyond the mark leaves the slot's earlier mark;
+    safe (a mismatch checks), left as is.
+  - R3-r1-residual-open (warning, O3): Codex R1, already pending as a user decision (O3 resolutions).
