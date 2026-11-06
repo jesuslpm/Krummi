@@ -9,17 +9,20 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
 use krummi_pager::{
     PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, alloc_run, growth_target,
 };
 
+#[cfg(feature = "test-hooks")]
+use crate::LayoutEvent;
 use crate::map;
 use crate::space::Layout;
 use crate::{
-    Engine, Error, FIRST_PAGE, MAP_PAGE, META_PAGE, Point, Result, meta_field, meta_is_blank,
-    slot_offset,
+    Engine, Error, FIRST_PAGE, MAP_PAGE, META_PAGE, PageCheck, Point, Result, meta_field,
+    meta_is_blank, slot_offset,
 };
 
 /// A read transaction: a snapshot of the store as it was when it opened (T2). It can be sent to and shared
@@ -131,7 +134,7 @@ pub struct WriteTransaction<'e> {
     layout: Layout,
     /// Pages this transaction changed, by number: the meta page and map pages among them when it reserved or
     /// freed pages.
-    dirty: BTreeMap<u64, PayloadBuf>,
+    dirty: BTreeMap<u64, Changed>,
     /// Value runs this transaction reserved, by first page, each a buffer of whole pages with room for its header
     /// (D4); their pages are not in `dirty`.
     runs: BTreeMap<u64, RunBuf>,
@@ -149,6 +152,38 @@ pub struct WriteTransaction<'e> {
     gained: BTreeSet<u64>,
     /// The first operation that failed: the transaction can no longer be committed (T11).
     failure: RefCell<Option<Error>>,
+    /// The changes, reads and layout checks of changed pages, while a test records them; a mutex, like `checked` an
+    /// atomic, so that the tests' build adds no type that cannot be shared between threads.
+    #[cfg(feature = "test-hooks")]
+    layout_log: std::sync::Mutex<Option<Vec<LayoutEvent>>>,
+}
+
+/// A page this transaction changed: its payload, and whether the layers above checked its layout since its last
+/// change (S1 of the writer checks PRD). Every access that can change the payload goes through
+/// [`payload_mut`](Self::payload_mut), which forgets that check, so a remembered check always covers the bytes as
+/// they are.
+struct Changed {
+    payload: PayloadBuf,
+    /// Set by a layout check that passed, never by one that failed. It lives in the page's own entry, so remembering
+    /// reserves no memory (S1). The transaction stays on its thread (T6), so relaxed accesses suffice; an atomic, and
+    /// not a `Cell`, adds no type to the transaction that cannot be shared between threads.
+    checked: AtomicBool,
+}
+
+impl Changed {
+    /// A page just created or copied for this transaction: a change, so its layout is not checked yet.
+    fn new(payload: PayloadBuf) -> Changed {
+        Changed {
+            payload,
+            checked: AtomicBool::new(false),
+        }
+    }
+
+    /// The payload to change it: each such access is a change, so the next read checks its layout again (S1).
+    fn payload_mut(&mut self) -> &mut [u8] {
+        *self.checked.get_mut() = false;
+        &mut self.payload[..]
+    }
 }
 
 impl<'e> WriteTransaction<'e> {
@@ -167,6 +202,8 @@ impl<'e> WriteTransaction<'e> {
             freed: BTreeSet::new(),
             gained: BTreeSet::new(),
             failure: RefCell::new(None),
+            #[cfg(feature = "test-hooks")]
+            layout_log: std::sync::Mutex::new(None),
         }
     }
 
@@ -178,27 +215,56 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If the page was never reserved.
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
-        self.page_and_code(page_number).map(|(page, _)| page)
+        self.page_with(page_number).map(|(page, _)| page)
     }
 
-    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
-    /// verified when it comes from the store, and `None` for a page this transaction changed or a version of the
-    /// scratch area (C2, C3 of the remembered node layout check PRD).
+    /// The payload of page `page_number`, as [`page`](Self::page), with what a layer above needs to check its
+    /// layout: the integrity code its read has just verified when it comes from the store, whether the layer
+    /// already checked it since its last change when this transaction changed it, or nothing for a version of the
+    /// scratch area (C2, C3 of the remembered node layout check PRD, S1 of the writer checks PRD).
     ///
     /// # Panics
     ///
     /// If the page was never reserved.
-    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
+    pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        let read = self.page_with(page_number);
+        #[cfg(feature = "test-hooks")]
+        if let Ok((_, PageCheck::Changed { .. })) = read {
+            self.log(LayoutEvent::Read(page_number));
+        }
+        read
+    }
+
+    fn page_with(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
         self.track(self.engine.injected_fault())?;
         self.check_reserved(page_number, 1);
         if let Err(error) = self.check_page(page_number) {
             return self.track(Err(error));
         }
-        if let Some(payload) = self.dirty.get(&page_number) {
-            return Ok((&payload[..], None));
+        if let Some(changed) = self.dirty.get(&page_number) {
+            let checked = changed.checked.load(Ordering::Relaxed);
+            return Ok((&changed.payload[..], PageCheck::Changed { checked }));
         }
         let result = self.writer.snapshot().page_and_code(page_number);
-        self.track(result)
+        let (page, code) = self.track(result)?;
+        Ok((
+            page,
+            code.map_or(PageCheck::Unverified, PageCheck::Verified),
+        ))
+    }
+
+    /// Records that a layer above checked the layout of page `page_number`, read with
+    /// [`page_and_check`](Self::page_and_check) without a verified integrity code, and whether it `passed`. A page
+    /// this transaction changed that passes is not checked again until its next change; a failure is never
+    /// remembered, so every later read checks it again (S1 of the writer checks PRD). What it remembers is this
+    /// transaction's alone: no other transaction sees it, it goes with the transaction, and it never reaches the
+    /// store's memory of checked contents (C2).
+    pub fn layout_checked(&self, page_number: u64, passed: bool) {
+        #[cfg(feature = "test-hooks")]
+        self.log(LayoutEvent::Check(page_number));
+        if passed && let Some(changed) = self.dirty.get(&page_number) {
+            changed.checked.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
@@ -234,7 +300,13 @@ impl<'e> WriteTransaction<'e> {
             .injected_fault()
             .and_then(|()| self.writable(page_number));
         self.track(result)?;
-        Ok(&mut self.dirty.get_mut(&page_number).expect("copied above")[..])
+        #[cfg(feature = "test-hooks")]
+        self.log(LayoutEvent::Change(page_number));
+        Ok(self
+            .dirty
+            .get_mut(&page_number)
+            .expect("copied above")
+            .payload_mut())
     }
 
     /// Reserves a page, zeroed, and returns its number: a free page of the map if there is one, otherwise the
@@ -324,7 +396,7 @@ impl<'e> WriteTransaction<'e> {
     pub fn slot(&self, slot: usize) -> Result<u64> {
         let at = slot_offset(slot);
         if let Some(meta) = self.dirty.get(&META_PAGE) {
-            return Ok(meta_field(&meta[..], at));
+            return Ok(meta_field(&meta.payload[..], at));
         }
         if !self.engine.space.meta_written() {
             return Ok(0);
@@ -346,7 +418,11 @@ impl<'e> WriteTransaction<'e> {
         }
         let ensured = self.ensure_meta();
         self.track(ensured)?;
-        let meta = self.dirty.get_mut(&META_PAGE).expect("ensured above");
+        let meta = self
+            .dirty
+            .get_mut(&META_PAGE)
+            .expect("ensured above")
+            .payload_mut();
         meta[at..at + 8].copy_from_slice(&value.to_le_bytes());
         Ok(())
     }
@@ -432,7 +508,10 @@ impl<'e> WriteTransaction<'e> {
         self.track(finished)?;
         let meta_written = self.dirty.contains_key(&META_PAGE);
         // The pager seals the pages straight into the temporary area (O5 of the performance plan).
-        let pages: Vec<(u64, PayloadBuf)> = std::mem::take(&mut self.dirty).into_iter().collect();
+        let pages: Vec<(u64, PayloadBuf)> = std::mem::take(&mut self.dirty)
+            .into_iter()
+            .map(|(page, changed)| (page, changed.payload))
+            .collect();
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
         let committed = self.writer.commit(&pages, &runs);
@@ -508,14 +587,16 @@ impl<'e> WriteTransaction<'e> {
         self.reserve(1, 0)?;
         let mut payload = alloc_payload()?;
         payload.copy_from_slice(self.writer.snapshot().page(page_number)?);
-        self.dirty.insert(page_number, payload);
+        self.dirty.insert(page_number, Changed::new(payload));
         Ok(())
     }
 
     /// Adds zeroed pages to this transaction.
     fn add_zeroed(&mut self, pages: impl IntoIterator<Item = u64>) -> Result<()> {
         for page in pages {
-            self.dirty.insert(page, alloc_payload()?);
+            self.dirty.insert(page, Changed::new(alloc_payload()?));
+            #[cfg(feature = "test-hooks")]
+            self.log(LayoutEvent::Change(page));
         }
         Ok(())
     }
@@ -550,7 +631,11 @@ impl<'e> WriteTransaction<'e> {
         if !self.dirty.contains_key(&page) {
             self.copy_for_write(page)?;
         }
-        Ok(&mut self.dirty.get_mut(&page).expect("copied above")[..])
+        Ok(self
+            .dirty
+            .get_mut(&page)
+            .expect("copied above")
+            .payload_mut())
     }
 
     /// Reserves `count` contiguous pages, as pages or as one value run (`value_run`), and returns the first.
@@ -576,7 +661,7 @@ impl<'e> WriteTransaction<'e> {
         for region in 0..=self.layout.region(self.frontier - 1) {
             let map_page = self.layout.map_page(region);
             let found = match self.dirty.get(&map_page) {
-                Some(map) => map::find_run(&map[..], count).ok(),
+                Some(map) => map::find_run(&map.payload[..], count).ok(),
                 None if !space.may_hold(region, count) => None,
                 None => {
                     let map = self.writer.snapshot().page(map_page)?;
@@ -685,12 +770,13 @@ impl<'e> WriteTransaction<'e> {
             let map = self
                 .dirty
                 .get_mut(&layout.map_page(region))
-                .expect("freeing copied the map page");
-            map::set(&mut map[..], layout.bit(page), 1, true);
+                .expect("freeing copied the map page")
+                .payload_mut();
+            map::set(map, layout.bit(page), 1, true);
             self.gained.insert(region);
         }
         self.free += self.freed.len() as u64;
-        if let Some(meta) = self.dirty.get_mut(&META_PAGE) {
+        if let Some(meta) = self.dirty.get_mut(&META_PAGE).map(Changed::payload_mut) {
             meta[..8].copy_from_slice(&self.frontier.to_le_bytes());
             meta[8..16].copy_from_slice(&self.free.to_le_bytes());
         }
@@ -764,6 +850,32 @@ impl<'e> WriteTransaction<'e> {
                 (first, run)
             })
             .collect()
+    }
+
+    /// Starts recording the changes of pages, the reads of changed pages and the layout checks the layers above
+    /// report, dropping what it recorded so far (tests of the writer checks PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn record_layout(&self) {
+        *self.layout_log.lock().unwrap() = Some(Vec::new());
+    }
+
+    /// What this transaction recorded since [`record_layout`](Self::record_layout), or since the last call; it goes
+    /// on recording (tests of the writer checks PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn take_layout_log(&self) -> Vec<LayoutEvent> {
+        self.layout_log
+            .lock()
+            .unwrap()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
+    #[cfg(feature = "test-hooks")]
+    fn log(&self, event: LayoutEvent) {
+        if let Some(log) = self.layout_log.lock().unwrap().as_mut() {
+            log.push(event);
+        }
     }
 
     /// Records the first failure of the transaction (T11) and whether the store stopped accepting writes (T12).

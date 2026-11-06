@@ -23,7 +23,9 @@
 //! Every node is checked when the tree code reads it: a page whose checksum is valid but whose layout is not
 //! consistent, or a child that is not a data page or not one level below its parent, fails with the damage class
 //! and the page number (G6, A9), and in a write it is the transaction's failure (T11). The node accessors then stay
-//! within the page without checking again.
+//! within the page without checking again. A layout that passed is not checked again while the content it covers
+//! stays the same: a verified content of the store while the store is open, and a node a write changed until its
+//! next change in that write (see [`node_at_with`]).
 //!
 //! The memory an operation needs besides pages (the copy of a node that splits or merges, its cells, a separator
 //! key, the children of a node freed, the list of trees) is reserved through [`reserve`]: running out of it fails
@@ -47,7 +49,9 @@ mod tests;
 
 use std::ops::Bound;
 
-use krummi_tx::{Error, PAYLOAD_SIZE, ReadTransaction, Result, WriteTransaction, run_pages};
+use krummi_tx::{
+    Error, PAYLOAD_SIZE, PageCheck, ReadTransaction, Result, WriteTransaction, run_pages,
+};
 use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL, Value};
 pub use node::{MAX_KEY, MAX_VALUE};
 pub use range::{Interval, Range};
@@ -57,12 +61,13 @@ pub trait PageSource {
     /// The payload of page `page_number` as the transaction sees it, without copying it (D11).
     fn page(&self, page_number: u64) -> Result<&[u8]>;
 
-    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code stored in the page as
-    /// read, which this read verified or a read of this opening already did (I2 of the remembered page integrity
-    /// PRD), or `None` when no read verifies it, as for a version of the scratch area (C2, C3 of the remembered node
-    /// layout check PRD).
-    fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
-        Ok((self.page(page_number)?, None))
+    /// The payload of page `page_number`, as [`page`](Self::page), with what its read tells about its layout check:
+    /// the integrity code stored in the page as read, which this read verified or a read of this opening already did
+    /// (I2 of the remembered page integrity PRD); for a page the write transaction changed, whether its layout passed
+    /// the check since its last change (S1 of the writer checks PRD); or nothing, as for a version of the scratch area
+    /// (C2, C3 of the remembered node layout check PRD).
+    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        Ok((self.page(page_number)?, PageCheck::Unverified))
     }
 
     /// Whether the content of page `page_number` with integrity code `code` already passed the layout check while the
@@ -75,6 +80,12 @@ pub trait PageSource {
     /// Remembers that the content of page `page_number` with integrity code `code` passed the layout check (C1, C2).
     fn remember_checked(&self, page_number: u64, code: u64) {
         let _ = (page_number, code);
+    }
+
+    /// Reports the layout check of page `page_number`, read without a verified integrity code, and whether it
+    /// `passed`: a write transaction remembers a pass of a page it changed until its next change (S1).
+    fn layout_checked(&self, page_number: u64, passed: bool) {
+        let _ = (page_number, passed);
     }
 
     /// The content of the value run of `count` pages from page `first` as the transaction sees it, after the run's
@@ -104,8 +115,12 @@ impl PageSource for ReadTransaction<'_> {
         ReadTransaction::page(self, page_number)
     }
 
-    fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
-        ReadTransaction::page_and_code(self, page_number)
+    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        let (page, code) = ReadTransaction::page_and_code(self, page_number)?;
+        Ok((
+            page,
+            code.map_or(PageCheck::Unverified, PageCheck::Verified),
+        ))
     }
 
     fn is_checked(&self, page_number: u64, code: u64) -> bool {
@@ -146,8 +161,8 @@ impl PageSource for WriteTransaction<'_> {
         WriteTransaction::page(self, page_number)
     }
 
-    fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
-        WriteTransaction::page_and_code(self, page_number)
+    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        WriteTransaction::page_and_check(self, page_number)
     }
 
     fn is_checked(&self, page_number: u64, code: u64) -> bool {
@@ -156,6 +171,10 @@ impl PageSource for WriteTransaction<'_> {
 
     fn remember_checked(&self, page_number: u64, code: u64) {
         WriteTransaction::remember_checked(self, page_number, code);
+    }
+
+    fn layout_checked(&self, page_number: u64, passed: bool) {
+        WriteTransaction::layout_checked(self, page_number, passed);
     }
 
     fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
@@ -234,7 +253,11 @@ fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Resu
 /// a content that passes is remembered by its page number and code, and a later read of the same content does not
 /// check it again (C1–C3 of the remembered node layout check PRD). The nodes of every format share that memory,
 /// which does not know their format, so every read checks the kind against the format: a remembered node of
-/// another format is damage (X14). Every other check runs on every read.
+/// another format is damage (X14). A node the write transaction changed never uses that memory, although it keeps
+/// the integrity code of the page it was copied from: its layout is checked on its first read after each change, and
+/// the transaction remembers a pass until the node's next change; a failure is never remembered (S1 of the writer
+/// checks PRD). That memory does not know the format either, so the kind check covers it too. A version of the
+/// scratch area is checked on every read (C3). Every other check runs on every read.
 pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     page: u64,
@@ -244,17 +267,22 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
     if !tx.may_hold_data(page) {
         return Err(tx.damaged(page));
     }
-    let (node, code) = tx.page_and_code(page)?;
-    let layout = match code {
-        Some(code) if tx.is_checked(page, code) => true,
-        Some(code) => {
+    let (node, check) = tx.page_and_check(page)?;
+    let layout = match check {
+        PageCheck::Verified(code) if tx.is_checked(page, code) => true,
+        PageCheck::Verified(code) => {
             let valid = (format.is_valid)(node);
             if valid {
                 tx.remember_checked(page, code);
             }
             valid
         }
-        None => (format.is_valid)(node),
+        PageCheck::Changed { checked: true } => true,
+        PageCheck::Changed { checked: false } | PageCheck::Unverified => {
+            let valid = (format.is_valid)(node);
+            tx.layout_checked(page, valid);
+            valid
+        }
     };
     if layout
         && format.kinds.contains(&node[0])

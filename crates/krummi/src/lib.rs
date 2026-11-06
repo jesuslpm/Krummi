@@ -80,6 +80,8 @@ mod multi_tests;
 mod tests;
 #[cfg(test)]
 mod value_tests;
+#[cfg(test)]
+mod writer_check_tests;
 
 /// Options for opening a store.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

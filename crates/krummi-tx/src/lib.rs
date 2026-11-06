@@ -53,6 +53,37 @@ pub const FIRST_PAGE: u64 = MAP_PAGE + 1;
 /// Bytes of a page that a transaction can use.
 pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
 
+/// What a transaction's read of a page tells the layers above for the check of its layout (C2, C3 of the remembered
+/// node layout check PRD, S1 of the writer checks PRD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageCheck {
+    /// A page of the store, with the integrity code stored in it as read, which this read verified or a read of this
+    /// opening already did (I2 of the remembered page integrity PRD): the store's memory of checked contents applies.
+    Verified(u64),
+    /// A page the write transaction changed, and whether its layout passed the check since its last change. It never
+    /// uses the store's memory of checked contents, although it keeps the integrity code of the page it was copied
+    /// from.
+    Changed {
+        /// The layout passed the check since the page's last change.
+        checked: bool,
+    },
+    /// A committed version in the scratch area, which no read verifies: its layout is checked on every read.
+    Unverified,
+}
+
+/// What a write transaction records of the pages it changes, while a test asks it to (tests of the writer checks
+/// PRD, see [`WriteTransaction::record_layout`]).
+#[cfg(feature = "test-hooks")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutEvent {
+    /// The page was created, or handed out to be changed.
+    Change(u64),
+    /// A layer above read the page, which the transaction changed, to check it.
+    Read(u64),
+    /// A layer above checked the layout of the page, read without a verified integrity code.
+    Check(u64),
+}
+
 /// A point of a commit or of the hand-off of the write turn where tests can stop or interrupt the engine
 /// (AC-T5, AC-T18, AC-T19, AC-E6). The first three come before the commit's point of no return, when it enters the
 /// journal's queue (E2 of the grouped journal PRD); the others after it.
