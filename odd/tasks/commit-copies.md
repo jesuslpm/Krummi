@@ -23,7 +23,7 @@ optimization without an observable change (K13 annotation of 2026-11-04).
 |---|---|---|---|---|
 | T1 | S2 | inline: pin the bytes of journal records (compressed, raw, several pages) to values recorded before the change | done | `489bd4e`, L5 |
 | T2 | S1, S2 | inline: build records and group writes without zeroing what they overwrite; reuse the compression buffers across commits | done | `cf61713`, L6 |
-| T3 | S3, S4 | inline: single-load runs of the write loads, before and after, Windows and WSL 2 | pending | |
+| T3 | S3, S4 | inline: single-load runs of the write loads, before and after, Windows and WSL 2 | done | L7 |
 | T4 | all | RDD, Codex, closing; independent verifier only if a risk item applies | pending | |
 
 ## Log
@@ -58,3 +58,21 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   ones and a commit beyond the kept size included; `an_aligned_buffer_from_parts_holds_them_and_then_zeros` pins
   the helper. Group writes keep their bytes: each record copied whole, then its header's `durable_upto` set, as
   before. Checks: fmt ok, clippy clean, `cargo test --workspace` 546 passed, 0 failed, 30 ignored.
+- **L7** (2026-11-06): T3. Single-load runs (`work/o4/measure.py`: median of reps 1–4 in operations per second, each
+  load in a fresh store), `before` = `13489d1`, `after` = `cf61713`, two rounds of W2, W4, W14, W17 and W21 with the
+  order of the binaries swapped in the second; ratio after / before per round:
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W2 | 1.035, 1.093 | 0.979, 1.026 |
+  | W4 | 1.057, 1.026 | 0.75, 0.85; rounds 3–4: 0.95, 1.01 |
+  | W14 | 1.096, 1.091 | 1.011, 1.021 |
+  | W17 | 0.80, 0.93; rounds 3–4: 1.17, 0.99 | 1.19, 1.04 |
+  | W21 | 1.170, 1.196 | 1.055, 1.001 |
+
+  The two loads that came out lower in both first rounds got two more: W17 on Windows (16 MiB commits, reps from
+  1,216 to 2,357) and W4 on WSL (one flushed commit per entry, about 100 per second, `before` reps from 75 to 161)
+  scatter beyond any change and land on both sides in rounds 3–4, so they read as noise, not a loss. Gains: W21 and
+  W14 on Windows (+17–20 %, +9–10 %), the loads with the most pages per commit; the rest within noise. W1, W3, W13,
+  W15 and W19 were not run singly: they share the commit path of the measured ones and the complete runs measure
+  them (S4). Raw output: `work/o4/win.out`, `wsl.out`, `win-extra.out`, `wsl-extra.out` (not committed).

@@ -1,3 +1,12 @@
 2026-11-06T09:24:40+00:00	mark	explore	T0
 2026-11-06T09:25:00+00:00	mark	implement	T1
 2026-11-06T09:27:01+00:00	mark	checks	T2
+2026-11-06T09:32:24+00:00	mark	acceptance	T3
+2026-11-06T09:38:01+00:00	bg-start	acceptance	T3 windows
+2026-11-06T09:57:03+00:00	bg-end	acceptance	T3 windows
+2026-11-06T09:57:03+00:00	bg-start	acceptance	T3 wsl
+2026-11-06T11:02:05+00:00	bg-end	acceptance	T3 wsl
+2026-11-06T11:03:24+00:00	bg-start	acceptance	T3 windows extra
+2026-11-06T11:04:10+00:00	bg-end	acceptance	T3 windows extra
+2026-11-06T11:04:10+00:00	bg-start	acceptance	T3 wsl extra
+2026-11-06T11:28:12+00:00	bg-end	acceptance	T3 wsl extra
