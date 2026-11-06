@@ -189,3 +189,7 @@ reopen, which are disk only.
   keeps its length, only adds a check while it is there. One bit per page cannot hold a run's length, so after its
   mark is taken a read of the wrong length from its first page (a bad reference only) goes unchecked: residual risk,
   recorded. Checks: fmt ok, clippy clean, `cargo test --workspace` 542 passed, 0 failed, 30 ignored.
+- **L14** (2026-11-06): RDD of `95ec765..c5062a4` (risk, reliability): approved, lineage `review-dcfd54d316821ac3`.
+  R1 and R3 warnings: the residual of L13 (a read of the wrong length from a run's first page after its mark's slot
+  was taken), kept as recorded. Suggestions taken in `bcb71ce`: a length beyond the mark's 16 bits leaves no mark, and
+  an empty slot is never a mark of length 0 (`checked::tests::a_run_mark_keeps_its_length_and_never_matches_a_node`).
