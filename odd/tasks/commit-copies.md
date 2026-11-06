@@ -88,3 +88,8 @@ optimization without an observable change (K13 annotation of 2026-11-04).
   - R3-stale-run-mark-after-overlong-length (suggestion, O3): a length beyond the mark leaves the slot's earlier mark;
     safe (a mismatch checks), left as is.
   - R3-r1-residual-open (warning, O3): Codex R1, already pending as a user decision (O3 resolutions).
+- **L9** (2026-11-06): RDD review of the last slice `ba2a3ae..4e1e38d` (the fallible list of parts): lens
+  resilience; approved without findings, lineage `review-998d9967b748de57`, acknowledged. Codex R1
+  (`-Range 13489d1..4e1e38d`) ended in `error` at 11:36 UTC: Codex's usage limit, until 13:30; no report, no
+  change. Default taken: the complete runs (S4) go first, at `4e1e38d`, and the Codex review after them, so that
+  neither disturbs the other; a Codex fix that touches the commit path would mean running them again.
