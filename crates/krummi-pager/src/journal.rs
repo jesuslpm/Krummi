@@ -566,8 +566,10 @@ impl Journal {
         let old = state
             .current
             .replace(Arc::new(OpenFile { file, path, direct }));
-        // The enqueue that rolled wakes the writer, which closes it.
-        state.retired.extend(old);
+        if let Some(old) = old {
+            state.retired.push(old);
+            shared.work.notify_all();
+        }
         state.current_len = 0;
         state.current_capacity = capacity;
         Ok(())
@@ -637,6 +639,7 @@ impl Journal {
         }
         let durable_upto = state.synced_upto;
         drop(state);
+        drop(retired);
         let mut group = group;
         let written = shared.write_group(&mut group, durable_upto);
         shared.finish_group(group, written.map_err(|e| (e.kind(), e.to_string())));
@@ -644,6 +647,13 @@ impl Journal {
             Some(failure) => Err(pager.fail_flush(io::Error::new(failure.0, failure.1.clone()))),
             None => Ok(()),
         }
+    }
+
+    /// Number of the next file to create and number of files left for the writer to close (tests).
+    #[cfg(test)]
+    pub(crate) fn rolls_and_retired(&self) -> (u64, usize) {
+        let state = self.shared.lock();
+        (state.next_number, state.retired.len())
     }
 
     /// Number of the first file that may hold commits after `applied`: what a header with `applied` records.

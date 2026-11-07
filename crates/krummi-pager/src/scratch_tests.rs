@@ -347,6 +347,10 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
         scratch.wait_durable(txid).unwrap();
     }
     assert_eq!(crate::journal::files_closed_on_this_thread(), 0);
+    // Each commit went on in a new file, and the writer took the old ones before writing the next record.
+    let (next_number, retired) = scratch.shared.journal.as_ref().unwrap().rolls_and_retired();
+    assert!(next_number >= 3, "{next_number} files");
+    assert_eq!(retired, 0);
     assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "d");
     scratch.close().unwrap();
 }
