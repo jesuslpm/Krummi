@@ -31,6 +31,7 @@ $ErrorActionPreference = 'Stop'
 # Exit-BenchPowerPlan.ps1: change both scripts together.
 $bench = '6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10'
 $state = Join-Path $env:LOCALAPPDATA 'krummi-bench-power.txt'
+# A GUID pattern; -match and -notmatch ignore case, so it also matches powercfg's uppercase GUIDs, if any.
 $guid = '[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 function Invoke-PowerCfg {

@@ -203,3 +203,8 @@ its ancestry is pager-integrity-once → pager → krummi.
     anchored for the saved file.
   - Checked with a missing, zero-byte, blank, `.*` and bench-plan state file: each stops with its message before
     touching the plan, and the active plan stayed Balanced.
+- **L16** (2026-11-07): RDD of `5ab24ce..eb351fc` (the fixes of L15). Lenses resilience and readability. Approved,
+  lineage `review-8d9de4cd219de387`. Findings (suggestions), both comments, added in the next commit:
+  - R2-001: why the state file is read through interpolation.
+  - R2-002: the lowercase GUID pattern relies on `-match` ignoring case.
+  - The failure-path check of L15 still passes.

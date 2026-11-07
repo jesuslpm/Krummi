@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 # Enter-BenchPowerPlan.ps1: change both scripts together.
 $bench = '6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10'
 $state = Join-Path $env:LOCALAPPDATA 'krummi-bench-power.txt'
+# A GUID pattern; -match and -notmatch ignore case, so it also matches powercfg's uppercase GUIDs, if any.
 $guid = '[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 function Invoke-PowerCfg {
@@ -36,6 +37,8 @@ function Get-ActiveScheme {
 if (-not (Test-Path $state)) {
     throw "No saved plan in ${state}: run Enter-BenchPowerPlan.ps1 first, or activate your usual plan by hand."
 }
+# Interpolated, not cast: for a zero-byte file Get-Content -Raw returns nothing, and [string] of nothing stays null
+# on Windows PowerShell 5.1.
 $saved = "$(Get-Content $state -Raw)".Trim().ToLowerInvariant()
 if ($saved -notmatch "^$guid$" -or $saved -eq $bench) {
     throw "$state does not hold a usable plan ('$saved'): activate your usual plan by hand."
