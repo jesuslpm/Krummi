@@ -6,3 +6,14 @@
 2026-11-07T11:44:20+00:00	mark	implement	T3
 2026-11-07T12:05:41+00:00	bg-start	review	rdd T2-T4
 2026-11-07T12:07:40+00:00	bg-end	review	rdd T2-T4
+2026-11-07T12:15:44+00:00	bg-start	acceptance	T5 windows
+2026-11-07T12:49:59+00:00	bg-end	acceptance	T5 windows
+2026-11-07T12:49:59+00:00	bg-start	acceptance	T5 wsl
+2026-11-07T13:49:14+00:00	bg-end	acceptance	T5 wsl
+2026-11-07T13:49:52+00:00	bg-start	acceptance	T5 wsl round 1 rerun
+2026-11-07T13:49:57+00:00	bg-end	acceptance	T5 wsl round 1 rerun
+2026-11-07T13:50:11+00:00	bg-start	acceptance	T5 wsl round 1 rerun
+2026-11-07T14:05:26+00:00	bg-end	acceptance	T5 wsl round 1 rerun
+2026-11-07T14:06:11+00:00	bg-start	acceptance	T5 wsl W12 per commit
+2026-11-07T14:16:25+00:00	bg-end	acceptance	T5 wsl W12 per commit
+2026-11-07T14:17:02+00:00	mark	docs	T6

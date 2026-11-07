@@ -28,7 +28,7 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
 | T2 | S2, S4 | inline: pooled record buffers, compression straight into them, larger retention | done | `33a10d0`, L6 |
 | T3 | S2, S4 | inline: pooled page payloads in the write transaction | done | `20ceb1e`, L7 |
 | T4 | S3, S4 | inline: released own chunks kept for reuse | done | `f63507f`, L8 |
-| T5 | S5 | inline: single-load runs before and after, Windows and WSL 2 | pending | |
+| T5 | S5 | inline: single-load runs before and after, Windows and WSL 2 | done | L11 |
 | T6 | all | RDD per slice, Codex code review, plan update, closing report | pending | |
 
 ## Log
@@ -95,3 +95,28 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
   journal files while retired handles are open. Advisories: `remove_files` may now delete a file whose handle the
   writer has not closed yet, harmless with `FILE_SHARE_DELETE` on Windows and unlink on Linux; the test's
   `retired == 0` holds because the writer takes retired files before the next group. Scratch copies removed.
+- **L11** (2026-11-07): T5, single-load runs of `ca19201` (before) against `f63507f` (after), two alternated rounds,
+  median of three measured repetitions, benchmark power plan, release builds. Change in op/s, round 1 / round 2:
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W1 | +0.3 % / +1.0 % | +0.5 % / −1.8 % (mixed) |
+  | W2 | +22.7 % / +25.4 % | +3.3 % / +3.6 % |
+  | W3 | +2.1 % / +2.9 % | +0.2 % / +2.9 % |
+  | W12 | +0.4 % / +6.0 % | −13.0 % / −9.5 %; repeat −4.1 % / +2.6 % (mixed) |
+  | W13 | +2.1 % / +9.1 % | +2.8 % / +0.2 % |
+  | W14 | +24.7 % / +25.3 % | −1.8 % / +2.6 % (mixed) |
+  | W15 | +26.8 % / +25.8 % | +4.0 % / +3.9 % |
+  | W17 | +54.2 % / +76.1 % | +0.8 % / +11.2 % |
+  | W19 | +7.9 % / +8.5 % | +2.4 % / +2.6 % |
+  | W21 | +16.1 % / +16.9 % | −0.1 % / +3.9 % (mixed) |
+
+  On Windows every load improves in both rounds. On WSL 2 W12 was lower in both rounds, so it was measured again
+  with the intermediate commits (`95f3ff0`, `33a10d0`, `20ceb1e`) in two alternated rounds: before 1,688,643 /
+  1,675,265 reads/s, after 1,619,578 / 1,719,336, and no intermediate commit lower than before in both rounds. The
+  same `before` binary gave 1.63 M to 1.75 M reads/s across the sessions, so the first pair is taken as noise, as
+  with W21 in the write-path run. Incident: `wsl.exe` wrote the runs' error output over the start of `wsl.out`, which
+  lost round 1 of W1–W14 on WSL 2; that round was rerun inside WSL with its output written there. The first rerun
+  failed at once (`wsl.exe` split the command at `;`) and appears in the phase log as a 5-second background task.
+  S2's estimate holds on WSL 2 (W2 +3 %, W15 +4 %) and is exceeded on Windows (+23 % to +27 %); S3 on Windows
+  W17 +54 % / +76 %, on WSL 2 +1 % / +11 %. No load is lower in both rounds after the repeat (S5).
