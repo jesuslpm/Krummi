@@ -58,3 +58,6 @@ Review record: [2026-11-07-code.md](2026-11-07-code.md), wrapper status `finding
 `01a1b4a6-57be-7f30-8216-a0680146f7b9`. The telemetry gives the requested settings: coordinator `gpt-6.1-sol` /
 `high`, reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`. The report says the effective settings were not
 independently exposed.
+
+Checks before the follow-up, at `06f933b`: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D
+warnings` clean; `cargo test --workspace` 41 suites, 555 passed, 0 failed, 30 ignored (AC-J9 passed in this run).
