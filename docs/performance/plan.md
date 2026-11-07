@@ -192,6 +192,75 @@ was not profiled: samply needs administrator rights there.
   - `pwrite` and `fsync` run on the journal thread and take under 0.5 % of the committing thread.
   - No lock or allocator hotspot appeared.
 
+### Writes after O5–O7 (profiled on Windows and WSL 2 at `578efd8`, 2026-11-07)
+
+Six write loads (W2, W14, W15, W17, W19, W21), each a single-load worker run at full scale, profiled with samply on
+both platforms. Shares are of the committing thread unless marked otherwise.
+
+- **Reading the shares.** On Windows the samples include time a thread spends blocked (W2: 91k samples on the main
+  thread against 73k on WSL 2), so Windows shares are close to wall time and WSL 2 shares are CPU time. The WSL 2
+  profiles show no kernel frames.
+- **Method on Windows.** samply 0.13.1 records through ETW (administrator) but leaves the Rust functions unnamed
+  (`fun_<rva>`) even with the PDB next to the binary. The addresses were resolved afterwards with Windows' dbghelp
+  and the PDB, inline frames included (`work/prof/winsyms.py`, then `work/prof/agg.py`, both outside git).
+- **Where the time goes.**
+
+  | Load | Commit (W / L) | LZ4 (W / L) | Copies in the commit (W / L) | Tree (W / L) | Layout checks (W / L) |
+  |---|---|---|---|---|---|
+  | W2 | 68 / 59 | 24 / 33 | ≈20 / 17 | 30 / 40 | 8 / 15 |
+  | W14 | 66 / 61 | 25 / 34 | ≈21 / 17 | 33 / 38 | 6 / 9 |
+  | W15 | 67 / 63 | 24 / 36 | ≈22 / 18 | 32 / 35 | 5 / 6 |
+  | W17 | 77 / 69 | 4 / 10 | ≈23 / ≈38 | 9 / 14 | — / 2 |
+  | W19 | 62 / 50 | 29 / 34 | ≈12 / ≈13 | ≈38 / ≈50 | 16 / 22 |
+  | W21 | 73 / 60 | 15 / 25 | ≈21 / ≈27 | 26 / 39 | 0 / 2 |
+
+  W = Windows, L = WSL 2, in %. Sealing hashes each changed page (3.6–8.0 %, inherent to the format). Reading store
+  pages with their integrity hash takes 1–4 % on WSL 2 and 4.6–5.8 % on Windows.
+- **What O5–O7 did.** Against the O1–O4 profiles (WSL 2, main-thread samples): W14, W15 and W21 −12 % to −13 %, W2
+  −4 %, W19 +11 % (noise or not, unexplained).
+  - O7 removed most of the writer's hashing on the way down (`run_with` 10.5 → 6.1 % in W14, 8.2 → 2.1 % in W21).
+  - O5's encoder cut LZ4's samples in W2 and W14, not in W21.
+  - O5's slot sealing removed `store_run`, but the copy moved into `stage`, so memory copies barely fell.
+- **O6 missed the random loads.** A page read from a scratch-area version comes back without an integrity code
+  (`crates/krummi-pager/src/scratch.rs:1014`), becomes `PageCheck::Unverified` (`crates/krummi-tx/src/transaction.rs:253`)
+  and is layout-checked on every read (C3; `crates/krummi-tree/src/lib.rs:282`). Under random keys the root and
+  branches are rewritten by almost every commit, so they live as scratch versions. O6 covers only pages the
+  transaction itself changed. `is_valid` still takes 15 % of W2 and 22 % of W19 on WSL 2. How much of it is
+  scratch versions is inferred, not counted.
+- **Windows only.**
+  - **Waiting for durability, 6–16 %, per commit:** `wait_durable` (`crates/krummi-pager/src/journal.rs:550`) waits
+    for the journal thread's unbuffered write-through `WriteFile`. It grows with the record's size. Lock contention
+    is 0.3 %.
+  - **Rolling the journal file, 5–12 %, on the committing thread:** `CloseHandle` under `roll < enqueue <
+    commit_with` (`journal.rs:484-505`, `:543`) takes 3.5–8.4 %. The old file was already deleted while open, so the
+    deletion completes at this close (inferred). Creating, sizing and flushing the next file adds 1–2 %. On WSL 2
+    `roll` takes 1.3 % or less.
+  - **Page faults, 10–15 %:** first touch of mapped data-file pages read again after a transfer (3.5–6.3 %, cause
+    unconfirmed); a fresh aligned buffer per record (`from_parts`, and `EncodeBuffers` frees anything above 8 MiB
+    after each commit, `journal.rs:165-175`); zeroed payloads in `copy_for_write`; and freeing them.
+  - **W17, one temporary-area file per value run:** when the free slots are fragmented, a run gets its own chunk, and
+    each own chunk is a new file (`crates/krummi-pager/src/temp.rs:218`, `:251`), closed and removed on release.
+    Creating it passes through the file system filters, Defender included, and takes 34 % of W17 on Windows; releasing
+    it takes 11 %. On WSL 2 the same takes about 18 %.
+- **O5's leftovers.**
+  - The raw payload copy before LZ4: about 5–8 % on WSL 2 and 11 % on Windows (24 % of W17 on WSL 2).
+  - The group copy: about 0. With one durable writer each group holds one record (`journal.rs:770-799`).
+- **Candidates, by measured share.**
+  1. O8, journal the changed bytes: LZ4 (24–36 % of W2, W14, W15 and W19) and the raw payload copy, and a smaller
+     record shortens the Windows wait. Needs a PRD (journal format and recovery).
+  2. Layout check of scratch-area versions, remembered like that of store pages: up to 15–22 % of W2 and W19 (WSL 2).
+     Amends C3; needs a PRD. Count first how much of `is_valid` it covers.
+  3. Roll the journal file off the commit (create the next file and close the old one on the journal thread): 5–12 %
+     on Windows. No observable change, if the new file is still durable before its first write.
+  4. Reuse the commit's buffers: compress straight into a pooled aligned record buffer, stop trimming at 8 MiB, and
+     pool page payloads instead of zeroing them. Estimated 8–15 % on Windows, 3–7 % on WSL 2. No observable change.
+  5. Reuse own temporary-area chunks for value runs: about 45 % of W17 on Windows and 18 % on WSL 2. No observable
+     change.
+  6. A cheaper version lookup in the scratch area (fast integer hash for its `HashMap`): estimated 3–6 % on WSL 2.
+  7. Remember a page after the transfer writes it (amends I4; PRD): 1–4 % on WSL 2, 4.6–5.8 % on Windows.
+  8. Diagnose the Windows faults on mapped data pages (3.5–6.3 %) with a page-fault trace before changing anything.
+  9. O5's group copy: about 0 with one writer; leave it until concurrent writers are profiled.
+
 ## Optimizations
 
 ### O1 — Read the pager's mapping without a lock
@@ -359,3 +428,4 @@ Each step closes with complete runs on Windows and Linux, so the next diagnosis 
 | 2026-11-07 | O5, part of the commit's page copies removed (the raw payload copy and the copy of a group of several records stay, pending in O5's status; a user decision) | `6794ebc` | Single-load runs, before → after: on Windows W2, W14, W15, W19 and W21 +14 % to +24 %, W17 mixed; on WSL 2 W2 +1 %, W14 +6 %, W15 +9 %, W17 and W21 mixed, W19 −0.4 % / −0.5 %. Journal and data file bytes pinned ([execution](../../odd/tasks/write-path.md)) |
 | 2026-11-07 | O6 and O7, a writer checks a changed node's layout once per change and uses the page integrity remembered while the store is open | `f7b19d8`, `2b11374` | Single-load runs, O5 → O7: W1 +66 % to +95 % on Windows, +15 % to +18 % on WSL 2; W3 +49 % to +51 % on both; W2, W14, W15 and W21 +2 % to +6 % on Windows; on WSL 2 W14 and W15 improve, W2 is mixed and W21 −3 % in both rounds, both improving in a repeat. AC-S8 met as an intermediate step (annotation of 2026-11-07 to the PRD; [execution](../../odd/tasks/write-path.md)) |
 | 2026-11-07 | Complete runs after O5, O6 and O7 | `c98d8c9` | Thresholds met: Windows 12 of 22 (was 10, adds W1 and W3), Linux 13 of 22 (was 10, adds W1, W3 and W18). Ratio Krummi / Voron, W1: 0.47 → 0.90 on Windows, 0.76 → 1.04 on Linux; W3: 0.53 → 0.82, 0.55 → 0.92. Of the drops beyond 0.05 (Windows W6, W16 and W22, Linux W6 and W8), single-load runs confirm only Windows W22: about −5 %, from O7's code, not the store or O6 (cross tests on one store: O6 +1.3 % over O5, O7 −4.2 % under O6, lower in 6 of 6 rounds). O7 does not change what a read transaction does; the mechanism is unproven (generated code is one hypothesis) and needs a profile. Deferred, user's decision: item 10 of [Order](#order). Last runs with Defender scanning on Windows ([Windows](../benchmark/2026-11-07-windows.md), [Linux](../benchmark/2026-11-07-linux.md)) |
+| 2026-11-07 | Diagnosis of the writes after O5–O7 | — | Profiles of W2, W14, W15, W17, W19 and W21 on Windows (first time) and WSL 2: LZ4 still 24–36 % of the random loads; O6 missed them because scratch-area versions are layout-checked on every read; Windows adds waiting for durability (6–16 %), the journal roll's `CloseHandle` (5–12 %), page faults (10–15 %) and one temporary file per large value (45 % of W17). Nine candidates ranked (this document, *Writes after O5–O7*) |
