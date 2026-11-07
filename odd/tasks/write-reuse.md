@@ -24,10 +24,10 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| T1 | S1, S4 | inline: the journal thread closes the old file | pending | |
-| T2 | S2, S4 | inline: pooled record buffers, compression straight into them, larger retention | pending | |
-| T3 | S2, S4 | inline: pooled page payloads in the write transaction | pending | |
-| T4 | S3, S4 | inline: released own chunks kept for reuse | pending | |
+| T1 | S1, S4 | inline: the journal thread closes the old file | done | `f4e0e8a`, `95f3ff0`, L4, L5 |
+| T2 | S2, S4 | inline: pooled record buffers, compression straight into them, larger retention | done | `33a10d0`, L6 |
+| T3 | S2, S4 | inline: pooled page payloads in the write transaction | done | `20ceb1e`, L7 |
+| T4 | S3, S4 | inline: released own chunks kept for reuse | done | `f63507f`, L8 |
 | T5 | S5 | inline: single-load runs before and after, Windows and WSL 2 | pending | |
 | T6 | all | RDD per slice, Codex code review, plan update, closing report | pending | |
 
@@ -47,3 +47,51 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
   - T2 and T3 keep retained memory bounded: buffers above 32 MiB are given back, as those above 8 MiB were. 32 MiB
     covers W17's commits (256 values of 64 KiB, about 17 MiB of record), which today allocate and free every time.
   - T4 reuses a released own chunk only for a run of exactly its size, and keeps at most 32 MiB of them.
+- **L4** (2026-11-07): T1, commit `f4e0e8a`. A roll hands the old file to `State::retired`; the writer takes the
+  retired files with its group and drops them outside the lock; `close` drains them. RED: the committing thread
+  closed 2 files in `the_journal_thread_closes_the_file_a_commit_rolls_away_from`; GREEN after. Risk: item 4
+  (concurrency: the writer's wake-up loop and where a file handle is dropped).
+- **L5** (2026-11-07): RDD review of T1 (`ca19201..f4e0e8a`), lenses resilience and reliability, approved, lineage
+  `review-7d830f865fc9696e`, acknowledged. Findings:
+  - R4-001 (warning) and R3-retired-wakeup-dependency (warning): retired files rely on the enqueue's notify. No
+    failure path follows a successful roll in `enqueue`, but the roll now notifies itself. Fixed in `95f3ff0`.
+  - R4-002 (suggestion): `close` kept retired files open across the last group's write. Fixed in `95f3ff0`.
+  - R3-closing-test-only-negative (warning): the test checked only the negative. It now checks that three files
+    were rolled and that none is left to close. Fixed in `95f3ff0`.
+- **L6** (2026-11-07): T2, commit `33a10d0`. `AlignedBuf` has a capacity and `set_len`; every byte of the capacity
+  stays initialized. A commit compresses straight into a spare record buffer (smallest that fits) or a zeroed new
+  one; the writer gives records back once their group is durable. The `compressed` buffer is gone. Retention:
+  32 MiB for the payload buffer and for the spare records in all. O4's golden record hashes pass with records
+  built in reused buffers. Test `a_record_is_built_in_the_buffer_the_writer_gave_back` (new API, so RED was a
+  compile failure). Assessment: medium, under budget.
+- **L7** (2026-11-07): T3, commit `20ceb1e`. The `Engine` keeps up to 32 MiB of page payloads of earlier commits
+  (store on disk only), and `copy_for_write` takes one through `krummi_pager::reuse_payload`, which keeps the
+  `Op::Alloc` fault point. `add_zeroed` still allocates zeroed payloads. RED: `spare_payloads` was 0 after a commit;
+  GREEN after. Golden bytes of the commit (`bytes_tests`) pass. Assessment: medium, under budget.
+- **L8** (2026-11-07): T4, commit `f63507f`. Released own chunks of a store on disk are kept, all of one size and at
+  most 32 MiB, and a run of that size takes one without creating a file. Deviation from L3, found by the tests:
+  `runs.rs` checks that the files of `krummi.temp` count against the maximum size (P10, T14), so chunks are kept
+  only without a maximum size, which is the benchmark's case. The R1 test of the large values review now expects
+  the last own chunk kept on disk. RED: 2 new tests failed; GREEN after; 568 workspace tests pass. Assessment:
+  medium, under budget.
+- **L9** (2026-11-07): RDD review of T2–T4 (`f4e0e8a..f63507f`), lenses risk, resilience and reliability,
+  approved, lineage `review-e90cf5ae517e6501`, acknowledged. Findings:
+  - R3-padding-tail (warning): reused buffers zero only up to `record_len()`, and `set_len` rounds up to
+    `DIRECT_ALIGN`. Dismissed with evidence: `record_len()` is a multiple of `ALIGN` (4096), and
+    `journal.rs:276` asserts at compile time that `ALIGN` is a multiple of `DIRECT_ALIGN` (4096,
+    `sys.rs:479`), so the rounding adds nothing.
+  - R1-001 (suggestion): kept own chunks hold an earlier run's bytes on disk longer. Dismissed: freed slots of
+    shared chunks already do, nothing reads them, and the next run overwrites the whole chunk.
+  - R4-001 (suggestion): a store on disk can now retain up to 32 MiB each of payload buffer, spare records, page
+    payloads and kept own chunks, where it retained about 16 MiB. Accepted as the cost of the change; recorded in
+    the plan.
+  - R3-queue-capacity (suggestion): a small record can take a larger spare buffer, so a full queue may hold more
+    than its 8 MiB limit in capacity, by at most the 32 MiB retained. Accepted: bounded by the retention.
+- **L10** (2026-11-07): independent verifier of T1 (risk item 4), sonnet at high effort, on a scratch copy of
+  `95f3ff0`: S1 pass, S4 pass, no blockers. It ran the `krummi-pager` and `krummi-tx` suites, also with
+  `KRUMMI_JOURNAL_BUFFERED=1`, `journal` and `recovery` five times each, and six throwaway probes ten times: a paused
+  writer still drains retired files; close while paused with queued records; a writer blocked in the sync hook
+  piles retired files up and then drains them; a write fault after rolls; a journal dropped without close; removing
+  journal files while retired handles are open. Advisories: `remove_files` may now delete a file whose handle the
+  writer has not closed yet, harmless with `FILE_SHARE_DELETE` on Windows and unlink on Linux; the test's
+  `retired == 0` holds because the writer takes retired files before the next group. Scratch copies removed.
