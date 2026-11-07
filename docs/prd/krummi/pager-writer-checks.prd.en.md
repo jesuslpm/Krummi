@@ -148,6 +148,12 @@ alter bytes. The counts are made with a single thread.
    and those of the full runs with those of 2026-11-06, with the single-workload ones that confirm or discard each drop
    of more than 0.05 (S5).
 
+    *Annotation of 2026-11-07: AC-S8 is met as an intermediate step (user's decision). On Windows the six workloads
+    improve. On Linux (WSL 2), with the two rounds of S5, W2 is mixed (−2.5 % and +6.9 %) and W21 is lower in both
+    (−2.9 % and −3.2 %). Two more rounds in the same session put both higher: W2 +2.0 % and +2.4 %, W21 +0.9 % and
+    +4.7 %. Those effects are smaller than the noise between the repetitions of one run (4.5 % to 5.6 % typical), so
+    two rounds cannot tell them apart.*
+
 ## Annotations to other PRDs
 
 This PRD changes or refines rules of earlier documents, which carry the corresponding annotations:

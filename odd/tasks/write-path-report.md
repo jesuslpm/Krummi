@@ -1,4 +1,4 @@
-# O5, O6 y O7: implementados y verificados; AC-S8, el alcance de O5 y la bajada de W22 esperan tu decisión
+# O5, O6 y O7: implementados y verificados; el alcance de O5 y la bajada de W22 esperan tu decisión
 
 Informe de cierre de `write-path` (2026-11-07). Enfoque de ejecución: ODD. Fuentes: O5 del
 [plan de rendimiento](../../docs/performance/plan.md), sin PRD (anotación de K13 del 2026-11-04), y
@@ -59,7 +59,7 @@ Rama `perf/write-path`, que parte de `perf/commit-copies` (`9ac34a8`), sin fusio
 | AC-S5 | `ac_s5_a_write_fails_on_every_read_of_a_damaged_page` | PASS |
 | AC-S6 | `ac_s6_a_write_uses_a_remembered_leaf_altered_while_open`, `ac_s6_a_write_uses_a_remembered_fixed_size_leaf_altered_while_open` | PASS |
 | AC-S7 | `ac_s7_a_version_in_the_scratch_area_is_checked_on_every_read_of_a_write` | PASS |
-| AC-S8 | Cargas sueltas de L12; ejecuciones completas y confirmaciones de L13 | Windows: PASS. WSL 2: FAIL por la regla (W2 mixto, W21 −3 %); pendiente de tu decisión |
+| AC-S8 | Cargas sueltas de L12; ejecuciones completas y confirmaciones de L13 | Windows: PASS. WSL 2: no por la regla (W2 mixto, W21 −3 %); aceptado como paso intermedio (anotación del 2026-11-07) |
 
 ## RDD reviews
 
@@ -208,8 +208,8 @@ plataformas.
 
 ## Pending (non-blocking)
 
-- **AC-S8 en WSL 2 (R1):** aceptarlo, volver a medir o enmendar el criterio. Decisión tuya; el código funciona y los
-  tests pasan.
+- **AC-S8 en WSL 2 (R1):** resuelto por tu decisión: se cumple como paso intermedio (anotación del 2026-11-07). La
+  próxima medición empieza con una prueba A/A.
 - **Alcance de O5 (R2):** cerrar O5 como paso parcial, siguiendo las dos copias restantes, o seguir con ellas.
   Decisión tuya.
 - **W22 en Windows (R3):** −4 % a −5 % por O7, con el mecanismo sin probar. Perfilarla y corregirla ahora o

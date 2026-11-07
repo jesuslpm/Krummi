@@ -28,7 +28,7 @@ its ancestry is pager-integrity-once → pager → krummi.
 | T1 | S1–S3 | delegated writer (long-session backstop): O5 | done, partial (two S1 copies kept, L6; user decision, L18) | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
 | T2 | S4 (S1 of the PRD) | delegated writer (long-session backstop): O6 | done | `f7b19d8`, L8 |
 | T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
-| T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 not met on WSL 2 by the rule: user decision) | L12 |
+| T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 met as an intermediate step, L22) | L12, L22 |
 | T5 | S5 | inline: complete runs on Windows and WSL 2 | done | L13 |
 | T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | done (R1–R3 of Codex pending for the user) | L14–L21 |
 
@@ -239,3 +239,6 @@ its ancestry is pager-integrity-once → pager → krummi.
   what a read transaction does unchanged, and the mechanism stays unproven until profiled. Fixed in the plan's
   history; this entry and the resolutions correct L18's wording.
 - **L21** (2026-11-07): closing report: [write-path-report.md](write-path-report.md). Nothing merged or pushed.
+- **L22** (2026-11-07): user's decision on R1, verbatim: "Sí", to "¿Lo damos por cumplido con la anotación?".
+  AC-S8 is met as an intermediate step: annotation of 2026-11-07 to AC-S8 in `pager-writer-checks.prd.md` and its
+  translation. The plan's *Measurement method* adds an A/A run at the start of the next measurement.

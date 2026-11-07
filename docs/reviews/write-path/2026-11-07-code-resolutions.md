@@ -81,3 +81,9 @@ The loop stops after two rounds: a third could only repeat that R1, R2 and R3 wa
 R3's resolution above says "the drop is in how that code compiles". That overstates it: O7 leaves what a read
 transaction does unchanged, and generated code is only a hypothesis until a profile shows the mechanism (RDD
 `review-bb5bf2e8bcce7738`, R2-001). The plan's history row now says so.
+
+## 2026-11-07 (user decision)
+
+- **R1:** the user accepts AC-S8 as met, as an intermediate step ("Sí"). Annotation of 2026-11-07 to AC-S8 in
+  [pager-writer-checks.prd.md](../../prd/krummi/pager-writer-checks.prd.md) and its translation. Disposition: resolved
+  by a product decision, unverified until a follow-up review.

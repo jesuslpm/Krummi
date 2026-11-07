@@ -150,6 +150,12 @@ el área temporal y para alterar bytes. Las cuentas se hacen con un solo hilo.
    comparaciones y las de las ejecuciones completas con las del 2026-11-06, con las de una sola carga que confirmen o
    descarten cada bajada de más de 0,05 (S5).
 
+    *Anotación del 2026-11-07: AC-S8 se cumple como paso intermedio (decisión del usuario). En Windows mejoran las seis
+    cargas. En Linux (WSL 2), con las dos rondas de S5, W2 sale mixto (−2,5 % y +6,9 %) y W21 queda por debajo en las
+    dos (−2,9 % y −3,2 %). Dos rondas más en la misma sesión dan las dos por encima: W2 +2,0 % y +2,4 %, W21 +0,9 % y
+    +4,7 %. Esos efectos son menores que el ruido entre las repeticiones de una misma ejecución (del 4,5 % al 5,6 %
+    típico), así que dos rondas no los distinguen.*
+
 ## Anotaciones a otros PRD
 
 Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotaciones correspondientes:
