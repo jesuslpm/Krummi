@@ -30,7 +30,7 @@ its ancestry is pager-integrity-once → pager → krummi.
 | T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
 | T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 not met on WSL 2 by the rule: user decision) | L12 |
 | T5 | S5 | inline: complete runs on Windows and WSL 2 | done | L13 |
-| T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | pending | |
+| T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | done (R1–R3 of Codex pending for the user) | L14–L21 |
 
 ## Log
 
@@ -238,3 +238,4 @@ its ancestry is pager-integrity-once → pager → krummi.
   the resolutions stated as a fact that W22's drop comes from how O7's code compiles. That is a hypothesis: O7 leaves
   what a read transaction does unchanged, and the mechanism stays unproven until profiled. Fixed in the plan's
   history; this entry and the resolutions correct L18's wording.
+- **L21** (2026-11-07): closing report: [write-path-report.md](write-path-report.md). Nothing merged or pushed.
