@@ -212,6 +212,25 @@ Rules of the form:
   `0,80` or more always meets the threshold. When Voron's metric is 0, for example in W12 if no Voron reader finishes
   a read while the writer writes, the ratio is shown as `∞` if Krummi's is greater than 0 and `0,00` if it is 0 too,
   and the threshold is met, because the comparison of K7 is Krummi's metric against 0.80 times Voron's.
+
+  *Annotation of 2026-11-07, which replaces "with no thousands separator" (user's decision: «es difícil leer los datos
+  sin estos separadores»):*
+  - *The cells for operations per second and for sizes in the two tables carry a thousands separator: they are rounded
+    to the nearest integer, ties upward, and then a dot is written every three digits from the right, also with four
+    digits, whatever the regional settings of the machine. So 999.6 is shown as `1.000`, 1184 as `1.184`, 134217728
+    as `134.217.728`, and 86 and 0 do not change.*
+  - *The Krummi / Voron ratio stays truncated to two decimals with a comma, and the integer part of the truncated value
+    carries the same separator from one thousand: 2500.009 is shown as `2.500,00`; 999.999 is shown as `999,99`, and
+    79.62 does not change.*
+  - *Nothing else changes: `∞`, `0,00`, `no aplica`, `sin evaluar`, the Resultado sentence and everything outside
+    those cells (date, system, processor, memory, disk, commit, versions and changed options).*
+  - *The benchmark reports stored in the repository, and not the tables copied from them into other documents, are
+    converted to this form in a commit of their own, changing only the cells of the two tables. When the dots are
+    removed from those cells, each report is again identical to the original byte for byte, line endings included
+    (AC-K15).*
+  - *AC-K2 compares against expected texts that carry the separators, and includes cases with 999.6, 1184, 134217728,
+    86 and 0, and a ratio of 2500.009.*
+  - *The example above predates this annotation: the form of its numbers is replaced by this one.*
 - The *Umbral* column says `cumple` or `incumple`. In a reduced run, *Ejecución* says `reducida`, *Repeticiones* says
   `1 medida`, *Resultado* says `Ejecución reducida, sin umbrales.` and the *Umbral* column says `sin evaluar`; the
   other columns and the size table are shown the same.
@@ -290,6 +309,9 @@ They check this module. AC19 of the parent is checked by the maintainer before e
    Krummi's greater than 0 (which is shown as `∞` and meets), both of 0 (which is shown as `0,00` and meets), reduced
    run, no changed options
    and unknown machine data.
+
+   *Annotation of 2026-11-07: the expected texts carry a thousands separator, with the cases added by the annotation
+   of the same day in [Output](#output).*
 3. **AC-K3** — Given injected results, when the benchmark evaluates each threshold, then it says `cumple` if and only
    if Krummi's metric is at least 0.80 times Voron's unrounded (K7), also when Voron's is 0, and the exit code is `0` if all say `cumple` and
    `1` if any says `incumple`.
@@ -323,6 +345,10 @@ They check this module. AC19 of the parent is checked by the maintainer before e
     name of K10 and the working subfolder no longer exists.
 14. **AC-K14** — Given the Krummi library, when its dependency tree is computed, then it contains no package of the
     benchmark nor of the other engines, and the check of AC21 of the parent still passes (K14).
+15. **AC-K15** — *(added on 2026-11-07)* Given the benchmark reports stored in the repository before the annotation
+    of 2026-11-07 to *Output*, when they are converted, then every number of four digits or more in their two tables
+    carries a thousands separator, and when the dots are removed from those cells each report is identical byte for
+    byte to the one before the conversion.
 
 ## Annotations to other PRDs
 
