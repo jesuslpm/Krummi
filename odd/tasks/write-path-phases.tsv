@@ -8,3 +8,20 @@
 2026-11-06T21:54:28+00:00	mark	implement	T3
 2026-11-06T22:06:27+00:00	mark	checks	T3
 2026-11-06T22:10:02+00:00	mark	review	T6
+2026-11-06T22:29:44+00:00	mark	acceptance	T4
+2026-11-06T22:29:49+00:00	bg-start	acceptance	T4 windows
+2026-11-06T23:20:37+00:00	bg-end	acceptance	T4 windows
+2026-11-06T23:20:37+00:00	bg-start	acceptance	T4 wsl
+2026-11-07T01:05:53+00:00	bg-end	acceptance	T4 wsl
+2026-11-07T01:05:53+00:00	bg-start	acceptance	T5 complete windows
+2026-11-07T02:27:47+00:00	bg-end	acceptance	T5 complete windows
+2026-11-07T02:27:47+00:00	bg-start	acceptance	T5 complete wsl
+2026-11-07T05:38:48+00:00	bg-end	acceptance	T5 complete wsl
+2026-11-07T05:39:01+00:00	mark	acceptance	T4
+2026-11-07T05:40:09+00:00	bg-start	acceptance	T5 confirm windows
+2026-11-07T05:42:13+00:00	bg-end	acceptance	T5 confirm windows
+2026-11-07T05:42:13+00:00	bg-start	acceptance	T5 confirm wsl
+2026-11-07T06:07:20+00:00	bg-end	acceptance	T5 confirm wsl
+2026-11-07T06:07:38+00:00	bg-start	acceptance	T5 W22 bisect
+2026-11-07T06:08:29+00:00	bg-end	acceptance	T5 W22 bisect
+2026-11-07T06:09:51+00:00	mark	docs	T5

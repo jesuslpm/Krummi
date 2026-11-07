@@ -28,8 +28,8 @@ its ancestry is pager-integrity-once → pager → krummi.
 | T1 | S1–S3 | delegated writer (long-session backstop): O5 | done | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
 | T2 | S4 (S1 of the PRD) | delegated writer (long-session backstop): O6 | done | `f7b19d8`, L8 |
 | T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
-| T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | pending | |
-| T5 | S5 | inline: complete runs on Windows and WSL 2 | pending | |
+| T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 not met on WSL 2 by the rule: user decision) | L12 |
+| T5 | S5 | inline: complete runs on Windows and WSL 2 | done | L13 |
 | T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | pending | |
 
 ## Log
@@ -133,3 +133,55 @@ its ancestry is pager-integrity-once → pager → krummi.
       - A3: S2 does not name the meta page. The writer now reads it like readers do, and opening still checks it.
       - A4: AC-S1 asserts against the transaction's own event log, but the hash probe covers the same invariant
         independently.
+- **L12** (2026-11-07): T4, single-load runs. Two rounds per pair with the order alternated, median of 3 measured
+  reps; binaries built from `b9514cf` (before, same code as the complete runs of 2026-11-06 at `2fdf8e9`), `6794ebc`
+  (O5) and `c98d8c9` (O7). Change of the median in round 1 and round 2, and the verdict of S5 of the PRD:
+
+  | Pair | Load | Windows | WSL 2 |
+  |---|---|---|---|
+  | before → O5 | W2 | +22.7 %, +15.8 %, improves | +1.4 %, +1.3 %, improves |
+  | before → O5 | W14 | +16.5 %, +19.1 %, improves | +6.0 %, +6.5 %, improves |
+  | before → O5 | W15 | +17.0 %, +15.9 %, improves | +8.5 %, +9.5 %, improves |
+  | before → O5 | W17 | −15.2 %, +6.3 %, mixed | −31.4 %, +39.7 %, mixed |
+  | before → O5 | W19 | +21.9 %, +24.1 %, improves | −0.4 %, −0.5 %, worse |
+  | before → O5 | W21 | +13.9 %, +17.7 %, improves | +2.6 %, −0.1 %, mixed |
+  | O5 → O7 | W1 | +95.0 %, +66.1 %, improves | +18.3 %, +14.6 %, improves |
+  | O5 → O7 | W3 | +49.7 %, +51.0 %, improves | +50.0 %, +48.9 %, improves |
+  | O5 → O7 | W2 | +2.1 %, +5.3 %, improves | −2.5 %, +6.9 %, mixed |
+  | O5 → O7 | W14 | +1.6 %, +2.5 %, improves | +3.7 %, +6.9 %, improves |
+  | O5 → O7 | W15 | +2.4 %, +5.7 %, improves | +1.1 %, +1.8 %, improves |
+  | O5 → O7 | W21 | +3.2 %, +3.6 %, improves | −2.9 %, −3.2 %, worse |
+
+  - AC-S8: met on Windows. On WSL 2, by the rule, not met: W2 is mixed and W21 worse. A diagnostic repeat of the
+    same pairs on WSL 2 (two more rounds, after the complete runs) gives W2 +2.0 %, +2.4 % and W21 +0.9 %, +4.7 %:
+    both improve. The rule's result stands; whether to accept it is left to the user, after the Codex review.
+  - Noise: the spread between the fastest and slowest measured rep of a row, over its median, is 4.5 % typical on
+    Windows (up to 20 %) and 4.6 % to 5.6 % on WSL 2 (up to 37 %), larger than the 2 % to 3 % effects the rule
+    has to tell apart in W2 and W21.
+  - O5 has no PRD; its targets (S3) improve on Windows except W17 (mixed). On WSL 2, W2, W14 and W15 improve, W17 and
+    W21 are mixed and W19 is 0.4 % to 0.5 % lower in both rounds.
+  - Outputs: `work/o5/{o5,o7}-{win,wsl}.out`, `work/o5/repeat-wsl.out`.
+- **L13** (2026-11-07): T5, complete runs at `c98d8c9`, against those of 2026-11-06
+  ([Windows](../../docs/benchmark/2026-11-07-windows.md), [Linux](../../docs/benchmark/2026-11-07-linux.md)).
+  - Thresholds met: Windows 12 of 22 (was 10; adds W1 and W3), Linux 13 of 22 (was 10; adds W1, W3 and W18).
+  - Ratio Krummi / Voron: W1 0.47 → 0.90 on Windows, 0.76 → 1.04 on Linux; W3 0.53 → 0.82 and 0.55 → 0.92; W10
+    1.03 → 1.67 and 1.40 → 1.74.
+  - On WSL 2 every engine measured slower than on 2026-11-06 (Voron W1 111,720 → 56,866 op/s, fjall W14 93,811 →
+    58,310), so only the ratios compare.
+  - Drops of more than 0.05, with single-load runs against the before binary (`work/o5/confirm-{win,wsl}.out`):
+    - Windows W6 2.26 → 2.01: +1.3 %, +26.7 %, not confirmed.
+    - Windows W16 41.55 → 36.43 (Voron 2 → 3 op/s): +16.3 %, −5.2 %, not confirmed.
+    - Windows W22 1.27 → 0.94: −4.6 %, −4.1 %, **confirmed**.
+    - Linux W6 9.60 → 8.06: −3.1 %, +0.2 %, not confirmed.
+    - Linux W8 1.09 → 1.04 (at the limit): +2.9 %, −4.2 %, not confirmed.
+  - W22 on Windows, located:
+    - before → O5: −3.6 %, +0.1 %, mixed.
+    - O5 → O7: −22.0 %, −21.0 %, with reps from 2.1 to 3.5 million op/s.
+    - A cross test separates code from store (`cross.py`, four alternated rounds, each binary reading the W21 store of
+      O5 and of O7). The O7 binary reads 5.7 % slower (lower in 6 of 8 pairs on the same store), and the store
+      changes it by 2.5 %. So the drop is about 5 % and comes from the code.
+    - O7 changes no read path (only when a value run read is remembered). O6 replaced `Option<u64>` with `PageCheck`
+      in the node read that readers share, so it is the likely cause, unproven.
+    - W22 is a read load, so AC-S8 does not cover it. It counts as worse by the noise rule; follow-up in the plan.
+  - Environment change after these runs: Microsoft Defender now excludes `work/`, and `scripts/power/` sets a
+    steady power plan (plan, *Measurement method*). The next comparison measures its baseline again.

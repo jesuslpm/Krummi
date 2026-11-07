@@ -63,6 +63,16 @@ On Linux the single and concurrent durable writes (W4–W6) meet their threshold
   on different days move by more than 0.05, also for the engines that do not change (annotation of 2026-11-06 to
   AC-I12 of [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md)). While iterating, the single-load worker run measures
   before and after.
+- **Windows environment.** Since 2026-11-07, Microsoft Defender's real-time scan excludes `C:\projects\Krummi\work`
+  (added by the user as administrator), and every Windows measurement writes its stores there: single-load runs
+  under `work/`, complete runs with `--carpeta C:\projects\Krummi\work\bench`. Earlier Windows runs had the scan on (complete
+  runs wrote to `%TEMP%`), so they are not comparable with later ones: the next comparison measures its baseline again in
+  the new environment. WSL 2 is unchanged (its stores live inside the Linux virtual disk).
+- **Power plan.** Before a run, `scripts/power/Enter-BenchPowerPlan.ps1` switches to a temporary plan with processor
+  boost off, every core unparked at its full non-boost state, and no sleep; `scripts/power/Exit-BenchPowerPlan.ps1`
+  restores the user's plan afterwards. With boost off the laptop heats less and the frequency stays the same over
+  the run, at the cost of longer runs; `-Boost` keeps boost on. The record of a run notes which plan it used (the benchmark
+  report does not), and runs under different plans are not compared.
 
 ## Diagnosis
 
@@ -331,3 +341,6 @@ Each step closes with complete runs on Windows and Linux, so the next diagnosis 
 | 2026-11-06 | O3, remembered page integrity | `13489d1` | Single-load runs, before → after: W7 +87 % to +126 % on Windows, +104 % to +113 % on WSL 2; W9 +231 % / +163 % to +175 %; W22 +245 % to +261 % / +104 % to +220 %. Codex R1 (a run's length mark can be evicted) left as a user decision ([report](../../odd/tasks/integrity-once-report.md)) |
 | 2026-11-06 | O4, fewer zeroed buffers and allocations in the commit | `d95da27` | Single-load runs, before → after: W21 +17 % to +20 % and W14 +9 % to +10 % on Windows, W2 and W4 +3 % to +9 %; on WSL 2 every write load within noise; journal record bytes pinned ([execution](../../odd/tasks/commit-copies.md)) |
 | 2026-11-06 | Complete runs after O3 and O4 | `2fdf8e9` | Thresholds met: Windows 10 of 22 (was 6, adds W7, W8, W9 and W22), Linux 10 of 22 (was 5, adds W7, W8, W9, W20 and W22). Ratio Krummi / Voron, W7: 0.50 → 1.23 on Windows, 0.54 → 1.03 on Linux; W22: 0.52 → 1.27, 0.38 → 1.21. By the 0.05 rule, Windows W10, W11 and W20 and Linux W2, W4–W6, W14–W17 count as worse; Krummi's own op/s fall only in Windows W10 (−30 %) and Linux W2, W4–W6, W14–W17 (−4 % to −20 %), and single-load runs against `3ec8641` (before O3) show none of them lower: W10 +5 % / +10 % on Windows; W2, W14, W15 and W17 +0 % to +9 % on WSL 2; W16 +1 % and −32 % with reps from 254 to 606 ([Windows](../benchmark/2026-11-06-windows.md), [Linux](../benchmark/2026-11-06-linux.md)) |
+| 2026-11-07 | O5, each changed page copied once in the commit | `6794ebc` | Single-load runs, before → after: on Windows W2, W14, W15, W19 and W21 +14 % to +24 %, W17 mixed; on WSL 2 W2 +1 %, W14 +6 %, W15 +9 %, W17 and W21 mixed, W19 −0.4 % / −0.5 %. Journal and data file bytes pinned ([execution](../../odd/tasks/write-path.md)) |
+| 2026-11-07 | O6 and O7, writer checks once per change and per transaction | `f7b19d8`, `2b11374` | Single-load runs, O5 → O7: W1 +66 % to +95 % on Windows, +15 % to +18 % on WSL 2; W3 +49 % to +51 % on both; W2, W14, W15 and W21 +2 % to +6 % on Windows; on WSL 2 W14 and W15 improve, W2 is mixed and W21 −3 % in both rounds, both improving in a repeat. AC-S8 left to the user ([execution](../../odd/tasks/write-path.md)) |
+| 2026-11-07 | Complete runs after O5, O6 and O7 | `c98d8c9` | Thresholds met: Windows 12 of 22 (was 10, adds W1 and W3), Linux 13 of 22 (was 10, adds W1, W3 and W18). Ratio Krummi / Voron, W1: 0.47 → 0.90 on Windows, 0.76 → 1.04 on Linux; W3: 0.53 → 0.82, 0.55 → 0.92. Of the drops beyond 0.05 (Windows W6, W16 and W22, Linux W6 and W8), single-load runs confirm only Windows W22: about −5 %, from the code of O6 or O7, not the store (cross test). Follow-up: find its cause. Last runs with Defender scanning on Windows ([Windows](../benchmark/2026-11-07-windows.md), [Linux](../benchmark/2026-11-07-linux.md)) |
