@@ -585,10 +585,13 @@ pub(crate) fn written_through(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Zeroed memory aligned to [`DIRECT_ALIGN`], whose length is a multiple of it, for direct writes.
+/// Memory aligned to [`DIRECT_ALIGN`], whose length is a multiple of it, for direct writes. Its length can change
+/// within its capacity, so that one buffer is reused for records of different sizes (candidate 4 of the writes
+/// diagnosis, performance plan); every byte of the capacity is initialized, zeroed or written.
 pub(crate) struct AlignedBuf {
     ptr: std::ptr::NonNull<u8>,
     len: usize,
+    capacity: usize,
 }
 
 // SAFETY: an `AlignedBuf` owns its memory exclusively, like a `Box<[u8]>`.
@@ -609,7 +612,11 @@ impl AlignedBuf {
         // SAFETY: `layout` has a non-zero size.
         let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
         let ptr = std::ptr::NonNull::new(ptr).ok_or_else(out_of_memory)?;
-        Ok(AlignedBuf { ptr, len })
+        Ok(AlignedBuf {
+            ptr,
+            len,
+            capacity: len,
+        })
     }
 
     /// The bytes of `parts`, one after another, then zeros up to `len` rounded up to a multiple of
@@ -644,14 +651,40 @@ impl AlignedBuf {
         // SAFETY: `at == filled <= len`: the rest of the allocation.
         unsafe { std::ptr::write_bytes(ptr.as_ptr().add(at), 0, len - at) };
         // Every byte is now written: by a part or by the zeros.
-        Ok(AlignedBuf { ptr, len })
+        Ok(AlignedBuf {
+            ptr,
+            len,
+            capacity: len,
+        })
+    }
+
+    /// Bytes the buffer can hold without allocating again.
+    pub(crate) fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Sets the length to `len` rounded up to a multiple of [`DIRECT_ALIGN`]. The bytes it brings in keep what they
+    /// held.
+    ///
+    /// # Panics
+    ///
+    /// If the rounded length is more than the capacity.
+    pub(crate) fn set_len(&mut self, len: usize) {
+        let len = len.max(1).next_multiple_of(DIRECT_ALIGN);
+        assert!(
+            len <= self.capacity,
+            "{len} bytes do not fit in {}",
+            self.capacity
+        );
+        self.len = len;
     }
 }
 
 impl std::ops::Deref for AlignedBuf {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        // SAFETY: `ptr` points to `len` initialized bytes owned by `self`: zeroed, or written by `from_parts`.
+        // SAFETY: `ptr` points to `capacity` initialized bytes owned by `self`, zeroed or written by `from_parts`, and
+        // `len <= capacity`.
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 }
@@ -665,7 +698,7 @@ impl std::ops::DerefMut for AlignedBuf {
 
 impl Drop for AlignedBuf {
     fn drop(&mut self) {
-        let layout = std::alloc::Layout::from_size_align(self.len, DIRECT_ALIGN)
+        let layout = std::alloc::Layout::from_size_align(self.capacity, DIRECT_ALIGN)
             .expect("the layout was valid when allocated");
         // SAFETY: `ptr` was allocated by `alloc_zeroed` or `alloc` with this same layout and is freed only here.
         unsafe { std::alloc::dealloc(self.ptr.as_ptr(), layout) };
@@ -813,6 +846,26 @@ mod journal_file_tests {
         let empty = AlignedBuf::from_parts(&[], 0).unwrap();
         assert_eq!(empty.len(), DIRECT_ALIGN);
         assert!(empty.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn an_aligned_buffer_changes_its_length_within_its_capacity() {
+        let mut buf = AlignedBuf::zeroed(3 * DIRECT_ALIGN).unwrap();
+        buf.fill(7);
+        buf.set_len(DIRECT_ALIGN + 1);
+        assert_eq!(
+            (buf.len(), buf.capacity()),
+            (2 * DIRECT_ALIGN, 3 * DIRECT_ALIGN)
+        );
+        buf.set_len(3 * DIRECT_ALIGN);
+        assert!(
+            buf.iter().all(|&b| b == 7),
+            "the bytes brought back keep their values"
+        );
+        let grown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            buf.set_len(3 * DIRECT_ALIGN + 1)
+        }));
+        assert!(grown.is_err());
     }
 
     #[test]

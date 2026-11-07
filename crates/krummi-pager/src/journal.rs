@@ -151,44 +151,44 @@ pub(crate) fn decode_payload(header: &RecordHeader, stored: &[u8]) -> Option<Vec
     }
 }
 
-/// The memory a record is built in, kept from one commit to the next so that a commit neither allocates it nor
-/// zeroes the compression output again (O4 of the performance plan).
+/// The memory a record's payload is built in, kept from one commit to the next so that a commit does not allocate
+/// it again (O4 of the performance plan).
 #[derive(Default)]
 struct EncodeBuffers {
     /// The payload before compression.
     raw: Vec<u8>,
-    /// The compression output; its bytes beyond what a compression writes are never read.
-    compressed: Vec<u8>,
 }
 
-/// The most the encode buffers keep after a commit: a larger commit gives its memory back, as before O4.
-const ENCODE_RETAIN: usize = DEFAULT_QUEUE_LIMIT as usize;
+/// The most the commits keep for building records: the payload buffer up to this size, and record buffers the
+/// writer gave back up to this many bytes in all; a larger commit gives its memory back. It covers commits of
+/// 16 MiB of values, which allocated and freed their memory every time with the 8 MiB that O4 kept (candidate 4 of
+/// the writes diagnosis, performance plan).
+const ENCODE_RETAIN: usize = 32 << 20;
 
-impl EncodeBuffers {
-    /// Gives back the memory of a commit larger than [`ENCODE_RETAIN`].
-    fn trim(&mut self) {
-        for buffer in [&mut self.raw, &mut self.compressed] {
-            if buffer.capacity() > ENCODE_RETAIN {
-                *buffer = Vec::new();
-            }
-        }
-    }
-}
+/// Record buffers the writer gave back once their group was durable, for the next records (candidate 4 of the
+/// writes diagnosis).
+type SpareRecords = Mutex<Vec<AlignedBuf>>;
 
-/// Encodes a whole record, padded to [`ALIGN`], in memory aligned for direct writes, building it in `buffers`.
+/// Encodes a whole record, padded to [`ALIGN`], in memory aligned for direct writes: the smallest buffer of `spare`
+/// that is large enough, or new memory. It builds the payload in `buffers` and compresses it straight into the
+/// record.
 fn encode_record(
     buffers: &mut EncodeBuffers,
+    spare: &SpareRecords,
     txid: u64,
     durable_upto: u64,
     pages: &[(u64, &[u8; PAGE_SIZE])],
 ) -> Result<AlignedBuf> {
-    let record = encode_record_in(buffers, txid, durable_upto, pages);
-    buffers.trim();
+    let record = encode_record_in(buffers, spare, txid, durable_upto, pages);
+    if buffers.raw.capacity() > ENCODE_RETAIN {
+        buffers.raw = Vec::new();
+    }
     record
 }
 
 fn encode_record_in(
     buffers: &mut EncodeBuffers,
+    spare: &SpareRecords,
     txid: u64,
     durable_upto: u64,
     pages: &[(u64, &[u8; PAGE_SIZE])],
@@ -197,7 +197,7 @@ fn encode_record_in(
     let out_of_memory = |requested: usize| Error::OutOfMemory {
         requested: requested as u64,
     };
-    let EncodeBuffers { raw, compressed } = buffers;
+    let raw = &mut buffers.raw;
     raw.clear();
     raw.try_reserve_exact(raw_len)
         .map_err(|_| out_of_memory(raw_len))?;
@@ -206,32 +206,67 @@ fn encode_record_in(
         raw.extend_from_slice(&page[..]);
     }
     let bound = lz4_flex::block::get_maximum_output_size(raw_len);
-    if compressed.len() < bound {
-        compressed
-            .try_reserve_exact(bound - compressed.len())
-            .map_err(|_| out_of_memory(bound))?;
-        // Zeroes only the bytes it adds; the ones before stay from the last commit.
-        compressed.resize(bound, 0);
-    }
-    let stored_len = match lz4_flex::block::compress_into(raw, &mut compressed[..bound]) {
+    // Room for the header and the payload, compressed (at most `bound` bytes) or not.
+    let most = RECORD_HEADER + bound.max(raw_len);
+    let mut record = match take_spare(spare, most) {
+        Some(record) => record,
+        None => AlignedBuf::zeroed(most).map_err(|_| out_of_memory(most))?,
+    };
+    record.set_len(most);
+    let payload = &mut record[RECORD_HEADER..];
+    let compressed = match lz4_flex::block::compress_into(raw, &mut payload[..bound]) {
         Ok(n) if n < raw_len => Some(n),
         _ => None,
     };
-    let payload: &[u8] = match stored_len {
-        Some(n) => &compressed[..n],
-        None => raw,
-    };
+    let stored_len = compressed.unwrap_or_else(|| {
+        payload[..raw_len].copy_from_slice(raw);
+        raw_len
+    });
     let header = RecordHeader {
         txid,
         durable_upto,
         page_count: pages.len() as u32,
-        compressed: stored_len.is_some(),
-        stored_len: payload.len() as u64,
+        compressed: compressed.is_some(),
+        stored_len: stored_len as u64,
         raw_len: raw_len as u64,
-        payload_checksum: xxh3_64(payload),
+        payload_checksum: xxh3_64(&payload[..stored_len]),
     };
     let len = header.record_len() as usize;
-    AlignedBuf::from_parts(&[&header.encode(), payload], len).map_err(|_| out_of_memory(len))
+    record[..RECORD_HEADER].copy_from_slice(&header.encode());
+    // The padding is zeros, whatever an earlier record left there.
+    record[RECORD_HEADER + stored_len..len].fill(0);
+    record.set_len(len);
+    Ok(record)
+}
+
+/// The smallest buffer of `spare` that holds `len` bytes, taken out of it.
+fn take_spare(spare: &SpareRecords, len: usize) -> Option<AlignedBuf> {
+    let len = len.max(1).next_multiple_of(sys::DIRECT_ALIGN);
+    let mut spare = spare.lock().unwrap_or_else(PoisonError::into_inner);
+    let (at, _) = spare
+        .iter()
+        .enumerate()
+        .filter(|(_, buf)| buf.capacity() >= len)
+        .min_by_key(|(_, buf)| buf.capacity())?;
+    Some(spare.swap_remove(at))
+}
+
+/// Keeps `record`'s buffer in `spare` for the next records, dropping the smallest ones while they hold more than
+/// [`ENCODE_RETAIN`] bytes in all.
+fn give_back(spare: &SpareRecords, record: AlignedBuf) {
+    if record.capacity() > ENCODE_RETAIN {
+        return;
+    }
+    let mut spare = spare.lock().unwrap_or_else(PoisonError::into_inner);
+    spare.push(record);
+    while spare.iter().map(AlignedBuf::capacity).sum::<usize>() > ENCODE_RETAIN {
+        let (smallest, _) = spare
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, buf)| buf.capacity())
+            .expect("not empty while over the limit");
+        drop(spare.swap_remove(smallest));
+    }
 }
 
 /// Bytes of records the journal queue holds before a commit waits for room (E2 of the grouped journal PRD).
@@ -281,6 +316,8 @@ struct Shared {
     durable_hook: Mutex<Option<Hook>>,
     /// Writes of groups so far, one per file a group touches (tests: AC-E2, AC-E8).
     writes: AtomicU64,
+    /// Record buffers of durable groups, for the next commits.
+    spare: SpareRecords,
 }
 
 struct State {
@@ -390,6 +427,7 @@ impl Journal {
             failure_hook: Mutex::new(None),
             durable_hook: Mutex::new(None),
             writes: AtomicU64::new(0),
+            spare: Mutex::new(Vec::new()),
         });
         let out_of_memory = || Error::OutOfMemory { requested: 0 };
         sys::thread_point().map_err(|_| out_of_memory())?;
@@ -500,7 +538,7 @@ impl Journal {
         pager.check_writable()?;
         let record = {
             let mut buffers = self.encode.lock().unwrap_or_else(PoisonError::into_inner);
-            encode_record(&mut buffers, txid, 0, pages)?
+            encode_record(&mut buffers, &self.shared.spare, txid, 0, pages)?
         };
         let len = record.len() as u64;
         let shared = &*self.shared;
@@ -884,6 +922,9 @@ impl Shared {
                 state.queued_bytes -= group.iter().map(|q| q.record.len() as u64).sum::<u64>();
                 self.durable.store(state.synced_upto, Ordering::Release);
                 drop(state);
+                for queued in group {
+                    give_back(&self.spare, queued.record);
+                }
                 let hook = self
                     .durable_hook
                     .lock()
@@ -978,7 +1019,7 @@ mod tests {
             *b = x as u8;
         }
         for (page, compressed) in [(&same, true), (&noise, false)] {
-            let record = encode_record(&mut EncodeBuffers::default(), 5, 4, &[(9, page)]).unwrap();
+            let record = encode(&mut EncodeBuffers::default(), 5, 4, &[(9, page)]);
             assert_eq!(record.len() as u64 % ALIGN, 0);
             let header = RecordHeader::decode(&record).unwrap();
             assert_eq!(
@@ -1027,9 +1068,10 @@ mod tests {
             (&[0, 1, 2], 0x2961_573a_66f2_f326),
             (&[2, 2, 0, 1], 0x9a4e_fa2e_b661_0539),
         ];
-        // One set of buffers for every case, as the commits of a store share theirs: what one record leaves in them
-        // never reaches the next.
+        // One set of buffers for every case, and each record's buffer given back as the writer does, as the commits
+        // of a store share theirs: what one record leaves in them never reaches the next.
         let mut buffers = EncodeBuffers::default();
+        let spare = SpareRecords::default();
         let mut got = Vec::new();
         for (i, (which, expected)) in cases.into_iter().enumerate() {
             let entries: Vec<(u64, &[u8; PAGE_SIZE])> = which
@@ -1037,49 +1079,83 @@ mod tests {
                 .enumerate()
                 .map(|(n, &p)| (100 + n as u64 * 3, &pages[p]))
                 .collect();
-            let record = encode_record(&mut buffers, 40 + i as u64, 7, &entries).unwrap();
+            let record = encode_record(&mut buffers, &spare, 40 + i as u64, 7, &entries).unwrap();
             got.push((xxh3_64(&record), expected));
+            give_back(&spare, record);
         }
         for (i, (got, expected)) in got.into_iter().enumerate() {
             assert_eq!(got, expected, "case {i}");
         }
     }
 
+    /// A record built with no spare record buffers.
+    fn encode(
+        buffers: &mut EncodeBuffers,
+        txid: u64,
+        durable_upto: u64,
+        pages: &[(u64, &[u8; PAGE_SIZE])],
+    ) -> AlignedBuf {
+        encode_record(buffers, &SpareRecords::default(), txid, durable_upto, pages).unwrap()
+    }
+
     /// Buffers kept from earlier, larger records build the same bytes as new ones: a small record after large ones,
-    /// compressed or raw, and a commit larger than what the buffers keep, after which they give their memory back.
+    /// compressed or raw, in the record buffer the writer gave back, and a commit larger than what the buffers keep,
+    /// after which they give their memory back.
     #[test]
     fn reused_buffers_build_the_same_records_as_new_ones() {
         let pages = sample_pages();
-        let big: Vec<(u64, &[u8; PAGE_SIZE])> = (0..ENCODE_RETAIN / PAGE_SIZE + 2)
-            .map(|n| (10 + n as u64, &pages[n % 3]))
-            .collect();
+        let entries = |count: usize| -> Vec<(u64, &[u8; PAGE_SIZE])> {
+            (0..count).map(|n| (10 + n as u64, &pages[n % 3])).collect()
+        };
         let mut buffers = EncodeBuffers::default();
+        let spare = SpareRecords::default();
         for entries in [
             vec![(9, &pages[2]), (12, &pages[1]), (15, &pages[0])],
             vec![(9, &pages[0])],
             vec![(9, &pages[2])],
-            big,
+            // More than the 8 MiB that O4 kept, less than what is kept now.
+            entries(DEFAULT_QUEUE_LIMIT as usize / PAGE_SIZE + 2),
+            vec![(9, &pages[2])],
+            entries(ENCODE_RETAIN / PAGE_SIZE + 2),
             vec![(9, &pages[1])],
         ] {
-            let reused = encode_record(&mut buffers, 3, 2, &entries).unwrap();
-            let fresh = encode_record(&mut EncodeBuffers::default(), 3, 2, &entries).unwrap();
+            let reused = encode_record(&mut buffers, &spare, 3, 2, &entries).unwrap();
+            let fresh = encode(&mut EncodeBuffers::default(), 3, 2, &entries);
             assert!(reused[..] == fresh[..], "{} pages", entries.len());
-            assert!(
-                buffers.raw.capacity() <= ENCODE_RETAIN
-                    && buffers.compressed.capacity() <= ENCODE_RETAIN
-            );
+            give_back(&spare, reused);
+            let kept: usize = spare.lock().unwrap().iter().map(AlignedBuf::capacity).sum();
+            assert!(buffers.raw.capacity() <= ENCODE_RETAIN && kept <= ENCODE_RETAIN);
         }
+    }
+
+    /// Candidate 4 of the writes diagnosis: a commit builds its record in the buffer the writer gave back, and keeps
+    /// a payload buffer larger than the 8 MiB that O4 kept.
+    #[test]
+    fn a_record_is_built_in_the_buffer_the_writer_gave_back() {
+        let pages = sample_pages();
+        let mut buffers = EncodeBuffers::default();
+        let spare = SpareRecords::default();
+        let first = encode_record(&mut buffers, &spare, 3, 2, &[(9, &pages[2])]).unwrap();
+        let at = first.as_ptr();
+        give_back(&spare, first);
+        let second = encode_record(&mut buffers, &spare, 4, 2, &[(9, &pages[0])]).unwrap();
+        assert_eq!(second.as_ptr(), at);
+        assert!(spare.lock().unwrap().is_empty());
+        let large: Vec<(u64, &[u8; PAGE_SIZE])> = (0..DEFAULT_QUEUE_LIMIT as usize / PAGE_SIZE + 2)
+            .map(|n| (n as u64, &pages[n % 3]))
+            .collect();
+        encode_record(&mut buffers, &spare, 5, 2, &large).unwrap();
+        assert!(buffers.raw.capacity() > DEFAULT_QUEUE_LIMIT as usize);
     }
 
     #[test]
     fn every_byte_of_a_record_header_is_checked() {
-        let record = encode_record(
+        let record = encode(
             &mut EncodeBuffers::default(),
             5,
             4,
             &[(9, &[1u8; PAGE_SIZE])],
-        )
-        .unwrap();
+        );
         for byte in 0..RECORD_HEADER {
             let mut damaged = record.to_vec();
             damaged[byte] ^= 0x10;
