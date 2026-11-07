@@ -151,6 +151,23 @@ azar y +54–76 % en W17.
   L8).
 - El primer par de W12 en WSL 2 se tomó como ruido tras repetirlo por commit (L11).
 
+## Ejecuciones completas (añadido a petición del usuario)
+
+Después del cierre corrí las dos ejecuciones completas sobre `e0f33f8`. En Windows, todo quedó bajo `work`, que
+está excluida de Defender. Windows fue de 14:40 a 16:18 UTC y WSL 2 de 16:18 a 18:57 UTC, las dos con el plan de
+energía del banco. Informes: [Windows](../../docs/benchmark/2026-11-07-windows-write-reuse.md) y
+[Linux](../../docs/benchmark/2026-11-07-linux-write-reuse.md).
+
+- **Umbrales:** Windows 11 de 22 (pierde W1) y Linux 14 de 22 (gana W13 y W17, pierde W18).
+- **Las condiciones cambiaron para todos los motores.** Las ejecuciones de O7 son anteriores al plan de energía y
+  corrieron con turbo, y las lecturas bajan entre un 14 % y un 53 % en los seis motores. Por eso solo se comparan
+  las relaciones Krummi / Voron.
+- **Las relaciones de escritura suben.** En Windows, W2, W4, W14, W15, W17 y W21 suben entre +0,09 y +0,15; en
+  Linux, W17 pasa de 0,73 a 1,06.
+- **Las bajadas no vienen de la rama.** Repetí como cargas sueltas antes → después W1, W10, W18 y W20. Ninguna
+  baja en las dos rondas por la rama, salvo W20 en Windows (−1,1 % / −1,3 %), y la rama no cambia ninguna ruta de
+  lectura.
+
 ## Pendiente (no bloquea)
 
 - **Revisión de Codex del rango `ca19201..2434050`:** pendiente por el límite de uso, que se libera el 2026-11-11 a las
@@ -159,9 +176,9 @@ azar y +54–76 % en W17.
 - **Coste de memoria (R4-001):** un almacén en disco puede quedarse hasta con 32 MiB por reserva, frente a unos 16 MiB
   de antes. Está anotado en el plan.
 - **Creación del siguiente archivo del diario:** sigue en el hilo que confirma, entre un 1 % y un 2 % en Windows.
-- **Ejecuciones completas en Windows y Linux:** el plan cierra cada paso con ellas, y para esta rama todavía no se han
-  hecho.
-- **Commit `2434050`:** solo documentación, quedó después de la última revisión RDD.
+- **Commits posteriores a la última revisión RDD:** `2434050` y el de las ejecuciones completas, solo documentación.
+- **W20 en Windows:** −1,1 % / −1,3 % antes → después. Es menor que el ruido habitual y la rama no toca la lectura,
+  pero por la regla S5 cuenta como más baja.
 
 **Riesgo:** ítem 4 (concurrencia: el hilo del diario cierra archivos y devuelve búferes a una reserva compartida),
 verificado por el verificador independiente y por RDD.

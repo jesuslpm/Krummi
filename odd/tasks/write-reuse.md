@@ -128,3 +128,11 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
   "You've hit your usage limit ... try again at Nov 11th, 2026 6:49 AM", thread
   `01a1b65f-b36d-77f0-8286-ae6075f0e711`, no report. Pending. Final checks at `2434050`: fmt and clippy pass,
   568 tests pass, 0 fail, 30 ignored. Closing report: [write-reuse-report.md](write-reuse-report.md).
+- **L14** (2026-11-07): complete runs at `e0f33f8` on the user's request ("Se ejecutó el benchmark después de las
+  optimizaciones?", then "Sí", and "Que esté todo en work para que no intervenga el antivirus"): build, binary,
+  stores and Voron's build under `work/complete` on Windows, whose `work` is a Defender exclusion. Windows
+  14:40-16:18, WSL 2 16:18-18:57 UTC, with the benchmark power plan. Thresholds: Windows 11 of 22, Linux 14 of 22.
+  The O7 runs predate the power plan scripts (`4e1410a`, 06:10), so all engines moved; ratio falls in W1, W10, W18
+  and W20 were checked with single-load pairs: none comes from the branch (W20 on Windows -1.1 % / -1.3 %, with no
+  read path changed). Reports in `docs/benchmark/2026-11-07-*-write-reuse.md`; plan History row added. The
+  Windows report says "con cambios sin confirmar": the only uncommitted file at build time was the phase log.
