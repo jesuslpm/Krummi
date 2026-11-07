@@ -27,6 +27,8 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+# The plan GUID, the saved-plan file and the two functions below are the same in Exit-BenchPowerPlan.ps1: change
+# both scripts together.
 $bench = '6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10'
 $state = Join-Path $env:LOCALAPPDATA 'krummi-bench-power.txt'
 

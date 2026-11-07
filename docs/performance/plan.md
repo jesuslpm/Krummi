@@ -67,7 +67,8 @@ On Linux the single and concurrent durable writes (W4–W6) meet their threshold
   (added by the user as administrator), and every Windows measurement writes its stores there: single-load runs
   under `work/`, complete runs with `--carpeta C:\projects\Krummi\work\bench`. Earlier Windows runs had the scan on (complete
   runs wrote to `%TEMP%`), so they are not comparable with later ones: the next comparison measures its baseline again in
-  the new environment. WSL 2 is unchanged (its stores live inside the Linux virtual disk).
+  the new environment. WSL 2 is unchanged (its stores live inside the Linux virtual disk). The exclusion stays until
+  removed, as administrator: `Remove-MpPreference -ExclusionPath 'C:\projects\Krummi\work'`.
 - **Power plan.** Before a run, `scripts/power/Enter-BenchPowerPlan.ps1` switches to a temporary plan with processor
   boost off, every core unparked at its full non-boost state, and no sleep; `scripts/power/Exit-BenchPowerPlan.ps1`
   restores the user's plan afterwards. With boost off the laptop heats less and the frequency stays the same over

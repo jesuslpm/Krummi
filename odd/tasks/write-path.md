@@ -185,3 +185,12 @@ its ancestry is pager-integrity-once → pager → krummi.
     - W22 is a read load, so AC-S8 does not cover it. It counts as worse by the noise rule; follow-up in the plan.
   - Environment change after these runs: Microsoft Defender now excludes `work/`, and `scripts/power/` sets a
     steady power plan (plan, *Measurement method*). The next comparison measures its baseline again.
+- **L14** (2026-11-07): T6, RDD of the last slice `2b11374..0489410` (the bytes test comment, the docs of O7, the
+  power plan scripts and the complete reports). Lenses risk, resilience and readability. Approved, lineage
+  `review-7113eda8adf9703c`. Findings (all suggestions), fixed in the next commit:
+  - R1-001: nothing said how to remove the Defender exclusion. The plan now gives the command.
+  - R2-power-script-duplicated-constants: each script now names the other as the copy to change with it. A shared
+    module would be an abstraction for two short scripts.
+  - R2-exit-regex-match-on-saved-guid: Exit compared the active plan with a regex built from the saved file. It now
+    checks that the file holds a GUID other than the bench plan's, and compares the parsed active GUID exactly.
+    Checked with a missing, empty, `.*` and bench-plan state file: each one stops before touching the plan.
