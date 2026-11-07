@@ -75,3 +75,9 @@ Follow-up report: [2026-11-07-code-02.md](2026-11-07-code-02.md), wrapper status
 - **R4:** "Verified resolved by `06f933b`; no longer an open finding."
 
 The loop stops after two rounds: a third could only repeat that R1, R2 and R3 wait for the user's decisions.
+
+## 2026-11-07 (correction)
+
+R3's resolution above says "the drop is in how that code compiles". That overstates it: O7 leaves what a read
+transaction does unchanged, and generated code is only a hypothesis until a profile shows the mechanism (RDD
+`review-bb5bf2e8bcce7738`, R2-001). The plan's history row now says so.

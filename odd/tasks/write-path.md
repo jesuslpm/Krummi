@@ -233,3 +233,8 @@ its ancestry is pager-integrity-once → pager → krummi.
 - **L19** (2026-11-07): Codex follow-up ([report](../../docs/reviews/write-path/2026-11-07-code-02.md)), status
   `findings`. R4 verified resolved; R2's records verified corrected. R1, R2 (scope) and R3 stay open as the user's
   decisions. The loop stops after two rounds, as with O4: a third could only repeat that.
+- **L20** (2026-11-07): RDD of the docs tail `5e2b208..46e3611` (L18, L19, the Codex reports and resolutions, the
+  plan's history). Lens readability. Approved, lineage `review-bb5bf2e8bcce7738`. R2-001 (warning): the plan, L18 and
+  the resolutions stated as a fact that W22's drop comes from how O7's code compiles. That is a hypothesis: O7 leaves
+  what a read transaction does unchanged, and the mechanism stays unproven until profiled. Fixed in the plan's
+  history; this entry and the resolutions correct L18's wording.
