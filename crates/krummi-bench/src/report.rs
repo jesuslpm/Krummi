@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use chrono::{DateTime, FixedOffset};
 
-use crate::measure::{meets, ratio_text};
+use crate::measure::{meets, ratio_text, thousands, whole};
 use crate::workload::{Engine, Load, Scale, runs};
 
 /// What is known of the machine. `None` is shown as `desconocido`.
@@ -197,7 +197,7 @@ impl Run {
                 .iter()
                 .map(|&e| {
                     if runs(e, load) {
-                        format!("{}", self.metric(load, e).round() as u64)
+                        whole(self.metric(load, e))
                     } else {
                         NOT_APPLICABLE.to_string()
                     }
@@ -233,7 +233,7 @@ impl Run {
                             .sizes
                             .get(&(load, e))
                             .unwrap_or_else(|| panic!("no size for {e:?} in {load:?}"));
-                        size.to_string()
+                        thousands(*size)
                     } else {
                         NOT_APPLICABLE.to_string()
                     }
@@ -348,26 +348,26 @@ mod tests {
 
 | Carga | Krummi | Voron | LMDB | redb | canopydb | fjall | Krummi / Voron | Umbral |
 |---|---|---|---|---|---|---|---|---|
-| carga-en-orden | 1020 | 1000 | 1002 | 1003 | 1004 | 1005 | 1,02 | cumple |
+| carga-en-orden | 1.020 | 1.000 | 1.002 | 1.003 | 1.004 | 1.005 | 1,02 | cumple |
 ";
         assert!(rest.starts_with(expected_start), "{rest}");
         assert_eq!(
             row(&text, Load::W21),
-            "| tamano-fijo-carga | 21420 | 21000 | 21002 | 21003 | no aplica | no aplica | 1,02 | cumple |"
+            "| tamano-fijo-carga | 21.420 | 21.000 | 21.002 | 21.003 | no aplica | no aplica | 1,02 | cumple |"
         );
         let tail = "
 ## Tamaño del almacén (bytes)
 
 | Carga | Krummi | Voron | LMDB | redb | canopydb | fjall |
 |---|---|---|---|---|---|---|
-| carga-en-orden | 1000 | 1001 | 1002 | 1003 | 1004 | 1005 |
-| carga-al-azar | 2000 | 2001 | 2002 | 2003 | 2004 | 2005 |
-| carga-masiva | 3000 | 3001 | 3002 | 3003 | 3004 | 3005 |
-| borrado | 14000 | 14001 | 14002 | 14003 | 14004 | 14005 |
-| reutilizacion | 15000 | 15001 | 15002 | 15003 | 15004 | 15005 |
-| valores-grandes-carga | 17000 | 17001 | 17002 | 17003 | 17004 | 17005 |
-| multivalor-carga | 19000 | 19001 | 19002 | 19003 | no aplica | no aplica |
-| tamano-fijo-carga | 21000 | 21001 | 21002 | 21003 | no aplica | no aplica |
+| carga-en-orden | 1.000 | 1.001 | 1.002 | 1.003 | 1.004 | 1.005 |
+| carga-al-azar | 2.000 | 2.001 | 2.002 | 2.003 | 2.004 | 2.005 |
+| carga-masiva | 3.000 | 3.001 | 3.002 | 3.003 | 3.004 | 3.005 |
+| borrado | 14.000 | 14.001 | 14.002 | 14.003 | 14.004 | 14.005 |
+| reutilizacion | 15.000 | 15.001 | 15.002 | 15.003 | 15.004 | 15.005 |
+| valores-grandes-carga | 17.000 | 17.001 | 17.002 | 17.003 | 17.004 | 17.005 |
+| multivalor-carga | 19.000 | 19.001 | 19.002 | 19.003 | no aplica | no aplica |
+| tamano-fijo-carga | 21.000 | 21.001 | 21.002 | 21.003 | no aplica | no aplica |
 
 ## Opciones cambiadas
 
@@ -428,11 +428,11 @@ mod tests {
         for (krummi, expected_row) in [
             (
                 5.0,
-                "| lecturas-con-escritor | 5 | 0 | 12002 | 12003 | 12004 | 12005 | ∞ | cumple |",
+                "| lecturas-con-escritor | 5 | 0 | 12.002 | 12.003 | 12.004 | 12.005 | ∞ | cumple |",
             ),
             (
                 0.0,
-                "| lecturas-con-escritor | 0 | 0 | 12002 | 12003 | 12004 | 12005 | 0,00 | cumple |",
+                "| lecturas-con-escritor | 0 | 0 | 12.002 | 12.003 | 12.004 | 12.005 | 0,00 | cumple |",
             ),
         ] {
             let mut r = run(Scale::Full, |_| 1.0);
@@ -447,6 +447,52 @@ mod tests {
                 "Krummi cumple 22 de 22 umbrales. Informe: x.md"
             );
         }
+    }
+
+    // AC-K2 (annotation of 2026-11-07): rates, sizes and the ratio's integer part carry a dot every three digits,
+    // after rounding; numbers under 1,000 and everything outside the two tables stay as they were.
+    #[test]
+    fn table_numbers_carry_thousands_separators() {
+        let mut r = run(Scale::Full, |_| 1.0);
+        for (load, krummi, voron) in [
+            (Load::W1, 2_500_009.0, 1_000.0),
+            (Load::W2, 999.6, 86.0),
+            (Load::W3, 0.0, 1_184.0),
+        ] {
+            r.metrics.insert((load, Engine::Krummi), krummi);
+            r.metrics.insert((load, Engine::Voron), voron);
+        }
+        r.sizes.insert((Load::W1, Engine::Krummi), 134_217_728);
+        r.sizes.insert((Load::W2, Engine::Voron), 86);
+        let text = r.render();
+        assert_eq!(
+            row(&text, Load::W1),
+            "| carga-en-orden | 2.500.009 | 1.000 | 1.002 | 1.003 | 1.004 | 1.005 | 2.500,00 | cumple |"
+        );
+        assert_eq!(
+            row(&text, Load::W2),
+            "| carga-al-azar | 1.000 | 86 | 2.002 | 2.003 | 2.004 | 2.005 | 11,62 | cumple |"
+        );
+        assert_eq!(
+            row(&text, Load::W3),
+            "| carga-masiva | 0 | 1.184 | 3.002 | 3.003 | 3.004 | 3.005 | 0,00 | incumple |"
+        );
+        let sizes = &text[text.find("## Tamaño del almacén").unwrap()..];
+        assert!(
+            sizes.contains(
+                "\n| carga-en-orden | 134.217.728 | 1.001 | 1.002 | 1.003 | 1.004 | 1.005 |\n"
+            ),
+            "{sizes}"
+        );
+        assert!(
+            sizes.contains("\n| carga-al-azar | 2.000 | 86 | 2.002 | 2.003 | 2.004 | 2.005 |\n"),
+            "{sizes}"
+        );
+        assert!(text.starts_with(HEADER), "{text}");
+        assert_eq!(
+            r.summary_line("x.md"),
+            "Krummi cumple 21 de 22 umbrales. Informe: x.md"
+        );
     }
 
     // AC-K2: a reduced run shows its values and says `sin evaluar`.

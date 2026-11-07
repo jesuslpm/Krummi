@@ -13,6 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use krummi_bench::measure::thousands;
 use krummi_bench::workload::{Engine, Load, runs};
 use tempfile::TempDir;
 
@@ -98,8 +99,15 @@ fn table(report: &str, heading: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// Whether `cell` is a whole number written as the report writes it: digits with a dot every three from the right.
+fn grouped(cell: &str) -> bool {
+    cell.replace('.', "")
+        .parse::<u64>()
+        .is_ok_and(|n| thousands(n) == cell)
+}
+
 /// Checks a table of engines: one row per load of `loads`, in order, with `no aplica` exactly where the engine does
-/// not run the load (K6) and a whole number elsewhere.
+/// not run the load (K6) and elsewhere a whole number with a dot every three digits (annotation of 2026-11-07).
 fn check_engine_cells(rows: &[Vec<String>], loads: &[Load]) {
     let shown: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
     let expected: Vec<&str> = loads.iter().map(|l| l.name()).collect();
@@ -108,7 +116,7 @@ fn check_engine_cells(rows: &[Vec<String>], loads: &[Load]) {
         for (i, engine) in Engine::ALL.into_iter().enumerate() {
             let cell = &row[1 + i];
             if runs(engine, load) {
-                assert!(cell.parse::<u64>().is_ok(), "{load:?} {engine:?}: {cell}");
+                assert!(grouped(cell), "{load:?} {engine:?}: {cell}");
             } else {
                 assert_eq!(cell, "no aplica", "{load:?} {engine:?}");
             }
@@ -164,12 +172,11 @@ fn a_reduced_run_writes_its_report_and_leaves_no_store() {
     check_engine_cells(&rates, &Load::ALL);
     for row in &rates {
         assert_eq!(row.len(), 9, "{row:?}");
-        // Two decimals with a comma, or `∞` when Voron's metric is 0 and Krummi's is not (W12 when no Voron read
-        // ends while its writer writes, R4 of the Codex code review).
+        // Two decimals with a comma and the integer part grouped, or `∞` when Voron's metric is 0 and Krummi's is
+        // not (W12 when no Voron read ends while its writer writes, R4 of the Codex code review).
         let ratio = row[7].split_once(',');
         let decimal = ratio.is_some_and(|(units, hundredths)| {
-            !units.is_empty()
-                && units.bytes().all(|b| b.is_ascii_digit())
+            grouped(units)
                 && hundredths.len() == 2
                 && hundredths.bytes().all(|b| b.is_ascii_digit())
         });

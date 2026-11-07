@@ -68,7 +68,27 @@ pub fn ratio_text(krummi: f64, voron: f64) -> String {
         // A missed threshold is a ratio below 0.80, so only a rounding error can have reached 80.
         hundredths = hundredths.min(79);
     }
-    format!("{},{:02}", hundredths / 100, hundredths % 100)
+    format!("{},{:02}", thousands(hundredths / 100), hundredths % 100)
+}
+
+/// `n` with a dot every three digits from the right, also with four digits, whatever the machine's regional settings
+/// (annotation of 2026-11-07 to the benchmark PRD's report rules).
+pub fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push('.');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A metric or a size as the report shows it: rounded to the nearest whole number, ties up, then grouped by
+/// [`thousands`].
+pub fn whole(value: f64) -> String {
+    thousands(value.round() as u64)
 }
 
 #[cfg(test)]
@@ -131,5 +151,40 @@ mod tests {
                 "{k}"
             );
         }
+    }
+
+    // AC-K2 (annotation of 2026-11-07): the integer part of the truncated ratio carries a dot every three digits.
+    #[test]
+    fn a_ratio_from_one_thousand_carries_a_thousands_separator() {
+        assert_eq!(ratio_text(2_500_009.0, 1_000.0), "2.500,00");
+        assert_eq!(ratio_text(999_999.0, 1_000.0), "999,99");
+        assert_eq!(ratio_text(79_620.0, 1_000.0), "79,62");
+        assert_eq!(ratio_text(1_234_567_890.0, 1.0), "1.234.567.890,00");
+    }
+
+    // AC-K2 (annotation of 2026-11-07): a dot every three digits from the right, also with four digits.
+    #[test]
+    fn whole_numbers_carry_a_dot_every_three_digits() {
+        for (n, shown) in [
+            (0, "0"),
+            (86, "86"),
+            (999, "999"),
+            (1_000, "1.000"),
+            (1_184, "1.184"),
+            (26_753_133, "26.753.133"),
+            (134_217_728, "134.217.728"),
+            (u64::MAX, "18.446.744.073.709.551.615"),
+        ] {
+            assert_eq!(thousands(n), shown);
+        }
+    }
+
+    // AC-K2 (annotation of 2026-11-07): a metric is rounded to the nearest whole number, ties up, and then grouped.
+    #[test]
+    fn a_metric_is_rounded_before_it_is_grouped() {
+        assert_eq!(whole(999.6), "1.000");
+        assert_eq!(whole(999.4), "999");
+        assert_eq!(whole(1_183.5), "1.184");
+        assert_eq!(whole(0.0), "0");
     }
 }

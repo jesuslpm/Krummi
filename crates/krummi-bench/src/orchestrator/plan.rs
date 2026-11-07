@@ -10,7 +10,7 @@ use std::process::Command;
 use super::Stop;
 use super::child::{self, Ended};
 use crate::cli::Failure;
-use crate::measure::{Repetition, load_metric};
+use crate::measure::{Repetition, load_metric, whole};
 use crate::protocol::Line;
 use crate::size::folder_size;
 use crate::worker::ROLE_VARIABLE;
@@ -139,7 +139,7 @@ fn run_engine(
             }
             let metric = load_metric(&reps, warmups);
             measured.metrics.insert((printed, engine), metric);
-            progress.push(format!("{}: {metric:.0} op/s", printed.name()));
+            progress.push(format!("{}: {} op/s", printed.name(), whole(metric)));
         }
         if Load::SIZED.contains(&load) {
             let size = folder_size(&last_store(&store)).map_err(|e| fail(&e.to_string()))?;
