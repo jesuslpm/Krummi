@@ -194,3 +194,12 @@ its ancestry is pager-integrity-once → pager → krummi.
   - R2-exit-regex-match-on-saved-guid: Exit compared the active plan with a regex built from the saved file. It now
     checks that the file holds a GUID other than the bench plan's, and compares the parsed active GUID exactly.
     Checked with a missing, empty, `.*` and bench-plan state file: each one stops before touching the plan.
+- **L15** (2026-11-07): RDD of `0489410..5ab24ce` (the fixes of L14). Lenses resilience and readability. Approved,
+  lineage `review-73a5e35d63154d6e`. Findings (suggestions), fixed in the next commit:
+  - R4-exit-empty-state-null-trim: a zero-byte state file made `Get-Content -Raw` return nothing, so `.Trim()` failed
+    with a generic error instead of the recovery message. L14's check had written a line break, not an empty file. A
+    `[string]` cast still gives null on Windows PowerShell 5.1, so the file is now read through string interpolation.
+  - R2-001: the two GUID patterns are now one, `$guid`, in both scripts: unanchored for `powercfg`'s output and
+    anchored for the saved file.
+  - Checked with a missing, zero-byte, blank, `.*` and bench-plan state file: each stops with its message before
+    touching the plan, and the active plan stayed Balanced.
