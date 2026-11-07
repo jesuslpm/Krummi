@@ -87,3 +87,5 @@ transaction does unchanged, and generated code is only a hypothesis until a prof
 - **R1:** the user accepts AC-S8 as met, as an intermediate step ("Sí"). Annotation of 2026-11-07 to AC-S8 in
   [pager-writer-checks.prd.md](../../prd/krummi/pager-writer-checks.prd.md) and its translation. Disposition: resolved
   by a product decision, unverified until a follow-up review.
+- **R2:** the user accepts O5 as a partial step ("Sí"). The plan's O5 section records the two remaining copies as
+  pending. Disposition: resolved by a product decision, unverified until a follow-up review.

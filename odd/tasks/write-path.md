@@ -25,7 +25,7 @@ its ancestry is pager-integrity-once → pager → krummi.
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T0 | S4 | inline: finish the PRD (translation, annotations to other PRDs, elaboration time) | done | L5 |
-| T1 | S1–S3 | delegated writer (long-session backstop): O5 | done, partial (two S1 copies kept, L6; user decision, L18) | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
+| T1 | S1–S3 | delegated writer (long-session backstop): O5 | done, partial (two S1 copies kept, L6; accepted by the user, L23) | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
 | T2 | S4 (S1 of the PRD) | delegated writer (long-session backstop): O6 | done | `f7b19d8`, L8 |
 | T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
 | T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 met as an intermediate step, L22) | L12, L22 |
@@ -242,3 +242,6 @@ its ancestry is pager-integrity-once → pager → krummi.
 - **L22** (2026-11-07): user's decision on R1, verbatim: "Sí", to "¿Lo damos por cumplido con la anotación?".
   AC-S8 is met as an intermediate step: annotation of 2026-11-07 to AC-S8 in `pager-writer-checks.prd.md` and its
   translation. The plan's *Measurement method* adds an A/A run at the start of the next measurement.
+- **L23** (2026-11-07): user's decision on R2, verbatim: "Sí", to "¿Cerramos O5 como parcial con esas dos copias
+  pendientes en el plan?". O5 closes as a partial step; the plan's O5 section records the two copies as pending (the
+  raw payload copy, to decide in O8; the group copy, to measure first).

@@ -1,4 +1,4 @@
-# O5, O6 y O7: implementados y verificados; el alcance de O5 y la bajada de W22 esperan tu decisión
+# O5, O6 y O7: implementados y verificados; la bajada de W22 espera tu decisión
 
 Informe de cierre de `write-path` (2026-11-07). Enfoque de ejecución: ODD. Fuentes: O5 del
 [plan de rendimiento](../../docs/performance/plan.md), sin PRD (anotación de K13 del 2026-11-04), y
@@ -16,7 +16,7 @@ Rama `perf/write-path`, que parte de `perf/commit-copies` (`9ac34a8`), sin fusio
   - `lz4_flex` comprime sin `safe-encode` (anotación D12).
   - **Quedan dos copias que S1 pedía quitar:** la de la carga sin comprimir (LZ4 comprime un bloque contiguo) y la
     de un grupo de varios registros (colocarlos en su sitio entre hilos es rediseñar la concurrencia). Están en L6;
-    aceptarlo así es decisión tuya (R2 de Codex).
+    aceptado como paso parcial (R2 de Codex, L23), con las dos copias pendientes en el plan.
   - Los bytes del journal y del archivo de datos no cambian: lo fija un test grabado con el código anterior
     (`bytes_tests`).
 - **O6 (S1 del PRD):** el escritor comprueba la organización de un nodo cambiado una vez después de cada cambio.
@@ -210,8 +210,8 @@ plataformas.
 
 - **AC-S8 en WSL 2 (R1):** resuelto por tu decisión: se cumple como paso intermedio (anotación del 2026-11-07). La
   próxima medición empieza con una prueba A/A.
-- **Alcance de O5 (R2):** cerrar O5 como paso parcial, siguiendo las dos copias restantes, o seguir con ellas.
-  Decisión tuya.
+- **Alcance de O5 (R2):** resuelto por tu decisión: O5 cierra como paso parcial, y las dos copias restantes quedan
+  pendientes en el plan (la de la carga sin comprimir se decide en O8; la del grupo, midiendo primero).
 - **W22 en Windows (R3):** −4 % a −5 % por O7, con el mecanismo sin probar. Perfilarla y corregirla ahora o
   diferirla. Decisión tuya; no afecta a la corrección.
 - **Base de la próxima comparación:** las ejecuciones de Windows de esta noche fueron las últimas con Defender
