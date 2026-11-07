@@ -208,3 +208,9 @@ its ancestry is pager-integrity-once → pager → krummi.
   - R2-001: why the state file is read through interpolation.
   - R2-002: the lowercase GUID pattern relies on `-match` ignoring case.
   - The failure-path check of L15 still passes.
+- **L17** (2026-11-07): RDD of `eb351fc..5e2b208` (the comments of L16). Lens readability. Approved, lineage
+  `review-eef78e117d2a4433`. R2-001 (suggestion) doubted the comment that a `[string]` cast of an empty file's read
+  stays null: dismissed with evidence. On Windows PowerShell 5.1.26100.9711 with `Set-StrictMode -Version 2.0`,
+  `[string](Get-Content <zero-byte file> -Raw)` is null and `.Trim()` on it fails with "You cannot call a method on a
+  null-valued expression", while `[string]$null` is an empty string and the interpolated read has length 0. The
+  comment speaks of the cast of nothing (the empty output), not of `$null`.
