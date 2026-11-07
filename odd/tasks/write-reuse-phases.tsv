@@ -19,3 +19,8 @@
 2026-11-07T14:17:02+00:00	mark	docs	T6
 2026-11-07T14:17:18+00:00	bg-start	review	rdd T5-T6 docs
 2026-11-07T14:17:45+00:00	bg-end	review	rdd T5-T6 docs
+2026-11-07T14:18:00+00:00	bg-start	review	codex-R1
+2026-11-07T14:22:33+00:00	bg-end	review	codex-R1
+2026-11-07T14:22:44+00:00	mark	checks	T6
+2026-11-07T14:26:20+00:00	mark	close	T6
+2026-11-07T14:26:20+00:00	end		

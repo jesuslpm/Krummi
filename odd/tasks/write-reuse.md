@@ -29,7 +29,7 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
 | T3 | S2, S4 | inline: pooled page payloads in the write transaction | done | `20ceb1e`, L7 |
 | T4 | S3, S4 | inline: released own chunks kept for reuse | done | `f63507f`, L8 |
 | T5 | S5 | inline: single-load runs before and after, Windows and WSL 2 | done | L11 |
-| T6 | all | RDD per slice, Codex code review, plan update, closing report | pending | |
+| T6 | all | RDD per slice, Codex code review, plan update, closing report | done except the Codex review | L12, L13 |
 
 ## Log
 
@@ -124,3 +124,7 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
   measurements and the retention costs of R4-001 (L9). RDD review of the last slice (`f63507f..8821a1b`, docs only),
   lens readability, approved with no findings, lineage `review-b5e2ef6e35719da6`, acknowledged. Every commit of the
   run has been through RDD.
+- **L13** (2026-11-07): Codex code review of `ca19201..2434050` not run: the wrapper returned `status: error`,
+  "You've hit your usage limit ... try again at Nov 11th, 2026 6:49 AM", thread
+  `01a1b65f-b36d-77f0-8286-ae6075f0e711`, no report. Pending. Final checks at `2434050`: fmt and clippy pass,
+  568 tests pass, 0 fail, 30 ignored. Closing report: [write-reuse-report.md](write-reuse-report.md).
