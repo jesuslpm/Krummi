@@ -329,3 +329,24 @@ fn rewriting_a_page_under_a_long_snapshot_keeps_memory_bounded() {
         );
     });
 }
+
+/// Candidate 3 of the writes diagnosis (performance plan): a commit that goes on in a new journal file does not close
+/// the old one itself; the journal's thread does, off the commit.
+#[test]
+fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pager = Pager::open(tmp.path(), &OpenOptions::default()).unwrap();
+    pager.ensure_pages(PAGE + 1).unwrap();
+    let scratch = Scratch::open(pager).unwrap();
+    // Every record gets a file of its own.
+    scratch.set_journal_file_limit(crate::journal::ALIGN);
+    for text in ["b", "c", "d"] {
+        let mut writer = scratch.begin_write().unwrap();
+        let txid = writer.commit(&[(PAGE, payload(text))], &[]).unwrap();
+        drop(writer);
+        scratch.wait_durable(txid).unwrap();
+    }
+    assert_eq!(crate::journal::files_closed_on_this_thread(), 0);
+    assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "d");
+    scratch.close().unwrap();
+}

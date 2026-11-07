@@ -300,6 +300,9 @@ struct State {
     files: VecDeque<(u64, u64)>,
     /// Records waiting to be written, in commit order.
     queue: VecDeque<Queued>,
+    /// Files a commit went on from, for the writer to close: closing a journal file can take long, on Windows
+    /// above all, so the commit leaves it to the writer (candidate 3 of the writes diagnosis, performance plan).
+    retired: Vec<Arc<OpenFile>>,
     queued_bytes: u64,
     /// Why the last group failed; until the close retries it nothing more is written (E8, E12).
     failed: Option<(io::ErrorKind, String)>,
@@ -315,6 +318,25 @@ struct OpenFile {
     path: PathBuf,
     /// Whether it takes direct writes, which are durable once written (E6).
     direct: bool,
+}
+
+// Journal files closed on each thread (tests: candidate 3 of the writes diagnosis).
+#[cfg(test)]
+thread_local! {
+    static CLOSED_HERE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Journal files closed on the calling thread so far (tests).
+#[cfg(test)]
+pub(crate) fn files_closed_on_this_thread() -> usize {
+    CLOSED_HERE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+impl Drop for OpenFile {
+    fn drop(&mut self) {
+        CLOSED_HERE.with(|closed| closed.set(closed.get() + 1));
+    }
 }
 
 impl OpenFile {
@@ -351,6 +373,7 @@ impl Journal {
                 synced_upto: 0,
                 files: VecDeque::new(),
                 queue: VecDeque::new(),
+                retired: Vec::new(),
                 queued_bytes: 0,
                 failed: None,
                 paused: false,
@@ -540,7 +563,11 @@ impl Journal {
         }
         state.next_number += 1;
         state.files.push_back((number, state.queued_upto));
-        state.current = Some(Arc::new(OpenFile { file, path, direct }));
+        let old = state
+            .current
+            .replace(Arc::new(OpenFile { file, path, direct }));
+        // The enqueue that rolled wakes the writer, which closes it.
+        state.retired.extend(old);
         state.current_len = 0;
         state.current_capacity = capacity;
         Ok(())
@@ -600,8 +627,12 @@ impl Journal {
         let mut state = shared.lock();
         state.failed = None;
         state.paused = false;
+        // A writer that stopped may have left files to close.
+        let retired = std::mem::take(&mut state.retired);
         let group: Vec<Queued> = state.queue.drain(..).collect();
         if group.is_empty() {
+            drop(state);
+            drop(retired);
             return Ok(());
         }
         let durable_upto = state.synced_upto;
@@ -705,17 +736,17 @@ impl Shared {
         }
     }
 
-    /// The writer thread: takes everything in the queue, writes it as one group and makes it durable, until the
-    /// close. A panic counts as a failed group (E13).
+    /// The writer thread: closes the files the commits went on from, and takes everything in the queue, writes it as
+    /// one group and makes it durable, until the close. A panic counts as a failed group (E13).
     fn run(&self) {
         loop {
-            let (group, durable_upto) = {
+            let (group, durable_upto, retired) = {
                 let mut state = self.lock();
-                loop {
+                let can_write = loop {
                     let can_write =
                         !state.queue.is_empty() && !state.paused && state.failed.is_none();
-                    if can_write {
-                        break;
+                    if can_write || !state.retired.is_empty() {
+                        break can_write;
                     }
                     if state.stop {
                         return;
@@ -724,10 +755,19 @@ impl Shared {
                         .work
                         .wait(state)
                         .unwrap_or_else(PoisonError::into_inner);
-                }
-                let group: Vec<Queued> = state.queue.drain(..).collect();
-                (group, state.synced_upto)
+                };
+                let group: Vec<Queued> = if can_write {
+                    state.queue.drain(..).collect()
+                } else {
+                    Vec::new()
+                };
+                (group, state.synced_upto, std::mem::take(&mut state.retired))
             };
+            // Outside the lock, so that neither the commits nor the writer wait for it.
+            drop(retired);
+            if group.is_empty() {
+                continue;
+            }
             let mut group = group;
             let written = panic::catch_unwind(AssertUnwindSafe(|| {
                 self.write_group(&mut group, durable_upto)
