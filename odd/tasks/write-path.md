@@ -25,7 +25,7 @@ its ancestry is pager-integrity-once → pager → krummi.
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T0 | S4 | inline: finish the PRD (translation, annotations to other PRDs, elaboration time) | done | L5 |
-| T1 | S1–S3 | delegated writer (long-session backstop): O5 | done | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
+| T1 | S1–S3 | delegated writer (long-session backstop): O5 | done, partial (two S1 copies kept, L6; user decision, L18) | `6794ebc`, `6e32369`, `f5e1d1c`, L6, L7 |
 | T2 | S4 (S1 of the PRD) | delegated writer (long-session backstop): O6 | done | `f7b19d8`, L8 |
 | T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
 | T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 not met on WSL 2 by the rule: user decision) | L12 |
@@ -214,3 +214,19 @@ its ancestry is pager-integrity-once → pager → krummi.
   `[string](Get-Content <zero-byte file> -Raw)` is null and `.Trim()` on it fails with "You cannot call a method on a
   null-valued expression", while `[string]$null` is an empty string and the interpolated read has length 0. The
   comment speaks of the cast of nothing (the empty output), not of `$null`.
+- **L18** (2026-11-07): T6, Codex code review of `b9514cf..b5739cd`
+  ([report](../../docs/reviews/write-path/2026-11-07-code.md),
+  [resolutions](../../docs/reviews/write-path/2026-11-07-code-resolutions.md)). Status `findings`: R1 (blocker,
+  AC-S8 not met on WSL 2), R2 (major, O5 marked done with two S1 copies kept), R3 (major, W22 drop on Windows), R4
+  (minor, the plan's history row gave the wrong lifetime of the remembered integrity).
+  - R1, R2 and R3 are pending, product decisions for the user. The plan's history and T1 now say O5 is partial.
+  - R4 fixed in the plan's history.
+  - R3 narrowed: an O6-only binary (`f7b19d8`, built in `work/o5/target-o6`), with `work/o5/cross.py` and the W21
+    store of O5, six rounds with rotating order (`work/o5/cross-w22.out`). Medians: O5 3,840,880, O6 3,891,757, O7
+    3,728,840 op/s. So O6 is +1.3 % over O5, and O7 is −4.2 % under O6, lower in all six rounds. O7's code change
+    does not alter what a read transaction does: `Snapshot::integrity()` already gave readers `UseRemembered`, which
+    is now a constant. The drop comes from how that code compiles; its mechanism needs a profile.
+  - Codex's full workspace test run failed once in
+    `recovery::ac_j9_a_failed_transfer_refuses_writes_and_recovery_brings_everything_back` and passed on both reruns.
+    Codex traces it to a race in the test, which this range does not change. It reported it as an advisory, not a
+    finding.
