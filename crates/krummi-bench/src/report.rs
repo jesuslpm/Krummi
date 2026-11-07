@@ -450,7 +450,7 @@ mod tests {
     }
 
     // AC-K2 (annotation of 2026-11-07): rates, sizes and the ratio's integer part carry a dot every three digits,
-    // after rounding; numbers under 1,000 and everything outside the two tables stay as they were.
+    // after rounding; numbers under 1,000 and the rest of the report stay as they were.
     #[test]
     fn table_numbers_carry_thousands_separators() {
         let mut r = run(Scale::Full, |_| 1.0);

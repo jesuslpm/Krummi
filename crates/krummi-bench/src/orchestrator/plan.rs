@@ -139,7 +139,7 @@ fn run_engine(
             }
             let metric = load_metric(&reps, warmups);
             measured.metrics.insert((printed, engine), metric);
-            progress.push(format!("{}: {} op/s", printed.name(), whole(metric)));
+            progress.push(progress_line(printed, metric));
         }
         if Load::SIZED.contains(&load) {
             let size = folder_size(&last_store(&store)).map_err(|e| fail(&e.to_string()))?;
@@ -259,9 +259,26 @@ fn remove(path: &Path) -> Result<(), String> {
     fs::remove_dir_all(path).map_err(|e| format!("no se puede borrar {}: {e}", path.display()))
 }
 
+/// The progress line of one load's metric, after the engine's name. Its format is left to the implementation by the
+/// benchmark PRD; it writes the rate as the report does (annotation of 2026-11-07), so the two read alike.
+fn progress_line(load: Load, metric: f64) -> String {
+    format!("{}: {} op/s", load.name(), whole(metric))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The progress rate is grouped and rounded like the report's (ties up), not with `{:.0}`'s ties to even.
+    #[test]
+    fn a_progress_line_writes_the_rate_as_the_report_does() {
+        assert_eq!(
+            progress_line(Load::W1, 812_345.4),
+            "carga-en-orden: 812.345 op/s"
+        );
+        assert_eq!(progress_line(Load::W4, 86.0), "escrituras-sueltas: 86 op/s");
+        assert_eq!(progress_line(Load::W16, 2.5), "apertura: 3 op/s");
+    }
 
     #[test]
     fn the_output_of_a_process_is_checked() {
