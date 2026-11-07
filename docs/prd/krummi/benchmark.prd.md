@@ -211,6 +211,23 @@ Reglas de la forma:
   más siempre cumple. Cuando la métrica de Voron es 0, por ejemplo en W12 si ningún lector de Voron termina una
   lectura mientras escribe el escritor, la razón se muestra `∞` si la de Krummi es mayor que 0 y `0,00` si también es
   0, y el umbral se cumple, porque la comparación de K7 es la métrica de Krummi frente a 0,80 veces la de Voron.
+
+  *Anotación del 2026-11-07, que sustituye «sin separador de miles» (decisión del usuario: «es difícil leer los datos
+  sin estos separadores»):*
+  - *Las celdas de operaciones por segundo y de tamaños de las dos tablas llevan separador de miles: se redondean al
+    entero más cercano, los empates hacia arriba, y después se escribe un punto cada tres cifras desde la derecha,
+    también con cuatro cifras, sea cual sea la configuración regional del equipo. Así, 999,6 se muestra `1.000`, 1184
+    `1.184`, 134217728 `134.217.728`, y 86 y 0 no cambian.*
+  - *La razón Krummi / Voron sigue truncada a dos decimales con coma, y la parte entera del valor truncado lleva el
+    mismo separador desde mil: 2500,009 se muestra `2.500,00`; 999,999 se muestra `999,99`, y 79,62 no cambia.*
+  - *No cambian `∞`, `0,00`, `no aplica`, `sin evaluar`, la frase de Resultado ni nada fuera de esas celdas: fecha,
+    sistema, procesador, memoria, disco, commit, versiones y opciones cambiadas.*
+  - *Los informes del banco guardados en el repositorio, y no las tablas copiadas de ellos a otros documentos, se
+    convierten a esta forma en un commit propio, cambiando solo las celdas de las dos tablas. Al quitar los puntos de
+    esas celdas, cada informe vuelve a ser idéntico al original byte a byte, finales de línea incluidos (AC-K15).*
+  - *AC-K2 compara con textos esperados que llevan los separadores, e incluye casos con 999,6, 1184, 134217728, 86
+    y 0, y una razón de 2500,009.*
+  - *El ejemplo de arriba es anterior a esta anotación: la forma de sus números queda sustituida por esta.*
 - La columna *Umbral* dice `cumple` o `incumple`. En una ejecución reducida, *Ejecución* dice `reducida`,
   *Repeticiones* dice `1 medida`, *Resultado* dice `Ejecución reducida, sin umbrales.` y la columna *Umbral* dice
   `sin evaluar`; las demás columnas y la tabla de tamaños se muestran igual.
@@ -288,6 +305,9 @@ Comprueban este módulo. AC19 del padre lo comprueba el mantenedor antes de cada
    cada caso: todos los umbrales cumplidos, uno incumplido, varios incumplidos, una razón de `0,7996` (que se muestra
    `0,79` e incumple), una razón exacta de `0,80` (por ejemplo 800 frente a 1000, que se muestra `0,80` y cumple), una métrica de Voron de 0 con la de Krummi mayor que 0 (que se muestra `∞` y cumple), las dos de 0 (que se muestra
    `0,00` y cumple), ejecución reducida, sin opciones cambiadas y datos del equipo desconocidos.
+
+   *Anotación del 2026-11-07: los textos esperados llevan separador de miles, con los casos que añade la anotación del
+   mismo día en [Salida](#salida).*
 3. **AC-K3** — Dados unos resultados inyectados, cuando el banco evalúa cada umbral, entonces dice `cumple` si y solo
    si la métrica de Krummi es al menos 0,80 veces la de Voron sin redondear (K7), también cuando la de Voron es 0, y el código de salida es `0` si
    todas dicen `cumple` y `1` si alguna dice `incumple`.
@@ -320,6 +340,10 @@ Comprueban este módulo. AC19 del padre lo comprueba el mantenedor antes de cada
     el nombre de K10 y la subcarpeta de trabajo ya no existe.
 14. **AC-K14** — Dada la biblioteca de Krummi, cuando se calcula su árbol de dependencias, entonces no contiene ningún
     paquete del banco ni de los demás motores, y la comprobación de AC21 del padre sigue pasando (K14).
+15. **AC-K15** — *(añadido el 2026-11-07)* Dados los informes del banco guardados en el repositorio antes de la
+    anotación del 2026-11-07 a *Salida*, cuando se convierten, entonces cada número de cuatro cifras o más de sus dos
+    tablas lleva separador de miles, y al quitar los puntos de esas celdas cada informe es idéntico byte a byte al de
+    antes de la conversión.
 
 ## Anotaciones a otros PRD
 
