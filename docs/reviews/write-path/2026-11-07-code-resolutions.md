@@ -61,3 +61,17 @@ independently exposed.
 
 Checks before the follow-up, at `06f933b`: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D
 warnings` clean; `cargo test --workspace` 41 suites, 555 passed, 0 failed, 30 ignored (AC-J9 passed in this run).
+
+## 2026-11-07 (verification)
+
+Follow-up report: [2026-11-07-code-02.md](2026-11-07-code-02.md), wrapper status `findings`, threadId
+`01a1b4b5-3bdd-7c83-a988-902908ae7db1`. The telemetry gives the requested settings: coordinator `gpt-6.1-sol` /
+`high`, reviewer `krummi-review` `gpt-6.1-sol` / `high`.
+
+- **R1:** "Still open: AC-S8 remains unmet on WSL 2." Pending for the user.
+- **R2:** "Records verified corrected; implementation/scope gap remains open." Scope pending for the user.
+- **R3:** "Still open: the Windows W22 regression remains. Additional diagnostic arithmetic is confirmed; its
+  mechanism is unproven." Pending for the user.
+- **R4:** "Verified resolved by `06f933b`; no longer an open finding."
+
+The loop stops after two rounds: a third could only repeat that R1, R2 and R3 wait for the user's decisions.

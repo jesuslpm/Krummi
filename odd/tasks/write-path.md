@@ -230,3 +230,6 @@ its ancestry is pager-integrity-once → pager → krummi.
     `recovery::ac_j9_a_failed_transfer_refuses_writes_and_recovery_brings_everything_back` and passed on both reruns.
     Codex traces it to a race in the test, which this range does not change. It reported it as an advisory, not a
     finding.
+- **L19** (2026-11-07): Codex follow-up ([report](../../docs/reviews/write-path/2026-11-07-code-02.md)), status
+  `findings`. R4 verified resolved; R2's records verified corrected. R1, R2 (scope) and R3 stay open as the user's
+  decisions. The loop stops after two rounds, as with O4: a third could only repeat that.
