@@ -120,3 +120,7 @@ Test runner: `cargo test`. No PRD: none of the three changes anything observable
   failed at once (`wsl.exe` split the command at `;`) and appears in the phase log as a 5-second background task.
   S2's estimate holds on WSL 2 (W2 +3 %, W15 +4 %) and is exceeded on Windows (+23 % to +27 %); S3 on Windows
   W17 +54 % / +76 %, on WSL 2 +1 % / +11 %. No load is lower in both rounds after the repeat (S5).
+- **L12** (2026-11-07): T6. Plan updated in `8821a1b`: candidates 3, 4 and 5 marked done, a History row with the
+  measurements and the retention costs of R4-001 (L9). RDD review of the last slice (`f63507f..8821a1b`, docs only),
+  lens readability, approved with no findings, lineage `review-b5e2ef6e35719da6`, acknowledged. Every commit of the
+  run has been through RDD.

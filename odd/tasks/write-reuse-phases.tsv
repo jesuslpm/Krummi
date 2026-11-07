@@ -17,3 +17,5 @@
 2026-11-07T14:06:11+00:00	bg-start	acceptance	T5 wsl W12 per commit
 2026-11-07T14:16:25+00:00	bg-end	acceptance	T5 wsl W12 per commit
 2026-11-07T14:17:02+00:00	mark	docs	T6
+2026-11-07T14:17:18+00:00	bg-start	review	rdd T5-T6 docs
+2026-11-07T14:17:45+00:00	bg-end	review	rdd T5-T6 docs
