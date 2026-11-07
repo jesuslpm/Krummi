@@ -516,6 +516,8 @@ impl<'e> WriteTransaction<'e> {
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
         let committed = self.writer.commit(&pages, &runs);
+        // The pages are in the temporary area now, or the commit failed: their payloads serve the next copies.
+        self.engine.keep_payloads(pages);
         let txid = self.track(committed)?;
         // The point of no return (E2): the commit is in the journal's queue and the next writer sees it, and the
         // pages it freed (F6).
@@ -586,7 +588,7 @@ impl<'e> WriteTransaction<'e> {
 
     fn copy_for_write(&mut self, page_number: u64) -> Result<()> {
         self.reserve(1, 0)?;
-        let mut payload = alloc_payload()?;
+        let mut payload = self.engine.payload_for_copy()?;
         payload.copy_from_slice(self.writer.snapshot().page(page_number)?);
         self.dirty.insert(page_number, Changed::new(payload));
         Ok(())

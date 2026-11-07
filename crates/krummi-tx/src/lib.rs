@@ -12,6 +12,8 @@ mod transaction;
 
 #[cfg(test)]
 mod bytes_tests;
+#[cfg(test)]
+mod payload_tests;
 
 use std::collections::VecDeque;
 use std::io;
@@ -28,7 +30,7 @@ use krummi_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
 pub use krummi_pager::{
     Error, ErrorKind, Info, Memory, OpenOptions, Result, TreeKind, try_reserve,
 };
-use krummi_pager::{Pager, Scratch};
+use krummi_pager::{Pager, PayloadBuf, Scratch};
 pub use space::REGION_PAGES;
 use space::Space;
 pub use transaction::{ReadTransaction, WriteTransaction};
@@ -116,12 +118,19 @@ pub struct Engine {
     turns: Arc<Turns>,
     /// Free space: the frontier, the free pages and the regions' maps.
     space: Space,
+    /// Page payloads of earlier commits, for the copies of the next transactions (candidate 4 of the writes
+    /// diagnosis, performance plan). Only a store on disk keeps them: a temporary store's memory all counts against
+    /// its maximum size (P10, T14).
+    payloads: Mutex<Vec<PayloadBuf>>,
     #[cfg(feature = "test-hooks")]
     hook: Mutex<Option<Hook>>,
     /// The page operation of write transactions that fails next, counting down, with the failure it gets (tests).
     #[cfg(feature = "test-hooks")]
     page_fault: Mutex<Option<(u64, Error)>>,
 }
+
+/// The most page payloads a store keeps for the next copies: 32 MiB, as the journal keeps for its records.
+const SPARE_PAYLOADS: usize = (32 << 20) / PAGE_PAYLOAD_SIZE;
 
 struct Turns {
     queue: Mutex<Queue>,
@@ -215,11 +224,41 @@ impl Engine {
             folder,
             turns,
             space: Space::new(frontier, free, !fresh),
+            payloads: Mutex::new(Vec::new()),
             #[cfg(feature = "test-hooks")]
             hook: Mutex::new(None),
             #[cfg(feature = "test-hooks")]
             page_fault: Mutex::new(None),
         })
+    }
+
+    /// A payload for a copy of a page: one kept from an earlier commit, or a new one.
+    fn payload_for_copy(&self) -> Result<PayloadBuf> {
+        let spare = self
+            .payloads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop();
+        krummi_pager::reuse_payload(spare)
+    }
+
+    /// Keeps the payloads of a commit's pages for the next copies, up to [`SPARE_PAYLOADS`], in a store on disk.
+    fn keep_payloads(&self, pages: Vec<(u64, PayloadBuf)>) {
+        if self.folder.is_none() {
+            return;
+        }
+        let mut spare = self.payloads.lock().unwrap_or_else(PoisonError::into_inner);
+        let room = SPARE_PAYLOADS.saturating_sub(spare.len());
+        spare.extend(pages.into_iter().take(room).map(|(_, payload)| payload));
+    }
+
+    /// Page payloads kept for the next copies (tests).
+    #[cfg(test)]
+    pub(crate) fn spare_payloads(&self) -> usize {
+        self.payloads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 
     /// The store's folder, or `None` for a temporary store: the data of most errors (T18).

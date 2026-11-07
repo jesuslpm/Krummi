@@ -84,6 +84,22 @@ pub fn alloc_payload() -> Result<PayloadBuf> {
     alloc::<PAGE_PAYLOAD_SIZE>()
 }
 
+/// A payload for a copy of a page, whose bytes the caller all overwrites: `spare`, kept from an earlier commit, or
+/// a zeroed one (candidate 4 of the writes diagnosis, performance plan). The out-of-memory class if the system does
+/// not provide it (P13); it is the fault point of [`alloc_payload`] either way, so a reused payload fails where a
+/// new one would.
+pub fn reuse_payload(spare: Option<PayloadBuf>) -> Result<PayloadBuf> {
+    match spare {
+        Some(payload) => {
+            sys::alloc_point().map_err(|_| Error::OutOfMemory {
+                requested: PAGE_PAYLOAD_SIZE as u64,
+            })?;
+            Ok(payload)
+        }
+        None => alloc_payload(),
+    }
+}
+
 /// A zeroed run of `pages` pages, or the out-of-memory class if the system does not provide it (P13).
 pub fn alloc_run(pages: u64) -> Result<RunBuf> {
     let requested = pages.saturating_mul(PAGE_SIZE_U64);

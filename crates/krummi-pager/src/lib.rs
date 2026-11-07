@@ -24,7 +24,7 @@ pub use pager::{
 };
 pub use scratch::{
     Memory, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged, alloc_payload, alloc_run,
-    try_reserve,
+    reuse_payload, try_reserve,
 };
 pub use temp::TEMP_DIR;
 
