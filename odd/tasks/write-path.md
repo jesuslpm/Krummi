@@ -30,7 +30,7 @@ its ancestry is pager-integrity-once → pager → krummi.
 | T3 | S4 (S2, S3 of the PRD) | delegated writer (long-session backstop): O7 | done | `2b11374`, `1ac73e3`, L10, L11 |
 | T4 | S3, S4 (S5 of the PRD) | inline: single-load runs before and after each change, Windows and WSL 2 | done (AC-S8 met as an intermediate step, L22) | L12, L22 |
 | T5 | S5 | inline: complete runs on Windows and WSL 2 | done | L13 |
-| T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | done (R1–R3 of Codex pending for the user) | L14–L21 |
+| T6 | all | RDD per slice, independent verifier (risk items), Codex code review, closing | done (R1–R3 of Codex decided by the user, L22–L24) | L14–L24 |
 
 ## Log
 
@@ -245,3 +245,5 @@ its ancestry is pager-integrity-once → pager → krummi.
 - **L23** (2026-11-07): user's decision on R2, verbatim: "Sí", to "¿Cerramos O5 como parcial con esas dos copias
   pendientes en el plan?". O5 closes as a partial step; the plan's O5 section records the two copies as pending (the
   raw payload copy, to decide in O8; the group copy, to measure first).
+- **L24** (2026-11-07): user's decision on R3, verbatim: "Sí", to "¿La diferimos al plan?". W22's drop on Windows
+  is deferred: item 10 of the plan's *Order* (profile W22 with the O6 and O7 binaries).

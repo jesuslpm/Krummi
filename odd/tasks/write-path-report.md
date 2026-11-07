@@ -1,4 +1,4 @@
-# O5, O6 y O7: implementados y verificados; la bajada de W22 espera tu decisión
+# O5, O6 y O7: implementados y verificados; aceptados como paso intermedio
 
 Informe de cierre de `write-path` (2026-11-07). Enfoque de ejecución: ODD. Fuentes: O5 del
 [plan de rendimiento](../../docs/performance/plan.md), sin PRD (anotación de K13 del 2026-11-04), y
@@ -46,7 +46,7 @@ Rama `perf/write-path`, que parte de `perf/commit-copies` (`9ac34a8`), sin fusio
   - Con el mismo almacén: O6 +1,3 % sobre O5, y O7 −4,2 % bajo O6, más bajo en las 6 rondas.
   - O7 no cambia lo que hace una transacción de lectura. El mecanismo no está probado: el código generado es una
     hipótesis, y comprobarla exige perfilar.
-  - Arreglarla o diferirla es decisión tuya (R3 de Codex).
+  - Diferida por tu decisión (R3 de Codex, L24): punto 10 del orden del plan.
 
 ## Acceptance criteria coverage
 
@@ -212,8 +212,8 @@ plataformas.
   próxima medición empieza con una prueba A/A.
 - **Alcance de O5 (R2):** resuelto por tu decisión: O5 cierra como paso parcial, y las dos copias restantes quedan
   pendientes en el plan (la de la carga sin comprimir se decide en O8; la del grupo, midiendo primero).
-- **W22 en Windows (R3):** −4 % a −5 % por O7, con el mecanismo sin probar. Perfilarla y corregirla ahora o
-  diferirla. Decisión tuya; no afecta a la corrección.
+- **W22 en Windows (R3):** −4 % a −5 % por O7, con el mecanismo sin probar. Diferida por tu decisión al punto 10 del
+  orden del plan (perfilar con los binarios de O6 y O7). No afecta a la corrección y W22 sigue cumpliendo su umbral.
 - **Base de la próxima comparación:** las ejecuciones de Windows de esta noche fueron las últimas con Defender
   escaneando. La próxima comparación vuelve a medir su base con la exclusión y, si se usan, con los scripts de
   energía.

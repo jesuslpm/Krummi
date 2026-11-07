@@ -89,3 +89,5 @@ transaction does unchanged, and generated code is only a hypothesis until a prof
   by a product decision, unverified until a follow-up review.
 - **R2:** the user accepts O5 as a partial step ("Sí"). The plan's O5 section records the two remaining copies as
   pending. Disposition: resolved by a product decision, unverified until a follow-up review.
+- **R3:** the user defers the W22 drop ("Sí"): item 10 of the plan's *Order* profiles W22 with the O6 and O7
+  binaries. Disposition: deferred by a product decision.
