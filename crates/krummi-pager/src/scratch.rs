@@ -234,7 +234,7 @@ impl Scratch {
     ) -> Scratch {
         let header = pager.header();
         let shared = Shared {
-            area: Arc::new(TempArea::new(pager.folder())),
+            area: Arc::new(TempArea::new(pager.folder(), pager.info().max_size)),
             journal,
             pager: Some(pager),
             flushing: Mutex::new(()),

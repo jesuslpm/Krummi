@@ -11,11 +11,15 @@
 //! They grow as they did before value runs: only when the free slots are fewer than the pages to store, by twice
 //! the last shared chunk up to [`MAX_CHUNK_PAGES`] (8 MiB), or by the run's size when it is larger. A run larger
 //! than [`MAX_CHUNK_PAGES`], or one that the free slots could hold page by page but no free range fits, gets a chunk
-//! of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. So what the area
-//! reserves so that a run is contiguous never piles up: besides the slots held, it holds at most what the
-//! page-by-page policy would, plus one shared chunk (P10, T14; R1 of the large values code review). A run's slots are
-//! held whole while any of its pages keeps a version, so the scratch area counts them whole for the maximum size
-//! until its last version leaves, not page by page (`State::hold` in the `scratch` module).
+//! of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. In a store on
+//! disk without a maximum size, released own chunks of one size are kept instead, up to [`IDLE_PAGES`], for the
+//! next runs of that size, which take them without creating a file (candidate 5 of the writes diagnosis,
+//! performance plan); a chunk of another size releases them. So what the area reserves so that a run is contiguous
+//! never piles up: besides the slots held, it holds at most what the page-by-page policy would, plus one shared
+//! chunk, and without a maximum size [`IDLE_PAGES`] of released own chunks (P10, T14; R1 of the large values code
+//! review). A run's slots are held whole while any of its pages keeps a version, so the scratch area counts them
+//! whole for the maximum size until its last version leaves, not page by page (`State::hold` in the `scratch`
+//! module).
 //!
 //! A slot is written once, by [`TempArea::store_with`] or [`TempArea::store_run`], before anyone else can see it, and
 //! only read afterwards. Dropping it gives all its pages back to the area at once, merged with the free ranges next
@@ -42,11 +46,17 @@ pub const TEMP_DIR: &str = "krummi.temp";
 /// store near a full disk never reserves much more than it needs.
 const FIRST_CHUNK_PAGES: usize = 16;
 const MAX_CHUNK_PAGES: usize = 1024;
+/// The most pages of released own chunks the area keeps for later runs of their size (candidate 5 of the writes
+/// diagnosis, performance plan): 32 MiB.
+const IDLE_PAGES: usize = (32 << 20) / PAGE_SIZE;
 
 /// The temporary area of a store.
 pub(crate) struct TempArea {
     /// `krummi.temp` for a store on disk, `None` for a temporary store.
     dir: Option<PathBuf>,
+    /// Whether released own chunks are kept for later runs: only in a store on disk without a maximum size, since
+    /// with one the files of `krummi.temp` count against it (P10, T14).
+    keeps_released: bool,
     state: Mutex<AreaState>,
 }
 
@@ -55,6 +65,9 @@ struct AreaState {
     chunks: Vec<Option<Chunk>>,
     /// Numbers of the released chunks.
     vacant: Vec<usize>,
+    /// Released own chunks of a store on disk, all of one size and at most [`IDLE_PAGES`] in all, kept for the
+    /// next runs of that size.
+    idle: Vec<Chunk>,
     /// Free ranges of slots of the shared chunks: the number of free slots from (chunk, index) on. Two ranges are
     /// never next to each other in the same chunk: giving slots back merges them.
     free: BTreeMap<(usize, usize), usize>,
@@ -123,14 +136,16 @@ impl Chunk {
 }
 
 impl TempArea {
-    /// The temporary area of the store in `folder`, or of a temporary store. It creates nothing until a version is
-    /// stored.
-    pub(crate) fn new(folder: Option<&Path>) -> TempArea {
+    /// The temporary area of the store in `folder`, or of a temporary store, with the store's maximum size. It
+    /// creates nothing until a version is stored.
+    pub(crate) fn new(folder: Option<&Path>, max_size: Option<u64>) -> TempArea {
         TempArea {
             dir: folder.map(|f| f.join(TEMP_DIR)),
+            keeps_released: folder.is_some() && max_size.is_none(),
             state: Mutex::new(AreaState {
                 chunks: Vec::new(),
                 vacant: Vec::new(),
+                idle: Vec::new(),
                 free: BTreeMap::new(),
                 held: 0,
                 shared_pages: 0,
@@ -226,8 +241,12 @@ impl TempArea {
             .max(pages)
         };
         let bytes = size * PAGE_SIZE;
-        let chunk = match &self.dir {
-            None => {
+        let kept = own
+            .then(|| state.idle.pop_if(|chunk| chunk.pages == size))
+            .flatten();
+        let chunk = match (kept, &self.dir) {
+            (Some(chunk), _) => chunk,
+            (None, None) => {
                 let memory = sys::alloc_zeroed(bytes).map_err(|_| Error::OutOfMemory {
                     requested: bytes as u64,
                 })?;
@@ -240,7 +259,7 @@ impl TempArea {
                     own,
                 }
             }
-            Some(dir) => {
+            (None, Some(dir)) => {
                 if state.files == 0 {
                     // A leftover of an earlier run of this store goes first (J7).
                     sys::remove_temp_dir(dir)
@@ -287,6 +306,7 @@ impl TempArea {
             }
             state.free.clear();
             state.vacant.clear();
+            drop(std::mem::take(&mut state.idle));
             state.shared_pages = 0;
             state.files = 0;
             std::mem::take(&mut state.chunks)
@@ -315,19 +335,24 @@ impl TempArea {
             .chunks
             .iter()
             .flatten()
+            .chain(&state.idle)
             .map(|chunk| (chunk.pages * PAGE_SIZE) as u64)
             .sum()
     }
 
-    /// Gives back the slots of a dropped [`Slot`]: to the free ranges of a shared chunk, or by releasing the run's
-    /// own chunk. Both happen under the lock and before `held` drops, so [`TempArea::remove`] never finds a chunk
-    /// being released.
+    /// Gives back the slots of a dropped [`Slot`]: to the free ranges of a shared chunk, or by keeping or releasing
+    /// the run's own chunk. Both happen under the lock and before `held` drops, so [`TempArea::remove`] never finds a
+    /// chunk being released.
     fn release(&self, chunk: usize, index: usize, pages: usize) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.chunk(chunk).own {
             let own = state.chunks[chunk].take().expect("a live chunk");
             state.vacant.push(chunk);
-            own.release();
+            if self.keeps_released {
+                state.keep_or_release(own);
+            } else {
+                own.release();
+            }
         } else {
             state.give(chunk, index, pages);
         }
@@ -339,6 +364,23 @@ impl AreaState {
     /// Chunk number `chunk`, which a held slot keeps alive.
     fn chunk(&self, chunk: usize) -> &Chunk {
         self.chunks[chunk].as_ref().expect("a live chunk")
+    }
+
+    /// Keeps a released own chunk for the next run of its size, after releasing the kept chunks of another size,
+    /// while the kept ones hold at most [`IDLE_PAGES`] pages; otherwise releases it.
+    fn keep_or_release(&mut self, own: Chunk) {
+        if self
+            .idle
+            .first()
+            .is_some_and(|kept| kept.pages != own.pages)
+        {
+            self.idle.drain(..).for_each(Chunk::release);
+        }
+        if (self.idle.len() + 1) * own.pages <= IDLE_PAGES {
+            self.idle.push(own);
+        } else {
+            own.release();
+        }
     }
 
     /// Takes `pages` contiguous free slots from the first free range that has them: their chunk and first index. A
@@ -463,9 +505,9 @@ mod tests {
     fn both_modes(test: impl Fn(&Arc<TempArea>, &Pager)) {
         let tmp = tempfile::tempdir().unwrap();
         let on_disk = Pager::open(tmp.path(), &OpenOptions::default()).unwrap();
-        test(&Arc::new(TempArea::new(on_disk.folder())), &on_disk);
+        test(&Arc::new(TempArea::new(on_disk.folder(), None)), &on_disk);
         let temporary = Pager::open_temporary(&OpenOptions::default()).unwrap();
-        test(&Arc::new(TempArea::new(None)), &temporary);
+        test(&Arc::new(TempArea::new(None, None)), &temporary);
     }
 
     fn chunks(area: &TempArea) -> Vec<usize> {
@@ -515,8 +557,10 @@ mod tests {
         });
     }
 
-    /// R1 of the code review: a run's own chunk, of exactly its size, goes with the run's last holder, its file
-    /// too, and its number is taken again, so runs a page larger each time never pile up chunks.
+    /// R1 of the code review: a run's own chunk, of exactly its size, goes with the run's last holder, and its number
+    /// is taken again, so runs a page larger each time never pile up chunks. In a store on disk the last one is kept
+    /// for a run of its size (candidate 5 of the writes diagnosis), and goes with the next one of another size, its
+    /// file too.
     #[test]
     fn a_run_s_own_chunk_is_released_with_it() {
         both_modes(|area, pager| {
@@ -534,13 +578,17 @@ mod tests {
                 );
                 drop(holder);
                 assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES]);
-                assert_eq!(area.capacity(), (FIRST_CHUNK_PAGES * PAGE_SIZE) as u64);
+                let kept = match pager.folder() {
+                    Some(_) => MAX_CHUNK_PAGES + extra,
+                    None => 0,
+                };
+                assert_eq!(
+                    area.capacity(),
+                    ((FIRST_CHUNK_PAGES + kept) * PAGE_SIZE) as u64
+                );
                 if let Some(folder) = pager.folder() {
-                    let files: Vec<_> = std::fs::read_dir(folder.join(TEMP_DIR))
-                        .unwrap()
-                        .map(|entry| entry.unwrap().file_name())
-                        .collect();
-                    assert_eq!(files, vec!["scratch.0000000001"]);
+                    let own = format!("scratch.{:010}", extra + 1);
+                    assert_eq!(temp_files(folder), ["scratch.0000000001", own.as_str()]);
                 }
             }
             assert_eq!(area.state.lock().unwrap().chunks.len(), 2, "number reused");
@@ -548,6 +596,78 @@ mod tests {
             drop(single);
             area.remove().unwrap();
         });
+    }
+
+    /// Files of `krummi.temp`, by name.
+    fn temp_files(folder: &Path) -> Vec<String> {
+        let mut files: Vec<String> = std::fs::read_dir(folder.join(TEMP_DIR))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        files.sort();
+        files
+    }
+
+    /// Candidate 5 of the writes diagnosis (performance plan): in a store on disk, a run's released own chunk is
+    /// kept and a later run of its size takes it, without creating a file; a temporary store frees it, since all its
+    /// memory counts against its maximum size (P10, T14).
+    #[test]
+    fn a_released_own_chunk_serves_the_next_run_of_its_size() {
+        both_modes(|area, pager| {
+            let pages = MAX_CHUNK_PAGES + 1;
+            drop(area.store_run(&run(pages, 1), pager).unwrap());
+            let again = run(pages, 2);
+            let slot = area.store_run(&again, pager).unwrap();
+            assert_holds(&slot, &again);
+            let files = area.state.lock().unwrap().files;
+            match pager.folder() {
+                Some(folder) => {
+                    assert_eq!(files, 1, "the second run took the first one's file");
+                    assert_eq!(temp_files(folder), ["scratch.0000000001"]);
+                }
+                None => assert_eq!(area.capacity(), (pages * PAGE_SIZE) as u64),
+            }
+            drop(slot);
+            area.remove().unwrap();
+        });
+    }
+
+    /// Candidate 5 of the writes diagnosis: with a maximum size, a store on disk releases its own chunks as before,
+    /// since the files of `krummi.temp` count against it (P10, T14).
+    #[test]
+    fn with_a_maximum_size_no_released_own_chunk_is_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pager = Pager::open(tmp.path(), &OpenOptions::default()).unwrap();
+        let area = Arc::new(TempArea::new(pager.folder(), Some(1 << 30)));
+        drop(
+            area.store_run(&run(MAX_CHUNK_PAGES + 1, 1), &pager)
+                .unwrap(),
+        );
+        assert_eq!(area.capacity(), 0);
+        assert!(temp_files(tmp.path()).is_empty());
+        area.remove().unwrap();
+    }
+
+    /// Candidate 5 of the writes diagnosis: the released own chunks kept are of one size and hold at most
+    /// [`IDLE_PAGES`] pages; the rest are released as before.
+    #[test]
+    fn the_released_own_chunks_kept_are_bounded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pager = Pager::open(tmp.path(), &OpenOptions::default()).unwrap();
+        let area = Arc::new(TempArea::new(pager.folder(), None));
+        let pages = MAX_CHUNK_PAGES + 1;
+        let held: Vec<Slot> = (0..5)
+            .map(|i| area.store_run(&run(pages, i), &pager).unwrap())
+            .collect();
+        drop(held);
+        let kept = IDLE_PAGES / pages;
+        assert!((1..5).contains(&kept));
+        assert_eq!(temp_files(tmp.path()).len(), kept);
+        assert_eq!(area.capacity(), (kept * pages * PAGE_SIZE) as u64);
+        // A run of another size releases them when its own chunk is released.
+        drop(area.store_run(&run(pages + 1, 9), &pager).unwrap());
+        assert_eq!(temp_files(tmp.path()), ["scratch.0000000006"]);
+        area.remove().unwrap();
     }
 
     /// R1 of the code review: a run that the free slots could hold page by page, but that no free range fits, gets a
@@ -639,7 +759,7 @@ mod tests {
     #[test]
     fn a_failed_growth_for_a_run_holds_nothing() {
         let pager = Pager::open_temporary(&OpenOptions::default()).unwrap();
-        let area = Arc::new(TempArea::new(None));
+        let area = Arc::new(TempArea::new(None, None));
         faults::reset();
         faults::inject(Op::Alloc, 0, Action::Fail(io::ErrorKind::OutOfMemory));
         let error = area.store_run(&run(2, 6), &pager).err().unwrap();
