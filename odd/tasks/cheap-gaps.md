@@ -156,3 +156,4 @@ Branch `perf/cheap-gaps` from `perf/write-reuse` `e0ad729`. Delivery: single bra
   `docs/benchmark/2026-11-08-*-cheap-gaps.md`; the Windows one says "con cambios sin confirmar" for the phase log. RDD
   of the last slices: page-diffs L9 and L10. Final checks at `f295627`: fmt, clippy, `cargo test --workspace` 589
   passed, 0 failed, 31 ignored. Codex (PRDs and code): pending, usage limit until 2026-11-11 06:49.
+- **Closing** (2026-11-08): closing report in [cheap-gaps-report.md](cheap-gaps-report.md), shared by the three runs.

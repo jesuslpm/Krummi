@@ -141,3 +141,4 @@ closing report shared with the cheap gaps run.
   corrected summary still overstated W18; it now gives the alternating rounds' counts and medians. Mechanism bound
   (estimate, not measured): W18 reads 4,096 values of 64 KiB, about 6 µs each, and the slower layout check with holes
   adds tens of nanoseconds per leaf read, under 1 %.
+- **Closing** (2026-11-08): closing report in [cheap-gaps-report.md](cheap-gaps-report.md), shared by the three runs.

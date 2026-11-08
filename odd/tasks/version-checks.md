@@ -89,3 +89,4 @@ report shared with the cheap gaps run.
   of the change, recorded for the closing report (hypothesis, not measured: for a fixed-size node the check it saves
   is cheaper than the extra shared lock that remembers it). Other loads lower in the first pair and not in the new
   one: Windows W4, W17 and W18; WSL 2 W1, W15 and W18.
+- **Closing** (2026-11-08): closing report in [cheap-gaps-report.md](cheap-gaps-report.md), shared by the three runs.
