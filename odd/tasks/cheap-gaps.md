@@ -104,3 +104,13 @@ Branch `perf/cheap-gaps` from `perf/write-reuse` `e0ad729`. Delivery: single bra
   not 20,773: L9's whole round was disturbed (it ran while subagents worked on the same machine) and is discarded.
   W2 gains about 3 %, not 106 %. The pairs run again at the end with every binary, on a quiet machine. Rule kept for
   the rest of the run: no measurement while subagents or builds run.
+- **L11** (2026-11-08): verification of `e0ad729..d96a92b`. Assessment `medium` / `under_budget`, escalated with
+  `--escalate-item 2` (T5 rewrites the layout check, a damage guard) to `high`. Independent verifier (sonnet, high):
+  S1–S6 met, no blockers; its own differential probe of 400,000 nodes (34,233 accepted) found no disagreement with the
+  previous check; `cargo fmt --check`, clippy, `cargo test --workspace` and the full fixed-size sweep pass in its
+  scratch copy (removed). Advisory: `is_valid` now panics on a slice shorter than a payload, where the old check could
+  return false; every caller passes a whole payload. RDD review: lenses risk and reliability, approved, lineage
+  `review-3be47b92a02e4060`, 07:51:13–07:51:59 (the phase log missed it: the first attempt could not detach HEAD over
+  the modified phase log and closed its entry). Finding R3-fixed-leaf-split-precompute (SUGGESTION): no test pins the
+  split boundary of a fixed-size leaf; fixed in `49e25ee` (`a_leaf_splits_exactly_when_it_is_full`, which fails when
+  the boundary moves by one).

@@ -24,8 +24,8 @@ report shared with the cheap gaps run.
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| V1 | S1, S3, S4 | inline: per-version layout memory in the slot, `PageCheck::Version` | pending | |
-| V2 | S2, S3 | inline: shared lock for page lookups in the scratch area | pending | |
+| V1 | S1, S3, S4 | inline: per-version layout memory in the slot, `PageCheck::Version` | done | `5199efc`, L3 |
+| V2 | S2, S3 | inline: shared lock for page lookups in the scratch area | done, verifier running | `a289acf`, L4 |
 | V3 | S5 | inline: single-load pairs, with the cheap gaps pairs | pending | |
 
 ## Log
@@ -37,3 +37,15 @@ report shared with the cheap gaps run.
   Start: 2026-11-08 07:29:24 UTC.
 - **L2** (2026-11-08): routes. Both units inline: sequential and small. V2 touches concurrency (high-risk item 4): it
   gets an independent verifier and its own RDD review.
+- **L3** (2026-11-08): V1. The flag lives in the temporary-area `Slot` (a new `Slot` per published version, so it starts
+  clear and goes with it); `Snapshot::page_and_code` returns `Origin::Store(code)` or `Origin::Version { checked }`,
+  mapped to `PageCheck::Version`; `node_at_with` skips the check of a checked version and reports every check through
+  `layout_checked(page, node, passed)`. `Snapshot::version_checked` marks the version only when its payload is `node`
+  (pointer comparison), so a pass is never given to another version. RED: AC-S7 failed on the change
+  (`[Check, Check]` expected, one check seen); AC-U1–AC-U7 written in `version_check_tests.rs`, AC-S7 removed (AC-U1
+  replaces it). AC-U6 first expected one remembered node and saw two (the catalog's root is read to open the tree);
+  the test was fixed, not the code. Workspace: 577 tests pass.
+- **L4** (2026-11-08): V2. `Shared::state` is an `RwLock`; `lock()` takes it for writing as before, and the three read
+  paths (`page_and_code`, `run`, `version_checked`) take it shared. Each drops the guard before reading the store's
+  pages, so no thread takes the lock twice. Clippy and 577 tests pass. No deterministic test of U3 (AC-U8 and AC-U7
+  cover it, as the PRD says).
