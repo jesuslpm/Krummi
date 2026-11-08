@@ -356,3 +356,34 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "d");
     scratch.close().unwrap();
 }
+
+/// U1 of the version checks PRD: a pass is kept only by the version whose payload passed; a pass reported for other
+/// bytes, or a failure, leaves the version unchecked (R3 of the RDD review of the version checks).
+#[test]
+fn a_layout_pass_is_kept_only_by_the_version_that_passed() {
+    both_modes(|scratch| {
+        let keeper = scratch.snapshot().unwrap();
+        commit(&scratch, "b");
+        let read = scratch.snapshot().unwrap();
+        let (node, origin) = read.page_and_code(PAGE).unwrap();
+        assert_eq!(origin, Origin::Version { checked: false });
+        let other = node.to_vec();
+        read.version_checked(PAGE, &other, true);
+        read.version_checked(PAGE, node, false);
+        assert_eq!(
+            read.page_and_code(PAGE).unwrap().1,
+            Origin::Version { checked: false }
+        );
+        read.version_checked(PAGE, node, true);
+        assert_eq!(
+            read.page_and_code(PAGE).unwrap().1,
+            Origin::Version { checked: true }
+        );
+        let again = scratch.snapshot().unwrap();
+        assert_eq!(
+            again.page_and_code(PAGE).unwrap().1,
+            Origin::Version { checked: true }
+        );
+        drop((again, read, keeper));
+    });
+}
