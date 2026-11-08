@@ -31,6 +31,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use memmap2::MmapMut;
@@ -214,6 +215,7 @@ impl TempArea {
             chunk,
             index,
             pages,
+            layout_checked: AtomicBool::new(false),
         };
         // SAFETY: `ptr` points to `pages` slots of a live chunk, taken under the lock from its free ranges or from the
         // chunk `grow` just added: nobody holds a reference to them (a slot is free only once its `Slot` is dropped,
@@ -439,6 +441,9 @@ pub struct Slot {
     chunk: usize,
     index: usize,
     pages: usize,
+    /// Whether the node in the slot passed the layout check of the layers above (U1 of the version checks PRD). Its
+    /// bytes never change while the slot lives, so the pass holds as long as the slot does; a failure is never kept.
+    layout_checked: AtomicBool,
 }
 
 // SAFETY: a Slot only reads the bytes it points to, which nobody writes while it lives (see the module
@@ -462,6 +467,16 @@ impl Slot {
         self.bytes()[index * PAGE_SIZE..(index + 1) * PAGE_SIZE]
             .try_into()
             .expect("a whole page")
+    }
+
+    /// Whether the node in the slot passed the layout check (U1 of the version checks PRD).
+    pub fn layout_checked(&self) -> bool {
+        self.layout_checked.load(Ordering::Relaxed)
+    }
+
+    /// Remembers that the node in the slot passed the layout check, for every later read of it (U1).
+    pub fn remember_layout_checked(&self) {
+        self.layout_checked.store(true, Ordering::Relaxed);
     }
 
     /// Number of pages in the slots.

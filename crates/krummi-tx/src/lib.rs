@@ -70,8 +70,23 @@ pub enum PageCheck {
         /// The layout passed the check since the page's last change.
         checked: bool,
     },
-    /// A committed version in the scratch area, which no read verifies: its layout is checked on every read.
+    /// A committed version in the scratch area, which no read verifies (I3), and whether its layout already passed
+    /// the check of the layers above since it was published (U1 of the version checks PRD).
+    Version {
+        /// The version passed the layout check.
+        checked: bool,
+    },
+    /// A page whose source tells nothing: its layout is checked on every read.
     Unverified,
+}
+
+impl From<krummi_pager::Origin> for PageCheck {
+    fn from(origin: krummi_pager::Origin) -> PageCheck {
+        match origin {
+            krummi_pager::Origin::Store(code) => PageCheck::Verified(code),
+            krummi_pager::Origin::Version { checked } => PageCheck::Version { checked },
+        }
+    }
 }
 
 /// What a write transaction records of the pages it changes, while a test asks it to (tests of the writer checks
@@ -376,6 +391,13 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn checked_slots(&self) -> usize {
         self.scratch.pager().checked_slots()
+    }
+
+    /// Layout checks of versions of the scratch area since the store opened, passed or failed (tests of the version
+    /// checks PRD).
+    #[cfg(feature = "test-hooks")]
+    pub fn version_checks(&self) -> u64 {
+        self.scratch.version_checks()
     }
 
     /// Integrity checks of the store's pages and runs since it opened (tests of the remembered page integrity PRD).

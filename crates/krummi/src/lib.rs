@@ -81,6 +81,8 @@ mod tests;
 #[cfg(test)]
 mod value_tests;
 #[cfg(test)]
+mod version_check_tests;
+#[cfg(test)]
 mod writer_check_tests;
 
 /// Options for opening a store.

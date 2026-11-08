@@ -42,11 +42,19 @@ impl<'e> ReadTransaction<'e> {
         self.snapshot.page(page_number)
     }
 
-    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
-    /// verified when it comes from the store, and `None` for a version of the scratch area (C2, C3 of the
-    /// remembered node layout check PRD).
-    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
-        self.snapshot.page_and_code(page_number)
+    /// The payload of page `page_number`, as [`page`](Self::page), with what its read tells about its layout check:
+    /// the integrity code its read verified when it comes from the store (C2 of the remembered node layout check
+    /// PRD), or whether a version of the scratch area already passed the check (U1 of the version checks PRD).
+    pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        let (page, origin) = self.snapshot.page_and_code(page_number)?;
+        Ok((page, origin.into()))
+    }
+
+    /// Records that a layer above checked the layout of `node`, page `page_number` read as a version of the scratch
+    /// area, and whether it `passed`: a pass holds for every later read of that version (U1 of the version checks
+    /// PRD).
+    pub fn version_checked(&self, page_number: u64, node: &[u8], passed: bool) {
+        self.snapshot.version_checked(page_number, node, passed);
     }
 
     /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
@@ -247,24 +255,30 @@ impl<'e> WriteTransaction<'e> {
             return Ok((&changed.payload[..], PageCheck::Changed { checked }));
         }
         let result = self.writer.snapshot().page_and_code(page_number);
-        let (page, code) = self.track(result)?;
-        Ok((
-            page,
-            code.map_or(PageCheck::Unverified, PageCheck::Verified),
-        ))
+        let (page, origin) = self.track(result)?;
+        Ok((page, origin.into()))
     }
 
-    /// Records that a layer above checked the layout of page `page_number`, read with
+    /// Records that a layer above checked the layout of `node`, page `page_number` read with
     /// [`page_and_check`](Self::page_and_check) without a verified integrity code, and whether it `passed`. A page
     /// this transaction changed that passes is not checked again until its next change; a failure is never
     /// remembered, so every later read checks it again (S1 of the writer checks PRD). What it remembers is this
     /// transaction's alone: no other transaction sees it, it goes with the transaction, and it never reaches the
-    /// store's memory of checked contents (C2).
-    pub fn layout_checked(&self, page_number: u64, passed: bool) {
+    /// store's memory of checked contents (C2). A version of the scratch area that passes is not checked again by
+    /// any transaction while it stays there (U1 of the version checks PRD).
+    pub fn layout_checked(&self, page_number: u64, node: &[u8], passed: bool) {
         #[cfg(feature = "test-hooks")]
         self.log(LayoutEvent::Check(page_number));
-        if passed && let Some(changed) = self.dirty.get(&page_number) {
-            changed.checked.store(true, Ordering::Relaxed);
+        match self.dirty.get(&page_number) {
+            Some(changed) => {
+                if passed {
+                    changed.checked.store(true, Ordering::Relaxed);
+                }
+            }
+            None => self
+                .writer
+                .snapshot()
+                .version_checked(page_number, node, passed),
         }
     }
 

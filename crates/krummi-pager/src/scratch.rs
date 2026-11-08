@@ -156,6 +156,8 @@ pub(crate) struct Shared {
     failure_hook: Mutex<Option<Hook>>,
     /// Transfer passes so far (tests).
     passes: AtomicU64,
+    /// Layout checks of versions reported by the layers above (tests of the version checks PRD).
+    version_checks: AtomicU64,
 }
 
 type Hook = Arc<dyn Fn() + Send + Sync>;
@@ -242,6 +244,7 @@ impl Scratch {
             transfer_hook: Mutex::new(None),
             failure_hook: Mutex::new(None),
             passes: AtomicU64::new(0),
+            version_checks: AtomicU64::new(0),
             state: Mutex::new(State {
                 last_committed: header.applied_txid,
                 versions: HashMap::new(),
@@ -420,6 +423,12 @@ impl Scratch {
     /// recently `krummi.data` was flushed (tests: AC-E17).
     pub fn transfer(&self) -> Result<()> {
         self.demand(Demand::Pass)
+    }
+
+    /// Layout checks of versions of the scratch area that the layers above reported so far, passed or failed (tests
+    /// of the version checks PRD).
+    pub fn version_checks(&self) -> u64 {
+        self.shared.version_checks.load(Ordering::Relaxed)
     }
 
     /// Transfer passes so far, by the transfer thread or [`Scratch::transfer`] (tests).
@@ -963,6 +972,20 @@ fn counted_while_retired(page: &Slot) -> bool {
     page.pages() > 1
 }
 
+/// Where a page that a snapshot reads comes from, for the layout check of the layers above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// The store's pages, with the integrity code stored in the page as read, which this read verified or a read of
+    /// this opening already did (C2 of the remembered node layout check PRD, I2).
+    Store(u64),
+    /// A committed version in the scratch area, which no read verifies (I3), and whether its layout already passed
+    /// the check of the layers above (U1 of the version checks PRD).
+    Version {
+        /// The version passed the layout check since it was published.
+        checked: bool,
+    },
+}
+
 /// A view of the store as it was when the snapshot opened (G3). It can be sent to and shared between threads
 /// (T6), and the references it returns live as long as it does (D11).
 pub struct Snapshot<'a> {
@@ -998,14 +1021,14 @@ impl<'a> Snapshot<'a> {
         self.page_and_code(page_number).map(|(page, _)| page)
     }
 
-    /// The payload of page `page_number`, as [`page`](Self::page), with the integrity code its read has just
-    /// verified when it comes from the store (C2 of the remembered node layout check PRD). A version of the scratch
-    /// area, which no read verifies, has none (C3).
+    /// The payload of page `page_number`, as [`page`](Self::page), with where it comes from: the store, with the
+    /// integrity code its read verified (C2 of the remembered node layout check PRD), or a version of the scratch
+    /// area, with whether its layout already passed the check (U1 of the version checks PRD).
     ///
     /// # Panics
     ///
     /// If `page_number` is a header page.
-    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Option<u64>)> {
+    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Origin)> {
         let state = self.may_see_versions.then(|| self.scratch.lock());
         let version = state
             .as_ref()
@@ -1018,6 +1041,7 @@ impl<'a> Snapshot<'a> {
                 return Err(self.scratch.pager().damaged(page_number));
             }
             let ptr = version.page.page().as_ptr();
+            let checked = version.page.layout_checked();
             drop(state);
             // SAFETY: `ptr` points to the PAGE_SIZE bytes of a slot of the temporary area owned by an `Arc` in the
             // scratch area; the area keeps a slot's memory while the slot is held.
@@ -1027,7 +1051,7 @@ impl<'a> Snapshot<'a> {
             // whose retired versions its own flush frees: the flush borrows the writer mutably, which ends this
             // reference first ([`State::free_retired_by_writer`]). Published pages are never written again.
             let page = unsafe { std::slice::from_raw_parts(ptr, PAGE_SIZE) };
-            return Ok((&page[PAGE_HEADER_SIZE..], None));
+            return Ok((&page[PAGE_HEADER_SIZE..], Origin::Version { checked }));
         }
         drop(state);
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
@@ -1038,7 +1062,30 @@ impl<'a> Snapshot<'a> {
             .scratch
             .pager()
             .page_and_code_with(page_number, Integrity::UseRemembered)?;
-        Ok((page, Some(code)))
+        Ok((page, Origin::Store(code)))
+    }
+
+    /// Reports that the layers above checked the layout of `node`, the payload of page `page_number` read as a
+    /// version of the scratch area, and whether it `passed`. A pass is remembered by that version, for every later
+    /// read of it while it stays in the scratch area, by any snapshot; a failure is never remembered (U1 of the
+    /// version checks PRD). Only the version whose payload is `node` is marked.
+    pub fn version_checked(&self, page_number: u64, node: &[u8], passed: bool) {
+        self.scratch
+            .shared
+            .version_checks
+            .fetch_add(1, Ordering::Relaxed);
+        if !passed || !self.may_see_versions {
+            return;
+        }
+        let state = self.scratch.lock();
+        if let Some(version) = state
+            .versions
+            .get(&page_number)
+            .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid))
+            && version.page.page()[PAGE_HEADER_SIZE..].as_ptr() == node.as_ptr()
+        {
+            version.page.remember_layout_checked();
+        }
     }
 
     /// The `count` pages of the value run that starts at page `first` as this snapshot sees it, as one contiguous

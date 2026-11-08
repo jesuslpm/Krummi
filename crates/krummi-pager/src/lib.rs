@@ -23,8 +23,8 @@ pub use pager::{
     OpenOptions, Pager, TEMPORARY_RESERVATION, growth_target,
 };
 pub use scratch::{
-    Memory, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged, alloc_payload, alloc_run,
-    reuse_payload, try_reserve,
+    Memory, Origin, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged, alloc_payload,
+    alloc_run, reuse_payload, try_reserve,
 };
 pub use temp::TEMP_DIR;
 

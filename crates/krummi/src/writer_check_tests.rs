@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use krummi_tree::{fixed, height};
-use krummi_tx::{LayoutEvent, Memory};
+use krummi_tx::LayoutEvent;
 
 use super::*;
 use crate::check_tests::{commit_tree, damaged_page, leaf, long_key, on_both, root_of, transfer};
@@ -326,48 +326,4 @@ fn ac_s3_the_next_write_checks_a_changed_node_again() {
             );
         });
     }
-}
-
-/// AC-S7 (S1, S2, C3, I3): a committed version of a node still in the scratch area, read twice by a write that does not
-/// change it, has its layout checked on each read, and its integrity on none.
-#[test]
-fn ac_s7_a_version_in_the_scratch_area_is_checked_on_every_read_of_a_write() {
-    on_both(|store| {
-        commit_tree(store, "n", 20, 64);
-        transfer(store);
-        let key = long_key(3, 64);
-        let page = leaf(store, root_of(store, "n"), &key);
-        assert_eq!(root_of(store, "n"), page, "a tree of one leaf");
-        let keeper = store.read().unwrap();
-        let mut write = store.write().unwrap();
-        let tree = write.open_tree("n").unwrap();
-        write.set(&tree, &key, b"changed").unwrap();
-        write.commit().unwrap();
-        transfer(store);
-
-        let write = store.write().unwrap();
-        let tree = write.open_tree("n").unwrap();
-        assert_eq!(
-            store.engine.memory_of(write.inner.page(page).unwrap()),
-            Some(Memory::Versions),
-            "kept in the scratch area by the read opened before it"
-        );
-        let integrity = store.engine.integrity_checks();
-        write.inner.record_layout();
-        for _ in 0..2 {
-            assert_eq!(write.get(&tree, &key).unwrap(), Some(&b"changed"[..]));
-        }
-        let log = write.inner.take_layout_log();
-        assert_eq!(
-            log,
-            [LayoutEvent::Check(page), LayoutEvent::Check(page)],
-            "its layout on each read"
-        );
-        assert_eq!(
-            store.engine.integrity_checks(),
-            integrity,
-            "not its integrity"
-        );
-        drop((write, keeper));
-    });
 }

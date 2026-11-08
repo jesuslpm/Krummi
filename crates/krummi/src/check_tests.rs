@@ -79,7 +79,7 @@ pub(crate) fn commit_tree(store: &Store, name: &str, count: usize, len: usize) {
 }
 
 /// Commits a write that makes the node at `page` an unknown kind, keeping its integrity code right.
-fn damage_layout(store: &Store, page: u64) {
+pub(crate) fn damage_layout(store: &Store, page: u64) {
     damage_bytes(store, page, 0, &[0xEE]);
 }
 
