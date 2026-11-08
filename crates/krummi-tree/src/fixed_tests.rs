@@ -1002,3 +1002,40 @@ fn an_inconsistent_fixed_node_is_damage_and_not_a_panic() {
         }
     }
 }
+
+/// A leaf splits on the insert that finds it holding its capacity, in the middle and at its end, and not on the
+/// insert that fills it (the leaf decision is made on the node the descent checked).
+#[test]
+fn a_leaf_splits_exactly_when_it_is_full() {
+    const LEN: usize = 8;
+    let capacity = ((PAYLOAD_SIZE - 16) / (8 + LEN)) as u64;
+    let engine = temporary();
+    for new_key in [1, 2 * capacity + 2] {
+        // Even keys, so that key 1 goes in the middle and `2 * capacity + 2` after the last one.
+        let keys: Vec<u64> = (0..capacity - 1).map(|i| 2 * i).collect();
+        let (root, _) = tree_with(&engine, LEN, &keys);
+        let mut tx = engine.write(None).unwrap();
+        let read = |tx: &WriteTransaction<'_>, root| height(tx, root, LEN).unwrap();
+        let root = set(&mut tx, root, LEN, 2 * capacity, &value_of(0, LEN))
+            .unwrap()
+            .root;
+        assert_eq!(
+            read(&tx, root),
+            1,
+            "the insert that fills the leaf does not split it"
+        );
+        let root = set(&mut tx, root, LEN, new_key, &value_of(new_key, LEN))
+            .unwrap()
+            .root;
+        assert_eq!(
+            read(&tx, root),
+            2,
+            "the next insert, key {new_key}, splits it"
+        );
+        assert_eq!(
+            get(&tx, root, LEN, new_key).unwrap(),
+            Some(&value_of(new_key, LEN)[..])
+        );
+        tx.abort();
+    }
+}
