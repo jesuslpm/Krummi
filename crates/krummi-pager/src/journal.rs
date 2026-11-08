@@ -330,9 +330,16 @@ fn encode_record_in(
     raw.clear();
     raw.try_reserve_exact(most_raw)
         .map_err(|_| out_of_memory(most_raw))?;
+    let mut entries = 0u32;
     for &page in pages {
+        // A copied page that changed no byte needs no entry: recovery leaves it as it is (Y1).
+        if page.2.is_some_and(|base| base == page.1) {
+            continue;
+        }
+        #[cfg(any(test, feature = "test-hooks"))]
         let before = raw.len();
         encode_page(raw, page);
+        entries += 1;
         #[cfg(any(test, feature = "test-hooks"))]
         entry_sizes::record(page.0 & !RAW_ENTRY, raw.len() - before);
     }
@@ -357,7 +364,7 @@ fn encode_record_in(
     let header = RecordHeader {
         txid,
         durable_upto,
-        page_count: pages.len() as u32,
+        page_count: entries,
         compressed: compressed.is_some(),
         stored_len: stored_len as u64,
         raw_len: raw_len as u64,
@@ -1217,7 +1224,7 @@ mod tests {
                 0x2c56_ce06_eca4_aba5,
             ),
             // Copied pages: the runs that differ from their version, and nothing for an unchanged one.
-            (&[(3, Some(1)), (2, Some(2))], 0x7a14_51b3_2830_e05d),
+            (&[(3, Some(1)), (2, Some(2))], 0x674c_1350_3403_413e),
             (
                 &[(3, Some(1)), (0, Some(2)), (1, None)],
                 0x2476_9c15_723a_2c4c,
