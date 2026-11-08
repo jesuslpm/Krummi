@@ -1282,8 +1282,9 @@ impl<'a> ScratchWriter<'a> {
                     } else if let Some((slot, index)) = &bases[i] {
                         Some(slot.page_at(*index))
                     } else {
-                        // A page copied without a version here was read from the store: missing now, it is damage
-                        // of the store, not a panic of the writer.
+                        // A page copied without a version here was read from the store. It cannot be missing now:
+                        // `stage` checked that the page is inside the store, which only grows while open; if it ever
+                        // were, it is damage of the store, not a panic of the writer.
                         let stored = pager
                             .raw_pages(*number, 1)
                             .and_then(|stored| stored.try_into().ok())
