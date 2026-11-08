@@ -5,13 +5,15 @@
 //! | 0 | kind: `1` leaf, `2` branch |
 //! | 1 | level: `0` for a leaf, one more than its children's for a branch |
 //! | 2–3 | number of cells |
-//! | 4–5 | start of the cells: they fill the end of the payload, from here to its end |
-//! | 6–7 | zero |
+//! | 4–5 | start of the cells: the cells and the holes fill the end of the payload, from here to its end |
+//! | 6–7 | bytes of the holes: what removed cells left among the others |
 //! | 8–15 | a branch's leftmost child; zero in a leaf |
 //! | 16… | the offsets of the cells, 2 bytes each, in key order |
 //!
-//! The cells stay packed against the end of the payload, so the free space is the gap between the offsets and the
-//! cells. A leaf cell is the key length (2 bytes), the value length (2 bytes), the key and the value. A value whose
+//! Removing a cell, or replacing it with one of another size, leaves its bytes as a hole, without moving the other
+//! cells, so that a commit changes few bytes of the page (Y4 of the journal page diffs PRD). The free space is the gap
+//! between the offsets and the cells and the holes; a cell that does not fit in the gap moves the cells against the
+//! end of the payload first, which joins the holes to the gap. A leaf cell is the key length (2 bytes), the value length (2 bytes), the key and the value. A value whose
 //! cell would be longer than the leaf's threshold (half a node, D7 of the large values execution) lives off its leaf,
 //! in a value run of its own pages: its cell has `0xFFFF` as the value length, and the run's first page and the
 //! value's length (8 bytes each) in place of the value (D2). A branch cell is the key length (2 bytes), the key
@@ -115,13 +117,13 @@ pub(crate) fn is_valid(node: &[u8]) -> bool {
     }
 }
 
-/// The checks of [`is_valid`] after the kind and the level, for a leaf when `LEAF`. It follows the cells once, from
-/// the first byte after the free space, and then matches the offsets with the cells it found, so that each cell is
-/// read once (W1 spent 39 % of its time here on WSL 2 when the offsets were checked first and the cells followed
-/// after).
+/// The checks of [`is_valid`] after the kind and the level, for a leaf when `LEAF`. Each cell lies after the start
+/// of the cells and within its sizes, no two share a byte, and the cells and the holes the header counts fill the
+/// end of the payload exactly (Y4 of the journal page diffs PRD). Without holes, that is cells that tile the end of the
+/// payload, the check before holes existed.
 fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
     let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
-    let (count, top) = (u16_at(2), u16_at(4));
+    let (count, top, holes) = (u16_at(2), u16_at(4), u16_at(6));
     if HEADER + 2 * count > top || top > PAYLOAD_SIZE {
         return false;
     }
@@ -130,12 +132,12 @@ fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
     } else {
         (2, MAX_BRANCH_CELL)
     };
-    // The cells, followed from `top`, must end exactly at the end of the payload, `count` of them, each within its
-    // sizes. Bit `at` is set when one starts at byte `at`.
-    let mut starts = [0u64; PAYLOAD_SIZE.div_ceil(64)];
-    let (mut at, mut seen) = (top, 0);
-    while at < PAYLOAD_SIZE {
-        if seen == count || at + lengths > PAYLOAD_SIZE {
+    // Bit `at` is set when a cell holds byte `at`.
+    let mut covered = [0u64; PAYLOAD_SIZE.div_ceil(64)];
+    let mut cells = 0;
+    for index in 0..count {
+        let at = u16_at(HEADER + 2 * index);
+        if at < top || at + lengths > PAYLOAD_SIZE {
             return false;
         }
         let key = u16_at(at);
@@ -153,22 +155,20 @@ fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
         {
             return false;
         }
-        starts[at / 64] |= 1 << (at % 64);
-        at += len;
-        seen += 1;
-    }
-    if seen != count {
-        return false;
-    }
-    // The offsets are those starts, each once: an offset that is no start, or a repeated one, finds its bit clear.
-    for index in 0..count {
-        let at = u16_at(HEADER + 2 * index);
-        if at >= PAYLOAD_SIZE || starts[at / 64] & (1 << (at % 64)) == 0 {
-            return false;
+        let mut from = at;
+        while from < at + len {
+            let (word, bit) = (from / 64, from % 64);
+            let bits = (64 - bit).min(at + len - from);
+            let mask = (u64::MAX >> (64 - bits)) << bit;
+            if covered[word] & mask != 0 {
+                return false;
+            }
+            covered[word] |= mask;
+            from += bits;
         }
-        starts[at / 64] &= !(1 << (at % 64));
+        cells += len;
     }
-    true
+    cells + holes == PAYLOAD_SIZE - top
 }
 
 pub(crate) fn is_leaf(node: &[u8]) -> bool {
@@ -199,9 +199,19 @@ fn offset(node: &[u8], index: usize) -> usize {
     u16_at(node, HEADER + 2 * index)
 }
 
-/// Bytes free for new cells and their offsets.
+/// Bytes free for new cells and their offsets: the gap between the offsets and the cells, and the holes.
 pub(crate) fn free_space(node: &[u8]) -> usize {
+    gap(node) + holes(node)
+}
+
+/// Bytes between the offsets and the cells.
+fn gap(node: &[u8]) -> usize {
     top(node) - HEADER - 2 * count(node)
+}
+
+/// Bytes of the holes among the cells.
+fn holes(node: &[u8]) -> usize {
+    u16_at(node, 6)
 }
 
 /// Bytes in use, header included.
@@ -363,6 +373,9 @@ pub(crate) fn encode_branch(buf: &mut [u8], key: &[u8], child: u64) -> usize {
 /// If it does not fit.
 pub(crate) fn insert(node: &mut [u8], index: usize, cell: &[u8]) {
     assert!(free_space(node) >= cell.len() + 2, "the cell fits");
+    if gap(node) < cell.len() + 2 {
+        compact(node);
+    }
     let count = count(node);
     let top = top(node) - cell.len();
     node[top..top + cell.len()].copy_from_slice(cell);
@@ -373,24 +386,57 @@ pub(crate) fn insert(node: &mut [u8], index: usize, cell: &[u8]) {
     put_u16(node, 4, top);
 }
 
-/// Removes cell `index`, moving the cells below it to keep them packed.
+/// Removes cell `index`, leaving its bytes as a hole: the lowest cell joins the gap instead, and a node left
+/// without cells has no holes (Y4 of the journal page diffs PRD).
 pub(crate) fn remove(node: &mut [u8], index: usize) {
     let count = count(node);
     let at = offset(node, index);
     let len = cell_len_at(node, at);
-    let top = top(node);
-    node.copy_within(top..at, top + len);
-    for other in 0..count {
-        let slot = HEADER + 2 * other;
-        let moved = u16_at(node, slot);
-        if moved < at {
-            put_u16(node, slot, moved + len);
-        }
-    }
     let slot = HEADER + 2 * index;
     node.copy_within(slot + 2..HEADER + 2 * count, slot);
     put_u16(node, 2, count - 1);
-    put_u16(node, 4, top + len);
+    if count == 1 {
+        put_u16(node, 4, PAYLOAD_SIZE);
+        put_u16(node, 6, 0);
+    } else if at == top(node) {
+        put_u16(node, 4, at + len);
+    } else {
+        put_u16(node, 6, holes(node) + len);
+    }
+    #[cfg(test)]
+    if testing::COMPACT_ON_REMOVE.get() {
+        compact(node);
+    }
+}
+
+/// What the tests of holes switch and count (AC-Y5 of the journal page diffs PRD).
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Moves the cells against the end of the payload after every removal, as before holes existed.
+        pub(crate) static COMPACT_ON_REMOVE: Cell<bool> = const { Cell::new(false) };
+        /// Times the cells were moved against the end of the payload on this thread.
+        pub(crate) static COMPACTIONS: Cell<usize> = const { Cell::new(0) };
+    }
+}
+
+/// Moves the cells against the end of the payload, in key order, so that the holes join the gap.
+fn compact(node: &mut [u8]) {
+    #[cfg(test)]
+    testing::COMPACTIONS.set(testing::COMPACTIONS.get() + 1);
+    let old: [u8; PAYLOAD_SIZE] = node[..PAYLOAD_SIZE].try_into().expect("a payload");
+    let mut top = PAYLOAD_SIZE;
+    for index in 0..count(node) {
+        let at = offset(&old, index);
+        let len = cell_len_at(&old, at);
+        top -= len;
+        node[top..top + len].copy_from_slice(&old[at..at + len]);
+        put_u16(node, HEADER + 2 * index, top);
+    }
+    put_u16(node, 4, top);
+    put_u16(node, 6, 0);
 }
 
 /// Where to split `cells`, whose sizes with their offsets add up to more than a page, into two nodes with as
@@ -433,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn cells_are_found_in_key_order_and_removal_keeps_them_packed() {
+    fn cells_are_found_in_key_order_and_removal_leaves_a_hole() {
         let mut node = leaf_with(&[(b"a", b"1"), (b"ab", b""), (b"b", b"333")]);
         assert_eq!(search(&node, b"ab"), Ok(1));
         assert_eq!(search(&node, b"aa"), Err(1));
@@ -447,7 +493,13 @@ mod tests {
         assert_eq!(used(&node), used_before - (4 + 1 + 1) - 2);
         assert_eq!((key(&node, 0), key(&node, 1)), (&b"ab"[..], &b"b"[..]));
         assert_eq!(value(&node, 1), Value::Inline(b"333"));
-        assert_eq!(top(&node), PAYLOAD_SIZE - (4 + 2) - (4 + 1 + 3));
+        // The first cell, the highest in the page, left a hole; the others did not move.
+        assert_eq!(
+            top(&node),
+            PAYLOAD_SIZE - (4 + 1 + 1) - (4 + 2) - (4 + 1 + 3)
+        );
+        assert_eq!(holes(&node), 4 + 1 + 1);
+        assert!(is_valid(&node));
     }
 
     /// The check of [`is_valid`] as it was before it followed the cells first (W1, performance plan): the
@@ -583,6 +635,10 @@ mod tests {
                     }
                 }
             }
+            // The reference knew no holes: a node whose header counts some is checked by the tests of holes.
+            if holes(&node) != 0 {
+                continue;
+            }
             let expected = is_valid_reference(&node);
             assert_eq!(is_valid(&node), expected, "round {round}");
             if expected {
@@ -619,5 +675,110 @@ mod tests {
         let cells: Vec<&[u8]> = vec![&small, &small, &big, &small];
         assert_eq!(split_point(&cells, true), 2);
         assert_eq!(split_point(&cells, false), 2);
+    }
+
+    /// Y4: a leaf that takes inserts, removals and replacements with cells of another size keeps its holes, joins
+    /// them to the gap only when a cell does not fit without them, always passes the layout check, holds what a model
+    /// holds, and uses exactly the bytes of its cells and offsets.
+    #[test]
+    fn holes_follow_a_model_of_inserts_removals_and_replacements() {
+        let mut state = 0x6B72_756D_6D69_0004u64;
+        let mut next = move |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % bound as u64) as usize
+        };
+        let mut node = vec![0; PAYLOAD_SIZE];
+        init(&mut node, 0, 0);
+        let mut model = std::collections::BTreeMap::<Vec<u8>, Vec<u8>>::new();
+        let mut buf = [0; MAX_LEAF_CELL];
+        let (mut compactions, mut with_holes) = (0, 0);
+        for step in 0..20_000 {
+            let key = format!("{:05}", next(200)).into_bytes();
+            let value = vec![step as u8; next(300)];
+            let len = encode_leaf(&mut buf, &key, Value::Inline(&value));
+            match (search(&node, &key), next(3)) {
+                (Ok(index), 0) => {
+                    remove(&mut node, index);
+                    model.remove(&key);
+                }
+                (Ok(index), _) => {
+                    // A replacement of another size, as the tree does it: remove, then insert if it fits.
+                    remove(&mut node, index);
+                    model.remove(&key);
+                    if free_space(&node) >= len + 2 {
+                        let had_holes = holes(&node) > 0 && gap(&node) < len + 2;
+                        insert(&mut node, index, &buf[..len]);
+                        model.insert(key, value);
+                        compactions += usize::from(had_holes);
+                    }
+                }
+                (Err(index), _) if free_space(&node) >= len + 2 => {
+                    let had_holes = holes(&node) > 0 && gap(&node) < len + 2;
+                    insert(&mut node, index, &buf[..len]);
+                    model.insert(key, value);
+                    compactions += usize::from(had_holes);
+                }
+                (Err(_), _) => {}
+            }
+            with_holes += usize::from(holes(&node) > 0);
+            assert!(is_valid(&node), "step {step}");
+            assert_eq!(count(&node), model.len(), "step {step}");
+            let cells: usize = (0..count(&node)).map(|i| cell(&node, i).len() + 2).sum();
+            assert_eq!(used(&node), HEADER + cells, "step {step}");
+            for (index, (key, value)) in model.iter().enumerate() {
+                assert_eq!(super::key(&node, index), &key[..], "step {step}");
+                assert_eq!(
+                    super::value(&node, index),
+                    Value::Inline(value),
+                    "step {step}"
+                );
+            }
+        }
+        assert!(
+            compactions > 10 && with_holes > 1_000,
+            "{compactions} compactions, {with_holes} steps with holes"
+        );
+    }
+
+    /// AC-Y6 (Y4): a node with holes passes the layout check; cells that overlap, a cell out of the page or over its
+    /// sizes, and a count of holes that does not match its cells, do not.
+    #[test]
+    fn the_layout_check_accepts_holes_and_rejects_overlaps() {
+        let mut node = leaf_with(&[(b"a", b"11"), (b"b", b"22"), (b"c", b"33"), (b"d", b"44")]);
+        remove(&mut node, 1);
+        assert!(holes(&node) > 0 && is_valid(&node), "a hole");
+        let damaged = |change: &dyn Fn(&mut Vec<u8>)| {
+            let mut copy = node.clone();
+            change(&mut copy);
+            is_valid(&copy)
+        };
+        // The second cell made to start inside the first one.
+        assert!(!damaged(&|n| {
+            let first = offset(n, 0);
+            put_u16(n, HEADER + 2, first + 1);
+        }));
+        // Two offsets of the same cell.
+        assert!(!damaged(&|n| {
+            let first = offset(n, 0);
+            put_u16(n, HEADER + 2, first);
+        }));
+        // A cell that runs past the end of the payload.
+        assert!(!damaged(&|n| put_u16(n, HEADER, PAYLOAD_SIZE - 3)));
+        // A key over its maximum size.
+        assert!(!damaged(&|n| {
+            let at = offset(n, 0);
+            put_u16(n, at, MAX_KEY + 1);
+        }));
+        // A count of holes one byte off, either way.
+        assert!(!damaged(&|n| {
+            let holes = holes(n);
+            put_u16(n, 6, holes + 1);
+        }));
+        assert!(!damaged(&|n| {
+            let holes = holes(n);
+            put_u16(n, 6, holes - 1);
+        }));
     }
 }

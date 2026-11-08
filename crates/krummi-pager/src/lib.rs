@@ -33,6 +33,7 @@ pub use temp::TEMP_DIR;
 #[cfg(feature = "test-hooks")]
 pub mod testing {
     pub use crate::checked::with_checked_slots;
+    pub use crate::journal::entry_sizes;
     pub use crate::remembered::with_remembered_commits_failing;
     pub use crate::sys::Op;
     pub use crate::sys::faults::{

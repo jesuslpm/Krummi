@@ -105,6 +105,36 @@ pub(crate) fn encode_page(out: &mut Vec<u8>, (entry, page, base): JournalPage<'_
     out[count_at..count_at + 2].copy_from_slice(&runs.to_le_bytes());
 }
 
+/// The bytes of the entries the journal encodes while a test records them (AC-Y1 of the journal page diffs PRD).
+#[cfg(any(test, feature = "test-hooks"))]
+pub mod entry_sizes {
+    use std::cell::RefCell;
+
+    thread_local! {
+        /// The entries recorded on this thread, which encodes the records of the commits it makes.
+        static SIZES: RefCell<Option<Vec<(u64, usize)>>> = const { RefCell::new(None) };
+    }
+
+    /// Starts recording on this thread, from no entries.
+    pub fn start() {
+        SIZES.set(Some(Vec::new()));
+    }
+
+    /// The page number and the bytes, before compression, of each entry encoded on this thread since [`start`],
+    /// which stops.
+    pub fn take() -> Vec<(u64, usize)> {
+        SIZES.take().unwrap_or_default()
+    }
+
+    pub(crate) fn record(page: u64, len: usize) {
+        SIZES.with_borrow_mut(|sizes| {
+            if let Some(sizes) = sizes {
+                sizes.push((page, len));
+            }
+        });
+    }
+}
+
 /// A page entry of a decoded payload.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PageEntry<'a> {
@@ -301,7 +331,10 @@ fn encode_record_in(
     raw.try_reserve_exact(most_raw)
         .map_err(|_| out_of_memory(most_raw))?;
     for &page in pages {
+        let before = raw.len();
         encode_page(raw, page);
+        #[cfg(any(test, feature = "test-hooks"))]
+        entry_sizes::record(page.0 & !RAW_ENTRY, raw.len() - before);
     }
     let raw_len = raw.len();
     let bound = lz4_flex::block::get_maximum_output_size(raw_len);

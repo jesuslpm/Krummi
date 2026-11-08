@@ -855,3 +855,51 @@ fn entries_added_in_reverse_order_still_split_into_halves() {
         "reverse order",
     );
 }
+
+/// AC-Y5 (Y4 of the journal page diffs PRD): a fixed sequence of inserts, removals in the middle and replacements
+/// with values of another size, in a normal tree and in a multi-value tree, reads back what was written, reorganizes
+/// some node to use its holes, and leaves every tree with the same pages, level by level, as when every removal
+/// moves the cells against the end of the payload.
+#[test]
+fn trees_with_holes_have_the_pages_of_trees_without_them() {
+    let run = |compact: bool| {
+        node::testing::COMPACT_ON_REMOVE.set(compact);
+        node::testing::COMPACTIONS.set(0);
+        let engine = temporary();
+        let mut rng = Rng(0x6B72_756D_6D69_0005);
+        let mut model = Model::new();
+        let mut tx = engine.write(None).unwrap();
+        let mut root = create(&mut tx).unwrap();
+        let mut multi_root = create(&mut tx).unwrap();
+        for step in 0..12_000u64 {
+            let key = format!("{:06}", rng.below(4_000)).into_bytes();
+            let value = vec![step as u8; rng.below(200) as usize];
+            if rng.below(3) == 0 {
+                root = remove(&mut tx, root, &key).unwrap().root;
+                model.remove(&key);
+                multi_root = multi::remove_value(&mut tx, multi_root, &key[..2], &key)
+                    .unwrap()
+                    .root;
+            } else {
+                root = set(&mut tx, root, &key, &value).unwrap().root;
+                model.insert(key.clone(), value);
+                multi_root = multi::add(&mut tx, multi_root, &key[..2], &key)
+                    .unwrap()
+                    .root;
+            }
+        }
+        assert_eq!(entries(&tx, root), model.into_iter().collect::<Vec<_>>());
+        let shape: Vec<usize> = levels(&tx, root).iter().map(Vec::len).collect();
+        tx.commit().unwrap();
+        node::testing::COMPACT_ON_REMOVE.set(false);
+        (shape, in_use(&engine), node::testing::COMPACTIONS.get())
+    };
+    let (holes, compacted) = (run(false), run(true));
+    assert_eq!(
+        (&holes.0, holes.1),
+        (&compacted.0, compacted.1),
+        "the same pages"
+    );
+    assert!(holes.2 > 0, "some node used its holes");
+    assert!(compacted.2 > holes.2, "fewer moves of the cells with holes");
+}

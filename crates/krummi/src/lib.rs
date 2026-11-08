@@ -77,6 +77,8 @@ mod integrity_tests;
 #[cfg(test)]
 mod multi_tests;
 #[cfg(test)]
+mod page_diff_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod value_tests;
