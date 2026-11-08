@@ -87,3 +87,8 @@ closing report shared with the cheap gaps run.
   Advisories: a node without cells that counted holes passed the layout check (now rejected, Y4); a stale doc comment
   of `apply_pages` (removed). Workspace: 589 tests. The measured `pd` binary is `7192dc7`; `4aa2835` adds tests and the
   empty-node rule only.
+- **L7** (2026-11-08): RDD review of `e08b646..335abbb`, escalated with item 1 (journal format, recovery, node layout
+  on disk), lenses risk, resilience and reliability, approved, lineage `review-8b7f0a4e693379ce`. Findings
+  R4-commit-base-expect and R3-commit-base-expect-panic (both SUGGESTION, the same point): the commit panicked through
+  `expect` if a copied page without a version were missing from `krummi.data`; it now fails with the damage class and
+  that page (`fix(pager): fail with damage, not a panic, when a commit finds no base`). 589 tests pass.
