@@ -116,10 +116,22 @@ closing report shared with the cheap gaps run.
   | W18 | −3 % / −3 % [−15 % / −15 %; alternating: mixed] | −3 % / 0 % |
 
   W2 rises from 44,670 to 112,172 op/s on Windows and from 23,903 to 51,760 on WSL 2 (first round). S6 holds: W2, W14,
-  W15 and W19 improve on both platforms, and no load is lower in both rounds twice. W18 on Windows reads in two modes,
+  W15 and W19 improve on both platforms, and the only load lower in both rounds twice, W18 on Windows, is not lower in
+  the alternating rounds (correction of L9; the first wording said no load was). W18 on Windows reads in two modes,
   about 162,000 and 140,000 op/s, with the same store and binary; in five alternating rounds with fresh W17 stores
   (`alt-win.out`) `vc` also fell to the slow mode (142,153) and `pd` was higher in one round (167,675 against
   153,801), so the drop is not the change. The branch as a whole (`pd` / `base`): every load improves or is mixed on
   Windows; on WSL 2, W3 is lower in all four rounds (−2 %, −4 %, −3 %, −7 %) and in four of five alternating rounds
   (`alt-wsl.out`, median 265,432 → 257,230 op/s, −3.1 %), a cost of the branch on WSL 2 with no single step lower in
   both rounds; W7 −3 % / −1 % then +1.5 % / +3 %.
+- **L9** (2026-11-08): RDD review of the last slice, `335abbb..4a3a92e` (`ec9a9cc` and two log commits), assessment
+  `medium` / `under_budget`, lenses resilience and reliability, approved, lineage `review-88827c8bc66af220`. Findings:
+  R4-commit-base-damage-untested (SUGGESTION) and R3-commit-base-damage-untested (WARNING), the same point: no test
+  reaches the commit's damage path for a copied page without a base. Dismissed with evidence: the path cannot be
+  reached through any interface. `ScratchWriter::stage` asserts that every page is inside the store
+  (`(HEADER_PAGES..page_count).contains(page_number)`, `crates/krummi-pager/src/scratch.rs`), `Pager::raw_pages`
+  returns `None` only for pages past `len / PAGE_SIZE` (`crates/krummi-pager/src/pager.rs`, both storages), and the
+  length only grows while the store is open (its only store is in `Pager::grow`, after mapping the larger file);
+  `raw_pages(n, 1)` returns exactly one page, so the `try_into` cannot fail either. The comment now says the path is
+  unreachable. R3-pd-s6-claim-contradicts-w18 (WARNING): fixed, L8's summary named no exception although W18 on
+  Windows was lower in both rounds twice; it now names it and the alternating rounds that clear it.
