@@ -47,7 +47,7 @@ use std::marker::PhantomData;
 use std::mem::size_of;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -144,7 +144,9 @@ pub(crate) struct Shared {
     area: Arc<TempArea>,
     /// The journal of a store on disk; `None` for a temporary store (J17).
     journal: Option<Journal>,
-    state: Mutex<State>,
+    /// The versions and what they depend on. Reads of pages share it, so that they never wait for each other; every
+    /// change takes it alone (U3 of the version checks PRD).
+    state: RwLock<State>,
     /// Held while versions are written in place, so no two writes of a page overlap (J5).
     flushing: Mutex<()>,
     /// Wakes the transfer thread.
@@ -245,7 +247,7 @@ impl Scratch {
             failure_hook: Mutex::new(None),
             passes: AtomicU64::new(0),
             version_checks: AtomicU64::new(0),
-            state: Mutex::new(State {
+            state: RwLock::new(State {
                 last_committed: header.applied_txid,
                 versions: HashMap::new(),
                 bytes: 0,
@@ -521,8 +523,13 @@ impl Scratch {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
+    fn lock(&self) -> RwLockWriteGuard<'_, State> {
         self.shared.lock()
+    }
+
+    /// The state, shared with other reads of it (U3 of the version checks PRD).
+    fn read(&self) -> RwLockReadGuard<'_, State> {
+        self.shared.read()
     }
 
     /// The newest commit a read transaction opened now would see: the last durable one, or in a temporary store,
@@ -587,8 +594,12 @@ impl Shared {
         self.pager.as_ref().expect("the store is open")
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> RwLockWriteGuard<'_, State> {
+        self.state.write().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn read(&self) -> RwLockReadGuard<'_, State> {
+        self.state.read().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Bytes of page versions held only in the scratch area (T14).
@@ -1029,7 +1040,7 @@ impl<'a> Snapshot<'a> {
     ///
     /// If `page_number` is a header page.
     pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Origin)> {
-        let state = self.may_see_versions.then(|| self.scratch.lock());
+        let state = self.may_see_versions.then(|| self.scratch.read());
         let version = state
             .as_ref()
             .and_then(|state| state.versions.get(&page_number))
@@ -1077,7 +1088,7 @@ impl<'a> Snapshot<'a> {
         if !passed || !self.may_see_versions {
             return;
         }
-        let state = self.scratch.lock();
+        let state = self.scratch.read();
         if let Some(version) = state
             .versions
             .get(&page_number)
@@ -1109,7 +1120,7 @@ impl<'a> Snapshot<'a> {
         let Some(end) = end else {
             return Err(pager.damaged(first));
         };
-        let state = self.may_see_versions.then(|| self.scratch.lock());
+        let state = self.may_see_versions.then(|| self.scratch.read());
         let seen = |page_number: u64| {
             state
                 .as_ref()?
