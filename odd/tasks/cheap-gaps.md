@@ -29,7 +29,7 @@ Branch `perf/cheap-gaps` from `perf/write-reuse` `e0ad729`. Delivery: single bra
 | T3 | S4, S6 | inline: one leaf read per fixed-size insert | done | `8f09c51`, L7 |
 | T4 | S2, S6 | inline: temporary files marked temporary on Windows (copies moved to O8, L5) | done | `fafb5bf`, L5 |
 | T5 | S5, S6 | inline: faster layout check of slotted nodes instead of a last-leaf cache (L8) | done | `d96a92b`, L8 |
-| T6 | S7 | inline: single-load runs before and after, Windows and WSL 2 | running | |
+| T6 | S7 | inline: single-load runs before and after, Windows and WSL 2 | done | L12 |
 | T7 | all | RDD per slice, Codex code review, plan update, closing report | pending | |
 
 ## Log
@@ -114,3 +114,35 @@ Branch `perf/cheap-gaps` from `perf/write-reuse` `e0ad729`. Delivery: single bra
   the modified phase log and closed its entry). Finding R3-fixed-leaf-split-precompute (SUGGESTION): no test pins the
   split boundary of a fixed-size leaf; fixed in `49e25ee` (`a_leaf_splits_exactly_when_it_is_full`, which fails when
   the boundary moves by one).
+- **L12** (2026-11-08): T6. Binaries: `base` = `e0ad729`, `cheap` = `d96a92b`, `vc` = `e08b646`, `pd` = `7192dc7`,
+  built in release on each platform; each binary measures every load in its own work folder, from its own base store.
+  Rotation (`work/cg/final.sh`, `rot-win.out`, `rot-wsl.out`): two rounds of each load over the four binaries, the
+  second in reverse order, bench power plan, Windows 10:10–11:06 and WSL 2 11:06–13:40 UTC, nothing else running. Each
+  load flagged as lower in both rounds was measured again in two new rounds (`work/cg/confirm.sh`, `conf-win.out`,
+  `conf-wsl.out`, Windows 13:42–13:52, WSL 2 13:52–15:13 UTC); what was lower again got five alternating rounds with
+  fresh stores (`alt.sh`, `alt-win.out`, 15:15–15:23; `alt-wsl.sh`, `alt-wsl.out`, 15:24–15:28 UTC). Change `cheap` /
+  `base`, first round / second round:
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W1 | +27 % / +25 % | +14 % / +5 % |
+  | W2 | +4 % / +3 % | −3 % / +6 % |
+  | W3 | +1 % / +3 % | −6 % / +2 % |
+  | W4 | −0.5 % / −0.6 % | −3 % / −1 % |
+  | W7 | +4 % / +4 % | +4 % / +4 % |
+  | W10 | +20 % / +24 % | +22 % / +15 % |
+  | W11 | +19 % / +18 % | +20 % / +15 % |
+  | W12 | +9 % / +28 % | +15 % / +6 % |
+  | W13 | −2 % / +5 % | +1 % / +4 % |
+  | W14 | +2 % / −0.1 % | +1 % / −2 % |
+  | W15 | +2 % / +1 % | +2 % / +5 % |
+  | W17 | +1 % / +14 % | +2 % / +2 % |
+  | W18 | ×3.03 / ×2.87 | ×2.56 / ×2.45 |
+  | W19 | +6 % / +7 % | +2 % / +3 % |
+  | W21 | +3 % / +3 % | +1 % / −1 % |
+
+  W18 (item 6, `71c6aa8`): 55,337 → 167,644 op/s on Windows, 51,615 → 132,132 on WSL 2 in the first round. W1 (item 7,
+  replaced by the faster layout check, L8) and W11 (item 3) improve on both; W10 too (the same scan path). W21 (item
+  5) improves on Windows and is mixed on WSL 2. Only W4 was lower in both rounds, on both platforms; its new rounds
+  are mixed (Windows +5 % / −3.5 %, WSL 2 −1 % / 0 %), so S7 holds. The new WSL 2 rounds of W3 were lower in both (−6
+  % / −3 %), the first pair was mixed; the branch's whole W3 on WSL 2 is in page-diffs L8.

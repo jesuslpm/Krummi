@@ -28,7 +28,7 @@ closing report shared with the cheap gaps run.
 |---|---|---|---|---|
 | P1 | S1, S2, S4, S5 | inline: diff records, their base, recovery, format 10 | done | `ebbf6ee`, `7192dc7`, L3, L4, L6 |
 | P2 | S3, S5 | inline: holes in slotted nodes | done | `fe2f1b8`, L5, L6 |
-| P3 | S6 | inline: single-load rotations with the other parts | running | |
+| P3 | S6 | inline: single-load rotations with the other parts | done | L8 |
 
 ## Log
 
@@ -64,7 +64,8 @@ closing report shared with the cheap gaps run.
   and every split and merge decision are as before. The layout check marks each cell's bytes in a coverage bitmap,
   rejects overlaps, and requires cells plus holes to fill the end exactly; without holes that is the previous check
   (`the_layout_check_agrees_with_its_reference_on_damaged_nodes`, now skipping nodes whose header counts holes). New
-  tests: `holes_follow_a_model_of_inserts_removals_and_replacements`, `the_layout_check_accepts_holes_and_rejects_overlaps`
+  tests: `holes_follow_a_model_of_inserts_removals_and_replacements`,
+  `the_layout_check_accepts_holes_and_rejects_overlaps`
   (AC-Y6), `trees_with_holes_have_the_pages_of_trees_without_them` (AC-Y5, against a test switch that compacts after
   every removal), `ac_y1_the_journal_keeps_little_of_a_page_a_commit_changes_little` (AC-Y1: 130, 210, 102 and 174
   bytes; with compaction on removal the removal took 1,018, under the PRD's quarter of a page, so the test adds a bound
@@ -92,3 +93,33 @@ closing report shared with the cheap gaps run.
   R4-commit-base-expect and R3-commit-base-expect-panic (both SUGGESTION, the same point): the commit panicked through
   `expect` if a copied page without a version were missing from `krummi.data`; it now fails with the damage class and
   that page (`fix(pager): fail with damage, not a panic, when a commit finds no base`). 589 tests pass.
+- **L8** (2026-11-08): P3. Binaries: `base` = `e0ad729`, `cheap` = `d96a92b`, `vc` = `e08b646`, `pd` = `7192dc7`,
+  built in release on each platform; each binary measures every load in its own work folder, from its own base store.
+  Rotation (`work/cg/final.sh`, `rot-win.out`, `rot-wsl.out`): two rounds of each load over the four binaries, the
+  second in reverse order, bench power plan, Windows 10:10–11:06 and WSL 2 11:06–13:40 UTC, nothing else running. Each
+  load flagged as lower in both rounds was measured again in two new rounds (`work/cg/confirm.sh`, `conf-win.out`,
+  `conf-wsl.out`, Windows 13:42–13:52, WSL 2 13:52–15:13 UTC); what was lower again got five alternating rounds with
+  fresh stores (`alt.sh`, `alt-win.out`, 15:15–15:23; `alt-wsl.sh`, `alt-wsl.out`, 15:24–15:28 UTC). Change `pd` /
+  `vc`, first round / second round (new rounds in brackets where a load was lower in both):
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W2 | ×2.51 / ×2.48 | ×2.17 / ×2.24 |
+  | W14 | ×2.36 / ×2.34 | ×2.00 / ×2.00 |
+  | W15 | ×2.45 / ×2.47 | ×2.11 / ×2.16 |
+  | W19 | ×2.08 / ×2.11 | ×1.70 / ×1.66 |
+  | W13 | ×2.40 / ×2.31 | ×1.37 / ×1.44 |
+  | W21 | +45 % / +43 % | +20 % / +18 % |
+  | W3 | −7 % / −3 % [+5 % / −4 %] | +1 % / +5 % |
+  | W7 | +3 % / +2 % | −7.5 % / −1.4 % [−4 % / +1.5 %] |
+  | W12 | +25 % / +19 % | −1 % / −5 % [+10 % / −1.4 %] |
+  | W18 | −3 % / −3 % [−15 % / −15 %; alternating: mixed] | −3 % / 0 % |
+
+  W2 rises from 44,670 to 112,172 op/s on Windows and from 23,903 to 51,760 on WSL 2 (first round). S6 holds: W2, W14,
+  W15 and W19 improve on both platforms, and no load is lower in both rounds twice. W18 on Windows reads in two modes,
+  about 162,000 and 140,000 op/s, with the same store and binary; in five alternating rounds with fresh W17 stores
+  (`alt-win.out`) `vc` also fell to the slow mode (142,153) and `pd` was higher in one round (167,675 against
+  153,801), so the drop is not the change. The branch as a whole (`pd` / `base`): every load improves or is mixed on
+  Windows; on WSL 2, W3 is lower in all four rounds (−2 %, −4 %, −3 %, −7 %) and in four of five alternating rounds
+  (`alt-wsl.out`, median 265,432 → 257,230 op/s, −3.1 %), a cost of the branch on WSL 2 with no single step lower in
+  both rounds; W7 −3 % / −1 % then +1.5 % / +3 %.

@@ -26,7 +26,7 @@ report shared with the cheap gaps run.
 |---|---|---|---|---|
 | V1 | S1, S3, S4 | inline: per-version layout memory in the slot, `PageCheck::Version` | done | `5199efc`, L3 |
 | V2 | S2, S3 | inline: shared lock for page lookups in the scratch area | done | `a289acf`, L4, L5 |
-| V3 | S5 | inline: single-load rotations with the other parts | running | |
+| V3 | S5 | inline: single-load rotations with the other parts | done | L6 |
 
 ## Log
 
@@ -62,3 +62,30 @@ report shared with the cheap gaps run.
   `Snapshot::run` and `Snapshot::version_checked` drop their read guard before any other call
   (`crates/krummi-pager/src/scratch.rs`, `drop(state)` before `pager.run_with` in `run`), and the verifier checked every
   lock site for nesting; U3 is measured by AC-U8, as the PRD says.
+- **L6** (2026-11-08): V3. Binaries: `base` = `e0ad729`, `cheap` = `d96a92b`, `vc` = `e08b646`, `pd` = `7192dc7`,
+  built in release on each platform; each binary measures every load in its own work folder, from its own base store.
+  Rotation (`work/cg/final.sh`, `rot-win.out`, `rot-wsl.out`): two rounds of each load over the four binaries, the
+  second in reverse order, bench power plan, Windows 10:10–11:06 and WSL 2 11:06–13:40 UTC, nothing else running. Each
+  load flagged as lower in both rounds was measured again in two new rounds (`work/cg/confirm.sh`, `conf-win.out`,
+  `conf-wsl.out`, Windows 13:42–13:52, WSL 2 13:52–15:13 UTC); what was lower again got five alternating rounds with
+  fresh stores (`alt.sh`, `alt-win.out`, 15:15–15:23; `alt-wsl.sh`, `alt-wsl.out`, 15:24–15:28 UTC). Change `vc` /
+  `cheap`, first round / second round (new rounds in brackets where a load was lower in both):
+
+  | Load | Windows | WSL 2 |
+  |---|---|---|
+  | W2 | +4 % / +5 % | +6 % / −2.5 % |
+  | W7 | −1 % / −3.5 % [+4 % / +4 %] | +1 % / −4 % |
+  | W10 | −1 % / −8 % [−1.4 % / −0.6 %; alternating: higher in 3 of 5] | +7 % / +1 % |
+  | W12 | +65 % / +71 % | +32 % / +35 % [+26 % / +40 %] |
+  | W13 | +2 % / +10 % | +2 % / −4 % [−3 % / +2 %] |
+  | W14 | +2 % / +4 % | +4 % / +5 % |
+  | W19 | +8 % / +9 % | +5 % / +3.5 % |
+  | W21 | −1 % / −1 % [−2.6 % / −1.8 %; alternating: lower in 5 of 5, median −1.5 %] | 0 % / −0.5 % |
+
+  W12 rises from 983,249 to 1,620,447 op/s on Windows and from 1,788,045 to 2,350,506 on WSL 2 (first round). S5
+  holds: W12 improves on both, and of its list only W7 and W10 on Windows were lower in both rounds, neither again
+  (W10's five alternating rounds, `cheap` 17.4–19.1 million and `vc` 17.6–19.2 million, show two modes in both
+  binaries). Outside the list, W21 on Windows is lower in nine of nine rounds, about −1.5 %, and not on WSL 2: a cost
+  of the change, recorded for the closing report (hypothesis, not measured: for a fixed-size node the check it saves
+  is cheaper than the extra shared lock that remembers it). Other loads lower in the first pair and not in the new
+  one: Windows W4, W17 and W18; WSL 2 W1, W15 and W18.
