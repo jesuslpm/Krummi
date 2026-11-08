@@ -383,11 +383,17 @@ pub(crate) fn create_temp_dir(path: &Path) -> io::Result<()> {
 /// Its operations are not recorded: the temporary area never takes part in recovery.
 pub(crate) fn create_temp_file(path: &Path, len: u64) -> io::Result<(File, MmapMut)> {
     before(Op::Temp, path)?;
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    // Windows then keeps the file's pages in memory while it has memory to spare, instead of writing them out: the
+    // temporary area is never read back from disk after a restart.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY;
+        options.attributes(FILE_ATTRIBUTE_TEMPORARY);
+    }
+    let file = options.open(path)?;
     let mapped = (|| {
         reserve_space(&file, 0, len)?;
         let len = usize::try_from(len).map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
@@ -834,6 +840,26 @@ mod rename_info_tests {
 #[cfg(test)]
 mod journal_file_tests {
     use super::*;
+
+    /// Windows keeps the pages of a temporary file in memory instead of writing them out while it has memory to spare.
+    #[cfg(windows)]
+    #[test]
+    fn a_temporary_area_file_is_marked_temporary_on_windows() {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_TEMPORARY: u32 = 0x100;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chunk");
+        let (file, map) = create_temp_file(&path, 4096).unwrap();
+        let attributes = fs::metadata(&path).unwrap().file_attributes();
+        assert_ne!(
+            attributes & FILE_ATTRIBUTE_TEMPORARY,
+            0,
+            "attributes {attributes:#x}"
+        );
+        drop((map, file));
+        remove_temp_file(&path);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn an_aligned_buffer_from_parts_holds_them_and_then_zeros() {
