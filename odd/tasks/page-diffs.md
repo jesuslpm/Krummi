@@ -26,9 +26,9 @@ closing report shared with the cheap gaps run.
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| P1 | S1, S2, S4, S5 | inline: diff records, their base, recovery, format 10 | done, verifier running | `ebbf6ee`, L3, L4 |
-| P2 | S3, S5 | inline: holes in slotted nodes | done, verifier running | `fe2f1b8`, L5 |
-| P3 | S6 | inline: single-load pairs with the other parts | pending | |
+| P1 | S1, S2, S4, S5 | inline: diff records, their base, recovery, format 10 | done | `ebbf6ee`, `7192dc7`, L3, L4, L6 |
+| P2 | S3, S5 | inline: holes in slotted nodes | done | `fe2f1b8`, L5, L6 |
+| P3 | S6 | inline: single-load rotations with the other parts | running | |
 
 ## Log
 
@@ -71,3 +71,19 @@ closing report shared with the cheap gaps run.
   of 256 bytes for it). Layout check of a full leaf of 66 W1 cells: 288–329 ns (253–276 before holes, 451–561 at the
   start of the run). Workspace: fmt, clippy, 584 tests. AC-Y2 relies on the existing crash and recovery tests and
   AC-F16 (no new test).
+- **L6** (2026-11-08): verification. `7192dc7` makes Y1's "Una página así que no cambió ningún byte no se guarda" true
+  (an empty entry was written before; seen as `runs []` for the meta page in L4's debugging), with the record counting
+  only its entries. Independent verifier (sonnet, high) of `ebbf6ee`, `7e4d872`, `fe2f1b8` and `7192dc7`: S1–S4 hold, no
+  blockers; it confirmed the precondition of Y2 in the code (`collect_garbage` is the only path that drops a version
+  unwritten, under `flushing`; the base read from `krummi.data` happens only for pages with no version) and by probes:
+  6 seeds where the recovered `krummi.data` equals a clean close page by page, 1,056 crash points recovering a prefix,
+  records with no entries, AC-Y4 through the opening, 40,000 nodes with holes against a byte-wise reference.
+  Checks in its copy: fmt, clippy, 584 tests, release builds without test hooks, the 100,000-operation AC-F16 (13.45 s)
+  and the five long sweeps of `krummi` pass; `ac10_every_altered_byte_with_the_journal` (about 75 minutes) was stopped
+  after 25 minutes, and its stride-11 version passed in 420 s. Test gaps it found, now closed in `4aa2835`
+  (`crates/krummi-tx/tests/page_diffs.rs`, from its probes): AC-Y2 was not covered by the existing crash tests and
+  AC-F16, as L5 claimed (they compare contents, not page bytes); AC-Y3 and AC-Y4 were tested only below the opening.
+  AC-Y3 through the opening runs one seed in the suite (about 40 cuts) and three seeds as an ignored acceptance test.
+  Advisories: a node without cells that counted holes passed the layout check (now rejected, Y4); a stale doc comment
+  of `apply_pages` (removed). Workspace: 589 tests. The measured `pd` binary is `7192dc7`; `4aa2835` adds tests and the
+  empty-node rule only.
