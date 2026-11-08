@@ -13,3 +13,28 @@
 2026-11-08T09:07:30+00:00	bg-end	review	RDD version slice
 2026-11-08T09:59:15+00:00	bg-start	review	RDD page diffs slice
 2026-11-08T10:01:01+00:00	bg-end	review	RDD page diffs slice
+2026-11-08T10:10:37+00:00	bg-start	acceptance	rotations windows
+2026-11-08T11:06:19+00:00	bg-end	acceptance	rotations windows
+2026-11-08T11:06:19+00:00	bg-start	acceptance	rotations wsl
+2026-11-08T13:40:41+00:00	bg-end	acceptance	rotations wsl
+2026-11-08T13:42:31+00:00	bg-start	acceptance	confirmation windows
+2026-11-08T13:52:56+00:00	bg-end	acceptance	confirmation windows
+2026-11-08T13:52:56+00:00	bg-start	acceptance	confirmation wsl
+2026-11-08T15:13:44+00:00	bg-end	acceptance	confirmation wsl
+2026-11-08T15:15:01+00:00	bg-start	acceptance	alternating rounds windows
+2026-11-08T15:23:27+00:00	bg-end	acceptance	alternating rounds windows
+2026-11-08T15:24:13+00:00	bg-start	acceptance	alternating W3 wsl
+2026-11-08T15:28:09+00:00	bg-end	acceptance	alternating W3 wsl
+2026-11-08T15:28:58+00:00	bg-start	acceptance	complete windows
+2026-11-08T17:06:09+00:00	bg-end	acceptance	complete windows
+2026-11-08T17:06:09+00:00	bg-start	acceptance	complete wsl
+2026-11-08T19:38:18+00:00	bg-end	acceptance	complete wsl
+2026-11-08T19:39:00+00:00	bg-start	acceptance	alternating W16 wsl
+2026-11-08T19:39:30+00:00	bg-end	acceptance	alternating W16 wsl
+2026-11-08T19:39:47+00:00	bg-start	review	RDD last slice
+2026-11-08T19:40:26+00:00	bg-end	review	RDD last slice
+2026-11-08T19:42:06+00:00	mark	checks	T7
+2026-11-08T19:47:57+00:00	mark	review	T7
+2026-11-08T19:49:51+00:00	mark	docs	T7
+2026-11-08T19:49:57+00:00	mark	close	T7
+2026-11-08T19:49:57+00:00	end		
