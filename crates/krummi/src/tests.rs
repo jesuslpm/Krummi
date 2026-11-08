@@ -931,9 +931,9 @@ fn t11_fixed_sweep(step: u64) {
     );
 }
 
-/// Fewer points than the write of [`fixed_values`] has (777), so that its sweep fails if the write stops reaching the
+/// Fewer points than the write of [`fixed_values`] has (579), so that its sweep fails if the write stops reaching the
 /// pages it reaches now.
-const FIXED_POINTS: u64 = 760;
+const FIXED_POINTS: u64 = 560;
 
 /// AC-X12 at every 13th point of the write of a fixed-size tree.
 #[test]

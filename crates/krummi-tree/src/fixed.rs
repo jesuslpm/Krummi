@@ -410,7 +410,10 @@ fn change(
 ) -> Result<Outcome<u64>> {
     let node = node_of(&*tx, page, level, len)?;
     if is_leaf(node) {
-        return change_leaf(tx, page, key, op, count_changed);
+        // Decided on the node just checked, so that the leaf is read only once more, to change it.
+        let found = search(node, key);
+        let full = count(node) == capacity(entry_size(node));
+        return change_leaf(tx, page, key, op, found, full, count_changed);
     }
     let index = child_index(node, key);
     let (below, below_level) = (child(node, index), child_level(node));
@@ -422,14 +425,17 @@ fn change(
     }
 }
 
+/// Applies `op` to the leaf at `page`, where `key` is at or goes to `found` and which is `full`.
 fn change_leaf(
     tx: &mut WriteTransaction<'_>,
     page: u64,
     key: u64,
     op: Op<'_>,
+    found: std::result::Result<usize, usize>,
+    full: bool,
     count_changed: &mut bool,
 ) -> Result<Outcome<u64>> {
-    match (op, search(tx.page(page)?, key)) {
+    match (op, found) {
         (Op::Add(_), Ok(_)) | (Op::Remove, Err(_)) => Ok(Outcome::Done),
         (Op::Remove, Ok(index)) => {
             *count_changed = true;
@@ -451,7 +457,14 @@ fn change_leaf(
             let mut entry = [0; KEY + MAX_LEN];
             entry[..KEY].copy_from_slice(&key.to_le_bytes());
             entry[KEY..KEY + value.len()].copy_from_slice(value);
-            insert_entry(tx, page, index, &entry[..KEY + value.len()])
+            let entry = &entry[..KEY + value.len()];
+            if full {
+                return split(tx, page, index, entry);
+            }
+            let node = tx.page_mut(page)?;
+            insert(node, index, entry);
+            // As in the slotted trees, a leaf may still be under a quarter full.
+            Ok(underfull_or_done(node))
         }
     }
 }
