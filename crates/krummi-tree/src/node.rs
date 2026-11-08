@@ -107,51 +107,68 @@ pub(crate) fn fill(node: &mut [u8], level: u8, leftmost: u64, cells: &[&[u8]]) {
 /// overlaps. The accessors and the algorithms of this crate stay within the page for such a node, so the tree code
 /// checks every node it reads (G6, A9).
 pub(crate) fn is_valid(node: &[u8]) -> bool {
-    let leaf = match (node[0], node[1]) {
-        (LEAF, 0) => true,
-        (BRANCH, 1..=254) => false,
-        _ => return false,
-    };
-    let (count, top) = (count(node), top(node));
+    let node: &[u8; PAYLOAD_SIZE] = node[..PAYLOAD_SIZE].try_into().expect("a payload");
+    match (node[0], node[1]) {
+        (LEAF, 0) => cells_are_valid::<true>(node),
+        (BRANCH, 1..=254) => cells_are_valid::<false>(node),
+        _ => false,
+    }
+}
+
+/// The checks of [`is_valid`] after the kind and the level, for a leaf when `LEAF`. It follows the cells once, from
+/// the first byte after the free space, and then matches the offsets with the cells it found, so that each cell is
+/// read once (W1 spent 39 % of its time here on WSL 2 when the offsets were checked first and the cells followed
+/// after).
+fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
+    let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
+    let (count, top) = (u16_at(2), u16_at(4));
     if HEADER + 2 * count > top || top > PAYLOAD_SIZE {
         return false;
     }
-    let (lengths, max) = if leaf {
+    let (lengths, max) = if LEAF {
         (LEAF_CELL_HEADER, MAX_LEAF_CELL)
     } else {
         (2, MAX_BRANCH_CELL)
     };
-    // Bit `at` is set when a cell starts at byte `at`.
+    // The cells, followed from `top`, must end exactly at the end of the payload, `count` of them, each within its
+    // sizes. Bit `at` is set when one starts at byte `at`.
     let mut starts = [0u64; PAYLOAD_SIZE.div_ceil(64)];
-    for index in 0..count {
-        let at = offset(node, index);
-        if at < top || at + lengths > PAYLOAD_SIZE {
+    let (mut at, mut seen) = (top, 0);
+    while at < PAYLOAD_SIZE {
+        if seen == count || at + lengths > PAYLOAD_SIZE {
             return false;
         }
-        let len = cell_len_at(node, at);
-        let key = u16_at(node, at);
+        let key = u16_at(at);
+        let len = if LEAF {
+            LEAF_CELL_HEADER + key + value_bytes(u16_at(at + 2))
+        } else {
+            2 + key + 8
+        };
         if at + len > PAYLOAD_SIZE
             || key > MAX_KEY
             || len > max
-            || starts[at / 64] & (1 << (at % 64)) != 0
-            || leaf
-                && u16_at(node, at + 2) == OFF_LEAF
+            || LEAF
+                && u16_at(at + 2) == OFF_LEAF
                 && !(1..=MAX_VALUE as u64).contains(&u64_at(node, at + len - 8))
         {
             return false;
         }
         starts[at / 64] |= 1 << (at % 64);
-    }
-    // The cells, followed from the first byte after the free space, end exactly at the end of the payload.
-    let (mut at, mut seen) = (top, 0);
-    while at < PAYLOAD_SIZE {
-        if starts[at / 64] & (1 << (at % 64)) == 0 {
-            return false;
-        }
-        at += cell_len_at(node, at);
+        at += len;
         seen += 1;
     }
-    seen == count
+    if seen != count {
+        return false;
+    }
+    // The offsets are those starts, each once: an offset that is no start, or a repeated one, finds its bit clear.
+    for index in 0..count {
+        let at = u16_at(HEADER + 2 * index);
+        if at >= PAYLOAD_SIZE || starts[at / 64] & (1 << (at % 64)) == 0 {
+            return false;
+        }
+        starts[at / 64] &= !(1 << (at % 64));
+    }
+    true
 }
 
 pub(crate) fn is_leaf(node: &[u8]) -> bool {
@@ -431,6 +448,153 @@ mod tests {
         assert_eq!((key(&node, 0), key(&node, 1)), (&b"ab"[..], &b"b"[..]));
         assert_eq!(value(&node, 1), Value::Inline(b"333"));
         assert_eq!(top(&node), PAYLOAD_SIZE - (4 + 2) - (4 + 1 + 3));
+    }
+
+    /// The check of [`is_valid`] as it was before it followed the cells first (W1, performance plan): the
+    /// reference that the faster one must agree with on every node.
+    fn is_valid_reference(node: &[u8]) -> bool {
+        let leaf = match (node[0], node[1]) {
+            (LEAF, 0) => true,
+            (BRANCH, 1..=254) => false,
+            _ => return false,
+        };
+        let (count, top) = (count(node), top(node));
+        if HEADER + 2 * count > top || top > PAYLOAD_SIZE {
+            return false;
+        }
+        let (lengths, max) = if leaf {
+            (LEAF_CELL_HEADER, MAX_LEAF_CELL)
+        } else {
+            (2, MAX_BRANCH_CELL)
+        };
+        // Bit `at` is set when a cell starts at byte `at`.
+        let mut starts = [0u64; PAYLOAD_SIZE.div_ceil(64)];
+        for index in 0..count {
+            let at = offset(node, index);
+            if at < top || at + lengths > PAYLOAD_SIZE {
+                return false;
+            }
+            let len = cell_len_at(node, at);
+            let key = u16_at(node, at);
+            if at + len > PAYLOAD_SIZE
+                || key > MAX_KEY
+                || len > max
+                || starts[at / 64] & (1 << (at % 64)) != 0
+                || leaf
+                    && u16_at(node, at + 2) == OFF_LEAF
+                    && !(1..=MAX_VALUE as u64).contains(&u64_at(node, at + len - 8))
+            {
+                return false;
+            }
+            starts[at / 64] |= 1 << (at % 64);
+        }
+        // The cells, followed from the first byte after the free space, end exactly at the end of the payload.
+        let (mut at, mut seen) = (top, 0);
+        while at < PAYLOAD_SIZE {
+            if starts[at / 64] & (1 << (at % 64)) == 0 {
+                return false;
+            }
+            at += cell_len_at(node, at);
+            seen += 1;
+        }
+        seen == count
+    }
+
+    /// A node built from valid cells, then damaged at random in its header, its offsets or its cells, is accepted
+    /// by [`is_valid`] exactly when the reference accepts it.
+    #[test]
+    fn the_layout_check_agrees_with_its_reference_on_damaged_nodes() {
+        let mut state = 0x6B72_756D_6D69_0001u64;
+        let mut next = move |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % bound as u64) as usize
+        };
+        let mut bases = Vec::new();
+        for (key_len, value_len) in [(16, 100), (2, 0), (40, 300)] {
+            let mut node = vec![0; PAYLOAD_SIZE];
+            init(&mut node, 0, 0);
+            let mut buf = [0; MAX_LEAF_CELL];
+            for i in 0u64..100_000 {
+                let key: Vec<u8> = (0..key_len)
+                    .map(|b| (i >> (8 * (b % 8))) as u8 ^ b as u8)
+                    .collect();
+                let value = if i % 5 == 4 {
+                    Value::Run {
+                        first: 100 + i,
+                        len: 5_000,
+                    }
+                } else {
+                    Value::Inline(&[7; 300][..value_len])
+                };
+                let len = encode_leaf(&mut buf, &key, value);
+                if free_space(&node) < len + 2 {
+                    break;
+                }
+                let index = match search(&node, &key) {
+                    Ok(_) => continue,
+                    Err(index) => index,
+                };
+                insert(&mut node, index, &buf[..len]);
+            }
+            bases.push(node);
+        }
+        let mut branch = vec![0; PAYLOAD_SIZE];
+        init(&mut branch, 3, 9);
+        let mut buf = [0; MAX_BRANCH_CELL];
+        for i in 0..200u64 {
+            let len = encode_branch(&mut buf, &i.to_be_bytes(), 1_000 + i);
+            insert(&mut branch, i as usize, &buf[..len]);
+        }
+        bases.push(branch);
+        // Any 16 bits, unlike `put_u16`, which only takes the values a valid node holds.
+        let put = |node: &mut [u8], at: usize, value: usize| {
+            node[at..at + 2].copy_from_slice(&(value as u16).to_le_bytes());
+        };
+        let (mut accepted, mut rejected) = (0, 0);
+        for round in 0..60_000 {
+            let mut node = bases[round % bases.len()].clone();
+            assert!(is_valid(&node) && is_valid_reference(&node));
+            for _ in 0..1 + next(3) {
+                // A damaged count may point past the payload; the offsets damaged are within it.
+                let count = count(&node).min((PAYLOAD_SIZE - HEADER) / 2);
+                match next(7) {
+                    // A byte of the header: kind, level, count, top.
+                    0 => node[next(HEADER)] = next(256) as u8,
+                    // An offset set to another one, or to any value.
+                    1 if count > 1 => {
+                        let other = offset(&node, next(count));
+                        put(&mut node, HEADER + 2 * next(count), other);
+                    }
+                    2 if count > 0 => {
+                        put(&mut node, HEADER + 2 * next(count), next(PAYLOAD_SIZE + 64))
+                    }
+                    // A byte of a cell: its lengths, its key, its value or its run.
+                    3 | 4 => {
+                        let at = top(&node).min(PAYLOAD_SIZE - 1);
+                        node[at + next(PAYLOAD_SIZE - at)] = next(256) as u8;
+                    }
+                    // The count or the top moved by a little.
+                    5 => put(&mut node, 2, (count + next(3)).saturating_sub(1)),
+                    _ => {
+                        let top = (top(&node) + next(9)).saturating_sub(4);
+                        put(&mut node, 4, top);
+                    }
+                }
+            }
+            let expected = is_valid_reference(&node);
+            assert_eq!(is_valid(&node), expected, "round {round}");
+            if expected {
+                accepted += 1
+            } else {
+                rejected += 1
+            }
+        }
+        assert!(
+            accepted > 1_000 && rejected > 1_000,
+            "{accepted} accepted, {rejected} rejected"
+        );
     }
 
     #[test]
