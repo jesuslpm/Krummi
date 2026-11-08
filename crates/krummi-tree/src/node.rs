@@ -124,7 +124,8 @@ pub(crate) fn is_valid(node: &[u8]) -> bool {
 fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
     let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
     let (count, top, holes) = (u16_at(2), u16_at(4), u16_at(6));
-    if HEADER + 2 * count > top || top > PAYLOAD_SIZE {
+    // A node without cells has no holes either.
+    if HEADER + 2 * count > top || top > PAYLOAD_SIZE || count == 0 && holes != 0 {
         return false;
     }
     let (lengths, max) = if LEAF {
@@ -771,6 +772,12 @@ mod tests {
             let at = offset(n, 0);
             put_u16(n, at, MAX_KEY + 1);
         }));
+        // A node without cells that counts holes.
+        let mut empty = vec![0; PAYLOAD_SIZE];
+        init(&mut empty, 0, 0);
+        put_u16(&mut empty, 4, PAYLOAD_SIZE - 10);
+        put_u16(&mut empty, 6, 10);
+        assert!(!is_valid(&empty));
         // A count of holes one byte off, either way.
         assert!(!damaged(&|n| {
             let holes = holes(n);

@@ -250,10 +250,6 @@ fn decide<'a>(found: &'a [Found], applied: u64, folder: &Path) -> Result<Vec<&'a
     Ok(apply)
 }
 
-/// Writes the pages of one commit's raw payload into `krummi.data`, growing it as needed even beyond the maximum
-/// size (J8). A sealed page must verify; a page of a value run, marked with [`RAW_ENTRY`], is written as it is: the
-/// record's checksum covered it, and its run is checked as a whole when it is read (D5 of the large values
-/// execution).
 /// Checks every page in `applied` whose last entry was not a page of a value run: each must be its last committed
 /// version now, sealed for its number, or the opening fails with the damage class and the lowest page that is not
 /// (Y2, Y3 of the journal page diffs PRD).
