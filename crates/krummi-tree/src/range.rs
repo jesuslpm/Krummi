@@ -36,7 +36,8 @@ impl Interval<'_> {
             Excluded(lower) => key > lower,
             Unbounded => true,
         };
-        bound && key >= self.prefix
+        // Every key is at or after the empty prefix; testing it first saves a comparison per step of a scan.
+        bound && (self.prefix.is_empty() || key >= self.prefix)
     }
 
     /// Whether `key` is not after the upper bound and not after every key that starts with the prefix.
@@ -46,7 +47,7 @@ impl Interval<'_> {
             Excluded(upper) => key < upper,
             Unbounded => true,
         };
-        bound && (key < self.prefix || key.starts_with(self.prefix))
+        bound && (self.prefix.is_empty() || key < self.prefix || key.starts_with(self.prefix))
     }
 
     /// Whether every key before `key` is before the lower bound or before the prefix. It may say no when no key
