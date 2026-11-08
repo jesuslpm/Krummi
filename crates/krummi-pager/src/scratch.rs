@@ -1275,21 +1275,24 @@ impl<'a> ScratchWriter<'a> {
                 .map(|(i, (number, slot, index))| {
                     let page = slot.page_at(*index);
                     if i >= pages.len() {
-                        return (number | RAW_ENTRY, page, None);
+                        return Ok((number | RAW_ENTRY, page, None));
                     }
                     let base = if created[i] {
                         None
                     } else if let Some((slot, index)) = &bases[i] {
                         Some(slot.page_at(*index))
                     } else {
+                        // A page copied without a version here was read from the store: missing now, it is damage
+                        // of the store, not a panic of the writer.
                         let stored = pager
                             .raw_pages(*number, 1)
-                            .expect("a copied page is in the store");
-                        Some(stored.try_into().expect("a whole page"))
+                            .and_then(|stored| stored.try_into().ok())
+                            .ok_or_else(|| pager.damaged(*number))?;
+                        Some(stored)
                     };
-                    (*number, page, base)
+                    Ok((*number, page, base))
                 })
-                .collect();
+                .collect::<Result<_>>()?;
             journal.enqueue(pager, txid, &refs)?;
         }
         Ok(self.publish(staged))
