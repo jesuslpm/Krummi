@@ -30,7 +30,7 @@ Branch `perf/cheap-gaps` from `perf/write-reuse` `e0ad729`. Delivery: single bra
 | T4 | S2, S6 | inline: temporary files marked temporary on Windows (copies moved to O8, L5) | done | `fafb5bf`, L5 |
 | T5 | S5, S6 | inline: faster layout check of slotted nodes instead of a last-leaf cache (L8) | done | `d96a92b`, L8 |
 | T6 | S7 | inline: single-load runs before and after, Windows and WSL 2 | done | L12 |
-| T7 | all | RDD per slice, Codex code review, plan update, closing report | pending | |
+| T7 | all | RDD per slice, Codex code review, plan update, closing report | done, Codex pending | L13 |
 
 ## Log
 
@@ -146,3 +146,13 @@ Branch `perf/cheap-gaps` from `perf/write-reuse` `e0ad729`. Delivery: single bra
   5) improves on Windows and is mixed on WSL 2. Only W4 was lower in both rounds, on both platforms; its new rounds
   are mixed (Windows +5 % / −3.5 %, WSL 2 −1 % / 0 %), so S7 holds. The new WSL 2 rounds of W3 were lower in both (−6
   % / −3 %), the first pair was mixed; the branch's whole W3 on WSL 2 is in page-diffs L8.
+- **L13** (2026-11-08): T7. Complete runs with the bench power plan, everything under `work/complete` (`all-cg.sh`):
+  Windows 15:31–17:06 UTC at `4a3a92e`, WSL 2 17:07–19:38 at `d679cf3` (the same code; the archive was taken before
+  the log commit). Thresholds met: Windows 21 of 22 (was 11; misses W17, 0.63), Linux 21 of 22 (was 14; misses W3,
+  0.82 → 0.78 with Krummi −3.1 %, the cost P3 confirmed). Falls beyond 0.05 against the 2026-11-07 runs: Linux W10,
+  1.26 → 0.80 with Krummi +19 % and Voron +88 %, and Linux W16, Krummi 306 → 271 op/s; five alternating single-load
+  rounds of W16 on WSL 2 (`work/cg/alt16-wsl.out`, `e0ad729` against `7192dc7`) are mixed, `pd` lower in three and
+  higher in two, medians 224 and 222, repetitions from 165 to 353. Reports in
+  `docs/benchmark/2026-11-08-*-cheap-gaps.md`; the Windows one says "con cambios sin confirmar" for the phase log. RDD
+  of the last slices: page-diffs L9 and L10. Final checks at `f295627`: fmt, clippy, `cargo test --workspace` 589
+  passed, 0 failed, 31 ignored. Codex (PRDs and code): pending, usage limit until 2026-11-11 06:49.
