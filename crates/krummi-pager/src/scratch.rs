@@ -159,6 +159,7 @@ pub(crate) struct Shared {
     /// Transfer passes so far (tests).
     passes: AtomicU64,
     /// Layout checks of versions reported by the layers above (tests of the version checks PRD).
+    #[cfg(any(test, feature = "test-hooks"))]
     version_checks: AtomicU64,
 }
 
@@ -251,6 +252,7 @@ impl Scratch {
             transfer_hook: Mutex::new(None),
             failure_hook: Mutex::new(None),
             passes: AtomicU64::new(0),
+            #[cfg(any(test, feature = "test-hooks"))]
             version_checks: AtomicU64::new(0),
             state: RwLock::new(State {
                 last_committed: header.applied_txid,
@@ -435,6 +437,7 @@ impl Scratch {
 
     /// Layout checks of versions of the scratch area that the layers above reported so far, passed or failed (tests
     /// of the version checks PRD).
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn version_checks(&self) -> u64 {
         self.shared.version_checks.load(Ordering::Relaxed)
     }
@@ -1098,6 +1101,7 @@ impl<'a> Snapshot<'a> {
     /// read of it while it stays in the scratch area, by any snapshot; a failure is never remembered (U1 of the
     /// version checks PRD). Only the version whose payload is `node` is marked.
     pub fn version_checked(&self, page_number: u64, node: &[u8], passed: bool) {
+        #[cfg(any(test, feature = "test-hooks"))]
         self.scratch
             .shared
             .version_checks
