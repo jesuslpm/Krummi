@@ -1243,7 +1243,7 @@ fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_the_cur
     match Store::open(tmp.path(), &krummi::StoreOptions::default()).err() {
         Some(krummi::Error::DifferentFormat {
             found, expected, ..
-        }) => assert_eq!((found, expected), (6, 9)),
+        }) => assert_eq!((found, expected), (6, 10)),
         other => panic!("expected a previous format, got {other:?}"),
     }
     assert_eq!(std::fs::read(&data).unwrap(), before);
@@ -1254,6 +1254,6 @@ fn ac_v12_the_store_of_format_6_is_a_previous_format_and_a_new_store_has_the_cur
     assert_eq!(entries, vec![krummi_pager::DATA_FILE]);
     let new = tempfile::tempdir().unwrap();
     let store = open(new.path());
-    assert_eq!(store.info().format_version, 9);
+    assert_eq!(store.info().format_version, 10);
     store.close().unwrap();
 }

@@ -1657,7 +1657,7 @@ fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_the_current_format() 
         match Store::open(tmp.path(), &StoreOptions::default()).err() {
             Some(Error::DifferentFormat {
                 found, expected, ..
-            }) => assert_eq!((found, expected), (format, 9), "{fixture}"),
+            }) => assert_eq!((found, expected), (format, 10), "{fixture}"),
             other => panic!("{fixture}: expected a previous format, got {other:?}"),
         }
         assert_eq!(std::fs::read(&data).unwrap(), before, "{fixture}");
@@ -1670,7 +1670,7 @@ fn ac_m18_formats_6_and_7_are_previous_and_a_new_store_has_the_current_format() 
 
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
-    assert_eq!(store.info().format_version, 9);
+    assert_eq!(store.info().format_version, 10);
     let values: BTreeSet<Vec<u8>> = (0..300).map(value16).chain([vec![]]).collect();
     commit_multi(
         &store,

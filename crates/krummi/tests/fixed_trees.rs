@@ -933,7 +933,7 @@ fn holds(page: &[u8], bytes: &[u8]) -> bool {
 /// fixed-size tree holds its keys and the tree's length in little endian, and so does its catalog entry, as the
 /// implementation lays them out (D1 and D5).
 #[test]
-fn ac_x16_formats_6_to_8_are_previous_and_a_new_store_has_format_9() {
+fn ac_x16_formats_6_to_8_are_previous_and_a_new_store_has_the_current_format() {
     for (name, format) in [("store-5.1", 6), ("store-5.3", 7), ("store-5.4", 8)] {
         let tmp = fixture(name);
         let data = tmp.path().join(DATA_FILE);
@@ -945,7 +945,7 @@ fn ac_x16_formats_6_to_8_are_previous_and_a_new_store_has_format_9() {
                 expected,
             }) => {
                 assert_eq!(folder, tmp.path(), "{name}");
-                assert_eq!((found, expected), (format, 9), "{name}");
+                assert_eq!((found, expected), (format, 10), "{name}");
             }
             other => panic!("{name}: expected a previous format, got {other:?}"),
         }
@@ -959,7 +959,7 @@ fn ac_x16_formats_6_to_8_are_previous_and_a_new_store_has_format_9() {
 
     stores(|store, _| {
         let info = store.info();
-        assert_eq!(info.format_version, 9);
+        assert_eq!(info.format_version, 10);
         assert_eq!(
             (info.size_bytes, info.page_count, info.free_pages),
             (65_536, 8, 4)

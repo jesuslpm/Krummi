@@ -176,14 +176,18 @@ struct Changed {
     /// reserves no memory (S1). The transaction stays on its thread (T6), so relaxed accesses suffice; an atomic, and
     /// not a `Cell`, adds no type to the transaction that cannot be shared between threads.
     checked: AtomicBool,
+    /// The transaction created the page, zeroed, rather than copying its newest version: the journal keeps what
+    /// differs from zeros, not from that version (Y1 of the journal page diffs PRD).
+    created: bool,
 }
 
 impl Changed {
-    /// A page just created or copied for this transaction: a change, so its layout is not checked yet.
-    fn new(payload: PayloadBuf) -> Changed {
+    /// A page just created, zeroed, or copied for this transaction: a change, so its layout is not checked yet.
+    fn new(payload: PayloadBuf, created: bool) -> Changed {
         Changed {
             payload,
             checked: AtomicBool::new(false),
+            created,
         }
     }
 
@@ -523,13 +527,13 @@ impl<'e> WriteTransaction<'e> {
         self.track(finished)?;
         let meta_written = self.dirty.contains_key(&META_PAGE);
         // The pager seals the pages straight into the temporary area (O5 of the performance plan).
-        let pages: Vec<(u64, PayloadBuf)> = std::mem::take(&mut self.dirty)
+        let (pages, created): (Vec<(u64, PayloadBuf)>, Vec<bool>) = std::mem::take(&mut self.dirty)
             .into_iter()
-            .map(|(page, changed)| (page, changed.payload))
-            .collect();
+            .map(|(page, changed)| ((page, changed.payload), changed.created))
+            .unzip();
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
-        let committed = self.writer.commit(&pages, &runs);
+        let committed = self.writer.commit(&pages, &created, &runs);
         // The pages are in the temporary area now, or the commit failed: their payloads serve the next copies.
         self.engine.keep_payloads(pages);
         let txid = self.track(committed)?;
@@ -604,14 +608,15 @@ impl<'e> WriteTransaction<'e> {
         self.reserve(1, 0)?;
         let mut payload = self.engine.payload_for_copy()?;
         payload.copy_from_slice(self.writer.snapshot().page(page_number)?);
-        self.dirty.insert(page_number, Changed::new(payload));
+        self.dirty.insert(page_number, Changed::new(payload, false));
         Ok(())
     }
 
     /// Adds zeroed pages to this transaction.
     fn add_zeroed(&mut self, pages: impl IntoIterator<Item = u64>) -> Result<()> {
         for page in pages {
-            self.dirty.insert(page, Changed::new(alloc_payload()?));
+            self.dirty
+                .insert(page, Changed::new(alloc_payload()?, true));
             #[cfg(feature = "test-hooks")]
             self.log(LayoutEvent::Change(page));
         }

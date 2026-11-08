@@ -6,9 +6,12 @@
 //! - a 64-byte header: magic, commit number (`txid`), `durable_upto` (the last commit that was durable when the
 //!   record was written, J9), page count, flags, stored and raw payload lengths, payload checksum and header
 //!   checksum;
-//! - the payload: the commit's pages as (page number, sealed page) pairs, compressed with LZ4 when that makes it
-//!   smaller (J16). The pages of a value run are not sealed one by one: their number carries [`RAW_ENTRY`] (D5 of
-//!   the large values execution).
+//! - the payload: one entry per page of the commit, compressed with LZ4 when that makes it smaller (J16). An entry
+//!   is the page's number with its flags, then the runs of 8-byte words where the sealed page differs from the
+//!   version the commit copied it from, each as its offset, its length and its new bytes; a page the commit created
+//!   ([`CREATED_ENTRY`]) is compared with a page of zeros instead, and recovery writes it over zeros (Y1 and Y2 of the
+//!   journal page diffs PRD). The pages of a value run are not sealed one by one: their number carries
+//!   [`RAW_ENTRY`] (D5 of the large values execution), and they are always created.
 //!
 //! Records are appended to the current file. A file is created when a record needs it, with its final size
 //! ([`DEFAULT_FILE_LIMIT`], or more for a record that does not fit in it) reserved on disk, and its name and size
@@ -46,14 +49,108 @@ pub(crate) const DEFAULT_FILE_LIMIT: u64 = RELEASE_FILE_LIMIT;
 pub(crate) const DEFAULT_FILE_LIMIT: u64 = 256 << 10;
 /// Size of a journal file outside builds with test hooks.
 pub const RELEASE_FILE_LIMIT: u64 = 16 << 20;
-const MAGIC: u64 = u64::from_le_bytes(*b"KrummiJ1");
+/// The journal of format 10 (Y5 of the journal page diffs PRD), whose entries hold the bytes that changed; format 9's
+/// records, with whole pages, had `KrummiJ1`.
+const MAGIC: u64 = u64::from_le_bytes(*b"KrummiJ2");
 const FLAG_COMPRESSED: u32 = 1;
-/// Bytes of one page in a raw payload: its number and the sealed page.
-pub(crate) const PAGE_ENTRY: usize = 8 + PAGE_SIZE;
+/// The fewest bytes of a page entry in a raw payload: its number and a count of no runs.
+pub(crate) const MIN_ENTRY: usize = 8 + 2;
+/// The most bytes of a page entry: its number, its count of runs and one run that covers the whole page, which takes
+/// more than any set of shorter runs (each run of `k` words takes `4 + 8 k` bytes, and runs are apart).
+pub(crate) const MAX_ENTRY: usize = MIN_ENTRY + 4 + PAGE_SIZE;
+/// Words of 8 bytes in a page, the unit an entry compares.
+const WORDS: usize = PAGE_SIZE / 8;
 /// Flag of the page number of an entry whose page is part of a value run (D5 of the large values execution): it is
 /// not sealed on its own, so recovery writes it without checking it, and the record's checksum covers it. Its run
 /// is checked as a whole when it is read (D1).
 pub(crate) const RAW_ENTRY: u64 = 1 << 63;
+/// Flag of the page number of an entry whose page the commit created: recovery writes its runs over a page of zeros,
+/// not over what `krummi.data` holds (Y1, Y2 of the journal page diffs PRD).
+pub(crate) const CREATED_ENTRY: u64 = 1 << 62;
+
+/// A page of a commit for the journal: its number, with [`RAW_ENTRY`] for a page of a value run, the sealed page,
+/// and the version the commit copied it from, `None` for a page the commit created (Y1).
+pub(crate) type JournalPage<'a> = (u64, &'a [u8; PAGE_SIZE], Option<&'a [u8; PAGE_SIZE]>);
+
+/// Appends the entry of `page`: its number with its flags, then each run of words that differs from `base`, or from
+/// zeros when there is none, as offset, length and the new bytes (Y1). The entry holds the new value of every byte
+/// it names, never a change of it, so applying it over any mix of the versions it follows gives `page` (Y2).
+pub(crate) fn encode_page(out: &mut Vec<u8>, (entry, page, base): JournalPage<'_>) {
+    let flags = if base.is_none() { CREATED_ENTRY } else { 0 };
+    out.extend_from_slice(&(entry | flags).to_le_bytes());
+    let count_at = out.len();
+    out.extend_from_slice(&[0, 0]);
+    let words = page.as_chunks::<8>().0;
+    let differs = |word: usize| match base {
+        Some(base) => words[word] != base.as_chunks::<8>().0[word],
+        None => words[word] != [0; 8],
+    };
+    let (mut runs, mut word) = (0u16, 0);
+    while word < WORDS {
+        if !differs(word) {
+            word += 1;
+            continue;
+        }
+        let start = word;
+        while word < WORDS && differs(word) {
+            word += 1;
+        }
+        let (at, len) = (start * 8, (word - start) * 8);
+        // A page has 8,192 bytes: an offset and a length fit in 16 bits.
+        out.extend_from_slice(&(at as u16).to_le_bytes());
+        out.extend_from_slice(&(len as u16).to_le_bytes());
+        out.extend_from_slice(&page[at..at + len]);
+        runs += 1;
+    }
+    out[count_at..count_at + 2].copy_from_slice(&runs.to_le_bytes());
+}
+
+/// A page entry of a decoded payload.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PageEntry<'a> {
+    /// The page number, without flags.
+    pub number: u64,
+    /// The page is part of a value run (D5 of the large values execution).
+    pub raw: bool,
+    /// The commit created the page: its runs go over zeros (Y2).
+    pub created: bool,
+    /// Offset and new bytes of each run.
+    pub runs: Vec<(usize, &'a [u8])>,
+}
+
+/// The `count` entries of a raw payload, or `None` when it is not exactly `count` entries whose runs lie within a
+/// page.
+pub(crate) fn decode_entries(raw: &[u8], count: u32) -> Option<Vec<PageEntry<'_>>> {
+    let mut at: usize = 0;
+    let mut take = |len: usize| {
+        let bytes = raw.get(at..at.checked_add(len)?)?;
+        at += len;
+        Some(bytes)
+    };
+    let u16_of = |bytes: &[u8]| usize::from(u16::from_le_bytes([bytes[0], bytes[1]]));
+    let mut entries = Vec::new();
+    entries.try_reserve_exact(count as usize).ok()?;
+    for _ in 0..count {
+        let word = u64::from_le_bytes(take(8)?.try_into().expect("8 bytes"));
+        let runs_count = u16_of(take(2)?);
+        let mut runs = Vec::new();
+        runs.try_reserve_exact(runs_count).ok()?;
+        for _ in 0..runs_count {
+            let (offset, len) = (u16_of(take(2)?), u16_of(take(2)?));
+            if len == 0 || offset + len > PAGE_SIZE {
+                return None;
+            }
+            runs.push((offset, take(len)?));
+        }
+        entries.push(PageEntry {
+            number: word & !(RAW_ENTRY | CREATED_ENTRY),
+            raw: word & RAW_ENTRY != 0,
+            created: word & CREATED_ENTRY != 0,
+            runs,
+        });
+    }
+    (at == raw.len()).then_some(entries)
+}
 
 /// The name of journal file number `number`.
 pub(crate) fn file_name(number: u64) -> String {
@@ -122,7 +219,9 @@ impl RecordHeader {
             raw_len: word(40),
             payload_checksum: word(48),
         };
-        let consistent = header.raw_len == u64::from(header.page_count) * PAGE_ENTRY as u64
+        let pages = u64::from(header.page_count);
+        let consistent = (pages * MIN_ENTRY as u64..=pages * MAX_ENTRY as u64)
+            .contains(&header.raw_len)
             && (header.compressed || header.stored_len == header.raw_len)
             && header.txid > 0;
         consistent.then_some(header)
@@ -177,7 +276,7 @@ fn encode_record(
     spare: &SpareRecords,
     txid: u64,
     durable_upto: u64,
-    pages: &[(u64, &[u8; PAGE_SIZE])],
+    pages: &[JournalPage<'_>],
 ) -> Result<AlignedBuf> {
     let record = encode_record_in(buffers, spare, txid, durable_upto, pages);
     if buffers.raw.capacity() > ENCODE_RETAIN {
@@ -191,20 +290,20 @@ fn encode_record_in(
     spare: &SpareRecords,
     txid: u64,
     durable_upto: u64,
-    pages: &[(u64, &[u8; PAGE_SIZE])],
+    pages: &[JournalPage<'_>],
 ) -> Result<AlignedBuf> {
-    let raw_len = pages.len() * PAGE_ENTRY;
+    let most_raw = pages.len() * MAX_ENTRY;
     let out_of_memory = |requested: usize| Error::OutOfMemory {
         requested: requested as u64,
     };
     let raw = &mut buffers.raw;
     raw.clear();
-    raw.try_reserve_exact(raw_len)
-        .map_err(|_| out_of_memory(raw_len))?;
-    for (number, page) in pages {
-        raw.extend_from_slice(&number.to_le_bytes());
-        raw.extend_from_slice(&page[..]);
+    raw.try_reserve_exact(most_raw)
+        .map_err(|_| out_of_memory(most_raw))?;
+    for &page in pages {
+        encode_page(raw, page);
     }
+    let raw_len = raw.len();
     let bound = lz4_flex::block::get_maximum_output_size(raw_len);
     // Room for the header and the payload, compressed (at most `bound` bytes) or not.
     let most = RECORD_HEADER + bound.max(raw_len);
@@ -533,7 +632,7 @@ impl Journal {
         &self,
         pager: &Pager,
         txid: u64,
-        pages: &[(u64, &[u8; PAGE_SIZE])],
+        pages: &[JournalPage<'_>],
     ) -> Result<()> {
         pager.check_writable()?;
         let record = {
@@ -1019,7 +1118,7 @@ mod tests {
             *b = x as u8;
         }
         for (page, compressed) in [(&same, true), (&noise, false)] {
-            let record = encode(&mut EncodeBuffers::default(), 5, 4, &[(9, page)]);
+            let record = encode(&mut EncodeBuffers::default(), 5, 4, &[(9, page, None)]);
             assert_eq!(record.len() as u64 % ALIGN, 0);
             let header = RecordHeader::decode(&record).unwrap();
             assert_eq!(
@@ -1028,8 +1127,16 @@ mod tests {
             );
             let stored = &record[RECORD_HEADER..RECORD_HEADER + header.stored_len as usize];
             let raw = decode_payload(&header, stored).unwrap();
-            assert_eq!(raw[..8], 9u64.to_le_bytes());
-            assert_eq!(&raw[8..], &page[..]);
+            let entries = decode_entries(&raw, 1).unwrap();
+            assert_eq!(
+                (entries[0].number, entries[0].raw, entries[0].created),
+                (9, false, true)
+            );
+            let mut rebuilt = [0u8; PAGE_SIZE];
+            for &(at, bytes) in &entries[0].runs {
+                rebuilt[at..at + bytes.len()].copy_from_slice(bytes);
+            }
+            assert_eq!(&rebuilt[..], &page[..]);
             let mut damaged = stored.to_vec();
             damaged[3] ^= 1;
             assert!(decode_payload(&header, &damaged).is_none());
@@ -1055,29 +1162,45 @@ mod tests {
         pages
     }
 
-    /// The bytes of encoded records stay those of the stored format (O4 of the performance plan reworked how they
-    /// are built): xxh3 of whole records, padding included, recorded before the change.
+    /// The bytes of encoded records stay those of the stored format of version 10 (O4 of the performance plan reworked
+    /// how they are built; Y1 of the journal page diffs PRD changed what an entry holds): xxh3 of whole records,
+    /// padding included. Pages created, compared with zeros, and pages with the version they were copied from.
     #[test]
     fn records_keep_the_bytes_of_the_stored_format() {
         let pages = sample_pages();
-        let cases: [(&[usize], u64); 5] = [
-            (&[0], 0x77e2_0393_c801_ffcf),
-            (&[1], 0xd1dc_e62a_7d7b_951c),
+        let mut changed = pages[1];
+        changed[100..108].copy_from_slice(b"changed!");
+        changed[4000] ^= 0xFF;
+        // Each page of a record by its sample, with the sample it was copied from or none if created.
+        type Record<'a> = &'a [(usize, Option<usize>)];
+        let cases: [(Record<'_>, u64); 7] = [
+            (&[(0, None)], 0x8e72_efa3_a63d_8d50),
+            (&[(1, None)], 0x681c_1020_4896_9288),
             // Incompressible: stored raw.
-            (&[2], 0xeada_2d4b_fb84_365e),
-            (&[0, 1, 2], 0x2961_573a_66f2_f326),
-            (&[2, 2, 0, 1], 0x9a4e_fa2e_b661_0539),
+            (&[(2, None)], 0x1279_2d88_f798_6960),
+            (&[(0, None), (1, None), (2, None)], 0x3695_e9fa_5d6b_42ef),
+            (
+                &[(2, None), (2, None), (0, None), (1, None)],
+                0x2c56_ce06_eca4_aba5,
+            ),
+            // Copied pages: the runs that differ from their version, and nothing for an unchanged one.
+            (&[(3, Some(1)), (2, Some(2))], 0x7a14_51b3_2830_e05d),
+            (
+                &[(3, Some(1)), (0, Some(2)), (1, None)],
+                0x2476_9c15_723a_2c4c,
+            ),
         ];
+        let pages = [pages[0], pages[1], pages[2], changed];
         // One set of buffers for every case, and each record's buffer given back as the writer does, as the commits
         // of a store share theirs: what one record leaves in them never reaches the next.
         let mut buffers = EncodeBuffers::default();
         let spare = SpareRecords::default();
         let mut got = Vec::new();
         for (i, (which, expected)) in cases.into_iter().enumerate() {
-            let entries: Vec<(u64, &[u8; PAGE_SIZE])> = which
+            let entries: Vec<JournalPage<'_>> = which
                 .iter()
                 .enumerate()
-                .map(|(n, &p)| (100 + n as u64 * 3, &pages[p]))
+                .map(|(n, &(p, base))| (100 + n as u64 * 3, &pages[p], base.map(|b| &pages[b])))
                 .collect();
             let record = encode_record(&mut buffers, &spare, 40 + i as u64, 7, &entries).unwrap();
             got.push((xxh3_64(&record), expected));
@@ -1093,7 +1216,7 @@ mod tests {
         buffers: &mut EncodeBuffers,
         txid: u64,
         durable_upto: u64,
-        pages: &[(u64, &[u8; PAGE_SIZE])],
+        pages: &[JournalPage<'_>],
     ) -> AlignedBuf {
         encode_record(buffers, &SpareRecords::default(), txid, durable_upto, pages).unwrap()
     }
@@ -1104,20 +1227,26 @@ mod tests {
     #[test]
     fn reused_buffers_build_the_same_records_as_new_ones() {
         let pages = sample_pages();
-        let entries = |count: usize| -> Vec<(u64, &[u8; PAGE_SIZE])> {
-            (0..count).map(|n| (10 + n as u64, &pages[n % 3])).collect()
+        let entries = |count: usize| -> Vec<JournalPage<'_>> {
+            (0..count)
+                .map(|n| (10 + n as u64, &pages[n % 3], None))
+                .collect()
         };
         let mut buffers = EncodeBuffers::default();
         let spare = SpareRecords::default();
         for entries in [
-            vec![(9, &pages[2]), (12, &pages[1]), (15, &pages[0])],
-            vec![(9, &pages[0])],
-            vec![(9, &pages[2])],
+            vec![
+                (9, &pages[2], None),
+                (12, &pages[1], None),
+                (15, &pages[0], None),
+            ],
+            vec![(9, &pages[0], None)],
+            vec![(9, &pages[2], None)],
             // More than the 8 MiB that O4 kept, less than what is kept now.
             entries(DEFAULT_QUEUE_LIMIT as usize / PAGE_SIZE + 2),
-            vec![(9, &pages[2])],
+            vec![(9, &pages[2], None)],
             entries(ENCODE_RETAIN / PAGE_SIZE + 2),
-            vec![(9, &pages[1])],
+            vec![(9, &pages[1], None)],
         ] {
             let reused = encode_record(&mut buffers, &spare, 3, 2, &entries).unwrap();
             let fresh = encode(&mut EncodeBuffers::default(), 3, 2, &entries);
@@ -1135,14 +1264,14 @@ mod tests {
         let pages = sample_pages();
         let mut buffers = EncodeBuffers::default();
         let spare = SpareRecords::default();
-        let first = encode_record(&mut buffers, &spare, 3, 2, &[(9, &pages[2])]).unwrap();
+        let first = encode_record(&mut buffers, &spare, 3, 2, &[(9, &pages[2], None)]).unwrap();
         let at = first.as_ptr();
         give_back(&spare, first);
-        let second = encode_record(&mut buffers, &spare, 4, 2, &[(9, &pages[0])]).unwrap();
+        let second = encode_record(&mut buffers, &spare, 4, 2, &[(9, &pages[0], None)]).unwrap();
         assert_eq!(second.as_ptr(), at);
         assert!(spare.lock().unwrap().is_empty());
-        let large: Vec<(u64, &[u8; PAGE_SIZE])> = (0..DEFAULT_QUEUE_LIMIT as usize / PAGE_SIZE + 2)
-            .map(|n| (n as u64, &pages[n % 3]))
+        let large: Vec<JournalPage<'_>> = (0..DEFAULT_QUEUE_LIMIT as usize / PAGE_SIZE + 2)
+            .map(|n| (n as u64, &pages[n % 3], None))
             .collect();
         encode_record(&mut buffers, &spare, 5, 2, &large).unwrap();
         assert!(buffers.raw.capacity() > DEFAULT_QUEUE_LIMIT as usize);
@@ -1154,7 +1283,7 @@ mod tests {
             &mut EncodeBuffers::default(),
             5,
             4,
-            &[(9, &[1u8; PAGE_SIZE])],
+            &[(9, &[1u8; PAGE_SIZE], None)],
         );
         for byte in 0..RECORD_HEADER {
             let mut damaged = record.to_vec();

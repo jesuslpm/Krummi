@@ -78,11 +78,15 @@ fn journal_files(folder: &Path) -> Vec<PathBuf> {
 }
 
 /// Offsets of the records of a journal file (its layout: 64-byte headers, records aligned to 4 KiB).
+/// The first byte of a record's payload, after its 64-byte header: a record whose page entries hold only what
+/// changed may be shorter than a hundred bytes, so damage goes here to land inside it.
+const PAYLOAD_START: usize = 64 + 1;
+
 fn record_offsets(file: &Path) -> Vec<usize> {
     let bytes = fs::read(file).unwrap();
     let mut offsets = Vec::new();
     let mut offset = 0;
-    while offset + 64 <= bytes.len() && bytes[offset..offset + 8] == *b"KrummiJ1" {
+    while offset + 64 <= bytes.len() && bytes[offset..offset + 8] == *b"KrummiJ2" {
         offsets.push(offset);
         let stored =
             u64::from_le_bytes(bytes[offset + 32..offset + 40].try_into().unwrap()) as usize;
@@ -346,7 +350,7 @@ fn ac_j3_a_damaged_tail_is_discarded_and_damage_before_a_durable_commit_is_repor
         match damage {
             "truncate" => {
                 let bytes = fs::read(&file).unwrap();
-                fs::write(&file, &bytes[..last + 100]).unwrap();
+                fs::write(&file, &bytes[..last + PAYLOAD_START]).unwrap();
             }
             "content" => flip(&file, last + 64 + 10),
             _ => flip(&file, last + 33),
@@ -957,7 +961,7 @@ fn ac_e16_damage_is_judged_by_group() {
 
     // The second commit of the last group.
     let mut bytes = pristine.clone();
-    bytes[offsets[5] + 100] ^= 0xFF;
+    bytes[offsets[5] + PAYLOAD_START] ^= 0xFF;
     fs::write(&journal, &bytes).unwrap();
     let engine = open(crashed.path());
     let present: Vec<bool> = texts(&engine, &pages)
@@ -971,7 +975,7 @@ fn ac_e16_damage_is_judged_by_group() {
     let crashed = run.killed();
     let journal = journal_files(crashed.path()).pop().unwrap();
     let mut bytes = fs::read(&journal).unwrap();
-    bytes[offsets[2] + 100] ^= 0xFF;
+    bytes[offsets[2] + PAYLOAD_START] ^= 0xFF;
     fs::write(&journal, &bytes).unwrap();
     let before = snapshot(crashed.path());
     assert_eq!(open_err(crashed.path()).kind(), ErrorKind::Damaged);
@@ -1261,13 +1265,13 @@ fn make_muninndb_store(folder: &Path) {
     }
 }
 
-/// AC-R1 (R3, R5, and E15 of the grouped journal PRD): a new store is `krummi.data` with the new mark and the current format (`9`); with commits not yet
+/// AC-R1 (R3, R5, and E15 of the grouped journal PRD): a new store is `krummi.data` with the new mark and the current format (`10`, Y5 of the journal page diffs PRD); with commits not yet
 /// the folder also holds `krummi.journal.<19 digits>` and `krummi.temp`, which a clean close removes.
 #[test]
 fn ac_r1_a_new_store_uses_the_krummi_names_and_mark_and_the_current_format() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = open(tmp.path());
-    assert_eq!(engine.info().format_version, 9);
+    assert_eq!(engine.info().format_version, 10);
     assert_eq!(names(tmp.path()), vec!["krummi.data"]);
     let pages = reserve(&engine, 1, "c0");
     let hold = engine.read().unwrap();

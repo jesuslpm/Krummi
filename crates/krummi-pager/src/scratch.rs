@@ -54,7 +54,7 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::format::{self, Header};
 use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE, PAGE_SIZE_U64};
-use crate::journal::{Journal, RAW_ENTRY};
+use crate::journal::{Journal, JournalPage, RAW_ENTRY};
 use crate::pager::{Info, Integrity, Pager};
 use crate::recovery;
 use crate::sys;
@@ -169,6 +169,11 @@ struct State {
     last_committed: u64,
     /// Versions of each page that are only here, oldest first.
     versions: HashMap<u64, Vec<Version>>,
+    /// For each page whose older versions left `versions` without being written in place, because no snapshot
+    /// needed them any more, the commit of the oldest of them: `krummi.data` still holds what the page was before it,
+    /// so the journal records from that commit on are needed until the page is written. The journal keeps only the
+    /// bytes each commit changed, which recovery applies over `krummi.data` (Y2 of the journal page diffs PRD).
+    unwritten: HashMap<u64, u64>,
     /// Bytes taken by `versions` and `retired` (T14): a page of its own for each version of one in `versions`, and the
     /// whole slots of a value run while one of its pages keeps a version in either, even when newer versions replaced
     /// the others (see [`State::hold`]).
@@ -250,6 +255,7 @@ impl Scratch {
             state: RwLock::new(State {
                 last_committed: header.applied_txid,
                 versions: HashMap::new(),
+                unwritten: HashMap::new(),
                 bytes: 0,
                 run_holders: HashMap::new(),
                 live: Vec::new(),
@@ -820,9 +826,10 @@ impl State {
         self.versions
             .values()
             .filter_map(|versions| versions.first())
-            .map(|v| v.txid - 1)
+            .map(|v| v.txid)
+            .chain(self.unwritten.values().copied())
             .min()
-            .unwrap_or(self.last_committed)
+            .map_or(self.last_committed, |txid| txid - 1)
     }
 
     /// Takes the versions of `page_number` out once its version of commit `txid` was written in place: all of them
@@ -843,6 +850,8 @@ impl State {
         } else {
             return;
         };
+        // `krummi.data` holds this version now, newer than any dropped unwritten.
+        self.unwritten.remove(&page_number);
         self.retire(gone);
     }
 
@@ -910,10 +919,11 @@ impl State {
     /// snapshots still to open (E3).
     fn collect_garbage(&mut self, visible: u64) -> Vec<Version> {
         let mut dropped = Vec::new();
-        for versions in self.versions.values_mut() {
+        for (&page_number, versions) in &mut self.versions {
             if versions.len() < 2 {
                 continue;
             }
+            let before = dropped.len();
             let mut kept = Vec::with_capacity(versions.len());
             let mut iter = std::mem::take(versions).into_iter().peekable();
             while let Some(version) = iter.next() {
@@ -932,6 +942,13 @@ impl State {
                 }
             }
             *versions = kept;
+            if let Some(oldest) = dropped.get(before) {
+                let since = oldest.txid;
+                self.unwritten
+                    .entry(page_number)
+                    .and_modify(|first| *first = (*first).min(since))
+                    .or_insert(since);
+            }
         }
         for version in &dropped {
             self.release(&version.page);
@@ -1210,29 +1227,66 @@ impl<'a> ScratchWriter<'a> {
     /// Commits the payloads of `pages` and the value `runs`, each sealed with
     /// [`seal_run`](crate::format::seal_run) for its first page: seals the pages into the temporary area, puts them
     /// in the journal's queue from there, a run's pages as raw entries (D5 of the large values execution), and
-    /// publishes them for the next writer (E2). Returns the number of the commit, which read snapshots see once it is
+    /// publishes them for the next writer (E2). `created[i]` tells whether the transaction created page `pages[i]`,
+    /// zeroed, rather than copying its newest version: the journal keeps what differs from that version, or from
+    /// zeros (Y1 of the journal page diffs PRD). Returns the number of the commit, which read snapshots see once it is
     /// durable (E3; [`Scratch::wait_durable`]). On failure nothing is published (J12).
-    pub fn commit(&mut self, pages: &[(u64, PayloadBuf)], runs: &[(u64, RunBuf)]) -> Result<u64> {
+    ///
+    /// # Panics
+    ///
+    /// If `created` and `pages` differ in length.
+    pub fn commit(
+        &mut self,
+        pages: &[(u64, PayloadBuf)],
+        created: &[bool],
+        runs: &[(u64, RunBuf)],
+    ) -> Result<u64> {
+        assert_eq!(created.len(), pages.len(), "one flag per page");
         let staged = self.stage(pages, runs)?;
         let scratch = self.snapshot.scratch;
         if let Some(journal) = &scratch.shared.journal {
-            let txid = scratch.lock().last_committed + 1;
+            let (txid, bases) = {
+                let state = scratch.read();
+                // The version each copied page comes from is the newest one: in the scratch area while it is there,
+                // or else in the store, which no transfer writes again until a newer version exists (J5).
+                let bases: Vec<Option<(Arc<Slot>, usize)>> = pages
+                    .iter()
+                    .zip(created)
+                    .map(|((number, _), &created)| {
+                        let newest = state.versions.get(number)?.last();
+                        newest
+                            .filter(|_| !created)
+                            .map(|version| (Arc::clone(&version.page), version.index))
+                    })
+                    .collect();
+                (state.last_committed + 1, bases)
+            };
+            let pager = scratch.pager();
             // The journal reads the sealed pages from their slots (O5 of the performance plan): the staged pages
-            // come first, in the order of `pages`, then each run's pages.
-            let refs: Vec<(u64, &[u8; PAGE_SIZE])> = staged
+            // come first, in the order of `pages`, then each run's pages, all created.
+            let refs: Vec<JournalPage<'_>> = staged
                 .0
                 .iter()
                 .enumerate()
                 .map(|(i, (number, slot, index))| {
-                    let entry = if i < pages.len() {
-                        *number
+                    let page = slot.page_at(*index);
+                    if i >= pages.len() {
+                        return (number | RAW_ENTRY, page, None);
+                    }
+                    let base = if created[i] {
+                        None
+                    } else if let Some((slot, index)) = &bases[i] {
+                        Some(slot.page_at(*index))
                     } else {
-                        number | RAW_ENTRY
+                        let stored = pager
+                            .raw_pages(*number, 1)
+                            .expect("a copied page is in the store");
+                        Some(stored.try_into().expect("a whole page"))
                     };
-                    (entry, slot.page_at(*index))
+                    (*number, page, base)
                 })
                 .collect();
-            journal.enqueue(scratch.pager(), txid, &refs)?;
+            journal.enqueue(pager, txid, &refs)?;
         }
         Ok(self.publish(staged))
     }

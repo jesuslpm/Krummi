@@ -342,7 +342,9 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     scratch.set_journal_file_limit(crate::journal::ALIGN);
     for text in ["b", "c", "d"] {
         let mut writer = scratch.begin_write().unwrap();
-        let txid = writer.commit(&[(PAGE, payload(text))], &[]).unwrap();
+        let txid = writer
+            .commit(&[(PAGE, payload(text))], &[true], &[])
+            .unwrap();
         drop(writer);
         scratch.wait_durable(txid).unwrap();
     }

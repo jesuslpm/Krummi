@@ -92,9 +92,12 @@ fn commits_keep_the_bytes_of_the_journal_and_the_data_file() {
     testing::reset();
     // One write per group: the two durable commits, then the three deferred ones together.
     let sizes: Vec<usize> = writes.iter().map(|(_, bytes)| bytes.len()).collect();
-    assert_eq!(sizes, [20480, 4096, 24576]);
+    assert_eq!(sizes, [20480, 4096, 12288]);
+    // The pages after the header and the meta page are those of format 9: the journal page diffs changed the journal
+    // and the format version in the header, not what commits leave in `krummi.data` (Y1 of their PRD).
+    assert_eq!(fnv(FNV_START, &file[3 * page..]), 0xef70_dc69_e134_e0ee);
     assert_eq!(
         (journal, data),
-        (0xf602_67e1_8f87_8d0c, 0x5ec7_d0bf_a539_a377)
+        (0x426c_c654_e287_875f, 0x98f6_6bda_6608_030b)
     );
 }
