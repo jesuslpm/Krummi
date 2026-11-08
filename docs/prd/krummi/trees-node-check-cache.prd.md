@@ -69,6 +69,20 @@ documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 - *C3, el paso 4 del Flujo y el punto de Fuera de alcance sobre no recordar la organización de las páginas que modifica la escritura: esas páginas comprueban su organización la primera vez que se leen después de cada cambio, con una memoria propia de cada transacción que no usa ni alimenta la memoria compartida (S1). C1 y C4 valen para la memoria compartida.*
 - *C7: el riesgo residual se amplía con el de S3.*
 
+*Anotaciones del 2026-11-08 desde la comprobación recordada de las versiones del área temporal
+([pager-version-checks.prd.md](pager-version-checks.prd.md)):*
+
+- *C3, el paso 4 del Flujo y el punto de Fuera de alcance sobre recordar la organización de las versiones del área
+  temporal: cada versión se comprueba en su primera lectura y se recuerda mientras sigue en el área temporal, con
+  una memoria propia de cada versión que no usa ni alimenta la compartida (decisión U1). C1 y C4 valen para la
+  memoria compartida; C5 no vale para la de U1.*
+- *C7: el riesgo residual se amplía con el de U2. AC-C5 no cambia.*
+
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *Objetivo: la organización de un nodo es «sin solapes», con huecos permitidos (decisión Y4).*
+
 ### Estado de partida
 
 Verificado el 2026-10-30 en el código:

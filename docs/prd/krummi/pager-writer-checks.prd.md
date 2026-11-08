@@ -42,6 +42,13 @@ decisiones y anotado en los documentos afectados (ver [Anotaciones a otros PRD](
 | S4 | **Sin cambios visibles**: no hay situaciones, clases de error, datos de error ni opciones nuevas, el formato no cambia (versión `9`) y la información del almacén (P12) no añade datos. Lo que recuerda S1 dura lo que la transacción y no cuenta para el tamaño máximo (P10). |
 | S5 | **Rendimiento** (aceptación como paso intermedio, según la anotación del 2026-11-06 a K13). Las ejecuciones de una sola carga se hacen antes y después del cambio, en la misma sesión, en dos rondas que alternan el orden, en Windows y en Linux. Una carga mejora cuando su mediana después supera a la de antes en las dos rondas de una plataforma, y empeora cuando queda por debajo en las dos. El cambio se acepta cuando W1 y W3 (S1) y W2, W14, W15 y W21 (S2) mejoran en las dos plataformas y ninguna otra carga de escritura medida empeora. Las ejecuciones completas del banco se hacen al final de la ejecución que implementa este PRD junto con O5, y miden los dos cambios juntos frente a las del 2026-11-06. Una carga cuya razón con Voron baja más de 0,05 entre ellas cuenta como peor solo si sus ejecuciones de una sola carga contra el commit anterior a esa ejecución confirman la bajada (anotación del 2026-11-06 a AC-I12). No cumplir el umbral (K7) no impide cerrar el cambio; lo que falte sigue el plan de rendimiento. |
 
+*Anotaciones del 2026-11-08 desde la comprobación recordada de las versiones del área temporal
+([pager-version-checks.prd.md](pager-version-checks.prd.md)):*
+
+- *S1, su última frase, y el punto de Fuera de alcance «Cambiar cómo se comprueban las versiones confirmadas del
+  área temporal»: dejan de valer; esas versiones se comprueban en su primera lectura (decisión U1).*
+- *S3: el riesgo residual se amplía con el de U2. AC-S7 se sustituye por AC-U1.*
+
 ### Estado de partida
 
 Verificado el 2026-11-06 en el código y en el perfil del plan de rendimiento:

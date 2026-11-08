@@ -94,6 +94,12 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 
 *Anotación del 2026-11-05 desde la integridad recordada de las páginas ([pager-integrity-once.prd.md](pager-integrity-once.prd.md)): P10, P11 y P13, la memoria de las páginas recordadas como íntegras crece con el almacén, no cuenta para el tamaño máximo, y no poder reservarla al abrir o al crecer es memoria agotada; un crecimiento que falla por ella deja el archivo con el tamaño que tenía (decisión I6).*
 
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *P5: la versión de formato vigente pasa a ser `10`; un almacén de formato `9` es de formato anterior (decisión
+  Y5).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

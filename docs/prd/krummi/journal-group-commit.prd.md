@@ -66,6 +66,13 @@ formato vigente pasa a ser `5`; un almacén de formato `4` es de formato anterio
 
 *Anotación del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)): E15, la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
 
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *Fuera de alcance: «Guardar en el diario solo las diferencias de cada página» entra con ese cambio (decisión
+  Y1).*
+- *E15: la versión de formato vigente pasa a ser `10` (decisión Y5).*
+
 ### Estado de partida
 
 Verificado el 2026-10-23 en el código:

@@ -93,6 +93,13 @@ contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-11-06 to D12: the Pager may use the journal compressor in its mode with unsafe code (`lz4_flex` without `safe-encode`). That mode produces the same bytes as the safe mode and compresses 30 % to 50 % faster, measured on pages of a real store. Decompression stays in its safe, checked mode. D12 still governs the engine's own code, and the automatic check covers it as before (user's decision, O5 of the performance plan).*
 
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *D7: the current format version is `10` (decision Y5).*
+- *G5: a recovery that finds a damaged page fails after changing the store, and the next opening repeats it
+  (decision Y3).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

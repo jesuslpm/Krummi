@@ -68,6 +68,20 @@ affected documents (see [Annotations to other PRDs](#annotations-to-other-prds))
 - *C3, step 4 of the Flow and the Out of scope item about not remembering the layout of the pages the write modifies: those pages check their layout the first time they are read after each change, with a memory of each transaction that neither uses nor feeds the shared memory (S1). C1 and C4 hold for the shared memory.*
 - *C7: the residual risk widens with S3's.*
 
+*Annotations of 2026-11-08 from the remembered check of temporary-area versions
+([pager-version-checks.prd.en.md](pager-version-checks.prd.en.md)):*
+
+- *C3, step 4 of the Flow and the Out of scope item on remembering the organization of temporary-area versions:
+  each version is checked on its first read and remembered while it stays in the temporary area, with a memory of
+  its own that neither uses nor feeds the shared one (decision U1). C1 and C4 hold for the shared memory; C5 does
+  not hold for U1's.*
+- *C7: the residual risk grows with U2's. AC-C5 does not change.*
+
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *Objective: a node's organization is "without overlaps", with holes allowed (decision Y4).*
+
 ### Starting state
 
 Verified on 2026-10-30 in the code:

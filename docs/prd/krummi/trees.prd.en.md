@@ -149,6 +149,12 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 
 - *Reuse: the integrity check of the pages ceases to be made on every read of the data file. The read transactions make it the first time they read a page in each opening and after each rewrite by the engine; the write transactions, on every read (decisions I2 and I3), with the residual risk of decision I8, which replaces that of C7.*
 
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *Page organization: a node of the trees with variable-size entries may have holes that removed or replaced
+  entries leave (decision Y4).*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

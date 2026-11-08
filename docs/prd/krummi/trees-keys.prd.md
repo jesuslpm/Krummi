@@ -91,6 +91,12 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 
 *Anotación del 2026-11-05 desde la integridad recordada de las páginas ([pager-integrity-once.prd.md](pager-integrity-once.prd.md)): A9, el riesgo residual de C7 se sustituye por el de la decisión I8: un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor no se detecta en las transacciones de lectura hasta reabrir.*
 
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *A9: el daño de organización de un nodo es un solape, una entrada fuera de la página o de sus tamaños, o un
+  registro de huecos que no coincide con sus entradas (decisión Y4).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

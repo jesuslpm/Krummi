@@ -92,6 +92,13 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-11-06 a D12: el Pager puede usar el compresor del diario en su modo con código no seguro (`lz4_flex` sin `safe-encode`). Ese modo produce los mismos bytes que el modo seguro y comprime entre un 30 % y un 50 % más rápido, medido sobre páginas de un almacén real. La descompresión sigue en su modo seguro y comprobado. D12 sigue rigiendo el código del propio motor, y la comprobación automática lo cubre como hasta ahora (decisión del usuario, O5 del plan de rendimiento).*
 
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *D7: la versión de formato vigente es `10` (decisión Y5).*
+- *G5: una recuperación que encuentra una página dañada falla después de modificar el almacén, y la siguiente
+  apertura la repite (decisión Y3).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

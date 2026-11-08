@@ -44,6 +44,13 @@ decisions and annotated in the affected documents (see [Annotations to other PRD
 | S4 | **No visible changes**: there are no new situations, error classes, error data or options, the format does not change (version `9`) and the store information (P12) adds no data. What S1 remembers lasts as long as the transaction and does not count toward the maximum size (P10). |
 | S5 | **Performance** (acceptance as an intermediate step, according to the annotation of 2026-11-06 to K13). The single-workload runs are made before and after the change, in the same session, in two rounds that alternate the order, on Windows and on Linux. A workload improves when its median after exceeds that of before in both rounds of a platform, and worsens when it falls below in both. The change is accepted when W1 and W3 (S1) and W2, W14, W15 and W21 (S2) improve on both platforms and no other measured write workload worsens. The full runs of the benchmark are made at the end of the run that implements this PRD together with O5, and measure the two changes together against those of 2026-11-06. A workload whose ratio with Voron drops by more than 0.05 between them counts as worse only if its single-workload runs against the commit prior to that run confirm the drop (annotation of 2026-11-06 to AC-I12). Not meeting the threshold (K7) does not prevent closing the change; what is missing follows the performance plan. |
 
+*Annotations of 2026-11-08 from the remembered check of temporary-area versions
+([pager-version-checks.prd.en.md](pager-version-checks.prd.en.md)):*
+
+- *S1, its last sentence, and the Out of scope item "Changing how the committed versions in the temporary area are
+  checked" no longer hold; those versions are checked on their first read (decision U1).*
+- *S3: the residual risk grows with U2's. AC-S7 is replaced by AC-U1.*
+
 ### Starting state
 
 Verified on 2026-11-06 in the code and in the profile of the performance plan:

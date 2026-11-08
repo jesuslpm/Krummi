@@ -152,6 +152,12 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 
 - *Reutilización: la comprobación de integridad de las páginas deja de hacerse en cada lectura del archivo de datos. Las transacciones de lectura la hacen la primera vez que leen una página en cada apertura y tras cada reescritura del motor; las de escritura, en cada lectura (decisiones I2 e I3), con el riesgo residual de la decisión I8, que sustituye al de C7.*
 
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *Organización de las páginas: un nodo de los árboles con entradas de tamaño variable puede tener huecos que dejan
+  las entradas borradas o sustituidas (decisión Y4).*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

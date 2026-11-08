@@ -45,6 +45,10 @@ reglas anteriores está declarado en sus decisiones y anotado en los documentos 
 | U4 | **Sin cambios visibles**: como S4. Lo que se lee y lo que se confirma es lo mismo que hoy. |
 | U5 | **Rendimiento**: como S5, sobre W12 (que debe mejorar en las dos plataformas) y con al menos W2, W7, W10, W12, W13, W14 y W19 medidas, ninguna de las cuales debe empeorar. Las ejecuciones completas de referencia son las del 2026-11-07 tras la reutilización de recursos de escritura (`docs/benchmark/2026-11-07-*-write-reuse.md`). |
 
+*Anotación del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)): U4, la versión de formato vigente pasa a ser `10`
+(decisión Y5).*
+
 ### Estado de partida
 
 Verificado el 2026-11-08 en el código, en los perfiles de la investigación de ese día, en los informes del banco y
@@ -122,8 +126,9 @@ Nada de lo que devuelve una operación cambia de forma, y la versión de formato
 
 Valen los de los ascendientes, que deben seguir pasando sin cambios salvo los que este PRD sustituye (ver
 [Anotaciones a otros PRD](#anotaciones-a-otros-prd)), incluidos AC10 del padre raíz y AC-C5. Cada criterio se
-comprueba en un almacén en disco y en modo temporal, y en un árbol normal, en uno de tamaño fijo y en el subárbol de
-una clave de un árbol multivalor. Las pruebas usan el conocimiento de la implementación para contar las
+comprueba en un almacén en disco y en modo temporal; AC-U1, en un árbol normal, en uno de tamaño fijo y en el
+subárbol de una clave de un árbol multivalor, y los demás en un árbol normal, porque la memoria de U1 no depende del
+tipo de árbol. Las pruebas usan el conocimiento de la implementación para contar las
 comprobaciones, para mantener versiones en el área temporal sin trasladarlas y para alterar bytes. Las cuentas se
 hacen con un solo hilo.
 

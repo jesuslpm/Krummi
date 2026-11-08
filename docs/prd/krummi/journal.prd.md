@@ -99,6 +99,17 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 
 *Anotación del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)): J3, la versión de formato vigente pasa a ser `9`; un almacén de formato `8` es de formato anterior (decisión X12).*
 
+*Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
+([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+
+- *J16: de cada página, el diario guarda los bytes que difieren de la versión de la que se copió, o la página sin
+  sus partes que son ceros si la confirmación la creó (decisión Y1).*
+- *J8: la recuperación aplica eso en orden, sobre `krummi.data` o sobre ceros, comprueba al final cada página
+  aplicada, y una página que no pasa la comprobación hace fallar la apertura con la clase de daño y su número
+  después de aplicar lo demás (decisiones Y2 e Y3).*
+- *J3: la versión de formato vigente pasa a ser `10`; un almacén de formato `9` es de formato anterior (decisión
+  Y5).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

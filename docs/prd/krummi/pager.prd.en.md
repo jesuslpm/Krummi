@@ -92,6 +92,11 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 
 *Annotation of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)): P10, P11 and P13, the memory of the pages remembered as intact grows with the store, does not count toward the maximum size, and not being able to reserve it on opening or on growing is out of memory; a growth that fails because of it leaves the file at the size it had (decision I6).*
 
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *P5: the current format version becomes `10`; a store of format `9` is of an earlier format (decision Y5).*
+
 ### Starting state
 
 Verified on 2026-10-22:

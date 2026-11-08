@@ -65,6 +65,12 @@ version becomes `5`; a store of format `4` is of an older format (decision F11).
 
 *Annotation of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)): E15, the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
 
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *Out of scope: "Keeping only the differences of each page in the journal" comes with that change (decision Y1).*
+- *E15: the current format version becomes `10` (decision Y5).*
+
 ### Starting state
 
 Verified on 2026-10-23 in the code:

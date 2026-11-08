@@ -96,6 +96,16 @@ from earlier rules is declared in its decisions and annotated in the affected do
 
 *Annotation of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)): J3, the current format version becomes `9`; a store of format `8` is of an earlier format (decision X12).*
 
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *J16: of each page, the journal keeps the bytes that differ from the version it was copied from, or the page
+  without its zero parts if the commit created it (decision Y1).*
+- *J8: recovery applies that in order, over `krummi.data` or over zeros, checks every applied page at the end, and
+  a page that fails the check makes the opening fail with the damage class and its number after applying the rest
+  (decisions Y2 and Y3).*
+- *J3: the current format version becomes `10`; a store of format `9` is of an earlier format (decision Y5).*
+
 ### Starting state
 
 Verified on 2026-10-22:

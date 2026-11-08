@@ -89,6 +89,12 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 
 *Annotation of 2026-11-05 from the remembered page integrity ([pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)): A9, the residual risk of C7 is replaced by that of decision I8: a change of a remembered page made while the store is open by something that is not the engine is not detected in the read transactions until reopening.*
 
+*Annotations of 2026-11-08 from the journal of the changes of each page
+([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+
+- *A9: a node's organization damage is an overlap, an entry outside the page or its sizes, or a hole count that
+  does not match its entries (decision Y4).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:
