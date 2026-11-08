@@ -116,14 +116,15 @@ closing report shared with the cheap gaps run.
   | W18 | −3 % / −3 % [−15 % / −15 %; alternating: mixed] | −3 % / 0 % |
 
   W2 rises from 44,670 to 112,172 op/s on Windows and from 23,903 to 51,760 on WSL 2 (first round). S6 holds: W2, W14,
-  W15 and W19 improve on both platforms, and the only load lower in both rounds twice, W18 on Windows, is not lower in
-  the alternating rounds (correction of L9; the first wording said no load was). W18 on Windows reads in two modes,
-  about 162,000 and 140,000 op/s, with the same store and binary; in five alternating rounds with fresh W17 stores
-  (`alt-win.out`) `vc` also fell to the slow mode (142,153) and `pd` was higher in one round (167,675 against
-  153,801), so the drop is not the change. The branch as a whole (`pd` / `base`): every load improves or is mixed on
-  Windows; on WSL 2, W3 is lower in all four rounds (−2 %, −4 %, −3 %, −7 %) and in four of five alternating rounds
-  (`alt-wsl.out`, median 265,432 → 257,230 op/s, −3.1 %), a cost of the branch on WSL 2 with no single step lower in
-  both rounds; W7 −3 % / −1 % then +1.5 % / +3 %.
+  W15 and W19 improve on both platforms, and the only load lower in both rounds twice, W18 on Windows, is inconclusive
+  in the alternating rounds: `pd` lower in four of five (−0.4 % to −7.3 %), higher in one (+9 %), with the higher
+  median (156,899 against 153,801) (correction of L9 and L10; the first wording said no load was lower twice). W18 on
+  Windows reads in two modes, about 162,000 and 140,000 op/s, with the same store and binary; in five alternating
+  rounds with fresh W17 stores (`alt-win.out`) `vc` also fell to the slow mode (142,153) and `pd` was higher in one
+  round (167,675 against 153,801), so the slow mode is not the change's. The branch as a whole (`pd` / `base`): every
+  load improves or is mixed on Windows; on WSL 2, W3 is lower in all four rounds (−2 %, −4 %, −3 %, −7 %) and in four
+  of five alternating rounds (`alt-wsl.out`, median 265,432 → 257,230 op/s, −3.1 %), a cost of the branch on WSL 2
+  with no single step lower in both rounds; W7 −3 % / −1 % then +1.5 % / +3 %.
 - **L9** (2026-11-08): RDD review of the last slice, `335abbb..4a3a92e` (`ec9a9cc` and two log commits), assessment
   `medium` / `under_budget`, lenses resilience and reliability, approved, lineage `review-88827c8bc66af220`. Findings:
   R4-commit-base-damage-untested (SUGGESTION) and R3-commit-base-damage-untested (WARNING), the same point: no test
@@ -135,3 +136,8 @@ closing report shared with the cheap gaps run.
   `raw_pages(n, 1)` returns exactly one page, so the `try_into` cannot fail either. The comment now says the path is
   unreachable. R3-pd-s6-claim-contradicts-w18 (WARNING): fixed, L8's summary named no exception although W18 on
   Windows was lower in both rounds twice; it now names it and the alternating rounds that clear it.
+- **L10** (2026-11-08): RDD review of `4a3a92e..f295627` (the comment of `dd378bb` and L9), lens readability,
+  approved, lineage `review-bca2a488be0037db`. Finding R2-w18-alternating-claim-overstated (SUGGESTION): L8's
+  corrected summary still overstated W18; it now gives the alternating rounds' counts and medians. Mechanism bound
+  (estimate, not measured): W18 reads 4,096 values of 64 KiB, about 6 µs each, and the slower layout check with holes
+  adds tens of nanoseconds per leaf read, under 1 %.
