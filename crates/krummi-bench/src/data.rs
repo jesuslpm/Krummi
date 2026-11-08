@@ -83,8 +83,26 @@ pub fn read_order(load: Load, thread: u64, n: u64) -> Vec<u32> {
 }
 
 /// The sum of the bytes of `bytes`, the checksum of a read (K8). Wrapping, so order does not matter.
+///
+/// It adds 16-byte chunks into 16 `u16` lanes, which the compiler turns into vector additions, and folds the lanes
+/// into the total every 256 chunks, before a lane can overflow (256 × 255 < 65,536). Adding the bytes one by one
+/// as `u64` ran at a third of the speed and capped every Rust engine in W18, while the .NET program sums with SSE2
+/// (`Data.cs`); this runs within about 10 % of it.
 pub fn byte_sum(bytes: &[u8]) -> u64 {
-    bytes.iter().map(|&b| b as u64).sum()
+    const LANES: usize = 16;
+    fn lanes(chunks: &[[u8; LANES]]) -> u64 {
+        let mut acc = [0u16; LANES];
+        for chunk in chunks {
+            for (a, &b) in acc.iter_mut().zip(chunk) {
+                *a += u16::from(b);
+            }
+        }
+        acc.iter().map(|&a| u64::from(a)).sum()
+    }
+    let (blocks, rest) = bytes.as_chunks::<{ LANES * 256 }>();
+    let full: u64 = blocks.iter().map(|b| lanes(b.as_chunks().0)).sum();
+    let (chunks, tail) = rest.as_chunks();
+    full + lanes(chunks) + tail.iter().map(|&b| u64::from(b)).sum::<u64>()
 }
 
 /// The digest of the data an engine received for a load (AC-K7). Items are fed in the order the load issues them:
@@ -173,6 +191,24 @@ mod tests {
         assert_eq!(read_order(Load::W7, 0, 5), [0, 1, 2, 3, 4]);
         // Pinned so that a change of the algorithm, which the .NET program would not follow, is noticed here too.
         assert_eq!(&permutation(8, 42)[..], &[0, 1, 4, 7, 3, 6, 2, 5]);
+    }
+
+    #[test]
+    fn byte_sum_adds_every_byte_at_any_length_and_offset() {
+        let bytes: Vec<u8> = (0..70_000u32)
+            .map(|i| (splitmix(u64::from(i)) >> 56) as u8)
+            .collect();
+        let naive = |b: &[u8]| b.iter().map(|&x| u64::from(x)).sum::<u64>();
+        for len in [
+            0, 1, 15, 16, 17, 255, 4_095, 4_096, 4_097, 8_192, 65_536, 65_537,
+        ] {
+            for offset in [0, 1, 7] {
+                let b = &bytes[offset..offset + len];
+                assert_eq!(byte_sum(b), naive(b), "length {len}, offset {offset}");
+            }
+        }
+        // Every lane at its largest: 256 chunks of 0xFF per block must not overflow a lane.
+        assert_eq!(byte_sum(&[0xFF; 3 * 4_096 + 5]), 255 * (3 * 4_096 + 5));
     }
 
     #[test]
