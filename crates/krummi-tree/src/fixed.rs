@@ -244,7 +244,7 @@ pub fn interval(lower: Bound<u64>, upper: Bound<u64>) -> Option<(u64, u64)> {
 pub fn create(tx: &mut WriteTransaction<'_>, len: usize) -> Result<u64> {
     assert!(len <= MAX_LEN, "a value has up to {MAX_LEN} bytes");
     let root = tx.allocate()?;
-    fill(tx.page_mut(root)?, 0, len, 0, &[]);
+    fill(tx.node_mut(root, is_valid)?, 0, len, 0, &[]);
     Ok(root)
 }
 
@@ -366,7 +366,7 @@ fn fix_root(
             let level = tx.page(root)?[1] + 1;
             let new_root = tx.allocate()?;
             fill(
-                tx.page_mut(new_root)?,
+                tx.node_mut(new_root, is_valid)?,
                 level,
                 len,
                 root,
@@ -390,7 +390,7 @@ fn fix_root(
         // The root keeps its page: an empty leaf stays, and a branch whose only child went away becomes one.
         Outcome::Empty => {
             if !is_leaf(tx.page(root)?) {
-                fill(tx.page_mut(root)?, 0, len, 0, &[]);
+                fill(tx.node_mut(root, is_valid)?, 0, len, 0, &[]);
             }
         }
     }
@@ -439,7 +439,7 @@ fn change_leaf(
         (Op::Add(_), Ok(_)) | (Op::Remove, Err(_)) => Ok(Outcome::Done),
         (Op::Remove, Ok(index)) => {
             *count_changed = true;
-            let node = tx.page_mut(page)?;
+            let node = tx.node_mut(page, is_valid)?;
             remove_entries(node, index..index + 1);
             if count(node) == 0 {
                 return Ok(Outcome::Empty);
@@ -447,7 +447,7 @@ fn change_leaf(
             Ok(underfull_or_done(node))
         }
         (Op::Set(value), Ok(index)) => {
-            let node = tx.page_mut(page)?;
+            let node = tx.node_mut(page, is_valid)?;
             let at = offset(node, index) + KEY;
             node[at..at + value.len()].copy_from_slice(value);
             Ok(Outcome::Done)
@@ -461,7 +461,7 @@ fn change_leaf(
             if full {
                 return split(tx, page, index, entry);
             }
-            let node = tx.page_mut(page)?;
+            let node = tx.node_mut(page, is_valid)?;
             insert(node, index, entry);
             // As in the slotted trees, a leaf may still be under a quarter full.
             Ok(underfull_or_done(node))
@@ -479,7 +479,7 @@ fn insert_entry(
     if count(tx.page(page)?) == capacity(entry.len()) {
         return split(tx, page, index, entry);
     }
-    let node = tx.page_mut(page)?;
+    let node = tx.node_mut(page, is_valid)?;
     insert(node, index, entry);
     // As in the slotted trees, a leaf may still be under a quarter full, and a branch that gains a child is done.
     Ok(if is_leaf(node) {
@@ -505,7 +505,7 @@ fn split(
     let append = index == n;
     if leaf && append {
         let right = tx.allocate()?;
-        fill(tx.page_mut(right)?, 0, len, 0, entry);
+        fill(tx.node_mut(right, is_valid)?, 0, len, 0, entry);
         return Ok(Outcome::Split {
             key: u64_at(entry, 0),
             right,
@@ -527,14 +527,14 @@ fn split(
     };
     let right = tx.allocate()?;
     fill(
-        tx.page_mut(right)?,
+        tx.node_mut(right, is_valid)?,
         level,
         len,
         right_leftmost,
         right_entries,
     );
     fill(
-        tx.page_mut(page)?,
+        tx.node_mut(page, is_valid)?,
         level,
         len,
         left_leftmost,
@@ -579,12 +579,12 @@ fn merge_child(
         moved.extend_from_slice(&branch_entry(separator, leftmost(right_node)));
     }
     moved.extend_from_slice(&right_node[HEADER..offset(right_node, count(right_node))]);
-    let target = tx.page_mut(left)?;
+    let target = tx.node_mut(left, is_valid)?;
     let end = offset(target, left_count);
     target[end..end + moved.len()].copy_from_slice(&moved);
     put_u16(target, 2, total);
     tx.free(right, 1)?;
-    let parent = tx.page_mut(page)?;
+    let parent = tx.node_mut(page, is_valid)?;
     remove_entries(parent, pair..pair + 1);
     Ok(underfull_or_done(parent))
 }
@@ -598,7 +598,7 @@ fn drop_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result<
     if n == 0 {
         return Ok(Outcome::Empty);
     }
-    let parent = tx.page_mut(page)?;
+    let parent = tx.node_mut(page, is_valid)?;
     if index == 0 {
         let next = child(parent, 1);
         parent[8..HEADER].copy_from_slice(&next.to_le_bytes());
@@ -684,7 +684,7 @@ fn remove_in(
         if first == last {
             return Ok(Outcome::Done);
         }
-        let node = tx.page_mut(page)?;
+        let node = tx.node_mut(page, is_valid)?;
         remove_entries(node, first..last);
         *removed += (last - first) as u64;
         if count(node) == 0 {
@@ -720,7 +720,7 @@ fn remove_in(
     }
     if !inner.is_empty() {
         // Entry `first` separates child `first` from the next one: removing the entries drops the inner children.
-        remove_entries(tx.page_mut(page)?, first..first + inner.len());
+        remove_entries(tx.node_mut(page, is_valid)?, first..first + inner.len());
     }
     // The two children that hold the bounds are now children `first` and `first + 1`.
     let right_gone = matches!(right_outcome, Outcome::Empty);

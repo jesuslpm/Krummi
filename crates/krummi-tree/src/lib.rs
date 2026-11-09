@@ -256,9 +256,8 @@ fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Resu
 /// check it again (C1–C3 of the remembered node layout check PRD). The nodes of every format share that memory,
 /// which does not know their format, so every read checks the kind against the format: a remembered node of
 /// another format is damage (X14). A node the write transaction changed never uses that memory, although it keeps
-/// the integrity code of the page it was copied from: its layout is checked on its first read after each change, and
-/// the transaction remembers a pass until the node's next change; a failure is never remembered (S1 of the writer
-/// checks PRD). That memory does not know the format either, so the kind check covers it too. A version of the
+/// the integrity code of the page it was copied from: its layout is not checked on a read but once, when the
+/// transaction commits (H1, H2 of the commit checks PRD), so the kind check covers it too. A version of the
 /// scratch area is checked on its first read, and a pass is remembered by the version while it stays there, for every
 /// transaction (U1 of the version checks PRD); that memory does not know the format either. Every other check runs on
 /// every read.
@@ -281,10 +280,9 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
             }
             valid
         }
-        PageCheck::Changed { checked: true } | PageCheck::Version { checked: true } => true,
-        PageCheck::Changed { checked: false }
-        | PageCheck::Version { checked: false }
-        | PageCheck::Unverified => {
+        // A node the transaction changed is checked once, at commit (H1, H2 of the commit checks PRD).
+        PageCheck::Changed | PageCheck::Version { checked: true } => true,
+        PageCheck::Version { checked: false } | PageCheck::Unverified => {
             let valid = (format.is_valid)(node);
             tx.layout_checked(page, node, valid);
             valid
@@ -397,7 +395,7 @@ pub struct Update {
 /// Creates an empty tree and returns its root page.
 pub fn create(tx: &mut WriteTransaction<'_>) -> Result<u64> {
     let root = tx.allocate()?;
-    node::init(tx.page_mut(root)?, 0, 0);
+    node::init(tx.node_mut(root, node::is_valid)?, 0, 0);
     Ok(root)
 }
 
@@ -600,7 +598,7 @@ fn remove_in(
             return Ok(Outcome::Done);
         }
         free_runs(tx, page, first..last)?;
-        let node = tx.page_mut(page)?;
+        let node = tx.node_mut(page, node::is_valid)?;
         for _ in first..last {
             node::remove(node, first);
         }
@@ -636,7 +634,7 @@ fn remove_in(
     }
     if !inner.is_empty() {
         // Cell `first` separates child `first` from the next one: removing the cell drops that child.
-        let parent = tx.page_mut(page)?;
+        let parent = tx.node_mut(page, node::is_valid)?;
         for _ in &inner {
             node::remove(parent, first);
         }
@@ -724,7 +722,12 @@ fn fix_root(tx: &mut WriteTransaction<'_>, root: u64, outcome: Outcome) -> Resul
             let new_root = tx.allocate()?;
             let mut buf = [0; MAX_BRANCH_CELL];
             let len = node::encode_branch(&mut buf, &key, right);
-            node::fill(tx.page_mut(new_root)?, level, root, &[&buf[..len]]);
+            node::fill(
+                tx.node_mut(new_root, node::is_valid)?,
+                level,
+                root,
+                &[&buf[..len]],
+            );
             root = new_root;
         }
         Outcome::Underfull => {
@@ -743,7 +746,7 @@ fn fix_root(tx: &mut WriteTransaction<'_>, root: u64, outcome: Outcome) -> Resul
         // The root keeps its page: an empty leaf stays, and a branch whose only child went away becomes one.
         Outcome::Empty => {
             if !node::is_leaf(tx.page(root)?) {
-                node::init(tx.page_mut(root)?, 0, 0);
+                node::init(tx.node_mut(root, node::is_valid)?, 0, 0);
             }
         }
     }
@@ -795,7 +798,7 @@ fn change_leaf(
             if let Value::Run { first, len } = node::value(node, index) {
                 free_run(tx, first, len)?;
             }
-            let node = tx.page_mut(page)?;
+            let node = tx.node_mut(page, node::is_valid)?;
             node::remove(node, index);
             if node::count(node) == 0 {
                 return Ok(Outcome::Empty);
@@ -810,7 +813,7 @@ fn change_leaf(
         && old_bytes.len() == value.len()
         && node::fits_inline(key.len(), value.len())
     {
-        node::value_mut(tx.page_mut(page)?, index).copy_from_slice(value);
+        node::value_mut(tx.node_mut(page, node::is_valid)?, index).copy_from_slice(value);
         return Ok(Outcome::Done);
     }
     let index = found.unwrap_or_else(|i| i);
@@ -828,7 +831,7 @@ fn change_leaf(
     if room < cell_len + 2 {
         return split(tx, page, index, found.is_ok(), &buf[..cell_len]);
     }
-    let node = tx.page_mut(page)?;
+    let node = tx.node_mut(page, node::is_valid)?;
     if found.is_ok() {
         node::remove(node, index);
     }
@@ -854,7 +857,7 @@ fn insert_cell(
     if node::free_space(tx.page(page)?) < cell.len() + 2 {
         return split(tx, page, index, false, cell);
     }
-    node::insert(tx.page_mut(page)?, index, cell);
+    node::insert(tx.node_mut(page, node::is_valid)?, index, cell);
     Ok(Outcome::Done)
 }
 
@@ -898,10 +901,15 @@ fn split(
     };
     let key = copy(&*tx, key)?;
     let right = tx.allocate()?;
-    node::fill(tx.page_mut(right)?, level, right_leftmost, right_cells);
+    node::fill(
+        tx.node_mut(right, node::is_valid)?,
+        level,
+        right_leftmost,
+        right_cells,
+    );
     if !(append && leaf) {
         node::fill(
-            tx.page_mut(page)?,
+            tx.node_mut(page, node::is_valid)?,
             level,
             node::leftmost(&old),
             &cells[..at],
@@ -942,7 +950,7 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
         return Ok(Outcome::Done);
     }
     let moved = copy(&*tx, right_node)?;
-    let target = tx.page_mut(left)?;
+    let target = tx.node_mut(left, node::is_valid)?;
     if !leaf {
         node::insert(target, node::count(target), &separator[..extra - 2]);
     }
@@ -950,7 +958,7 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
         node::insert(target, node::count(target), node::cell(&moved, i));
     }
     tx.free(right, 1)?;
-    let parent = tx.page_mut(page)?;
+    let parent = tx.node_mut(page, node::is_valid)?;
     node::remove(parent, pair);
     Ok(underfull_or_done(parent))
 }
@@ -964,7 +972,7 @@ fn drop_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result<
     if count == 0 {
         return Ok(Outcome::Empty);
     }
-    let parent = tx.page_mut(page)?;
+    let parent = tx.node_mut(page, node::is_valid)?;
     if index == 0 {
         node::set_leftmost(parent, node::child(parent, 1));
         node::remove(parent, 0);

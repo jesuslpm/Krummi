@@ -574,7 +574,10 @@ fn an_inconsistent_value_reference_is_damage_and_not_a_panic() {
         set(&mut tx, root, b"a", b"inline").unwrap();
         set(&mut tx, root, b"k", &[5; 20_000]).unwrap();
         let (real, _) = run_of(&tx, root, b"k").unwrap().unwrap();
-        // The reference is the 16 bytes after the key: the run's first page and the value's length.
+        tx.commit().unwrap();
+        // The reference is the 16 bytes after the key: the run's first page and the value's length. A write that
+        // changes the leaf as a page, not as a node, commits the damage (H2 of the commit checks PRD).
+        let mut tx = engine.write(None).unwrap();
         let leaf = tx.page_mut(root).unwrap();
         let mut reference = real.to_le_bytes().to_vec();
         reference.extend_from_slice(&20_000u64.to_le_bytes());

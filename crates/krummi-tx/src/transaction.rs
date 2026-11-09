@@ -9,7 +9,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
 use krummi_pager::{
@@ -166,34 +165,30 @@ pub struct WriteTransaction<'e> {
     layout_log: std::sync::Mutex<Option<Vec<LayoutEvent>>>,
 }
 
-/// A page this transaction changed: its payload, and whether the layers above checked its layout since its last
-/// change (S1 of the writer checks PRD). Every access that can change the payload goes through
-/// [`payload_mut`](Self::payload_mut), which forgets that check, so a remembered check always covers the bytes as
-/// they are.
+/// A page this transaction changed: its payload, and the layout check its commit runs on it when it is a node of a
+/// tree (H2 of the commit checks PRD). A read of it is never checked (H1).
 struct Changed {
     payload: PayloadBuf,
-    /// Set by a layout check that passed, never by one that failed. It lives in the page's own entry, so remembering
-    /// reserves no memory (S1). The transaction stays on its thread (T6), so relaxed accesses suffice; an atomic, and
-    /// not a `Cell`, adds no type to the transaction that cannot be shared between threads.
-    checked: AtomicBool,
+    /// The check of a node's layout, set when a layer above changes the page as a node
+    /// ([`WriteTransaction::node_mut`]); `None` for the store's own pages and pages changed as something else.
+    layout: Option<fn(&[u8]) -> bool>,
     /// The transaction created the page, zeroed, rather than copying its newest version: the journal keeps what
     /// differs from zeros, not from that version (Y1 of the journal page diffs PRD).
     created: bool,
 }
 
 impl Changed {
-    /// A page just created, zeroed, or copied for this transaction: a change, so its layout is not checked yet.
+    /// A page just created, zeroed, or copied for this transaction, not a node yet.
     fn new(payload: PayloadBuf, created: bool) -> Changed {
         Changed {
             payload,
-            checked: AtomicBool::new(false),
+            layout: None,
             created,
         }
     }
 
-    /// The payload to change it: each such access is a change, so the next read checks its layout again (S1).
+    /// The payload to change it.
     fn payload_mut(&mut self) -> &mut [u8] {
-        *self.checked.get_mut() = false;
         &mut self.payload[..]
     }
 }
@@ -242,7 +237,7 @@ impl<'e> WriteTransaction<'e> {
     pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
         let read = self.page_with(page_number);
         #[cfg(feature = "test-hooks")]
-        if let Ok((_, PageCheck::Changed { .. })) = read {
+        if let Ok((_, PageCheck::Changed)) = read {
             self.log(LayoutEvent::Read(page_number));
         }
         read
@@ -255,8 +250,7 @@ impl<'e> WriteTransaction<'e> {
             return self.track(Err(error));
         }
         if let Some(changed) = self.dirty.get(&page_number) {
-            let checked = changed.checked.load(Ordering::Relaxed);
-            return Ok((&changed.payload[..], PageCheck::Changed { checked }));
+            return Ok((&changed.payload[..], PageCheck::Changed));
         }
         let result = self.writer.snapshot().page_and_code(page_number);
         let (page, origin) = self.track(result)?;
@@ -264,25 +258,17 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// Records that a layer above checked the layout of `node`, page `page_number` read with
-    /// [`page_and_check`](Self::page_and_check) without a verified integrity code, and whether it `passed`. A page
-    /// this transaction changed that passes is not checked again until its next change; a failure is never
-    /// remembered, so every later read checks it again (S1 of the writer checks PRD). What it remembers is this
-    /// transaction's alone: no other transaction sees it, it goes with the transaction, and it never reaches the
-    /// store's memory of checked contents (C2). A version of the scratch area that passes is not checked again by
-    /// any transaction while it stays there (U1 of the version checks PRD).
+    /// [`page_and_check`](Self::page_and_check) without a verified integrity code, and whether it `passed`. A version
+    /// of the scratch area that passes is not checked again by any transaction while it stays there (U1 of the
+    /// version checks PRD). A page this transaction changed is checked at commit instead (H2 of the commit checks
+    /// PRD), so nothing is remembered of it here.
     pub fn layout_checked(&self, page_number: u64, node: &[u8], passed: bool) {
         #[cfg(feature = "test-hooks")]
         self.log(LayoutEvent::Check(page_number));
-        match self.dirty.get(&page_number) {
-            Some(changed) => {
-                if passed {
-                    changed.checked.store(true, Ordering::Relaxed);
-                }
-            }
-            None => self
-                .writer
+        if !self.dirty.contains_key(&page_number) {
+            self.writer
                 .snapshot()
-                .version_checked(page_number, node, passed),
+                .version_checked(page_number, node, passed);
         }
     }
 
@@ -326,6 +312,35 @@ impl<'e> WriteTransaction<'e> {
             .get_mut(&page_number)
             .expect("copied above")
             .payload_mut())
+    }
+
+    /// [`page_mut`](Self::page_mut) for a node of a tree, whose layout `check` tells whether is consistent: the
+    /// commit runs it once on the node's last bytes, unless the transaction frees the page first (H2 of the commit
+    /// checks PRD).
+    ///
+    /// # Panics
+    ///
+    /// If the page was never reserved.
+    pub fn node_mut(&mut self, page_number: u64, check: fn(&[u8]) -> bool) -> Result<&mut [u8]> {
+        self.page_mut(page_number)?;
+        let changed = self.dirty.get_mut(&page_number).expect("changed above");
+        changed.layout = Some(check);
+        Ok(changed.payload_mut())
+    }
+
+    /// Checks the layout of every node this transaction changed and still holds, in page order: the first that
+    /// fails, the lowest, fails the commit with the damage class (H2 of the commit checks PRD).
+    fn check_changed_nodes(&self) -> Result<()> {
+        for (&page, changed) in &self.dirty {
+            if let Some(check) = changed.layout {
+                #[cfg(feature = "test-hooks")]
+                crate::commit_checks::record(page);
+                if !check(&changed.payload[..]) {
+                    return Err(self.damaged(page));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Reserves a page, zeroed, and returns its number: a free page of the map if there is one, otherwise the
@@ -521,6 +536,9 @@ impl<'e> WriteTransaction<'e> {
                 Ok(())
             };
         }
+        // After T11's failures and before anything else that can fail (E2 of the grouped journal PRD, H2 of the
+        // commit checks PRD).
+        self.check_changed_nodes()?;
         self.engine.hook(Point::CommitFlush);
         self.engine.hook(Point::CommitSeal);
         let finished = self.finish_space();
