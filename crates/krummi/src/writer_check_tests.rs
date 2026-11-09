@@ -175,12 +175,12 @@ fn ac_h1_merges_check_no_changed_node() {
 /// AC-H2 (H1, H2, H3): a node whose content before the change is remembered as checked by the store, changed by a
 /// write and damaged in its layout without a later operation of the write reading it, is committed unchecked, durable
 /// or deferred; two reads of it by later transactions fail with the damage class and its page, from the scratch area
-/// and, after the transfer, from the store.
+/// and, after the transfer, from the store. The node is a leaf below a branch, and the root of a tree of one leaf.
 #[test]
 fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
-    for deferred in [false, true] {
+    for (deferred, entries) in [(false, COUNT), (true, COUNT), (false, 1), (true, 1)] {
         on_both(|store| {
-            commit_tree(store, "n", COUNT, LONG);
+            commit_tree(store, "n", entries, LONG);
             transfer(store);
             let key = long_key(0, LONG);
             let before = store.engine.checked_remembered();

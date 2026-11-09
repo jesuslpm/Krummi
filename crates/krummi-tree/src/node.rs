@@ -604,8 +604,6 @@ mod tests {
         seen == count
     }
 
-    /// A node built from valid cells, then damaged at random in its header, its offsets or its cells, is accepted
-    /// by [`is_valid`] exactly when the reference accepts it.
     /// [`is_valid`] through the map of covered bytes of a node with holes, for a node whose header counts none.
     fn is_valid_by_coverage(node: &[u8]) -> bool {
         let node: &[u8; PAYLOAD_SIZE] = node.try_into().expect("a payload");
@@ -620,6 +618,8 @@ mod tests {
         }
     }
 
+    /// A node built from valid cells, then damaged at random in its header, its offsets or its cells, is accepted
+    /// by [`is_valid`] exactly when the reference accepts it.
     #[test]
     fn the_layout_check_agrees_with_its_reference_on_damaged_nodes() {
         let mut state = 0x6B72_756D_6D69_0001u64;

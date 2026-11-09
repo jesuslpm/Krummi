@@ -257,7 +257,8 @@ fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Resu
 /// which does not know their format, so every read checks the kind against the format: a remembered node of
 /// another format is damage (X14). A node the write transaction changed never uses that memory, although it keeps
 /// the integrity code of the page it was copied from, and its layout is not checked: later transactions check what
-/// the transaction committed on their first read (H1 of the commit checks PRD), so the kind check covers it too. A version of the
+/// the transaction committed on their first read (H1 of the commit checks PRD); its kind and level are checked on
+/// every read, as for every node. A version of the
 /// scratch area is checked on its first read, and a pass is remembered by the version while it stays there, for every
 /// transaction (U1 of the version checks PRD); that memory does not know the format either. Every other check runs on
 /// every read.

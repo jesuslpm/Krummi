@@ -220,9 +220,9 @@ impl<'e> WriteTransaction<'e> {
 
     /// The payload of page `page_number`, as [`page`](Self::page), with what a layer above needs to check its
     /// layout: the integrity code stored in it when it comes from the store, which its read verified or a read of
-    /// this opening already did (S2 of the writer checks PRD), whether the layer already checked it since its last
-    /// change when this transaction changed it, or nothing for a version of the scratch area (C2, C3 of the remembered
-    /// node layout check PRD, S1 of the writer checks PRD).
+    /// this opening already did (S2 of the writer checks PRD), that this transaction changed it, whose layout it
+    /// never checks (H1 of the commit checks PRD), or whether a version of the scratch area already passed the check
+    /// (C2, C3 of the remembered node layout check PRD, U1 of the version checks PRD).
     ///
     /// # Panics
     ///
