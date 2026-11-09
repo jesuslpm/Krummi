@@ -49,16 +49,15 @@ decisiones y anotado en los documentos afectados (ver [Anotaciones a otros PRD](
   área temporal»: dejan de valer; esas versiones se comprueban en su primera lectura (decisión U1).*
 - *S3: el riesgo residual se amplía con el de U2. AC-S7 se sustituye por AC-U1.*
 
-*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura al confirmar
+*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura después de confirmar
 ([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
 
-- *S1 deja de valer para las lecturas de los nodos que cambió la escritura, que no comprueban su organización
-  (decisión H1); su comprobación pasa a la confirmación, una vez por nodo (decisión H2), también sus frases sobre
-  una comprobación que falla y lo que se recuerda. Los pasos 2 y 3 del Flujo, la penúltima frase de S3 y el punto de
-  Fuera de alcance «Comprobar la organización al sellar o al confirmar» dejan de valer (decisión H2); el riesgo
-  residual de S3 se amplía con el de H3.*
-- *AC-S1 se sustituye por AC-H1 y AC-S2 por AC-H2; AC-S3 deja de aplicarse. S4 y Validaciones y mensajes: la
-  confirmación que falla con la clase de daño es una situación nueva de esa clase, que cubre G6.*
+- *S1 deja de valer para los nodos que cambió la escritura, que ella no comprueba ni al leerlos ni al confirmar
+  (decisión H1), también sus frases sobre una comprobación que falla y lo que se recuerda; la primera lectura de
+  otra transacción comprueba lo que confirmó (decisión H2). Los pasos 2 y 3 del Flujo y el punto de Fuera de alcance
+  «Dejar de comprobar la organización de los nodos que modifica la escritura, como hace Voron» dejan de valer; el
+  riesgo residual de S3 se amplía con el de H3.*
+- *AC-S1 se sustituye por AC-H1 y AC-S2 por AC-H2; AC-S3 deja de aplicarse.*
 
 ### Estado de partida
 

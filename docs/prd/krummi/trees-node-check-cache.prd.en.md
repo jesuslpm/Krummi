@@ -82,11 +82,11 @@ affected documents (see [Annotations to other PRDs](#annotations-to-other-prds))
 
 - *Objective: a node's organization is "without overlaps", with holes allowed (decision Y4).*
 
-*Annotations of 2026-11-09 from the check of the write's nodes at commit
+*Annotations of 2026-11-09 from the check of the write's nodes after the commit
 ([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
 
-- *C3, in what its annotation of 2026-11-06 says of the nodes the write modifies: they are checked once at commit,
-  not on their first read after each change (decisions H1 and H2).*
+- *C3, in what its annotation of 2026-11-06 says of the nodes the write modifies: the write does not check them;
+  the first read by another transaction checks what it commits (decisions H1 and H2).*
 
 ### Starting state
 

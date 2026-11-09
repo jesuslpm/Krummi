@@ -293,7 +293,7 @@ profiles ran without the bench power plan, so only their shares compare (`work/p
   refactor for about 10 %, left for later.
 
 Proposals, carried out in [margin.md](../../odd/tasks/margin.md): the old one-walk check for nodes without holes
-(W3 a); each changed node checked once, at commit
+(W3 a); no check of the nodes a write changed, which later reads check
 ([pager-commit-checks.prd.md](../prd/krummi/pager-commit-checks.prd.md), W3 b); readers that find versions without
 the lock (W12); more released own chunks kept (W17); one lookup for both memories (W11).
 

@@ -1,4 +1,4 @@
-# Comprobación de los nodos de la escritura al confirmar — PRD
+# Comprobación de los nodos de la escritura después de confirmar — PRD
 
 **Versión**: 1.0
 **Fecha**: 2026-11-09
@@ -8,9 +8,10 @@
 
 Hacer más baratas las transacciones de escritura que cambian muchas veces los mismos nodos. Hoy, la primera lectura
 de un nodo después de cada cambio comprueba entera su organización (S1 de las comprobaciones de la escritura): una
-hoja que recibe treinta inserciones en una transacción se comprueba treinta veces. Con este cambio, la escritura usa
-sin comprobar los nodos que ella misma cambió, y comprueba cada uno una sola vez, al confirmar, antes de su punto sin
-retorno.
+hoja que recibe treinta inserciones en una transacción se comprueba treinta veces. Con este cambio, la escritura no
+comprueba la organización de los nodos que ella misma cambió, ni al leerlos ni al confirmar: los confirma como están,
+y las transacciones siguientes comprueban cada uno en su primera lectura, como ya hacen hoy con los nodos que una
+escritura cambia y no vuelve a leer.
 
 **Por qué**: en el banco comparativo (módulo 6), `carga-masiva` (W3) es el único umbral que Krummi incumple en Linux,
 con 0,78 veces Voron, y en Windows queda en 0,82 (informes del banco del 2026-11-08). En el diagnóstico del margen
@@ -19,6 +20,10 @@ guarda un millón de claves al azar en una sola escritura, unas treinta por hoja
 su hoja. Las cargas en orden (W1) repiten el mismo patrón. Según el código de Voron que revisó la investigación del
 2026-11-09, Voron no comprueba la organización de ninguna página en producción (su comprobación de las páginas del
 árbol, `TreePage.DebugValidate`, solo existe en las compilaciones de depuración).
+
+Se midió también comprobar cada nodo cambiado una sola vez, al confirmar: W3 mejoraba, pero `carga-al-azar` (W2)
+bajaba entre un 5 % y un 8 % en Windows, porque cada una de sus confirmaciones cambia unas mil hojas que nadie vuelve
+a leer y que hoy no se comprueban.
 
 **Por qué ahora**: es la propuesta W3 b) del diagnóstico del margen del 2026-11-09, que el usuario autorizó con las
 recomendaciones del agente.
@@ -31,10 +36,10 @@ declarado en sus decisiones y anotado en los documentos afectados (ver [Anotacio
 
 | ID | Decisión |
 |---|---|
-| H1 | **Lectura de un nodo que cambió la escritura** (cambia S1 de las comprobaciones de la escritura y la frase de U1 sobre la copia de una versión). Una transacción de escritura cambia un nodo cuando lo crea o cuando obtiene una copia suya para modificarla, como define S1. Sus lecturas de un nodo que cambió no comprueban su organización: lo usan tal como lo dejaron sus cambios. Las demás comprobaciones de cada lectura de un nodo (que la página pueda contener datos, su tipo, su nivel y la coherencia de cada entrada que se usa, C1) siguen en cada lectura. La página de la que se obtiene la copia se comprueba como hoy cuando se lee como nodo (C1–C3, U1); la copia, al confirmar (H2). |
-| H2 | **Comprobación al confirmar** (cambia la penúltima frase de S3 y el punto de Fuera de alcance «Comprobar la organización al sellar o al confirmar» del padre, y añade un fallo a los que E2 hace antes del punto sin retorno). Al confirmar una escritura con cambios, en los dos modos de confirmación (E5) y también en modo temporal, la transacción comprueba una vez la organización de cada nodo que cambió y que conserva al confirmar, es decir, de cada página de nodo que la confirmación escribe; un nodo ocupa una página. Uno que cambió y después liberó no se comprueba, porque liberar descarta sus cambios (F8). Las páginas que cambió sin ser nodos (el mapa de espacio libre, los valores fuera de su hoja y el encabezado) no se comprueban. La comprobación va después de los fallos de T11 y antes de todo lo demás que E2 hace antes del punto sin retorno, también antes de guardar las páginas en el área temporal en modo temporal, así que un nodo inconsistente prevalece sobre cualquier otro fallo de la confirmación: si una operación anterior de la transacción ya falló, la confirmación falla con la clase de ese fallo, como hoy (T11), sin comprobar nada. Si un nodo no pasa, la confirmación falla con la clase de daño y los datos de un error de daño (D8, G6), con el número de la página de menor número que no pasa; no aplica nada de la transacción, el archivo de datos conserva lo que haya crecido (T10, P11), el almacén sigue aceptando escrituras, las confirmaciones anteriores que ya estaban en la cola del diario no se ven afectadas y el turno pasa a la siguiente petición de escritura, como en cualquier confirmación que falla antes de su punto sin retorno (T11, E2). Lo que se comprueba al confirmar no se consulta ni se guarda en la memoria compartida de nodos recordados (C2), como S1 decía de los nodos que cambia la escritura. Un abandono, y una confirmación sin nodos cambiados, no comprueban nada. |
-| H3 | **Garantía resultante** (amplía la excepción de G6 del padre raíz y el riesgo residual de S3 del padre). Ningún nodo cuya organización es inconsistente llega a confirmarse por una escritura, también los que cambió y no volvió a leer, que hoy se sellan sin comprobar. Cambia lo siguiente: los nodos que cambia una escritura salen de nodos que el árbol leyó y comprobó para llegar a ellos, así que solo un fallo del propio motor, o del hardware o de la memoria (P16), puede dejarlos inconsistentes; en ese caso, una operación posterior de la misma transacción que lee ese nodo puede devolver datos que no son los escritos, fallar con otra clase o terminar con un pánico en lugar de un error de daño, y la confirmación, si llega, falla sin aplicar nada. Un cambio de bytes que no rompe la organización se sigue sellando, como dice S3. Se acepta como riesgo residual, como en Voron, que tampoco comprueba lo que confirma. |
-| H4 | **Rendimiento**. Las ejecuciones de una sola carga se hacen antes y después del cambio, en la misma sesión, en dos rondas que alternan el orden, en Windows y en Linux, con el plan de energía del banco que describe el método de medición del plan de rendimiento. Una carga mejora cuando su mediana después supera a la de antes en las dos rondas de una plataforma. Una carga que queda por debajo en las dos rondas se mide en dos rondas nuevas, y empeora si también queda por debajo en las dos. El cambio se acepta cuando W1 y W3 mejoran en las dos plataformas y ninguna de las cargas de escritura W1–W6, W13–W15, W17, W19 y W21 empeora. Una carga que queda por encima en una ronda y por debajo en la otra no mejora ni empeora. Si W1 o W3 no mejoran en alguna plataforma, o alguna carga empeora, el informe de cierre lo dice y el usuario decide; no cumplir el umbral (K7) no impide cerrar el cambio. |
+| H1 | **Los nodos que cambia la escritura** (cambia S1 de las comprobaciones de la escritura y la frase de U1 sobre la copia de una versión). Vale solo para los nodos de los árboles. Una transacción de escritura cambia un nodo cuando lo crea o cuando obtiene una copia suya para modificarla, como define S1. La transacción no comprueba la organización de los nodos que cambió, ni cuando los lee ni al confirmar: los usa y los confirma tal como los dejaron sus cambios. Las demás comprobaciones de cada lectura de un nodo (que la página pueda contener datos, su tipo, su nivel y la coherencia de cada entrada que se usa, C1) siguen en cada lectura. La página de la que se obtiene la copia se comprueba como hoy cuando se lee como nodo (C1–C3, U1). |
+| H2 | **Comprobación de lo confirmado**. Cada transacción posterior comprueba la organización de un nodo confirmado en su primera lectura de él, desde el área temporal (U1) o desde el archivo de datos o la memoria del almacén (C1, C2). La versión que publica la confirmación es nueva: nada de lo comprobado de la página de la que se copió vale para ella (U1, C1). Un nodo que no pasa hace fallar esa lectura, y cada lectura siguiente, con la clase de daño y el número de su página. |
+| H3 | **Garantía resultante** (amplía la excepción de G6 del padre raíz y el riesgo residual de S3 del padre). Los nodos que cambia una escritura son nuevos o copias de nodos que el árbol leyó y comprobó para llegar a ellos, así que solo un fallo del propio motor, o del hardware o de la memoria (P16), puede dejarlos inconsistentes. En ese caso, una operación posterior de la misma escritura que lee ese nodo puede devolver datos que no son los escritos, fallar con otra clase o terminar con un pánico en lugar de un error de daño; la confirmación guarda el nodo inconsistente, y desde entonces cada lectura de él por otra transacción falla con la clase de daño (H2). Hoy pasa lo mismo con los nodos que la escritura cambia y no vuelve a leer (S3). Se acepta como riesgo residual, como en Voron, que no comprueba la organización de ninguna página. |
+| H4 | **Rendimiento**. Las ejecuciones de una sola carga se hacen antes y después del cambio, en la misma sesión, en dos rondas que alternan el orden, en Windows y en Linux, con el plan de energía del banco que describe el método de medición del plan de rendimiento. Una carga mejora cuando su mediana después supera a la de antes en las dos rondas de una plataforma. Una carga que queda por debajo en las dos rondas se mide en dos rondas nuevas, y empeora si también queda por debajo en las dos. Una carga que queda por encima en una ronda y por debajo en la otra no mejora ni empeora. El cambio se acepta cuando W1 y W3 mejoran en las dos plataformas y ninguna de las cargas de escritura W1–W6, W13–W15, W17, W19 y W21 empeora. Si no se cumple, el informe de cierre lo dice y el usuario decide; no cumplir el umbral (K7) no impide cerrar el cambio. |
 
 ### Estado de partida
 
@@ -56,15 +61,12 @@ Verificado el 2026-11-09 en el código y en los perfiles del diagnóstico del ma
 
 1. Una transacción de escritura lee los nodos que no cambió comprobándolos como hoy, y los que cambió sin comprobar
    su organización (H1).
-2. Al confirmar, después de los fallos de T11, comprueba cada nodo que cambió y conserva; si todos pasan, confirma
-   como hoy (H2).
-3. Si alguno no pasa, la confirmación falla con la clase de daño y el número de la página de menor número, sin aplicar
-   nada (H2).
+2. Al confirmar, guarda los nodos que cambió como están (H1).
+3. La primera lectura de cada nodo confirmado por otra transacción comprueba su organización (H2).
 
 ## Validaciones y mensajes
 
-La confirmación de una escritura con un nodo inconsistente falla con la clase de daño, con los datos de un error de
-daño y el número de la página de menor número que no pasa (H2). No hay mensajes nuevos.
+No hay situaciones ni mensajes nuevos. Lo que una escritura deja de detectar está en H3.
 
 ## Salida
 
@@ -72,62 +74,47 @@ Nada de lo que devuelve una operación cambia de forma, y la versión de formato
 
 ## Reutilización
 
-- La comprobación de organización de cada formato de nodo, la de los nodos con entradas de tamaño variable y la de
-  los de tamaño fijo, sin cambios en lo que acepta.
+- La comprobación de organización recordada de las versiones del área temporal (U1) y la de los nodos del almacén
+  (C1, C2), sin cambios.
 - Las ejecuciones de una sola carga del plan de rendimiento, para H4.
 
 ## Fuera de alcance
 
-- Dejar de comprobar los nodos que cambia la escritura, también al confirmar, como hace Voron.
-- Repetir al confirmar las demás comprobaciones de la lectura de un nodo (C1): que la página pueda contener datos, su
-  tipo, su nivel y la coherencia de sus entradas. Un nodo cambiado que no se vuelve a leer las pasa solo si su
-  organización las incluye.
-- Comprobar al confirmar las páginas que no son nodos, o la integridad de lo que se sella, que se calcula sobre los
-  bytes de cada página como hoy.
-- Comprobar en un abandono, en una confirmación sin cambios, en hacer durable, en el cierre, el backup, la
-  compactación o la verificación.
-- Reintentar una confirmación que falla (T11).
+- Comprobar al confirmar los nodos que cambió la escritura (ver Objetivo y contexto).
+- Cambiar las demás comprobaciones de la lectura de un nodo (C1): que la página pueda contener datos, su tipo, su
+  nivel y la coherencia de sus entradas.
 - Cambiar cómo se comprueban los nodos del archivo de datos, de la memoria del almacén o del área temporal.
-- Límites de tiempo o de memoria de la comprobación de una transacción muy grande.
+- Detectar dentro de la escritura un nodo que ella dejó inconsistente, o evitar que lo confirme (H3).
 - Una opción pública para volver a comprobar en cada lectura.
 
 ## Dejado a la implementación
 
-- Cómo sabe la confirmación qué páginas cambiadas son nodos y de qué formato.
-- Cómo cuentan y provocan las pruebas las comprobaciones al confirmar, sin una opción pública.
+- Cómo cuentan las pruebas las comprobaciones y cómo alteran los bytes de un nodo cambiado, sin una opción pública.
 - Las repeticiones de las ejecuciones de H4.
 
 ## Criterios de aceptación
 
 Valen los de los ascendientes, que deben seguir pasando sin cambios salvo los que este PRD sustituye (ver
-[Anotaciones a otros PRD](#anotaciones-a-otros-prd)). AC-H1 a AC-H6 se comprueban en un almacén en disco y en modo
+[Anotaciones a otros PRD](#anotaciones-a-otros-prd)). AC-H1 a AC-H3 se comprueban en un almacén en disco y en modo
 temporal. Las pruebas usan el conocimiento de la implementación para contar las comprobaciones, para alterar bytes y
-para liberar páginas.
+para mantener versiones en el área temporal sin trasladarlas. AC-H4 es una medición, no una prueba.
 
 1. **AC-H1** — Dada una transacción de escritura que crea un árbol normal, uno de tamaño fijo y uno multivalor, y
    guarda claves en orden en cada uno y en el subárbol de una clave del multivalor, con divisiones de hojas y de ramas,
-   cuando cada guardado lee el camino, entonces ninguna lectura comprueba la organización de un nodo que la transacción
-   cambió, y al confirmar se comprueba exactamente una vez cada página de nodo que la confirmación escribe, de esos
-   árboles y del catálogo, aunque haya cambiado varias veces, incluidos los nodos que crea una división y no se
-   vuelven a leer; y lo que se lee después de confirmar es lo que tiene un modelo de las claves y valores guardados
-   (H1, H2). Este criterio sustituye a AC-S1.
-2. **AC-H2** — Dado un nodo que una transacción de escritura cambió, cuando la prueba altera su organización y
-   confirma sin que ninguna operación posterior lo lea, en modo durable y en modo diferido, entonces la confirmación
-   falla con la clase de daño y el número de su página; otra transacción lee las claves y los valores de antes; y la
-   siguiente escritura confirma (H2). Con dos nodos alterados, el error da el de menor número. Este criterio sustituye
-   a AC-S2.
-3. **AC-H3** — Dado un nodo que una transacción de escritura cambió en una página que ningún árbol referencia, cuando
-   la prueba altera su organización y la transacción libera la página y confirma, entonces la confirmación no lo
-   comprueba y confirma (H2, F8).
-4. **AC-H4** — Dada una transacción de escritura con un nodo alterado como en AC-H2, sin que ninguna operación lo lea,
-   y una operación posterior que falla con otra clase, cuando se confirma, entonces la confirmación falla con la
-   clase de esa operación y no comprueba ningún nodo (T11, H2).
-5. **AC-H5** — Dada una transacción de escritura que cambia nodos y se abandona, y otra que solo reserva y libera
-   páginas y confirma, entonces ninguna comprueba un nodo (H2).
-6. **AC-H6** — Dado un nodo que una transacción de escritura cambió, cuando la prueba cambia su nivel, y en otro caso
+   y otra que quita la mayoría de las claves de un árbol y fusiona sus nodos, cuando cada operación lee el camino,
+   entonces ninguna lectura comprueba la organización de un nodo que la transacción cambió; lo que se lee después de
+   confirmar es lo que tiene un modelo de las claves y valores guardados, y esa lectura comprueba al menos un nodo
+   confirmado (H1, H2). Este criterio sustituye a AC-S1.
+2. **AC-H2** — Dado un nodo cuyo contenido de antes del cambio está en la memoria compartida de nodos recordados, que
+   una transacción de escritura cambia, cuando la prueba altera su organización y la transacción confirma sin que
+   ninguna operación posterior lo lea, en modo durable y en modo diferido, entonces la confirmación pasa, y dos
+   lecturas de ese nodo por otras transacciones, desde el área temporal y, después del traslado, desde el archivo de
+   datos o la memoria del almacén, fallan con la clase de daño y el número de su página (H1, H2, H3). Este criterio
+   sustituye a AC-S2.
+3. **AC-H3** — Dado un nodo que una transacción de escritura cambió, cuando la prueba cambia su nivel, y en otro caso
    su tipo, sin romper su organización, entonces la siguiente lectura de ese nodo en la transacción falla con la clase
-   de daño y el número de su página (H1, C1).
-7. **AC-H7** — Dadas las ejecuciones de una sola carga de H4, cuando se comparan, entonces W1 y W3 mejoran en las dos
+   de daño y el número de su página, y la transacción no puede confirmar (H1, C1, T11).
+4. **AC-H4** — Dadas las ejecuciones de una sola carga de H4, cuando se comparan, entonces W1 y W3 mejoran en las dos
    plataformas y ninguna de las cargas de escritura de H4 empeora; y el informe de cierre incluye esas comparaciones
    (H4).
 
@@ -137,27 +124,24 @@ Este PRD cambia reglas de documentos anteriores, que llevan las anotaciones corr
 
 - Padre raíz, G6: la excepción de I8, ampliada por S3, se amplía con H3: dentro de una transacción de escritura, una
   lectura de un nodo que ella cambió puede devolver datos que no son los escritos, fallar con otra clase o terminar
-  con un pánico si un fallo del motor, del hardware o de la memoria lo dejó inconsistente; la confirmación no aplica
-  nada en ese caso.
-- Comprobaciones de la escritura: S1 deja de valer para las lecturas de los nodos que cambió la escritura (H1) y su
-  comprobación pasa a la confirmación (H2), también sus frases sobre una comprobación que falla y lo que recuerda; los
-  pasos 2 y 3 del Flujo, la penúltima frase de S3 y el punto de Fuera de alcance «Comprobar la organización al sellar
-  o al confirmar» dejan de valer (H2); el riesgo residual de S3 se amplía con el de H3. AC-S1 se sustituye por AC-H1 y
-  AC-S2 por AC-H2; AC-S3 deja de aplicarse, porque no hay comprobación en la lectura. S4 y su sección de Validaciones
-  y mensajes: la confirmación que falla con la clase de daño es una situación nueva de esa clase, que cubre G6.
-- Comprobación recordada de las versiones del área temporal: en U1, la copia de una versión para modificarla se
-  comprueba al confirmar (H2), no en su primera lectura; en U2, lo mismo para la copia de una versión alterada.
+  con un pánico si un fallo del motor, del hardware o de la memoria lo dejó inconsistente; la confirmación lo guarda,
+  y cada lectura de él por otra transacción falla con la clase de daño.
+- Comprobaciones de la escritura: S1 deja de valer para los nodos que cambió la escritura, que ella no comprueba
+  (H1), también sus frases sobre una comprobación que falla y lo que se recuerda; los pasos 2 y 3 del Flujo y el punto
+  de Fuera de alcance «Dejar de comprobar la organización de los nodos que modifica la escritura, como hace Voron»
+  dejan de valer; el riesgo residual de S3 se amplía con el de H3. AC-S1 se sustituye por AC-H1 y AC-S2 por AC-H2; AC-S3 deja de
+  aplicarse, porque la escritura no comprueba sus nodos.
+- Comprobación recordada de las versiones del área temporal: en U1 y U2, la copia de una versión que una escritura
+  obtiene para modificarla no la comprueba esa escritura; la versión que confirma se comprueba en su primera lectura
+  por otra transacción (U1). AC-U5 pasa a decir que la lectura de la copia por la escritura no la comprueba, y que la
+  primera lectura de la versión confirmada por otra transacción sí.
 - Comprobación de organización recordada: C3, en lo que su anotación del 2026-11-06 dice de los nodos que modifica la
-  escritura, pasa a decir que se comprueban una vez al confirmar (H2).
-- Confirmación de grupo del diario: E2 añade a lo que la confirmación hace antes del punto sin retorno la comprobación
-  de H2, después de los fallos de T11.
+  escritura, pasa a decir que la escritura no los comprueba (H1).
 
 ## Referencias
 
 - Padre: [pager-writer-checks.prd.md](pager-writer-checks.prd.md) v1.0 (S1, S3, AC-S1–AC-S3)
-- Raíz: [krummi.prd.md](krummi.prd.md) (G6, D8)
+- Raíz: [krummi.prd.md](krummi.prd.md) (G6)
 - Relacionados: [trees-node-check-cache.prd.md](trees-node-check-cache.prd.md) (C1–C3),
-  [pager-version-checks.prd.md](pager-version-checks.prd.md) (U1, U2), [transactions.prd.md](transactions.prd.md)
-  (T10, T11, T18), [journal-group-commit.prd.md](journal-group-commit.prd.md) (E2, E5),
-  [free-space.prd.md](free-space.prd.md) (F8), [benchmark.prd.md](benchmark.prd.md) (K7)
+  [pager-version-checks.prd.md](pager-version-checks.prd.md) (U1, U2), [benchmark.prd.md](benchmark.prd.md) (K7)
 - Plan de rendimiento: [docs/performance/plan.md](../../performance/plan.md), diagnóstico del margen del 2026-11-09

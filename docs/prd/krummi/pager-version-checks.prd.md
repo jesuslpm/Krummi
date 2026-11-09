@@ -49,11 +49,13 @@ reglas anteriores está declarado en sus decisiones y anotado en los documentos 
 ([journal-page-diffs.prd.md](journal-page-diffs.prd.md)): U4, la versión de formato vigente pasa a ser `10`
 (decisión Y5).*
 
-*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura al confirmar
+*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura después de confirmar
 ([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
 
-- *U1 y U2: la copia de una versión que una escritura obtiene para modificarla se comprueba al confirmar (decisión
-  H2), no en su primera lectura.*
+- *U1 y U2: la copia de una versión que una escritura obtiene para modificarla no la comprueba esa escritura; la
+  versión que confirma se comprueba en su primera lectura por otra transacción (decisiones H1 y H2). AC-U5: la
+  lectura de la copia por la escritura no la comprueba; la primera lectura de la versión confirmada por otra
+  transacción sí.*
 
 ### Estado de partida
 

@@ -50,11 +50,12 @@ its decisions and annotated in the affected documents (see [Annotations to other
 ([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)): U4, the current format version becomes `10`
 (decision Y5).*
 
-*Annotations of 2026-11-09 from the check of the write's nodes at commit
+*Annotations of 2026-11-09 from the check of the write's nodes after the commit
 ([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
 
-- *U1 and U2: the copy of a version that a write takes to modify it is checked at commit (decision H2), not on its
-  first read.*
+- *U1 and U2: the copy of a version that a write takes to modify it is not checked by that write; the version it
+  commits is checked on its first read by another transaction (decisions H1 and H2). AC-U5: the write's read of the
+  copy does not check it; the first read of the committed version by another transaction does.*
 
 ### Starting state
 

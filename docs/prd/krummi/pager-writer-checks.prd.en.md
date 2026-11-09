@@ -51,16 +51,15 @@ decisions and annotated in the affected documents (see [Annotations to other PRD
   checked" no longer hold; those versions are checked on their first read (decision U1).*
 - *S3: the residual risk grows with U2's. AC-S7 is replaced by AC-U1.*
 
-*Annotations of 2026-11-09 from the check of the write's nodes at commit
+*Annotations of 2026-11-09 from the check of the write's nodes after the commit
 ([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
 
-- *S1 no longer holds for the reads of the nodes the write changed, which do not check their layout (decision
-  H1); their check moves to the commit, once per node (decision H2), and so do its sentences on a failed check and
-  on what is remembered. Steps 2 and 3 of the Flow, the second-to-last sentence of S3 and the Out of scope item
-  "Checking the layout when sealing or committing" no longer hold (decision H2); the residual risk of S3 grows
-  with H3's.*
-- *AC-S1 is replaced by AC-H1 and AC-S2 by AC-H2; AC-S3 no longer applies. S4 and Validations and messages: a
-  commit that fails with the damage class is a new situation of that class, covered by G6.*
+- *S1 no longer holds for the nodes the write changed, which it checks neither when it reads them nor at commit
+  (decision H1), and neither do its sentences on a failed check and on what is remembered; the first read by another
+  transaction checks what it committed (decision H2). Steps 2 and 3 of the Flow and the Out of scope item "Ceasing
+  to check the layout of the nodes that the write modifies, as Voron does" no longer hold; the residual risk of S3
+  grows with H3's.*
+- *AC-S1 is replaced by AC-H1 and AC-S2 by AC-H2; AC-S3 no longer applies.*
 
 ### Starting state
 

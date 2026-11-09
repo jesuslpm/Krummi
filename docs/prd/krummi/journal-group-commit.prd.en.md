@@ -71,12 +71,6 @@ version becomes `5`; a store of format `4` is of an older format (decision F11).
 - *Out of scope: "Keeping only the differences of each page in the journal" comes with that change (decision Y1).*
 - *E15: the current format version becomes `10` (decision Y5).*
 
-*Annotations of 2026-11-09 from the check of the write's nodes at commit
-([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
-
-- *E2: before the point of no return, after T11's failures, the commit checks the layout of every node it
-  changed (decision H2).*
-
 ### Starting state
 
 Verified on 2026-10-23 in the code:

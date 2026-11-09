@@ -83,11 +83,11 @@ documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 
 - *Objetivo: la organización de un nodo es «sin solapes», con huecos permitidos (decisión Y4).*
 
-*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura al confirmar
+*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura después de confirmar
 ([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
 
-- *C3, en lo que dice su anotación del 2026-11-06 de los nodos que modifica la escritura: se comprueban una vez al
-  confirmar, no en su primera lectura después de cada cambio (decisiones H1 y H2).*
+- *C3, en lo que dice su anotación del 2026-11-06 de los nodos que modifica la escritura: la escritura no los
+  comprueba; la primera lectura de otra transacción comprueba lo que confirma (decisiones H1 y H2).*
 
 ### Estado de partida
 
