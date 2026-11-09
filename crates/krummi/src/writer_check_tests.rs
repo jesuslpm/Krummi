@@ -172,15 +172,26 @@ fn ac_h1_merges_check_no_changed_node() {
     });
 }
 
-/// AC-H2 (H1, H2): a changed node with a damaged layout, which no later operation of the write reads, is committed
-/// unchecked, durable or deferred; the first read of it by a later transaction fails with the damage class and its
-/// page, from the scratch area and, after the transfer, from the store.
+/// AC-H2 (H1, H2, H3): a node whose content before the change is remembered as checked by the store, changed by a
+/// write and damaged in its layout without a later operation of the write reading it, is committed unchecked, durable
+/// or deferred; two reads of it by later transactions fail with the damage class and its page, from the scratch area
+/// and, after the transfer, from the store.
 #[test]
 fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
     for deferred in [false, true] {
         on_both(|store| {
             commit_tree(store, "n", COUNT, LONG);
+            transfer(store);
             let key = long_key(0, LONG);
+            let before = store.engine.checked_remembered();
+            let read = store.read().unwrap();
+            let tree = read.open_tree("n").unwrap();
+            assert!(read.get(&tree, &key).unwrap().is_some());
+            drop(read);
+            assert!(
+                store.engine.checked_remembered() > before,
+                "its content before the change is remembered"
+            );
             let page = leaf(store, root_of(store, "n"), &key);
             let mut write = store.write().unwrap();
             let tree = write.open_tree("n").unwrap();
@@ -196,20 +207,22 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
                 if transferred {
                     transfer(store);
                 }
-                let read = store.read().unwrap();
-                let tree = read.open_tree("n").unwrap();
-                assert_eq!(
-                    damaged_page(read.get(&tree, &key)),
-                    page,
-                    "transferred {transferred}"
-                );
+                for _ in 0..2 {
+                    let read = store.read().unwrap();
+                    let tree = read.open_tree("n").unwrap();
+                    assert_eq!(
+                        damaged_page(read.get(&tree, &key)),
+                        page,
+                        "transferred {transferred}"
+                    );
+                }
             }
         });
     }
 }
 
-/// AC-H3 (H1, C1): a changed node whose level, or kind, changes without breaking its layout fails its next read with
-/// the damage class and its page.
+/// AC-H3 (H1, C1, T11): a changed node whose level, or kind, changes without breaking its layout fails its next read
+/// with the damage class and its page, and the write cannot commit.
 #[test]
 fn ac_h3_reads_of_changed_nodes_still_check_their_kind_and_level() {
     for (at, byte) in [(1, 1), (0, 3)] {
@@ -224,6 +237,7 @@ fn ac_h3_reads_of_changed_nodes_still_check_their_kind_and_level() {
             write.set(&tree, &key, b"changed").unwrap();
             write.inner.page_mut(page).unwrap()[at] = byte;
             assert_eq!(damaged_page(write.get(&tree, &key)), page);
+            assert_eq!(damaged_page(write.commit()), page);
         });
     }
 }
