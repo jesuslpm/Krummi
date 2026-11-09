@@ -49,6 +49,12 @@ reglas anteriores está declarado en sus decisiones y anotado en los documentos 
 ([journal-page-diffs.prd.md](journal-page-diffs.prd.md)): U4, la versión de formato vigente pasa a ser `10`
 (decisión Y5).*
 
+*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura al confirmar
+([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
+
+- *U1 y U2: la copia de una versión que una escritura obtiene para modificarla se comprueba al confirmar (decisión
+  H2), no en su primera lectura.*
+
 ### Estado de partida
 
 Verificado el 2026-11-08 en el código, en los perfiles de la investigación de ese día, en los informes del banco y

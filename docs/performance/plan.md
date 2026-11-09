@@ -267,6 +267,36 @@ both platforms. Shares are of the committing thread unless marked otherwise.
   8. Diagnose the Windows faults on mapped data pages (3.5–6.3 %) with a page-fault trace before changing anything.
   9. O5's group copy: about 0 with one writer; leave it until concurrent writers are profiled.
 
+### Margin after the cheap gaps (profiled on Windows and WSL 2 at `22d045a`, 2026-11-09)
+
+The complete runs of 2026-11-08 meet 21 of 22 thresholds on each platform; this diagnosis looks at the two misses
+(W17 on Windows, 0.63; W3 on Linux, 0.78) and the loads closest to 0.80 (Linux W10 0.80, W21 0.82, W12 0.85, W11
+0.86; Windows W3 0.82, W11 and W12 0.87). Single-load worker runs with samply, as in the method above; the Windows
+profiles ran without the bench power plan, so only their shares compare (`work/prof/margin`, outside git).
+
+- **W3:** the layout check of the leaf each insert changes is 33 % of the main thread on Windows and 39 % on WSL 2
+  (S1 of the writer checks: a changed node is checked on its first read after each change, and W3 puts about thirty
+  keys in each leaf in one transaction). At `e0ad729`, before the holes of O8, it was 35.5 % of a shorter run on WSL 2:
+  the map of covered bytes of the hole-aware check is the −3.1 % the cheap gaps run confirmed.
+- **W12 readers:** about 37 % on Windows and 43 % on WSL 2 in the shared lock of the temporary area (`RwLock` read,
+  `is_read_lockable`, `read_unlock`): sixteen readers bounce the lock's counter between cores. O2's fast path does
+  not apply while the writer keeps versions pending.
+- **W17 on Windows:** creating temporary-area files is 23 % of the main thread (`NtCreateFile` and the file system
+  filter manager) and growing the area 28 %: a 64 KiB value is a run of 9 pages, and the released own chunks kept
+  for reuse (32 MiB, one size) hold less than two commits of W17 (4,608 pages), so files are removed and created again.
+- **W11:** the latency of the first key of each leaf (20–24 %) and the bench's byte sum (22 %), common to every
+  engine; the remembered integrity of each page read (9–12 %) loads the same slot of the table of checked contents
+  as the tree's layout memory right after.
+- **W10 on Linux:** Voron rose 88 % between the runs of 2026-11-07 and 2026-11-08 and Krummi 19 %; the profile is
+  dominated by copying the store, so W10 is measured again before any change.
+- **W21 on Linux:** two copies of each page (27 % in `memcpy`), LZ4 (15 %) and xxh3 (10 %); removing a copy is a large
+  refactor for about 10 %, left for later.
+
+Proposals, carried out in [margin.md](../../odd/tasks/margin.md): the old one-walk check for nodes without holes
+(W3 a); each changed node checked once, at commit
+([pager-commit-checks.prd.md](../prd/krummi/pager-commit-checks.prd.md), W3 b); readers that find versions without
+the lock (W12); more released own chunks kept (W17); one lookup for both memories (W11).
+
 ## Optimizations
 
 ### O1 — Read the pager's mapping without a lock

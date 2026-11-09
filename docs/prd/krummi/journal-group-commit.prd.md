@@ -73,6 +73,12 @@ formato vigente pasa a ser `5`; un almacén de formato `4` es de formato anterio
   Y1).*
 - *E15: la versión de formato vigente pasa a ser `10` (decisión Y5).*
 
+*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura al confirmar
+([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
+
+- *E2: antes del punto sin retorno, después de los fallos de T11, la confirmación comprueba la organización de cada
+  nodo que cambió (decisión H2).*
+
 ### Estado de partida
 
 Verificado el 2026-10-23 en el código:

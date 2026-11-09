@@ -50,6 +50,12 @@ its decisions and annotated in the affected documents (see [Annotations to other
 ([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)): U4, the current format version becomes `10`
 (decision Y5).*
 
+*Annotations of 2026-11-09 from the check of the write's nodes at commit
+([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
+
+- *U1 and U2: the copy of a version that a write takes to modify it is checked at commit (decision H2), not on its
+  first read.*
+
 ### Starting state
 
 Verified on 2026-11-08 in the code, in the profiles of that day's investigation, in the benchmark reports and in the

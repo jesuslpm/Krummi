@@ -100,6 +100,13 @@ contain a Krummi store (D10, decision R6).*
 - *G5: a recovery that finds a damaged page fails after changing the store, and the next opening repeats it
   (decision Y3).*
 
+*Annotations of 2026-11-09 from the check of the write's nodes at commit
+([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
+
+- *G6: the exception of I8, widened by S3, widens with H3: inside a write, a read of a node it changed can return
+  data that is not what was written, fail with another class or end in a panic if a failure of the engine, the
+  hardware or the memory left it inconsistent; the commit applies nothing in that case.*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

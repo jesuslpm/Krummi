@@ -99,6 +99,13 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 - *G5: una recuperación que encuentra una página dañada falla después de modificar el almacén, y la siguiente
   apertura la repite (decisión Y3).*
 
+*Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura al confirmar
+([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
+
+- *G6: la excepción de I8, ampliada por S3, se amplía con H3: dentro de una escritura, una lectura de un nodo que
+  ella cambió puede devolver datos que no son los escritos, fallar con otra clase o terminar con un pánico si un
+  fallo del motor, del hardware o de la memoria lo dejó inconsistente; la confirmación no aplica nada en ese caso.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
