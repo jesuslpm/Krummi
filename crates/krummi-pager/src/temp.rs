@@ -8,15 +8,19 @@
 //!
 //! A [`Slot`] holds one sealed page, or a value run in contiguous slots of one chunk, so that the run reads as one
 //! sequence (D5 of the large values execution). Shared chunks hold any slots and stay until the area is removed.
-//! They grow as they did before value runs: only when the free slots are fewer than the pages to store, by twice
-//! the last shared chunk up to [`MAX_CHUNK_PAGES`] (8 MiB), or by the run's size when it is larger. A run larger
-//! than [`MAX_CHUNK_PAGES`], or one that the free slots could hold page by page but no free range fits, gets a chunk
-//! of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. In a store on
+//! They grow as they did before value runs: only when no free range fits the pages to store, by twice the last
+//! shared chunk up to [`MAX_CHUNK_PAGES`] (8 MiB), or by the run's size when it is larger. A run larger than
+//! [`MAX_CHUNK_PAGES`], or one that no free range fits while the free slots hold at least [`MAX_CHUNK_PAGES`], gets
+//! a chunk of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. A run
+//! that only scattered free slots, fewer than that, could hold page by page grows the shared chunks instead: the tail
+//! of each shared chunk is often a few slots that no run fits, and a file of its own for every run then costs a fifth
+//! of a stream of 64 KiB values on Windows (W17 of the benchmark, margin diagnosis of the performance plan). In a store on
 //! disk without a maximum size, released own chunks of one size are kept instead, up to [`IDLE_PAGES`], for the
 //! next runs of that size, which take them without creating a file (candidate 5 of the writes diagnosis,
 //! performance plan); a chunk of another size releases them. So what the area reserves so that a run is contiguous
-//! never piles up: besides the slots held, it holds at most what the page-by-page policy would, plus one shared
-//! chunk, and without a maximum size [`IDLE_PAGES`] of released own chunks (P10, T14; R1 of the large values code
+//! never piles up: besides the slots held, it holds at most what the page-by-page policy would, plus two shared
+//! chunks (one grown over fewer than [`MAX_CHUNK_PAGES`] scattered free slots), and without a maximum size
+//! [`IDLE_PAGES`] of released own chunks (P10, T14; R1 of the large values code
 //! review). A run's slots are held whole while any of its pages keeps a version, so the scratch area counts them
 //! whole for the maximum size until its last version leaves, not page by page (`State::hold` in the `scratch`
 //! module).
@@ -229,10 +233,11 @@ impl TempArea {
 
     /// Adds a chunk for `pages` slots that no free range fits and takes them from it, returning its number and the
     /// first slot: a chunk of their own, of exactly `pages` slots, when they are more than [`MAX_CHUNK_PAGES`] or the
-    /// free slots could hold them page by page, so that only contiguity is missing; otherwise a shared chunk, twice
-    /// the last one up to [`MAX_CHUNK_PAGES`] and at least `pages` slots.
+    /// free slots, at least [`MAX_CHUNK_PAGES`], could hold them page by page, so that only contiguity is missing;
+    /// otherwise a shared chunk, twice the last one up to [`MAX_CHUNK_PAGES`] and at least `pages` slots.
     fn grow(&self, state: &mut AreaState, pager: &Pager, pages: usize) -> Result<(usize, usize)> {
-        let own = pages > MAX_CHUNK_PAGES || state.free.values().sum::<usize>() >= pages;
+        let scattered = state.free.values().sum::<usize>();
+        let own = pages > MAX_CHUNK_PAGES || scattered >= pages.max(MAX_CHUNK_PAGES);
         let size = if own {
             pages
         } else {
@@ -685,11 +690,11 @@ mod tests {
         area.remove().unwrap();
     }
 
-    /// R1 of the code review: a run that the free slots could hold page by page, but that no free range fits, gets a
-    /// chunk of its own instead of a shared one; a run that needs more slots than are free makes the shared chunks
-    /// grow as single pages do, and that chunk stays.
+    /// R1 of the code review, with the margin diagnosis of the performance plan: a run that no free range fits gets a
+    /// chunk of its own only while the scattered free slots hold at least [`MAX_CHUNK_PAGES`]; fewer than that, and a
+    /// run that needs more slots than are free, make the shared chunks grow as single pages do, and that chunk stays.
     #[test]
-    fn only_a_lack_of_free_slots_grows_the_shared_chunks() {
+    fn scattered_free_slots_take_a_chunk_of_its_own_only_when_many() {
         both_modes(|area, pager| {
             // The first shared chunk with every other slot free: half of it, in single slots.
             let all: Vec<Slot> = (0..FIRST_CHUNK_PAGES)
@@ -700,17 +705,38 @@ mod tests {
                 .enumerate()
                 .filter_map(|(i, slot)| (i % 2 == 0).then_some(slot))
                 .collect();
-            let pair = area.store_run(&run(2, 7), pager).unwrap();
-            assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES, 2], "contiguity only");
-            drop(pair);
-            assert_eq!(chunks(area), vec![FIRST_CHUNK_PAGES]);
-            let larger = run(FIRST_CHUNK_PAGES / 2 + 1, 8);
-            let slot = area.store_run(&larger, pager).unwrap();
-            assert_holds(&slot, &larger);
+            let pair = run(2, 7);
+            let slot = area.store_run(&pair, pager).unwrap();
+            assert_holds(&slot, &pair);
             let grown = vec![FIRST_CHUNK_PAGES, 2 * FIRST_CHUNK_PAGES];
-            assert_eq!(chunks(area), grown, "more pages than free slots");
+            assert_eq!(chunks(area), grown, "few scattered slots: a shared chunk");
             drop(slot);
             assert_eq!(chunks(area), grown, "a shared chunk stays");
+            drop(kept);
+
+            // At least a largest shared chunk of scattered free slots: contiguity only, a chunk of its own.
+            // Every slot of the shared chunks held, then every other one freed.
+            let mut all = Vec::new();
+            while all.len() < 2 * MAX_CHUNK_PAGES
+                || all.len() * PAGE_SIZE < area.capacity() as usize
+            {
+                all.push(area.store(&[all.len() as u8; PAGE_SIZE], pager).unwrap());
+            }
+            let kept: Vec<Slot> = all
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, slot)| (i % 2 == 0).then_some(slot))
+                .collect();
+            let shared = chunks(area);
+            let slot = area.store_run(&pair, pager).unwrap();
+            assert_holds(&slot, &pair);
+            assert_eq!(
+                chunks(area),
+                [&shared[..], &[2]].concat(),
+                "contiguity only"
+            );
+            drop(slot);
+            assert_eq!(chunks(area), shared, "its own chunk goes with it");
             drop(kept);
             area.remove().unwrap();
         });
