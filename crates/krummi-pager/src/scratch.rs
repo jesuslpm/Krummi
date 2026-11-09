@@ -46,7 +46,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -147,6 +147,8 @@ pub(crate) struct Shared {
     /// The versions and what they depend on. Reads of pages share it, so that they never wait for each other; every
     /// change takes it alone (U3 of the version checks PRD).
     state: RwLock<State>,
+    /// Which pages may have versions in `state`: reads of the others skip the lock.
+    filter: Arc<VersionFilter>,
     /// Held while versions are written in place, so no two writes of a page overlap (J5).
     flushing: Mutex<()>,
     /// Wakes the transfer thread.
@@ -165,11 +167,51 @@ pub(crate) struct Shared {
 
 type Hook = Arc<dyn Fn() + Send + Sync>;
 
+/// Slots of a [`VersionFilter`]: 256 KiB of counters.
+const FILTER_SLOTS: u64 = 1 << 16;
+
+/// How many pages with versions in the scratch area fall in each slot of page numbers, `page % FILTER_SLOTS` (W12 of
+/// the margin diagnosis, performance plan). It changes only under the state's lock, when the list of versions of a
+/// page goes from empty to not and back, and a snapshot reads it without the lock: a slot at zero means that no page
+/// of it has a version here, so the snapshot reads the store without taking the lock, which would have told it the
+/// same. A version the snapshot can see was published before the snapshot registered, both under the lock, so its
+/// count is visible to the snapshot; a count still to come is of a newer commit, which the snapshot does not see. A
+/// count that falls to zero does so after the page's version was written in place and taken out under the lock, as
+/// the lock would show.
+struct VersionFilter(Box<[AtomicU32]>);
+
+impl VersionFilter {
+    fn new() -> VersionFilter {
+        VersionFilter((0..FILTER_SLOTS).map(|_| AtomicU32::new(0)).collect())
+    }
+
+    fn slot(&self, page_number: u64) -> &AtomicU32 {
+        &self.0[(page_number % FILTER_SLOTS) as usize]
+    }
+
+    /// Page `page_number` got its first version.
+    fn added(&self, page_number: u64) {
+        self.slot(page_number).fetch_add(1, Ordering::Release);
+    }
+
+    /// Page `page_number` lost its last version.
+    fn removed(&self, page_number: u64) {
+        self.slot(page_number).fetch_sub(1, Ordering::Release);
+    }
+
+    /// Whether page `page_number` may have a version here.
+    fn may_have(&self, page_number: u64) -> bool {
+        self.slot(page_number).load(Ordering::Acquire) != 0
+    }
+}
+
 struct State {
     /// Number of the newest committed version: commits are numbered on from what the header records (J6).
     last_committed: u64,
     /// Versions of each page that are only here, oldest first.
     versions: HashMap<u64, Vec<Version>>,
+    /// Which pages may have versions, for the snapshots that read without the lock; the same as `Shared::filter`.
+    filter: Arc<VersionFilter>,
     /// For each page whose older versions left `versions` without being written in place, because no snapshot
     /// needed them any more, the commit of the oldest of them: `krummi.data` still holds what the page was before it,
     /// so the journal records from that commit on are needed until the page is written. The journal keeps only the
@@ -243,6 +285,7 @@ impl Scratch {
         transfers: Option<JoinHandle<()>>,
     ) -> Scratch {
         let header = pager.header();
+        let filter = Arc::new(VersionFilter::new());
         let shared = Shared {
             area: Arc::new(TempArea::new(pager.folder(), pager.info().max_size)),
             journal,
@@ -254,9 +297,11 @@ impl Scratch {
             passes: AtomicU64::new(0),
             #[cfg(any(test, feature = "test-hooks"))]
             version_checks: AtomicU64::new(0),
+            filter: Arc::clone(&filter),
             state: RwLock::new(State {
                 last_committed: header.applied_txid,
                 versions: HashMap::new(),
+                filter,
                 unwritten: HashMap::new(),
                 bytes: 0,
                 run_holders: HashMap::new(),
@@ -795,6 +840,7 @@ impl Shared {
             // SAFETY: `&mut self` rules out open snapshots, and with them any reference into the store's pages
             // and any other write.
             unsafe { pager.write_run_shared(page_number, page)? };
+            state.filter.removed(page_number);
             for version in state.versions.remove(&page_number).unwrap_or_default() {
                 state.release(&version.page);
             }
@@ -835,6 +881,23 @@ impl State {
             .map_or(self.last_committed, |txid| txid - 1)
     }
 
+    /// Whether the filter counts exactly the pages with versions in each of its slots (tests).
+    #[cfg(test)]
+    fn filter_agrees(&self) -> bool {
+        let mut counts = HashMap::<u64, u32>::new();
+        for (&page_number, versions) in &self.versions {
+            assert!(
+                !versions.is_empty(),
+                "page {page_number} keeps an empty list"
+            );
+            *counts.entry(page_number % FILTER_SLOTS).or_default() += 1;
+        }
+        (0..FILTER_SLOTS).all(|slot| {
+            self.filter.0[slot as usize].load(Ordering::Relaxed)
+                == counts.get(&slot).copied().unwrap_or(0)
+        })
+    }
+
     /// Takes the versions of `page_number` out once its version of commit `txid` was written in place: all of them
     /// when it is still the newest, and none when a newer commit published another one meanwhile; for a page of a
     /// value run (`run`), that version and the ones before it even then, so that no snapshot finds part of the run
@@ -847,6 +910,7 @@ impl State {
             return;
         };
         let gone: Vec<Version> = if at + 1 == versions.len() {
+            self.filter.removed(page_number);
             self.versions.remove(&page_number).unwrap_or_default()
         } else if run {
             versions.drain(..=at).collect()
@@ -1060,7 +1124,8 @@ impl<'a> Snapshot<'a> {
     ///
     /// If `page_number` is a header page.
     pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Origin)> {
-        let state = self.may_see_versions.then(|| self.scratch.read());
+        let state = (self.may_see_versions && self.scratch.shared.filter.may_have(page_number))
+            .then(|| self.scratch.read());
         let version = state
             .as_ref()
             .and_then(|state| state.versions.get(&page_number))
@@ -1141,7 +1206,10 @@ impl<'a> Snapshot<'a> {
         let Some(end) = end else {
             return Err(pager.damaged(first));
         };
-        let state = self.may_see_versions.then(|| self.scratch.read());
+        let filter = &self.scratch.shared.filter;
+        let state = (self.may_see_versions
+            && (first..end).any(|page_number| filter.may_have(page_number)))
+        .then(|| self.scratch.read());
         let seen = |page_number: u64| {
             state
                 .as_ref()?
@@ -1363,7 +1431,12 @@ impl<'a> ScratchWriter<'a> {
         for (page_number, page, index) in staged.0 {
             state.hold(&page);
             let version = Version { txid, page, index };
-            state.versions.entry(page_number).or_default().push(version);
+            let versions = state.versions.entry(page_number).or_default();
+            let first = versions.is_empty();
+            versions.push(version);
+            if first {
+                state.filter.added(page_number);
+            }
         }
         state.last_committed = txid;
         let bytes = state.bytes;

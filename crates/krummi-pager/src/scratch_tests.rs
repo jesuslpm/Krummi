@@ -387,3 +387,36 @@ fn a_layout_pass_is_kept_only_by_the_version_that_passed() {
         drop((again, read, keeper));
     });
 }
+
+/// W12 of the margin diagnosis (performance plan): the filter of pages with versions counts exactly the pages that
+/// have them, through commits, flushes in place and versions retired; a snapshot still finds the versions it sees,
+/// and reads from the store the pages that have none.
+#[test]
+fn the_filter_of_pages_with_versions_follows_them() {
+    both_modes(|scratch| {
+        let pages = [PAGE, PAGE + 1, PAGE + 2];
+        scratch.pager().ensure_pages(PAGE + 3).unwrap();
+        assert!(scratch.lock().filter_agrees());
+        for round in 0..6u8 {
+            let mut writer = scratch.begin_write().unwrap();
+            if round % 3 == 2 {
+                writer.flush().unwrap();
+            }
+            let staged: Vec<(u64, PayloadBuf)> = pages
+                .iter()
+                .take(1 + usize::from(round % 3))
+                .map(|&page| (page, payload(&format!("{round}"))))
+                .collect();
+            let staged = writer.stage(&staged, &[]).unwrap();
+            writer.publish(staged);
+            drop(writer);
+            assert!(scratch.lock().filter_agrees(), "round {round}");
+            let snapshot = scratch.snapshot().unwrap();
+            assert_eq!(text(snapshot.page(PAGE).unwrap()), format!("{round}"));
+        }
+        let mut writer = scratch.begin_write().unwrap();
+        writer.flush().unwrap();
+        drop(writer);
+        assert!(scratch.lock().filter_agrees(), "after the flush");
+    });
+}
