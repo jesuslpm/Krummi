@@ -120,7 +120,7 @@ pub(crate) fn is_valid(node: &[u8]) -> bool {
 /// The checks of [`is_valid`] after the kind and the level, for a leaf when `LEAF`. Each cell lies after the start
 /// of the cells and within its sizes, no two share a byte, and the cells and the holes the header counts fill the
 /// end of the payload exactly (Y4 of the journal page diffs PRD). Without holes, that is cells that tile the end of the
-/// payload, the check before holes existed.
+/// payload, which one walk from `top` checks; only a node with holes pays for a map of the bytes its cells cover.
 fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
     let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
     let (count, top, holes) = (u16_at(2), u16_at(4), u16_at(6));
@@ -128,34 +128,85 @@ fn cells_are_valid<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE]) -> bool {
     if HEADER + 2 * count > top || top > PAYLOAD_SIZE || count == 0 && holes != 0 {
         return false;
     }
+    if holes == 0 {
+        cells_tile::<LEAF>(node, count, top)
+    } else {
+        cells_cover::<LEAF>(node, count, top, holes)
+    }
+}
+
+/// The length of the cell at `at` when it lies within the payload and its sizes, a leaf's when `LEAF`.
+fn checked_cell_len<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE], at: usize) -> Option<usize> {
+    let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
     let (lengths, max) = if LEAF {
         (LEAF_CELL_HEADER, MAX_LEAF_CELL)
     } else {
         (2, MAX_BRANCH_CELL)
     };
+    if at + lengths > PAYLOAD_SIZE {
+        return None;
+    }
+    let key = u16_at(at);
+    let len = if LEAF {
+        LEAF_CELL_HEADER + key + value_bytes(u16_at(at + 2))
+    } else {
+        2 + key + 8
+    };
+    let fits = at + len <= PAYLOAD_SIZE
+        && key <= MAX_KEY
+        && len <= max
+        && !(LEAF
+            && u16_at(at + 2) == OFF_LEAF
+            && !(1..=MAX_VALUE as u64).contains(&u64_at(node, at + len - 8)));
+    fits.then_some(len)
+}
+
+/// A node without holes: the cells, followed from `top`, end exactly at the end of the payload, `count` of them, and
+/// the offsets are their starts, each once.
+fn cells_tile<const LEAF: bool>(node: &[u8; PAYLOAD_SIZE], count: usize, top: usize) -> bool {
+    let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
+    // Bit `at` is set when a cell starts at byte `at`.
+    let mut starts = [0u64; PAYLOAD_SIZE.div_ceil(64)];
+    let (mut at, mut seen) = (top, 0);
+    while at < PAYLOAD_SIZE {
+        let Some(len) = checked_cell_len::<LEAF>(node, at).filter(|_| seen < count) else {
+            return false;
+        };
+        starts[at / 64] |= 1 << (at % 64);
+        at += len;
+        seen += 1;
+    }
+    if seen != count {
+        return false;
+    }
+    // An offset that is no start, or a repeated one, finds its bit clear.
+    for index in 0..count {
+        let at = u16_at(HEADER + 2 * index);
+        if at >= PAYLOAD_SIZE || starts[at / 64] & (1 << (at % 64)) == 0 {
+            return false;
+        }
+        starts[at / 64] &= !(1 << (at % 64));
+    }
+    true
+}
+
+/// A node with holes: each cell lies after `top` and within its sizes, no two share a byte, and the cells and the
+/// `holes` fill the end of the payload exactly.
+fn cells_cover<const LEAF: bool>(
+    node: &[u8; PAYLOAD_SIZE],
+    count: usize,
+    top: usize,
+    holes: usize,
+) -> bool {
+    let u16_at = |at: usize| usize::from(u16::from_le_bytes([node[at], node[at + 1]]));
     // Bit `at` is set when a cell holds byte `at`.
     let mut covered = [0u64; PAYLOAD_SIZE.div_ceil(64)];
     let mut cells = 0;
     for index in 0..count {
         let at = u16_at(HEADER + 2 * index);
-        if at < top || at + lengths > PAYLOAD_SIZE {
+        let Some(len) = checked_cell_len::<LEAF>(node, at).filter(|_| at >= top) else {
             return false;
-        }
-        let key = u16_at(at);
-        let len = if LEAF {
-            LEAF_CELL_HEADER + key + value_bytes(u16_at(at + 2))
-        } else {
-            2 + key + 8
         };
-        if at + len > PAYLOAD_SIZE
-            || key > MAX_KEY
-            || len > max
-            || LEAF
-                && u16_at(at + 2) == OFF_LEAF
-                && !(1..=MAX_VALUE as u64).contains(&u64_at(node, at + len - 8))
-        {
-            return false;
-        }
         let mut from = at;
         while from < at + len {
             let (word, bit) = (from / 64, from % 64);
@@ -555,6 +606,20 @@ mod tests {
 
     /// A node built from valid cells, then damaged at random in its header, its offsets or its cells, is accepted
     /// by [`is_valid`] exactly when the reference accepts it.
+    /// [`is_valid`] through the map of covered bytes of a node with holes, for a node whose header counts none.
+    fn is_valid_by_coverage(node: &[u8]) -> bool {
+        let node: &[u8; PAYLOAD_SIZE] = node.try_into().expect("a payload");
+        let (count, top) = (count(node), top(node));
+        if HEADER + 2 * count > top || top > PAYLOAD_SIZE {
+            return false;
+        }
+        match (node[0], node[1]) {
+            (LEAF, 0) => cells_cover::<true>(node, count, top, 0),
+            (BRANCH, 1..=254) => cells_cover::<false>(node, count, top, 0),
+            _ => false,
+        }
+    }
+
     #[test]
     fn the_layout_check_agrees_with_its_reference_on_damaged_nodes() {
         let mut state = 0x6B72_756D_6D69_0001u64;
@@ -642,6 +707,8 @@ mod tests {
             }
             let expected = is_valid_reference(&node);
             assert_eq!(is_valid(&node), expected, "round {round}");
+            // The map of covered bytes, which only nodes with holes take, agrees on nodes without them too.
+            assert_eq!(is_valid_by_coverage(&node), expected, "round {round}");
             if expected {
                 accepted += 1
             } else {
