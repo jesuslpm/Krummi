@@ -117,23 +117,23 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
   builds, outside the record of layout checks, so AC-H1's count still holds. H1 of `pager-commit-checks` annotated
   in both languages. Checks: fmt and clippy clean, 594 tests, 0 failed.
 - **L12** (2026-11-09): M7, single-load rotations of `main` (`22d045a`) against the branch (`908b65e`), two
-  alternating rounds each, bench power plan; difference of the branch, first / second round. Windows: W1 +39. % /
-  +38. %, W3 +75. % / +55. %, W12 +25. % / +55. %, W17 +58. % / +58. %, W2 +5. % / +3. %, W4 +15. % /
-  +5. %, W13 +2. % / +31. %, W19 +4. % / +4. %, W21 +0. % / +2. %, W14 +103. % / +0. %; mixed W7, W10, W15;
-  lower in both W11 (−0. % / −4. %) and W18 (−0. % / −2. %). WSL 2: W3 +53. % / +47. %, W12 +32. % / +25. %,
-  W1 +10. % / +0. %, W2 +3. % / +2. %, W15 +1. % / +1. %, W13 +0. % / +0. %, W19 +5. % / +4. %; mixed W4,
-  W7, W11, W17 (−4. % / +21. %), W21 (−20. % / +23. %); lower in both W10 (−10. % / −11. %), W14 (−0. % /
-  −1. %) and W18 (−1. % / −3. %). Output: `work/margin/rot-win.out`, `rot-wsl.out`.
+  alternating rounds each, bench power plan; difference of the branch, first / second round. Windows: W1 +39.9 % /
+  +38.5 %, W3 +75.9 % / +55.7 %, W12 +25.5 % / +55.2 %, W17 +58.5 % / +58.0 %, W2 +5.1 % / +3.3 %, W4 +15.4 % /
+  +5.1 %, W13 +2.9 % / +31.1 %, W19 +4.3 % / +4.0 %, W21 +0.5 % / +2.8 %, W14 +103.7 % / +0.0 %; mixed W7, W10, W15;
+  lower in both W11 (−0.1 % / −4.5 %) and W18 (−0.5 % / −2.2 %). WSL 2: W3 +53.4 % / +47.4 %, W12 +32.0 % / +25.7 %,
+  W1 +10.3 % / +0.9 %, W2 +3.7 % / +2.5 %, W15 +1.9 % / +1.6 %, W13 +0.3 % / +0.6 %, W19 +5.8 % / +4.8 %; mixed W4,
+  W7, W11, W17 (−4.0 % / +21.9 %), W21 (−20.4 % / +23.8 %); lower in both W10 (−10.0 % / −11.9 %), W14 (−0.1 % /
+  −1.6 %) and W18 (−1.6 % / −3.7 %). Output: `work/margin/rot-win.out`, `rot-wsl.out`.
 - **L13** (2026-11-09): M7, complete runs at `908b65e` (the Linux run from an archive identical to that commit),
   same power plan as the 2026-11-08 runs: Krummi meets 22 of 22 thresholds on Windows and on Linux (was 21 of 22 on
   each). Ratio Krummi / Voron, Windows: W1 1.04 → 1.43, W3 0.82 → 1.17, W12 0.87 → 1.16, W17 0.63 → 0.91; Linux: W3
   0.78 → 1.21, W10 0.80 → 1.90 (Voron 20.5 M → 9.4 M op/s), W12 0.85 → 1.10, W17 1.20 → 1.49, W21 0.82 → 0.96. Falls
-  beyond 0.05 where Krummi itself falls: Windows W9 (1.30 → 1.23, Krummi −3 % and Voron −3 %), W18 (1.58 → 1.27,
-  Krummi −1 %) and W22 (1.19 → 1.12, Krummi − %); Linux W9 (1.13 → 0.98, Krummi −2 %) and W16 (105 → 90, Krummi
-  −1 %); Windows W20 falls 1.50 → 1.13 with Krummi − % and Voron +3 %. Confirmation rounds, two alternating
-  rounds of `main` and the branch, difference of the branch: Windows W9 +2. % / +3. %, W11 −2. % / −0. %, W18
-  −13. % / −6. %, W22 +3. % / +2. %; WSL 2 W9 +1. % / +5. %, W10 +1. % / −1. %, W14 +1. % / +0. %, W18
-  +2. % / −0. %, W16 +10 % / −2 %. Confirmed cost: W11 on Windows, lower in all four rounds, −1. % on average
+  beyond 0.05 where Krummi itself falls: Windows W9 (1.30 → 1.23, Krummi −33 % and Voron −30 %), W18 (1.58 → 1.27,
+  Krummi −13 %) and W22 (1.19 → 1.12, Krummi −7 %); Linux W9 (1.13 → 0.98, Krummi −20 %) and W16 (105 → 90, Krummi
+  −11 %); Windows W20 falls 1.50 → 1.13 with Krummi −1 % and Voron +32 %. Confirmation rounds, two alternating
+  rounds of `main` and the branch, difference of the branch: Windows W9 +2.2 % / +3.5 %, W11 −2.4 % / −0.6 %, W18
+  −13.9 % / −6.3 %, W22 +3.1 % / +2.7 %; WSL 2 W9 +1.4 % / +5.3 %, W10 +1.3 % / −1.0 %, W14 +1.0 % / +0.2 %, W18
+  +2.0 % / −0.0 %, W16 +105 % / −24 %. Confirmed cost: W11 on Windows, lower in all four rounds, −1.9 % on average
   (ratio 0.86, threshold met). W18 on Windows, lower in four rounds, is the store and not the binary: a cross test
   on the two stores of the confirmation gave medians, binary main / head on the store of main, 157,704 / 150,611 and
   152,566 / 154,765, and on the store of the branch 144,848 / 150,867 and 144,075 / 143,963, so the binary is mixed,
@@ -141,3 +141,16 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
   MiB data files differ in 18 bytes, all in pages 0 and 1 (the two header copies). Not confirmed: W10 and W16 on WSL
   2, W22 on Windows. Reports: [Windows](../../docs/benchmark/2026-11-09-windows-margin.md),
   [Linux](../../docs/benchmark/2026-11-09-linux-margin.md); output in `work/margin/conf-*.out` and `conf3-*.out`.
+- **L14** (2026-11-09): RDD of the last slice, `43e6f2a..8d6576d` (`a5e7c41`, `908b65e`, `11829c6`, `8d6576d`),
+  assessed medium (`under_budget`, executable change in `crates/krummi-tree/src/lib.rs`) and reviewed as the closing
+  rule asks; lenses readability and reliability; approved, lineage `review-eef9ca39c4f007f2`. The untracked tables
+  design and PRD and the phase log were moved out of the tree during the review and put back. Findings: R2-001 and
+  R3-margin-log-truncated-percentages (WARNING, the same defect): L12 and L13 had lost the digit before each `%`
+  when rewrapped; fixed, rebuilt from the original texts. R2-002 (SUGGESTION): the plan row's rounded figures did
+  not match the garbled log; resolved by the same fix (W1 +39.9 % / +38.5 % rounds to +40 % / +39 %). R2-003 and
+  R3-linux-report-unknown-revision (SUGGESTION): dismissed with evidence; the bench writes `Krummi: desconocido`
+  when it runs outside a git checkout, as the 2026-11-08 Linux report also does, and the report is the bench's own
+  output, not edited; L13 records that the archive is identical to `908b65e` (`diff -rq` of the archive against `git
+  archive 908b65e` printed nothing). R2-004 (SUGGESTION): fixed, `keeper` is declared mutable where it is made.
+  R3-ach2-unheld-first-pass-path-unpinned (SUGGESTION): fixed in the doc comment, which now says the reads before
+  the transfer come from the scratch area only where a snapshot keeps the version.

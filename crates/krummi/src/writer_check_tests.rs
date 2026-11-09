@@ -174,9 +174,10 @@ fn ac_h1_merges_check_no_changed_node() {
 
 /// AC-H2 (H1, H2, H3): a node whose content before the change is remembered as checked by the store, changed by a
 /// write and damaged in its layout without a later operation of the write reading it, is committed unchecked, durable
-/// or deferred; two reads of it by later transactions fail with the damage class and its page, from the scratch area
-/// and, after the transfer, from the store. The node is a leaf below a branch, and the root of a tree of one leaf; a
-/// snapshot keeps the version in the scratch area until the transfer, and in other cases nothing does.
+/// or deferred; two reads of it by later transactions fail with the damage class and its page, before and after the
+/// transfer to the store. The node is a leaf below a branch, and the root of a tree of one leaf. Where a snapshot keeps
+/// the version, the reads before the transfer come from the scratch area; where nothing does, the transfer may already
+/// have moved it, so those reads come from either place.
 #[test]
 fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
     for (deferred, entries, held) in [
@@ -203,7 +204,7 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
             let page = leaf(store, root_of(store, "n"), &key);
             // A snapshot that keeps the damaged version in the scratch area until the transfer below; without it,
             // the transfer may move it to the store at any time.
-            let keeper = held.then(|| store.read().unwrap());
+            let mut keeper = held.then(|| store.read().unwrap());
             let mut write = store.write().unwrap();
             let tree = write.open_tree("n").unwrap();
             write.set(&tree, &key, b"changed").unwrap();
@@ -214,7 +215,6 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
             } else {
                 write.commit().unwrap();
             }
-            let mut keeper = keeper;
             for transferred in [false, true] {
                 if transferred {
                     drop(keeper.take());
