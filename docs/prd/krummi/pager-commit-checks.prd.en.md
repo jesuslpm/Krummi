@@ -41,6 +41,12 @@ annotated in the affected documents (see [Annotations to other PRDs](#annotation
 | H3 | **Resulting guarantee** (extends the exception of G6 of the root parent and the residual risk of S3 of the parent). The nodes that a write changes are new or copies of nodes that the tree read and checked to reach them, so only a failure of the engine itself, or of the hardware or the memory (P16), can leave them inconsistent. In that case, a later operation of the same write that reads that node may return data that is not what was written, fail with another class or end in a panic instead of a damage error; the commit stores the inconsistent node, and from then on each read of it by another transaction fails with the damage class (H2). Today the same happens with the nodes that the write changes and does not read again (S3). It is accepted as a residual risk, as in Voron, which does not check the layout of any page. |
 | H4 | **Performance**. The single-workload runs are made before and after the change, in the same session, in two rounds that alternate the order, on Windows and on Linux, with the benchmark power plan described by the measurement method of the performance plan. A workload improves when its median after exceeds that of before in both rounds of a platform. A workload that falls below in both rounds is measured in two new rounds, and worsens if it also falls below in both. A workload that is above in one round and below in the other neither improves nor worsens. The change is accepted when W1 and W3 improve on both platforms and none of the write workloads W1–W6, W13–W15, W17, W19 and W21 worsens. If this is not met, the closing report says so and the user decides; not meeting the threshold (K7) does not prevent closing the change. |
 
+*Annotation of 2026-11-09 to H1 (the user's decision when closing the run): in debug builds, the write does check
+the layout of the nodes it changed, on every read, like Voron's `VALIDATE` mode, so that the engine's tests find
+within the same write a node the engine itself left inconsistent; that check fails with the damage class and the
+page number, as the others do, and is not among the checks AC-H1 counts. Production builds follow H1 unchanged, so
+H3 and AC-H1 to AC-H4 hold for them.*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code and in the profiles of the margin diagnosis:

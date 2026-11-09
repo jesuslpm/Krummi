@@ -254,3 +254,23 @@ fn ac_h3_reads_of_changed_nodes_still_check_their_kind_and_level() {
         });
     }
 }
+
+/// Debug builds also check the layout of the nodes a write changed, on every read, like Voron's `VALIDATE` (annotation
+/// of 2026-11-09 to H1): a changed node whose layout breaks fails the write's next read of it with the damage class
+/// and its page, without a check event in the write's record (AC-H1 counts the checks release builds make).
+#[cfg(debug_assertions)]
+#[test]
+fn debug_builds_check_the_layout_of_the_nodes_a_write_changed() {
+    on_both(|store| {
+        commit_tree(store, "n", COUNT, LONG);
+        let key = long_key(5, LONG);
+        let page = leaf(store, root_of(store, "n"), &key);
+        let mut write = store.write().unwrap();
+        let tree = write.open_tree("n").unwrap();
+        write.set(&tree, &key, b"changed").unwrap();
+        write.inner.record_layout();
+        damage_layout(&mut write, page);
+        assert_eq!(damaged_page(write.get(&tree, &key)), page);
+        assert_no_read_checks_a_change(&write.inner.take_layout_log());
+    });
+}

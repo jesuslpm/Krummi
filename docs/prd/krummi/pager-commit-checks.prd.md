@@ -41,6 +41,13 @@ declarado en sus decisiones y anotado en los documentos afectados (ver [Anotacio
 | H3 | **Garantía resultante** (amplía la excepción de G6 del padre raíz y el riesgo residual de S3 del padre). Los nodos que cambia una escritura son nuevos o copias de nodos que el árbol leyó y comprobó para llegar a ellos, así que solo un fallo del propio motor, o del hardware o de la memoria (P16), puede dejarlos inconsistentes. En ese caso, una operación posterior de la misma escritura que lee ese nodo puede devolver datos que no son los escritos, fallar con otra clase o terminar con un pánico en lugar de un error de daño; la confirmación guarda el nodo inconsistente, y desde entonces cada lectura de él por otra transacción falla con la clase de daño (H2). Hoy pasa lo mismo con los nodos que la escritura cambia y no vuelve a leer (S3). Se acepta como riesgo residual, como en Voron, que no comprueba la organización de ninguna página. |
 | H4 | **Rendimiento**. Las ejecuciones de una sola carga se hacen antes y después del cambio, en la misma sesión, en dos rondas que alternan el orden, en Windows y en Linux, con el plan de energía del banco que describe el método de medición del plan de rendimiento. Una carga mejora cuando su mediana después supera a la de antes en las dos rondas de una plataforma. Una carga que queda por debajo en las dos rondas se mide en dos rondas nuevas, y empeora si también queda por debajo en las dos. Una carga que queda por encima en una ronda y por debajo en la otra no mejora ni empeora. El cambio se acepta cuando W1 y W3 mejoran en las dos plataformas y ninguna de las cargas de escritura W1–W6, W13–W15, W17, W19 y W21 empeora. Si no se cumple, el informe de cierre lo dice y el usuario decide; no cumplir el umbral (K7) no impide cerrar el cambio. |
 
+*Anotación del 2026-11-09 a H1 (decisión del usuario al cerrar la ejecución): en las compilaciones de depuración, la
+escritura sí comprueba la organización de los nodos que cambió, en cada lectura, como el modo `VALIDATE` de Voron,
+para que las pruebas del motor encuentren dentro de la misma escritura un nodo que el propio motor dejó
+inconsistente; esa comprobación falla con la clase de daño y el número de la página, como las demás, y no cuenta
+entre las comprobaciones que mide AC-H1. Las compilaciones de producción siguen H1 sin cambios, así que H3 y AC-H1 a
+AC-H4 valen para ellas.*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código y en los perfiles del diagnóstico del margen:

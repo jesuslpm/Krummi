@@ -282,8 +282,10 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
             valid
         }
         // The transaction never checks the nodes it changed; later transactions check what it committed on their
-        // first read (H1 of the commit checks PRD).
-        PageCheck::Changed | PageCheck::Version { checked: true } => true,
+        // first read (H1 of the commit checks PRD). Debug builds check them on every read, like Voron's `VALIDATE`
+        // (annotation of 2026-11-09 to H1), outside the record of layout checks.
+        PageCheck::Changed => !cfg!(debug_assertions) || (format.is_valid)(node),
+        PageCheck::Version { checked: true } => true,
         PageCheck::Version { checked: false } | PageCheck::Unverified => {
             let valid = (format.is_valid)(node);
             tx.layout_checked(page, node, valid);
