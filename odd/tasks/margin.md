@@ -78,3 +78,17 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
   8–16 are read first). A single-page fast path in the remembered bitmap, W11 on Windows, four alternating rounds:
   −0.9 % to +1.6 %, within noise; merging both lookups would only move that miss to the next line, and needs a PRD
   change. Default: no change.
+- **L9** (2026-11-09): verification, two independent verifiers (sonnet, high) in scratch clones, now removed. M1 and
+  M3 at `2ae318a`: met, no blockers. fmt, clippy and 590 tests pass; a differential probe of the old `cells_are_valid`
+  against the new check on 600,000 damaged nodes, with and without holes, found no disagreement; an audit of the 29
+  `page_mut` calls of the tree found every changed node new or a copy of a node read and checked first (H3's premise);
+  AC-H1–AC-H3 met. Advisories: three stale comments and no AC-H2 case for the root of a one-leaf tree, fixed in
+  `7a8e012`. M4 and M5 at `2ae318a`: met, no blockers. The same checks and `ac_f16` (21.3 s) pass; every change of a
+  page's list of versions between empty and not updates the filter under the lock (`collect_garbage` never empties
+  one); a stress of one writer and seven readers over 80 s, 182,760 commits and 630,082 snapshots, found no snapshot
+  seeing two commits, and fails within 8 s without the filter's increment (kept as
+  `crates/krummi-tx/tests/version_filter.rs`, 2 s per mode, `85324fc`); M5's bound held over 40,000 random operations
+  per run, at most one more shared chunk than page by page, and stores with a maximum size stop with its class without
+  overshooting. Advisories, accepted: the filter takes 256 KiB per store outside the maximum size; it skips nothing
+  once more than about 65,000 pages have versions; M5 can reserve one more shared chunk (8 MiB) than before, as its
+  module documentation says.
