@@ -175,10 +175,18 @@ fn ac_h1_merges_check_no_changed_node() {
 /// AC-H2 (H1, H2, H3): a node whose content before the change is remembered as checked by the store, changed by a
 /// write and damaged in its layout without a later operation of the write reading it, is committed unchecked, durable
 /// or deferred; two reads of it by later transactions fail with the damage class and its page, from the scratch area
-/// and, after the transfer, from the store. The node is a leaf below a branch, and the root of a tree of one leaf.
+/// and, after the transfer, from the store. The node is a leaf below a branch, and the root of a tree of one leaf; a
+/// snapshot keeps the version in the scratch area until the transfer, and in other cases nothing does.
 #[test]
 fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
-    for (deferred, entries) in [(false, COUNT), (true, COUNT), (false, 1), (true, 1)] {
+    for (deferred, entries, held) in [
+        (false, COUNT, true),
+        (true, COUNT, true),
+        (false, 1, true),
+        (true, 1, true),
+        (false, COUNT, false),
+        (true, 1, false),
+    ] {
         on_both(|store| {
             commit_tree(store, "n", entries, LONG);
             transfer(store);
@@ -193,8 +201,9 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
                 "its content before the change is remembered"
             );
             let page = leaf(store, root_of(store, "n"), &key);
-            // A snapshot that keeps the damaged version in the scratch area until the transfer below.
-            let keeper = store.read().unwrap();
+            // A snapshot that keeps the damaged version in the scratch area until the transfer below; without it,
+            // the transfer may move it to the store at any time.
+            let keeper = held.then(|| store.read().unwrap());
             let mut write = store.write().unwrap();
             let tree = write.open_tree("n").unwrap();
             write.set(&tree, &key, b"changed").unwrap();
@@ -205,7 +214,7 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
             } else {
                 write.commit().unwrap();
             }
-            let mut keeper = Some(keeper);
+            let mut keeper = keeper;
             for transferred in [false, true] {
                 if transferred {
                     drop(keeper.take());
