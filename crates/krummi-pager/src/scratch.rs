@@ -840,8 +840,11 @@ impl Shared {
             // SAFETY: `&mut self` rules out open snapshots, and with them any reference into the store's pages
             // and any other write.
             unsafe { pager.write_run_shared(page_number, page)? };
-            state.filter.removed(page_number);
-            for version in state.versions.remove(&page_number).unwrap_or_default() {
+            let versions = state.versions.remove(&page_number).unwrap_or_default();
+            if !versions.is_empty() {
+                state.filter.removed(page_number);
+            }
+            for version in versions {
                 state.release(&version.page);
             }
         }

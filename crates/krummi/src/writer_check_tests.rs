@@ -193,6 +193,8 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
                 "its content before the change is remembered"
             );
             let page = leaf(store, root_of(store, "n"), &key);
+            // A snapshot that keeps the damaged version in the scratch area until the transfer below.
+            let keeper = store.read().unwrap();
             let mut write = store.write().unwrap();
             let tree = write.open_tree("n").unwrap();
             write.set(&tree, &key, b"changed").unwrap();
@@ -203,8 +205,10 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
             } else {
                 write.commit().unwrap();
             }
+            let mut keeper = Some(keeper);
             for transferred in [false, true] {
                 if transferred {
+                    drop(keeper.take());
                     transfer(store);
                 }
                 for _ in 0..2 {

@@ -10,17 +10,19 @@
 //! sequence (D5 of the large values execution). Shared chunks hold any slots and stay until the area is removed.
 //! They grow as they did before value runs: only when no free range fits the pages to store, by twice the last
 //! shared chunk up to [`MAX_CHUNK_PAGES`] (8 MiB), or by the run's size when it is larger. A run larger than
-//! [`MAX_CHUNK_PAGES`], or one that no free range fits while the free slots hold at least [`MAX_CHUNK_PAGES`], gets
-//! a chunk of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. A run
-//! that only scattered free slots, fewer than that, could hold page by page grows the shared chunks instead: the tail
-//! of each shared chunk is often a few slots that no run fits, and a file of its own for every run then costs a fifth
-//! of a stream of 64 KiB values on Windows (W17 of the benchmark, margin diagnosis of the performance plan). In a store on
+//! [`MAX_CHUNK_PAGES`], or one that no free range fits while the free slots could hold it page by page, gets a chunk
+//! of its own, of exactly its size, released (unmapped and its file removed) as soon as the run is. In a store without
+//! a maximum size, a run that only scattered free slots, fewer than [`MAX_CHUNK_PAGES`], could hold page by page grows
+//! the shared chunks instead: the tail of each shared chunk is often a few slots that no run fits, and a file of its
+//! own for every run then costs a fifth of a stream of 64 KiB values on Windows (W17 of the benchmark, margin
+//! diagnosis of the performance plan). With a maximum size it keeps its own chunk, so that the area never reserves a
+//! shared chunk where a run of its exact size fit (P10). In a store on
 //! disk without a maximum size, released own chunks of one size are kept instead, up to [`IDLE_PAGES`], for the
 //! next runs of that size, which take them without creating a file (candidate 5 of the writes diagnosis,
 //! performance plan); a chunk of another size releases them. So what the area reserves so that a run is contiguous
-//! never piles up: besides the slots held, it holds at most what the page-by-page policy would, plus two shared
-//! chunks (one grown over fewer than [`MAX_CHUNK_PAGES`] scattered free slots), and without a maximum size
-//! [`IDLE_PAGES`] of released own chunks (P10, T14; R1 of the large values code
+//! never piles up: besides the slots held, it holds at most what the page-by-page policy would, plus one shared
+//! chunk, and without a maximum size another one (grown over fewer than [`MAX_CHUNK_PAGES`] scattered free slots)
+//! and [`IDLE_PAGES`] of released own chunks (P10, T14; R1 of the large values code
 //! review). A run's slots are held whole while any of its pages keeps a version, so the scratch area counts them
 //! whole for the maximum size until its last version leaves, not page by page (`State::hold` in the `scratch`
 //! module).
@@ -62,6 +64,9 @@ pub(crate) struct TempArea {
     /// Whether released own chunks are kept for later runs: only in a store on disk without a maximum size, since
     /// with one the files of `krummi.temp` count against it (P10, T14).
     keeps_released: bool,
+    /// Whether the store has a maximum size: then a run that the scattered free slots could hold page by page always
+    /// takes a chunk of its own, of its exact size (P10).
+    bounded: bool,
     state: Mutex<AreaState>,
 }
 
@@ -147,6 +152,7 @@ impl TempArea {
         TempArea {
             dir: folder.map(|f| f.join(TEMP_DIR)),
             keeps_released: folder.is_some() && max_size.is_none(),
+            bounded: max_size.is_some(),
             state: Mutex::new(AreaState {
                 chunks: Vec::new(),
                 vacant: Vec::new(),
@@ -233,11 +239,17 @@ impl TempArea {
 
     /// Adds a chunk for `pages` slots that no free range fits and takes them from it, returning its number and the
     /// first slot: a chunk of their own, of exactly `pages` slots, when they are more than [`MAX_CHUNK_PAGES`] or the
-    /// free slots, at least [`MAX_CHUNK_PAGES`], could hold them page by page, so that only contiguity is missing;
-    /// otherwise a shared chunk, twice the last one up to [`MAX_CHUNK_PAGES`] and at least `pages` slots.
+    /// free slots could hold them page by page, so that only contiguity is missing, and without a maximum size are at
+    /// least [`MAX_CHUNK_PAGES`]; otherwise a shared chunk, twice the last one up to [`MAX_CHUNK_PAGES`] and at least
+    /// `pages` slots.
     fn grow(&self, state: &mut AreaState, pager: &Pager, pages: usize) -> Result<(usize, usize)> {
         let scattered = state.free.values().sum::<usize>();
-        let own = pages > MAX_CHUNK_PAGES || scattered >= pages.max(MAX_CHUNK_PAGES);
+        let enough = if self.bounded {
+            pages
+        } else {
+            pages.max(MAX_CHUNK_PAGES)
+        };
+        let own = pages > MAX_CHUNK_PAGES || scattered >= enough;
         let size = if own {
             pages
         } else {
@@ -740,6 +752,31 @@ mod tests {
             drop(kept);
             area.remove().unwrap();
         });
+    }
+
+    /// RDD review of the margin run: with a maximum size, a run that a few scattered free slots could hold page by page
+    /// takes a chunk of its own, of its exact size, as before, and the shared chunks do not grow (P10).
+    #[test]
+    fn with_a_maximum_size_scattered_free_slots_give_a_run_its_own_chunk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pager = Pager::open(tmp.path(), &OpenOptions::default()).unwrap();
+        let area = Arc::new(TempArea::new(pager.folder(), Some(1 << 30)));
+        let all: Vec<Slot> = (0..FIRST_CHUNK_PAGES)
+            .map(|i| area.store(&[i as u8; PAGE_SIZE], &pager).unwrap())
+            .collect();
+        let kept: Vec<Slot> = all
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, slot)| (i % 2 == 0).then_some(slot))
+            .collect();
+        let pair = run(2, 7);
+        let slot = area.store_run(&pair, &pager).unwrap();
+        assert_holds(&slot, &pair);
+        assert_eq!(chunks(&area), vec![FIRST_CHUNK_PAGES, 2], "contiguity only");
+        drop(slot);
+        assert_eq!(chunks(&area), vec![FIRST_CHUNK_PAGES]);
+        drop(kept);
+        area.remove().unwrap();
     }
 
     /// D5: a run's slots go back to the area as a unit when its last holder drops it, and are handed out again, to
