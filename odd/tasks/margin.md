@@ -33,6 +33,7 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
 | M5 | S1 (W17), S2 | inline: shared chunks grow over few scattered slots | done | `f6c8f6a`, L5 |
 | M6 | S1 (W11), S2 | inline: measured and dropped | dropped | L8 |
 | M7 | S1 (W10), S3 | inline: W10 alone, rotations, complete runs, RDD, closing report | pending | |
+| M8 | S2 | inline: debug builds check the nodes a write changed (user's decision, L11) | done | `11829c6`, L11 |
 
 ## Log
 
@@ -108,3 +109,35 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
   only in `Scratch::close` and `Drop` (`scratch.rs:565`, `:641`) with exclusive access, over pages taken from
   `versions.keys()`, so no reader sees the filter afterwards. R3-002 (WARNING): fixed in `a5e7c41`, AC-H2 now covers
   the cases with and without a snapshot keeping the version. Workspace: 593 tests.
+- **L11** (2026-11-09): M8. The user approved ("sí") checking, after the measurements, the nodes a write changed
+  only in debug and test-hooks builds, like Voron's `VALIDATE`. `krummi-tree` has no `test-hooks` feature and the
+  tests build in debug, so the check runs under `debug_assertions` only (a default taken without asking). RED:
+  `debug_builds_check_the_layout_of_the_nodes_a_write_changed` panicked with an index out of bounds at `node.rs:77`
+  reading the damaged node; GREEN after the `PageCheck::Changed` arm of `node_at_with` checks the layout in debug
+  builds, outside the record of layout checks, so AC-H1's count still holds. H1 of `pager-commit-checks` annotated
+  in both languages. Checks: fmt and clippy clean, 594 tests, 0 failed.
+- **L12** (2026-11-09): M7, single-load rotations of `main` (`22d045a`) against the branch (`908b65e`), two
+  alternating rounds each, bench power plan; difference of the branch, first / second round. Windows: W1 +39. % /
+  +38. %, W3 +75. % / +55. %, W12 +25. % / +55. %, W17 +58. % / +58. %, W2 +5. % / +3. %, W4 +15. % /
+  +5. %, W13 +2. % / +31. %, W19 +4. % / +4. %, W21 +0. % / +2. %, W14 +103. % / +0. %; mixed W7, W10, W15;
+  lower in both W11 (−0. % / −4. %) and W18 (−0. % / −2. %). WSL 2: W3 +53. % / +47. %, W12 +32. % / +25. %,
+  W1 +10. % / +0. %, W2 +3. % / +2. %, W15 +1. % / +1. %, W13 +0. % / +0. %, W19 +5. % / +4. %; mixed W4,
+  W7, W11, W17 (−4. % / +21. %), W21 (−20. % / +23. %); lower in both W10 (−10. % / −11. %), W14 (−0. % /
+  −1. %) and W18 (−1. % / −3. %). Output: `work/margin/rot-win.out`, `rot-wsl.out`.
+- **L13** (2026-11-09): M7, complete runs at `908b65e` (the Linux run from an archive identical to that commit),
+  same power plan as the 2026-11-08 runs: Krummi meets 22 of 22 thresholds on Windows and on Linux (was 21 of 22 on
+  each). Ratio Krummi / Voron, Windows: W1 1.04 → 1.43, W3 0.82 → 1.17, W12 0.87 → 1.16, W17 0.63 → 0.91; Linux: W3
+  0.78 → 1.21, W10 0.80 → 1.90 (Voron 20.5 M → 9.4 M op/s), W12 0.85 → 1.10, W17 1.20 → 1.49, W21 0.82 → 0.96. Falls
+  beyond 0.05 where Krummi itself falls: Windows W9 (1.30 → 1.23, Krummi −3 % and Voron −3 %), W18 (1.58 → 1.27,
+  Krummi −1 %) and W22 (1.19 → 1.12, Krummi − %); Linux W9 (1.13 → 0.98, Krummi −2 %) and W16 (105 → 90, Krummi
+  −1 %); Windows W20 falls 1.50 → 1.13 with Krummi − % and Voron +3 %. Confirmation rounds, two alternating
+  rounds of `main` and the branch, difference of the branch: Windows W9 +2. % / +3. %, W11 −2. % / −0. %, W18
+  −13. % / −6. %, W22 +3. % / +2. %; WSL 2 W9 +1. % / +5. %, W10 +1. % / −1. %, W14 +1. % / +0. %, W18
+  +2. % / −0. %, W16 +10 % / −2 %. Confirmed cost: W11 on Windows, lower in all four rounds, −1. % on average
+  (ratio 0.86, threshold met). W18 on Windows, lower in four rounds, is the store and not the binary: a cross test
+  on the two stores of the confirmation gave medians, binary main / head on the store of main, 157,704 / 150,611 and
+  152,566 / 154,765, and on the store of the branch 144,848 / 150,867 and 144,075 / 143,963, so the binary is mixed,
+  while the binary of main is faster on the store of main in both rounds and the branch's in the second; the two 512
+  MiB data files differ in 18 bytes, all in pages 0 and 1 (the two header copies). Not confirmed: W10 and W16 on WSL
+  2, W22 on Windows. Reports: [Windows](../../docs/benchmark/2026-11-09-windows-margin.md),
+  [Linux](../../docs/benchmark/2026-11-09-linux-margin.md); output in `work/margin/conf-*.out` and `conf3-*.out`.
