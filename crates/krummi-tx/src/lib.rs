@@ -63,9 +63,9 @@ pub enum PageCheck {
     /// opening already did (I2 of the remembered page integrity PRD, S2 of the writer checks PRD): the store's memory
     /// of checked contents applies.
     Verified(u64),
-    /// A page the write transaction changed: its layout is not checked on a read, but once, when the transaction
-    /// commits (H1, H2 of the commit checks PRD). It never uses the store's memory of checked contents, although it
-    /// keeps the integrity code of the page it was copied from.
+    /// A page the write transaction changed: the transaction never checks its layout, which later transactions
+    /// check on their first read of what it committed (H1 of the commit checks PRD). It never uses the store's memory
+    /// of checked contents, although it keeps the integrity code of the page it was copied from.
     Changed,
     /// A committed version in the scratch area, which no read verifies (I3), and whether its layout already passed
     /// the check of the layers above since it was published (U1 of the version checks PRD).
@@ -95,39 +95,8 @@ pub enum LayoutEvent {
     Change(u64),
     /// A layer above read the page, which the transaction changed, to check it.
     Read(u64),
-    /// A layer above checked the layout of the page, read without a verified integrity code, or the commit checked
-    /// a node the transaction changed (H2 of the commit checks PRD).
+    /// A layer above checked the layout of the page, read without a verified integrity code.
     Check(u64),
-}
-
-/// The nodes the commits made on a thread checked, recorded while a test asks for it (tests of the commit checks PRD,
-/// H2): a commit consumes its transaction, and with it the transaction's record of the pages it changed.
-#[cfg(feature = "test-hooks")]
-pub mod commit_checks {
-    use std::cell::RefCell;
-
-    thread_local! {
-        /// The nodes checked by the commits made on this thread since [`start`], in order.
-        static PAGES: RefCell<Option<Vec<u64>>> = const { RefCell::new(None) };
-    }
-
-    /// Starts recording on this thread, from no checks.
-    pub fn start() {
-        PAGES.set(Some(Vec::new()));
-    }
-
-    /// The page of each node the commits made on this thread checked since [`start`], which stops.
-    pub fn take() -> Vec<u64> {
-        PAGES.take().unwrap_or_default()
-    }
-
-    pub(crate) fn record(page: u64) {
-        PAGES.with_borrow_mut(|pages| {
-            if let Some(pages) = pages {
-                pages.push(page);
-            }
-        });
-    }
 }
 
 /// A point of a commit or of the hand-off of the write turn where tests can stop or interrupt the engine

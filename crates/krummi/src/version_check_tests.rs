@@ -201,10 +201,10 @@ fn ac_u4_a_reused_page_is_checked_again() {
     });
 }
 
-/// AC-U5 (U1, H1, H2 of the commit checks PRD): a write that copies a remembered version to change it does not check the
-/// copy on its next read, and checks it once at commit.
+/// AC-U5 (U1, H1 of the commit checks PRD): a write that copies a remembered version to change it does not check the
+/// copy, and a later transaction checks what it committed on its first read.
 #[test]
-fn ac_u5_a_copy_of_a_remembered_version_is_checked_at_commit() {
+fn ac_u5_a_copy_of_a_remembered_version_is_checked_after_the_commit() {
     on_both(|store| {
         let keeper = store.read().unwrap();
         commit_tree(store, "n", 1, 64);
@@ -219,10 +219,20 @@ fn ac_u5_a_copy_of_a_remembered_version_is_checked_at_commit() {
         write.inner.record_layout();
         assert!(write.get(&tree, &long_key(0, 64)).unwrap().is_some());
         assert_eq!(write.inner.take_layout_log(), [LayoutEvent::Read(page)]);
-        krummi_tx::commit_checks::start();
         write.commit().unwrap();
-        assert_eq!(krummi_tx::commit_checks::take(), [page]);
-        drop(keeper);
+        let before = checks(store);
+        let read = store.read().unwrap();
+        let tree = read.open_tree("n").unwrap();
+        assert_eq!(
+            read.get(&tree, &long_key(0, 64)).unwrap(),
+            Some(&b"changed"[..])
+        );
+        assert_eq!(
+            checks(store),
+            before + 1,
+            "the new version, on its first read"
+        );
+        drop((read, keeper));
     });
 }
 
