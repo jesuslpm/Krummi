@@ -32,7 +32,7 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
 | M4 | S1 (W12), S2 | inline: readers skip the lock for pages without versions | done | `77b57e7`, L7 |
 | M5 | S1 (W17), S2 | inline: shared chunks grow over few scattered slots | done | `f6c8f6a`, L5 |
 | M6 | S1 (W11), S2 | inline: measured and dropped | dropped | L8 |
-| M7 | S1 (W10), S3 | inline: W10 alone, rotations, complete runs, RDD, closing report | pending | |
+| M7 | S1 (W10), S3 | inline: W10 alone, rotations, complete runs, RDD, closing report | done | L12–L15, [report](margin-report.md) |
 | M8 | S2 | inline: debug builds check the nodes a write changed (user's decision, L11) | done | `11829c6`, L11 |
 
 ## Log
@@ -154,3 +154,7 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
   archive 908b65e` printed nothing). R2-004 (SUGGESTION): fixed, `keeper` is declared mutable where it is made.
   R3-ach2-unheld-first-pass-path-unpinned (SUGGESTION): fixed in the doc comment, which now says the reads before
   the transfer come from the scratch area only where a snapshot keeps the version.
+- **L15** (2026-11-09): review of `8d6576d..febecbd` (lens reliability), approved with no findings, lineage
+  `review-3807470b88c4de7e`. Final checks on `febecbd`: fmt and clippy clean, 594 tests pass, 0 fail, 31 ignored.
+  Codex cross review still pending (usage limit until 2026-11-11 06:49). Closing report:
+  [margin-report.md](margin-report.md).

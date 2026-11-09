@@ -1,0 +1,32 @@
+2026-11-09T06:07:28+00:00	mark	explore	
+2026-11-09T06:07:28+00:00	start	implement	M1
+2026-11-09T08:01:13+00:00	mark	verify	M1-M5
+2026-11-09T08:21:02+00:00	mark	review	M1-M5
+2026-11-09T08:31:08+00:00	mark	acceptance	M7
+2026-11-09T08:31:56+00:00	bg-start	acceptance	rotations windows
+2026-11-09T08:48:37+00:00	bg-end	acceptance	rotations windows
+2026-11-09T08:48:37+00:00	bg-start	acceptance	rotations wsl
+2026-11-09T09:34:17+00:00	bg-end	acceptance	rotations wsl
+2026-11-09T09:34:17+00:00	bg-start	acceptance	complete windows
+2026-11-09T10:59:12+00:00	bg-end	acceptance	complete windows
+2026-11-09T10:59:12+00:00	bg-start	acceptance	complete wsl
+2026-11-09T12:52:18+00:00	bg-end	acceptance	complete wsl
+2026-11-09T12:53:23+00:00	bg-start	acceptance	confirmation windows
+2026-11-09T12:55:17+00:00	bg-end	acceptance	confirmation windows
+2026-11-09T12:55:17+00:00	bg-start	acceptance	confirmation wsl
+2026-11-09T12:55:21+00:00	bg-end	acceptance	confirmation wsl
+2026-11-09T12:57:30+00:00	bg-start	acceptance	confirmation wsl
+2026-11-09T13:03:28+00:00	bg-end	acceptance	confirmation wsl
+2026-11-09T13:03:28+00:00	mark	wait	tables PRD work, not this run
+2026-11-09T15:47:11+00:00	mark	implement	M3
+2026-11-09T15:49:02+00:00	mark	checks	M3
+2026-11-09T15:59:12+00:00	mark	docs	M7
+2026-11-09T16:00:30+00:00	bg-start	acceptance	confirmation windows W22
+2026-11-09T16:01:37+00:00	bg-end	acceptance	confirmation windows W22
+2026-11-09T16:01:37+00:00	bg-start	acceptance	confirmation wsl W16
+2026-11-09T16:01:51+00:00	bg-end	acceptance	confirmation wsl W16
+2026-11-09T16:03:18+00:00	mark	review	M7
+2026-11-09T16:06:06+00:00	mark	fix	M7
+2026-11-09T16:07:21+00:00	mark	checks	M7
+2026-11-09T16:12:05+00:00	mark	close	M7
+2026-11-09T16:12:05+00:00	end		
