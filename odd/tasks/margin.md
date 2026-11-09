@@ -92,3 +92,19 @@ Objective: the five proposals of the margin diagnosis of 2026-11-09 (profiles in
   overshooting. Advisories, accepted: the filter takes 256 KiB per store outside the maximum size; it skips nothing
   once more than about 65,000 pages have versions; M5 can reserve one more shared chunk (8 MiB) than before, as its
   module documentation says.
+- **L10** (2026-11-09): RDD. Review of `22d045a..5096ba0`, assessed high (escalated with item 4, the lock-free
+  filter), lenses risk, resilience and reliability, approved, lineage `review-84f63d463f2430fb`. Findings:
+  R4-temp-grow-max-size and R3-shared-chunk-under-max-size (WARNING, the same point): with a maximum size a shared
+  chunk could fail as full where a run's exact chunk fit; fixed, the new rule applies only without a maximum size and
+  with one the area behaves as at `22d045a` (`with_a_maximum_size_scattered_free_slots_give_a_run_its_own_chunk`).
+  R3-filter-unconditional-decrement (WARNING): `flush_all` now lowers a count only for a page that had versions.
+  R3-ach2-scratch-path-unpinned (SUGGESTION): AC-H2 holds a snapshot so its first pass reads the temporary area. Fixes
+  in `43e6f2a`. R4-filter-fixed-footprint and R3-stress-test-timing (SUGGESTION): accepted as documented (the 256 KiB
+  are in the filter's doc; the deterministic filter test is the proof, the stress test adds to it). Review of
+  `5096ba0..43e6f2a`, assessed high, lenses resilience and reliability, approved, lineage `review-08b5d34b424a9250`.
+  R4-bounded-own-chunk-latency (WARNING): dismissed with evidence, a store with a maximum size keeps the rule of
+  `22d045a` (`let own = pages > MAX_CHUNK_PAGES || state.free.values().sum::<usize>() >= pages;`, temp.rs:235 at
+  `22d045a`), so its W17-like behavior is the baseline's. R3-001 (WARNING): dismissed with evidence, `flush_all` runs
+  only in `Scratch::close` and `Drop` (`scratch.rs:565`, `:641`) with exclusive access, over pages taken from
+  `versions.keys()`, so no reader sees the filter afterwards. R3-002 (WARNING): fixed in `a5e7c41`, AC-H2 now covers
+  the cases with and without a snapshot keeping the version. Workspace: 593 tests.
