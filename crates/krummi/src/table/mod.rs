@@ -14,6 +14,7 @@ pub mod schema;
 mod sequence;
 pub mod value;
 
+pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
 pub use ranges::{ReadRows, WriteRows};
 pub use rows::{TableRow, Upserted};

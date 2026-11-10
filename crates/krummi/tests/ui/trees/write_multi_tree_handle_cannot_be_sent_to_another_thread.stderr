@@ -9,8 +9,8 @@ error[E0277]: `*const ()` cannot be sent between threads safely
   |           required by a bound introduced by this call
   |
   = help: within `{closure@$DIR/tests/ui/trees/write_multi_tree_handle_cannot_be_sent_to_another_thread.rs:9:17: 9:24}`, the trait `Send` is not implemented for `*const ()`
-  = note: required because it appears within the type `(&Store, *const ())`
-note: required because it appears within the type `PhantomData<(&Store, *const ())>`
+  = note: required because it appears within the type `(&krummi::Store, *const ())`
+note: required because it appears within the type `PhantomData<(&krummi::Store, *const ())>`
  --> $RUST/core/src/marker.rs
 note: required because it appears within the type `WriteTree<'_>`
  --> src/lib.rs

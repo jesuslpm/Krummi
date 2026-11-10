@@ -81,8 +81,8 @@ pub mod ids;
 pub mod table;
 
 pub use table::{
-    Column, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn, SequenceMode, TableMode,
-    TableRow, TableSchema, Upserted, WriteRows, WriteSequence, WriteTable,
+    BulkLoadError, Column, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn, SequenceMode,
+    TableMode, TableRow, TableSchema, Upserted, WriteRows, WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
