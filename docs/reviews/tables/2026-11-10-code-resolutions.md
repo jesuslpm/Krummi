@@ -133,3 +133,8 @@ automatic round, the limit of the codex-review loop; a further round needs the u
 ### R2 — minor
 
 - Disposition: unchanged, pending the user's approval to apply the annotations.
+
+## 2026-11-10 (annotations applied)
+
+R2: fixed by commit `b471cc4`; see [2026-11-10-prd-resolutions.md](2026-11-10-prd-resolutions.md). The user authorized
+a fourth round to verify R2, R4 and R6.

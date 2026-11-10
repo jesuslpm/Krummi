@@ -45,3 +45,18 @@ Nothing was reverted. Per-ID outcome, quoted from the report:
 - R2: "still open". The reviewer holds that a pending checklist does not satisfy the requirement to annotate the
   affected documents, and that the table/catalog, scalar-read and benchmark annotations do not depend on document 11's
   open decisions. Applying them is the closing of this PRD, which waits for the user's approval.
+
+## 2026-11-10 (annotations applied)
+
+The user approved closing R2 by applying the annotations and authorized a fourth round.
+
+### R2 — minor: the announced annotations to other PRDs are missing
+
+- Disposition: fixed.
+- Fix (commit `b471cc4`): each affected PRD and its English translation carries a block "Anotaciones del 2026-11-10
+  desde las tablas" before its starting state: `krummi.prd.md` (objective 2 and D4, D2, D11 and AC20, D12 and AC21
+  with the dependency rule, AC19, out of scope; and, before *Validaciones y mensajes*, modules 7, 10–12 and the new
+  17–19), `benchmark.prd.md` (K4, K6, K7, K11, K13, Output), `trees.prd.md` (B3, B4, B7, B8, B11, out of scope),
+  `trees-keys.prd.md` (A1, A3, A6, A7, A9, A10) and `transactions.prd.md` (T4, T12). `tables.prd.md` now says the
+  documents carry them.
+- Status: claimed fixed, unverified until a follow-up review.
