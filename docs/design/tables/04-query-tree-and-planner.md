@@ -165,7 +165,7 @@ Input: normalized tree, parameter values, table schema, index definitions, the t
 5. **Order.** If the query has `ORDER BY` and the chosen path already produces that order (index order of the same columns, ascending or descending by reverse traversal, or primary key order), drop the sort node. Otherwise compare two plans: (a) the cheapest filter path plus an explicit sort or top-k, (b) a plan walking an index that provides the order and filtering rows, stopping at `limit` (cheap when the filter is not very selective). Both are costed; the cheaper wins.
 6. **Top-k.** `Sort + Limit` with limit `k` becomes a bounded heap of `k + offset` rows (memory O(k)), never a full sort. Distance ordering is the same node with a distance key.
 7. **Aggregates.** `count(*)` with no filter is the table tree's entry count. `count(*)` over a filter that is a single index range with no residual walks that range's keys without reading rows; the answer is exact and is never taken from an estimate. `min`/`max` of a primary-key or indexed column over a range reads the first or last key of the range (nulls sort first or last by the column's declaration, doc 3). Otherwise a streaming aggregate over the rows.
-8. **Covering.** If every needed column is in the index key, in the primary key (every secondary entry carries it: the key is `tuple(columns) ‖ tuple(primary key)`) or in the entry's included columns, skip the row fetch. A query that needs only primary-key columns can even read just the table tree's keys.
+8. **Covering.** If every needed column is a fixed-width column of the index key or of the primary key (every secondary entry carries it: the key is `tuple(columns) ‖ tuple(primary key)`), or one of the entry's included columns, skip the row fetch. A `string` or `bytes` column of the index key or of the primary key does not count: its key element is escaped, so returning it without a copy needs the row (doc 3; corrected 2026-11-10 after the Codex follow-up review, R4). A query that needs only fixed-width primary-key columns can even read just the table tree's keys.
 9. **Emit** a physical plan: a small tree of operators (`IndexRangeScan`, `TableScan`, `Union`, `Intersect`, `Fetch`, `Filter`, `TopK`, `Sort`, `Limit`, `Aggregate`, `Project`), plus a per-step record of estimated rows and cost for the explain output (Q16).
 
 ### Cost model
@@ -213,7 +213,8 @@ This is the answer to Q17 of the documents PRD: average selectivity is only need
    reference `{key ptr,len; value ptr,len}` to a table row in the page, valid until the next call on the cursor or until the
    transaction closes. C# reads columns through accessor calls (`GetInt64(row, col)`, `GetSpanUtf8(row, col)`,
    `GetVector(row, col)`): a non-key column is a cheap decode of the row bytes (doc 1), a primary-key column a decode
-   of the key (doc 3), and either returns a `ReadOnlySpan<byte>` for text, bytes and vectors (zero-copy, tied to the
+   of the key (doc 3) for a fixed-width one, and a read of the row for a `string` or `bytes` one, which doc 1 stores raw
+   in the row (Codex R4), and either returns a `ReadOnlySpan<byte>` for text, bytes and vectors (zero-copy, tied to the
    transaction scope) or a primitive by value.
 3. Computed values (a projected `distance`, aggregates) have no row in a page: they travel in a small buffer owned by
    the cursor and valid for the same period, read by the same accessors with a result-column index. The exact layout

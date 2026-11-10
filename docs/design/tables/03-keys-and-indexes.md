@@ -309,8 +309,14 @@ Composite keys and prefix scans:
   `Q = P ‖ 02 61 62` (inverted for a descending column), and the range `[Q, successor(Q))`, where the successor drops
   the trailing `FF` bytes of `Q` and increments its last byte (FoundationDB's `strinc`; `Q` starts with a type code,
   so it is never all `FF`).
-- The key can be decoded back to values by walking its elements, so an index-only scan needs no row read, with the
-  float canonicalisation above as the only information the key loses (and it loses nothing the row keeps).
+- The key can be decoded back to values by walking its elements, with the float canonicalisation above as the only
+  information the key loses (and it loses nothing the row keeps). A fixed-width column decodes into a value the API
+  returns by value, so an index-only scan returns it with no row read. A `string` or `bytes` column, of the index or
+  of the primary key, cannot be returned from the key without a copy, because its key element escapes each `00` as
+  `00 FF`, while the PRD returns those types without copying (Output, T16). An index-only read therefore returns them
+  from an included column (stored raw in the entry's value) or from the row, through a lookup of the table tree
+  (doc 1 stores `string` and `bytes` primary key columns raw in the row). Corrected 2026-11-10 after the Codex
+  follow-up review (R4): the first version let index-only scans return every column from the key.
 
 Size limit:
 

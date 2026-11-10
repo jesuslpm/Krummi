@@ -192,10 +192,12 @@ each call (`crates/krummi/src/lib.rs:439,680`); B9 of the trees PRD only says th
 and no per-transaction name cache exists. The capi therefore pays one catalog lookup per call or keeps its own small
 map from tree name to open tree inside the transaction handle's state, which avoids a fifth handle type; queries are
 unaffected, since the tables are opened inside Rust. A batch is the decided result shape: up to `capacity` rows per
-call, each a reference to a table row (the encoded primary key and the doc-1 row, which does not repeat the key
-columns), valid until the next call on the cursor or the end of the transaction, whichever comes first. Computed
+call, each a reference to a table row (the encoded primary key and the doc-1 row, which repeats only the `string` and
+`bytes` key columns, doc 1), valid until the next call on the cursor or the end of the transaction, whichever comes first. Computed
 values (a projected distance, aggregates) travel in the cursor's own buffer, read through accessor calls (doc 4).
-C# decodes the row columns in place from the doc-1 format and the key columns from the key (doc 3). The key-value
+C# decodes the row columns in place from the doc-1 format, the fixed-width key columns from the key (doc 3), and
+reads `string` and `bytes` key columns from the row, where they are stored raw, so they come back without a copy
+(corrected 2026-11-10 after the Codex follow-up review, R4). The key-value
 functions above (`krummi_read_get`, `krummi_write_set`, `krummi_read_cursor`, `krummi_cursor_next`) are the tree
 surface of the boundary rules; the PRD decides whether the first release keeps them next to the table surface.
 
