@@ -99,10 +99,10 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 | T3 | S6, S7, S17, S20 (encoding half), S21 (value rules) | 01; 03 key encoding; 05 payload; 07 hook | delegated: parallel with T2 and T4 | done (RED/GREEN: 18 key and row tests against `todo!()` stubs; value tests written after the code, no RED; 3 mutants caught) | `cab64a6` |
 | T4 | S16, S26 (Voron side and shared data) | benchmark PRD K4; PRD *Cargas del banco* | delegated: parallel with T2 and T3 | done (RED/GREEN: `tests/table_data.rs` failed to compile, then 10 passed; C# `selftest` equals the Rust answers) | `0edd736` |
 | T5 | S1, S2, S3, S4, S24, S25 (catalog parts), S13 and S18 (catalog parts) | 01 schema evolution; 02 truncate and drop; 11 §2.2; D2, D3, D6 | delegated (context backstop) | done (advisory fixes RED/GREEN; catalog and schema code written before its tests: 3 mutants caught) | `7841b95`, `7b32e4f`, `520fd73` |
-| T6 | S5, S13, S14, S15, S21, S22 (row half) | 02 two phases and operations; 01; 03 | to decide | pending | |
-| T7 | S9, S20, S22 (range and count half) | 03 composite keys and range bounds; 02 scans | to decide | pending | |
-| T8 | S10, S22 (bulk half) | 02 bulk load | to decide | pending | |
-| T9 | S11, S23 (sequence half) | D4; README sequences | to decide | pending | |
+| T6 | S5, S6, S7 (table level), S13, S14, S15, S21, S22 (row half); row parts of S1–S4, S25 | 02 two phases and operations; 01; 03 | delegated (context backstop) | done (RED/GREEN: 22 row tests against `todo!()` stubs; catalog guards failed in release; 3 mutants caught) | `426f263`, `b535c62` |
+| T7 | S9, S20, S22 (range and count half) | 03 composite keys and range bounds; 02 scans | delegated: parallel with T8 and T9 (Writer trigger a) | in progress | |
+| T8 | S10, S22 (bulk half) | 02 bulk load | delegated: parallel with T7 and T9 | in progress | |
+| T9 | S11, S23 (sequence half) | D4; README sequences | delegated: parallel with T7 and T8 | in progress | |
 | T10 | S19, S13 (hooks) | D3, D4 | to decide | pending | |
 | T11 | S16, S26 (Krummi side, report) | benchmark PRD | to decide | pending | |
 | T12 | S16, S26, S27 (runs, measurements), docs | — | to decide | pending | |
@@ -172,3 +172,18 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   R2-identify-silent-zero-id, R2-put-root-init-duplicated, R2-root-field-naming (SUGGESTION); R3-untested-table-lifecycle
   and R3-tree-guard-untested are covered by `520fd73`. `520fd73` assessed medium, `under_budget`: pending in the
   slice. Resolution of the advisories: start of T6.
+- **L10** (2026-11-10): RDD closing review of the T5 test slice (`7b32e4f..28ea646`, forced as the slice before a
+  high-risk unit): lens reliability, lineage `review-784681b0f1fdad21`, **approved**; advisories R3-001 (the G6 test
+  takes the damaged page number before a copy-on-write commit) and R3-002 (AC13 checks only listed names, not raw
+  catalog entries), WARNING: to resolve in T10 (hooks). T6 done: `426f263` (`table::rows`: `insert_row`,
+  `update_row`, `upsert_row`, `get_row`, `delete_row`, `TableRow`, `Upserted`; one check path; `pages_read` test hook in
+  `krummi-tx`; T5 advisory fixes) and `b535c62` (22 tests in `tests/table_rows.rs`). Defaults: a key with too many
+  values is `InvalidRange`, too few is `MissingKeyColumn`; for an upsert of a missing row the not-null-without-value
+  check runs after the existence probe; an unknown column's data is `MissingColumn`, "a column" / "no column"; size
+  ranges 1–2,048 (key) and 0–268,435,456 (row); old-version layouts are rebuilt per read (T7 caches them per scan);
+  "same pages" for schema changes is checked as the same number of changed pages, none of the rows tree. RDD of
+  `426f263` (`28ea646..426f263`, escalated item 1): lenses risk, resilience, readability, reliability, lineage
+  `review-1cdfcbbd17d7f560`, **approved**; advisories R1-001 (unchecked `count -= 1` on a damaged count), R2-001
+  (`rows` reads like a count), R2-002 (duplicated insert path), R2-003 (`Option<bool>` in `apply_rows`), R3 (row API
+  untested in that slice; covered by `b535c62`): resolved at the start of T7. `b535c62` pending in the slice.
+  `ce1abca` declares the `ranges`, `bulk` and `sequence` modules so T7, T8 and T9 run in parallel on disjoint files.
