@@ -96,6 +96,18 @@ names what that child PRD must decide, in addition to its content and its own er
 | 7.3 | **Statistics** | The per-column statistics, the estimation operation, their construction in the background and the analyze operation (N8); their measurement (N11). | Which estimations it offers and which is the default estimation; in which transactions estimation and analyze can be requested, and whether analyze waits for them to be stored; what counts as a modification for the threshold (for example, insert or update with an identical row, update without finding the row or an aborted write); whether a write that requests an estimation sees its own changes; whether they exist in temporary mode; what happens if storing them fails, where it is reported and what happens to them in a store that does not accept writes (T12), including whether a failure to store them is the first failure of T12 and who reports it; when the sampling thread is created and when it ends, whether closing the store waits for a sampling in progress, and in which place of the write queue (T4) the storing enters; what the store information (P12) reports about them, if anything; what happens to them when removing or renaming a column or deleting the table; whether vector columns have statistics; the test hooks that stop the sampling and the storing of the statistics (AC-N8). |
 | 7.4 | **Dictionary compression** | Deferred (N2, N9). | — |
 
+*Annotation of 2026-11-10 (child PRD 7.5):* child PRD **7.5, JSON columns** is added, built after 7.3 and before
+module 17, so that queries can filter by JSON paths from the start. User: «Sí anótalo en el reparto del PRD de tablas
+como PRD hijo 7.5, después de 7.3». **Content**: a JSON column type stored in a binary format read without copying or
+parsing text, in the style of RavenDB's blittable or PostgreSQL's `jsonb`; building it, navigating it and reading its
+properties; its conversion to and from text; its benchmark loads (N11). **Sets**: the binary format (one of those two
+or Krummi's own) and whether its change is incompatible (B12); how numbers are represented (integers, `f64`,
+`decimal`), repeated keys and property order, and when two documents are equal; its size and depth limits; the
+classes with which an invalid text or document fails; whether parsing the text uses a dependency (with its D12
+annotation, like P11 of design document 11) or a reader of Krummi's own; that a JSON is not a primary key or an index
+column. With this annotation, N2 closes module 7 when 7.1, 7.2, 7.3 and 7.5 are closed, and "JSON" leaves *Out of
+scope*. Indexing paths inside a JSON stays outside 7.5 (expression indexes, after 7.2 and module 17).
+
 ## Validations and messages
 
 Those of the ancestors hold. This module adds these situations, only from the library, with the rule of N10:

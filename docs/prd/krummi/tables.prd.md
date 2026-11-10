@@ -93,6 +93,19 @@ nombra lo que ese PRD hijo debe decidir, además de su contenido y de sus propio
 | 7.3 | **Estadísticas** | Las estadísticas por columna, la operación de estimación, su construcción en segundo plano y la operación analizar (N8); su medición (N11). | Qué estimaciones ofrece y cuál es la estimación por defecto; en qué transacciones se piden la estimación y analizar, y si analizar espera a que se guarden; qué cuenta como modificación para el umbral (por ejemplo, insertar o actualizar con una fila idéntica, actualizar sin encontrar la fila o una escritura abortada); si una escritura que pide una estimación ve sus propios cambios; si existen en modo temporal; qué pasa si guardarlas falla, dónde se informa y qué pasa con ellas en un almacén que no acepta escrituras (T12), incluido si un fallo al guardarlas es el primer fallo de T12 y quién lo informa; cuándo se crea y cuándo termina el hilo que muestrea, si cerrar el almacén espera a un muestreo en curso, y en qué lugar de la cola de escritura (T4) entra el guardado; qué informa la información del almacén (P12) de ellas, si algo; qué pasa con ellas al quitar o renombrar una columna o borrar la tabla; si las columnas vector tienen estadísticas; los ganchos de pruebas que detienen el muestreo y el guardado de las estadísticas (AC-N8). |
 | 7.4 | **Compresión por diccionario** | Aplazado (N2, N9). | — |
 
+*Anotación del 2026-11-10 (PRD hijo 7.5):* se añade el PRD hijo **7.5, Columnas JSON**, que se construye después de
+7.3 y antes del módulo 17, para que las consultas puedan filtrar por rutas del JSON desde el principio. Usuario: «Sí
+anótalo en el reparto del PRD de tablas como PRD hijo 7.5, después de 7.3». **Contenido**: un tipo de columna JSON
+guardado en un formato binario que se lee sin copiar ni analizar el texto, al estilo del blittable de RavenDB o del
+`jsonb` de PostgreSQL; construirlo, navegarlo y leer sus propiedades; su conversión a texto y desde texto; sus cargas
+del banco (N11). **Fija**: el formato binario (uno de esos dos o uno propio) y si su cambio es incompatible (B12);
+cómo se representan los números (enteros, `f64`, `decimal`), las claves repetidas y el orden de las propiedades, y
+cuándo dos documentos son iguales; sus límites de tamaño y de profundidad; con qué clases fallan un texto o un
+documento no válidos; si el análisis del texto usa una dependencia (con su anotación en D12, como P11 del documento
+de diseño 11) o un lector propio; que un JSON no es clave primaria ni columna de un índice. Con esta anotación, N2
+cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3 y 7.5, y «JSON» deja de estar en *Fuera de alcance*. Indexar rutas
+dentro de un JSON queda fuera de 7.5 (índices sobre expresiones, después de 7.2 y del módulo 17).
+
 ## Validaciones y mensajes
 
 Valen las de los ascendientes. Este módulo añade estas situaciones, solo de la biblioteca, con la regla de N10:
