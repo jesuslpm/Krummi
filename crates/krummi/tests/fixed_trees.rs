@@ -1027,7 +1027,10 @@ fn catalog_entries_of_fixed_size_trees_are_checked_by_kind() {
         entry(3, 28, 8),
         entry(1, 27, 8),
         entry(2, 27, 8),
-        entry(4, 27, 8),
+        // Kind 4 is a table (D2 of the tables with schema execution): without bytes after its fixed part it is
+        // damage; 6 is no kind.
+        entry(4, 25, 0),
+        entry(6, 27, 8),
     ];
     let normal = catalog::Entry {
         id: 0,

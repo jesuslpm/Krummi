@@ -22,6 +22,12 @@
 //! application stores, adds, reads and removes entries, scans the tree between two integer bounds from both ends and
 //! removes intervals. [`ReadTransaction::tree_kind`] gives the kind of a tree by its name, with that length.
 //!
+//! Module 7 adds tables, which share the catalog and its names with the trees: a table has a [`Schema`] of typed
+//! columns and a primary key, and is opened with [`WriteTransaction::open_table_with`] in the modes of the trees;
+//! [`WriteTransaction::describe_table`] gives its [`TableSchema`], and its columns are added, dropped, renamed or
+//! made to allow nulls in a write. Tree operations on a table, and table operations on a tree, fail with
+//! [`ErrorKind::DifferentTreeType`].
+//!
 //! ```
 //! use krummi::{OpenMode, Store, StoreOptions};
 //!
@@ -68,6 +74,8 @@ use sealed::{AsReadTree, AsWriteTree, Token};
 
 pub mod ids;
 pub mod table;
+
+pub use table::{Column, ReadTable, Schema, SchemaColumn, TableMode, TableSchema, WriteTable};
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
 const MAX_NAME: usize = 1024;
@@ -176,6 +184,7 @@ impl Store {
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
             trees: RefCell::default(),
+            tables: RefCell::default(),
         })
     }
 }
@@ -196,6 +205,8 @@ pub struct WriteTransaction<'s> {
     serial: u64,
     /// The state of every tree this transaction opened, shared by all the tree's handles (B9).
     trees: RefCell<Trees>,
+    /// The state of every table this transaction opened, shared by all the table's handles (E4, B9).
+    tables: RefCell<table::catalog::Tables>,
 }
 
 /// How [`WriteTransaction::open_tree_with`], [`WriteTransaction::open_multi_tree_with`] and
@@ -782,10 +793,16 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// Deletes the tree `name` with all its entries and frees its pages; a missing tree is not an error. The
-    /// tree's handles then fail with [`ErrorKind::TreeNotFound`].
+    /// tree's handles then fail with [`ErrorKind::TreeNotFound`]. A name of a table or a sequence fails with
+    /// [`ErrorKind::DifferentTreeType`], requested as a normal tree, without effect (N1).
     pub fn delete_tree(&mut self, name: &str) -> Result<()> {
         self.folder.check_name(name)?;
         match catalog::lookup(&self.inner, name)? {
+            Some(entry) if !is_tree(entry.kind) => {
+                Err(self
+                    .folder
+                    .different_class(name, entry.kind, TreeKind::Normal))
+            }
             Some(entry) => self.delete(name, entry),
             None => Ok(()),
         }
@@ -793,20 +810,30 @@ impl<'s> WriteTransaction<'s> {
 
     /// Renames the tree `from` to `to`; it keeps its kind, its entries and its handles. Fails with
     /// [`ErrorKind::TreeNotFound`] if `from` does not exist, also when `to` is the same name, and with
-    /// [`ErrorKind::TreeAlreadyExists`] if `to` exists, unless `overwrite` is set: then `to` is deleted first,
-    /// whatever its kind. Renaming a tree to its own name does nothing.
+    /// [`ErrorKind::TreeAlreadyExists`] if `to` exists, unless `overwrite` is set: then a tree `to` is deleted first,
+    /// whatever its kind. Renaming a tree to its own name does nothing. A table or a sequence fails with
+    /// [`ErrorKind::DifferentTreeType`] without effect, as `from` and as `to` with `overwrite` (N1).
     pub fn rename_tree(&mut self, from: &str, to: &str, overwrite: bool) -> Result<()> {
         self.folder.check_name(from)?;
         self.folder.check_name(to)?;
         let source = catalog::lookup(&self.inner, from)?;
         let source = source.ok_or_else(|| self.folder.not_found(from))?;
+        if !is_tree(source.kind) {
+            return Err(self
+                .folder
+                .different_class(from, source.kind, TreeKind::Normal));
+        }
         if from == to {
             return Ok(());
         }
         // The destination is rejected before anything is reserved (A7); the new name is copied before any change.
         let target = catalog::lookup(&self.inner, to)?;
-        if target.is_some() && !overwrite {
-            return Err(self.folder.already_exists(to));
+        match target {
+            Some(_) if !overwrite => return Err(self.folder.already_exists(to)),
+            Some(entry) if !is_tree(entry.kind) => {
+                return Err(self.folder.different_class(to, entry.kind, source.kind));
+            }
+            _ => {}
         }
         let renamed = match self.trees.get_mut().get(source.id) {
             Some(_) => Some(krummi_tree::copy_str(&self.inner, to)?),
@@ -1352,6 +1379,7 @@ impl<'s> WriteTransaction<'s> {
                 };
                 catalog::put(&mut self.inner, &state.name, &entry)?;
             }
+            self.finish_tables()?;
         }
         Ok(self.inner)
     }
@@ -1391,6 +1419,11 @@ impl WriteTransaction<'_> {
 fn next_serial() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Whether `kind` is a kind of tree, not a table or a sequence, which tree operations never touch (N1).
+fn is_tree(kind: TreeKind) -> bool {
+    !matches!(kind, TreeKind::Table | TreeKind::Sequence)
 }
 
 /// The entry of the tree `name` that `tx` sees, failing with [`ErrorKind::DifferentTreeType`] when it is not of

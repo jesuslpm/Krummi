@@ -7,6 +7,11 @@
 //! reused (A8). Callers only write what really changes, so that a write that changes nothing writes nothing (T10).
 //! An entry of an unknown kind or of the wrong length for its kind, or a fixed-size tree's length over
 //! [`MAX_LEN`](crate::fixed::MAX_LEN), in a page whose checksum is valid, is damage of that page (G6).
+//!
+//! A table's entry (D2 and D3 of the tables with schema execution) is the fixed part of a tree's, with the table's
+//! identity, its kind, the root and the row count of its rows tree, followed by bytes that the catalog does not
+//! interpret: the table code stores its schema there ([`lookup_with_extra`], [`put_with_extra`]). The kind byte `5`
+//! is reserved for the sequences of 7.1 (D2) and is damage until they are built.
 
 use krummi_tx::{Result, TreeKind, WriteTransaction};
 
@@ -28,6 +33,8 @@ const NORMAL: u8 = 1;
 const MULTI_VALUE: u8 = 2;
 /// The kind byte of a fixed-size tree (D5 of the fixed-size trees execution).
 const FIXED_SIZE: u8 = 3;
+/// The kind byte of a table (D2 of the tables with schema execution).
+const TABLE: u8 = 4;
 
 /// The catalog's entry of a tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +50,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// The encoded entry, in the first bytes of the array that its length gives.
+    /// The encoded entry, in the first bytes of the array that its length gives: of a table, its fixed part.
     fn encode(&self) -> ([u8; FIXED_ENTRY_SIZE], usize) {
         let mut bytes = [0; FIXED_ENTRY_SIZE];
         bytes[..8].copy_from_slice(&self.id.to_le_bytes());
@@ -56,19 +63,21 @@ impl Entry {
                 bytes[25..].copy_from_slice(&len.to_le_bytes());
                 (FIXED_SIZE, FIXED_ENTRY_SIZE)
             }
+            TreeKind::Table => (TABLE, ENTRY_SIZE),
             // `TreeKind` is non-exhaustive for the applications; the catalog knows every kind of its version.
-            kind => unreachable!("the catalog has no {kind} trees"),
+            kind => unreachable!("the catalog has no {kind} entries"),
         };
         bytes[8] = kind;
         (bytes, len)
     }
 
-    /// Decodes an entry, or `None` if it is not one: of an unknown kind, of another length than its kind's, or of a
-    /// fixed-size tree whose length is over [`MAX_LEN`](fixed::MAX_LEN).
+    /// Decodes an entry, or `None` if it is not one: of an unknown kind, of another length than its kind's (a table's
+    /// has bytes after its fixed part), or of a fixed-size tree whose length is over [`MAX_LEN`](fixed::MAX_LEN).
     fn decode(bytes: &[u8]) -> Option<Entry> {
         let kind = match (bytes.get(8)?, bytes.len()) {
             (&NORMAL, ENTRY_SIZE) => TreeKind::Normal,
             (&MULTI_VALUE, ENTRY_SIZE) => TreeKind::MultiValue,
+            (&TABLE, len) if len > ENTRY_SIZE => TreeKind::Table,
             (&FIXED_SIZE, FIXED_ENTRY_SIZE) => {
                 let len = u16::from_le_bytes([bytes[25], bytes[26]]);
                 if usize::from(len) > fixed::MAX_LEN {
@@ -95,6 +104,25 @@ impl Entry {
 
 /// The entry of the tree `name`, or `None` if there is no such tree. It reads only the catalog.
 pub fn lookup<S: PageSource + ?Sized>(tx: &S, name: &str) -> Result<Option<Entry>> {
+    Ok(lookup_with_extra(tx, name)?.map(|found| found.entry))
+}
+
+/// An entry found by [`lookup_with_extra`].
+#[derive(Debug, Clone, Copy)]
+pub struct Located<'t> {
+    pub entry: Entry,
+    /// The bytes after the entry's fixed part, empty for a tree: a table's schema, which the table code decodes.
+    pub extra: &'t [u8],
+    /// The catalog leaf that holds the entry: bytes of `extra` that do not decode are damage of this page (G6).
+    pub page: u64,
+}
+
+/// The entry of `name` with the bytes after its fixed part, or `None` if there is no such entry. It reads only the
+/// catalog.
+pub fn lookup_with_extra<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    name: &str,
+) -> Result<Option<Located<'t>>> {
     let root = tx.slot(ROOT_SLOT)?;
     if root == 0 {
         return Ok(None);
@@ -102,10 +130,34 @@ pub fn lookup<S: PageSource + ?Sized>(tx: &S, name: &str) -> Result<Option<Entry
     let (page, leaf) = crate::descend(tx, root, name.as_bytes())?;
     match node::search(leaf, name.as_bytes()) {
         Ok(index) => {
-            Entry::decode_in(tx, page, crate::resolve(tx, node::value(leaf, index))?).map(Some)
+            let bytes = crate::resolve(tx, node::value(leaf, index))?;
+            let entry = Entry::decode_in(tx, page, bytes)?;
+            let extra = match entry.kind {
+                TreeKind::Table => &bytes[ENTRY_SIZE..],
+                _ => &[],
+            };
+            Ok(Some(Located { entry, extra, page }))
         }
         Err(_) => Ok(None),
     }
+}
+
+/// Whether an entry of `kind` has the identity `id`, so that a random identity equal to one in the catalog is drawn
+/// again (P12 of the table design, D6 of the tables with schema execution). It reads the whole catalog.
+pub fn has_identity<S: PageSource + ?Sized>(tx: &S, kind: TreeKind, id: u64) -> Result<bool> {
+    let root = tx.slot(ROOT_SLOT)?;
+    let mut found = false;
+    if root != 0 {
+        crate::leaves(tx, root, None, &mut |page, leaf| {
+            for index in 0..node::count(leaf) {
+                let entry =
+                    Entry::decode_in(tx, page, crate::resolve(tx, node::value(leaf, index))?)?;
+                found |= entry.kind == kind && entry.id == id;
+            }
+            Ok(())
+        })?;
+    }
+    Ok(found)
 }
 
 /// The name and kind of every tree, in byte order of the names: an owned copy (A3), reserved as
@@ -131,14 +183,41 @@ pub fn list<S: PageSource + ?Sized>(tx: &S) -> Result<Vec<(String, TreeKind)>> {
     Ok(trees)
 }
 
-/// Stores `entry` under `name`, creating the catalog with the first tree (A12) or replacing the entry there.
+/// Stores `entry` under `name`, creating the catalog with the first tree (A12) or replacing the entry there. A table's
+/// entry goes through [`put_with_extra`].
 pub fn put(tx: &mut WriteTransaction<'_>, name: &str, entry: &Entry) -> Result<()> {
+    debug_assert!(
+        entry.kind != TreeKind::Table,
+        "a table's entry has its schema"
+    );
     let mut root = tx.slot(ROOT_SLOT)?;
     if root == 0 {
         root = crate::create(tx)?;
     }
     let (bytes, len) = entry.encode();
     let update = crate::set(tx, root, name.as_bytes(), &bytes[..len])?;
+    tx.set_slot(ROOT_SLOT, update.root)
+}
+
+/// Stores the entry of a table under `name`: its fixed part followed by `extra`, which must not be empty, the
+/// table's schema (see [`lookup_with_extra`]).
+pub fn put_with_extra(
+    tx: &mut WriteTransaction<'_>,
+    name: &str,
+    entry: &Entry,
+    extra: &[u8],
+) -> Result<()> {
+    debug_assert!(entry.kind == TreeKind::Table && !extra.is_empty());
+    let mut root = tx.slot(ROOT_SLOT)?;
+    if root == 0 {
+        root = crate::create(tx)?;
+    }
+    let (fixed, len) = entry.encode();
+    let mut bytes = Vec::new();
+    crate::reserve(&*tx, &mut bytes, len + extra.len())?;
+    bytes.extend_from_slice(&fixed[..len]);
+    bytes.extend_from_slice(extra);
+    let update = crate::set(tx, root, name.as_bytes(), &bytes)?;
     tx.set_slot(ROOT_SLOT, update.root)
 }
 
