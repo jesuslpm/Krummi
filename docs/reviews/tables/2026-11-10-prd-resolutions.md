@@ -60,3 +60,15 @@ The user approved closing R2 by applying the annotations and authorized a fourth
   `trees-keys.prd.md` (A1, A3, A6, A7, A9, A10) and `transactions.prd.md` (T4, T12). `tables.prd.md` now says the
   documents carry them.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-10 (fourth round verification and fixes)
+
+Follow-up report: [2026-11-10-prd-03.md](2026-11-10-prd-03.md), thread `01a1c4e3-22fb-7551-a4a8-c40c3495daab`, status
+`findings`. R2: "Verified resolved" by `b471cc4`. New R3 (minor): the English benchmark annotation translated the CLI
+output literal.
+
+### R3 — minor: the benchmark translation changes a quoted CLI output literal
+
+- Disposition: fixed (commit `27ec654`): `benchmark.prd.en.md` quotes `Krummi cumple N de 22 umbrales`, the Spanish CLI
+  message, as translations keep CLI messages verbatim.
+- Status: claimed fixed, unverified until a follow-up review.

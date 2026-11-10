@@ -138,3 +138,18 @@ automatic round, the limit of the codex-review loop; a further round needs the u
 
 R2: fixed by commit `b471cc4`; see [2026-11-10-prd-resolutions.md](2026-11-10-prd-resolutions.md). The user authorized
 a fourth round to verify R2, R4 and R6.
+
+## 2026-11-10 (fourth round verification and fixes)
+
+Follow-up report: [2026-11-10-code-04.md](2026-11-10-code-04.md), status `findings`, verdict "Changes requested: one
+major and two minor findings remain open." R2 verified resolved; R6 and R4 still open; new R9 (same as R3 of the PRD
+chain). Fixes in commit `27ec654`:
+
+- R6, major: the run's second tree, keyed by the same position, holds the row's encoded primary key (at most 2,048
+  bytes) followed by any computed value, since the row omits fixed-width primary key columns; each record of either
+  tree fits B6. Status: claimed fixed, unverified.
+- R4, minor: doc 2's primary key paragraph and off-leaf scan sentence follow the fixed-width / `string` and `bytes`
+  distinction. Status: claimed fixed, unverified.
+- R9, minor: the benchmark translation keeps the Spanish CLI literal. Status: claimed fixed, unverified.
+
+The user authorized the fourth round only; a fifth needs a new authorization.
