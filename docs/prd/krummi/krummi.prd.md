@@ -113,9 +113,9 @@ no contiene un almacén de Krummi (D10, decisión R6).*
   el cifrado), con el 17, el 18 y el 19, y sin la compresión por diccionario, aplazada (N2 de las tablas), aunque
   Voron la tiene.*
 - *D2: la superficie pública añade la interfaz C y el binding C# del módulo 18.*
-- *D11 y AC20: los valores de las columnas de una tabla que no son `string`, `bytes` ni vector se devuelven
+- *D11 y AC20: los valores de las columnas de una tabla que no son `string`, `bytes`, vector ni JSON se devuelven
   decodificados en una copia propia de la aplicación (Salida de las tablas), como Listar en A3; los de `string`,
-  `bytes` y vector siguen siendo referencias sin copia.*
+  `bytes`, vector y JSON (este, desde el PRD hijo 7.5 de las tablas) siguen siendo referencias sin copia.*
 - *D12 y AC21: la interfaz C (módulo 18) es, con el Pager, la única parte del motor que puede usar código no seguro.
   Una dependencia que usa código no seguro se admite caso por caso, si es muy usada y mantenida, solo Rust (sin C),
   sin una alternativa segura razonable, y anotada con su motivo en el PRD que la introduce; las dependencias con

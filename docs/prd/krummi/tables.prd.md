@@ -163,7 +163,7 @@ añade las situaciones de sus operaciones y fija los datos de cada error.
 ## Salida
 
 El módulo no escribe nada en pantalla. Una lectura devuelve los valores guardados, con la normalización de N4 (`-0` y
-NaN); los de `string`, `bytes` y vector, sin copiarlos (D11, T16, B10), y los demás, decodificados en una copia propia de la aplicación (excepción a D11, como Listar en A3). La información del almacén (P12) no añade datos salvo lo que fije 7.3. El
+NaN); los de `string`, `bytes`, vector y JSON (desde 7.5), sin copiarlos (D11, T16, B10), y los demás, decodificados en una copia propia de la aplicación (excepción a D11, como Listar en A3). La información del almacén (P12) no añade datos salvo lo que fije 7.3. El
 informe del banco añade las cargas de N11 y cuenta sus umbrales con los demás.
 
 ## Reutilización

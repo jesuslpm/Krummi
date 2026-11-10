@@ -114,9 +114,9 @@ contain a Krummi store (D10, decision R6).*
   encryption), with 17, 18 and 19, and without dictionary compression, deferred (N2 of tables), although Voron has
   it.*
 - *D2: the public surface adds module 18's C interface and C# binding.*
-- *D11 and AC20: the values of a table's columns that are not `string`, `bytes` or vector are returned decoded into
-  a copy the application owns (tables, Output), like List in A3; `string`, `bytes` and vector values remain
-  references without a copy.*
+- *D11 and AC20: the values of a table's columns that are not `string`, `bytes`, vector or JSON are returned decoded
+  into a copy the application owns (tables, Output), like List in A3; `string`, `bytes`, vector and JSON values (JSON
+  from child PRD 7.5 of the tables) remain references without a copy.*
 - *D12 and AC21: the C interface (module 18) is, with the Pager, the only part of the engine that may use unsafe
   code. A dependency that uses unsafe code is admitted case by case, if it is widely used and maintained, Rust only
   (no C), with no reasonable safe alternative, and annotated with its reason in the PRD that introduces it;

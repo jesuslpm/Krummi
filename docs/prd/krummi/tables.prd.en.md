@@ -163,7 +163,7 @@ PRD adds the situations of its operations and sets the data of each error.
 ## Output
 
 The module writes nothing to the screen. A read returns the stored values, with the normalization of N4 (`-0` and
-NaN); those of `string`, `bytes` and vector, without copying them (D11, T16, B10), and the others, decoded into a
+NaN); those of `string`, `bytes`, vector and JSON (from 7.5), without copying them (D11, T16, B10), and the others, decoded into a
 copy owned by the application (exception to D11, like List in A3). The store information (P12) adds no data except
 what 7.3 sets. The benchmark report adds the workloads of N11 and counts their thresholds with the others.
 
