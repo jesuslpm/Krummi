@@ -105,12 +105,12 @@ fact-check).
 **Normalization stored or not.** pgvector stores what is inserted and offers `l2_normalize`; RavenDB computes cosine on
 raw values. Options: (a) store as given and compute cosine with both norms every time (3 accumulations per element
 pair: dot, |a|², |b|²); (b) store a normalized copy (cosine becomes a dot product, one accumulation), at the cost of
-modifying user data or a per-column flag; (c) store the norm beside the vector (4 bytes) so only dot is needed per
+modifying user data or a per-column flag; (c) store the norm beside the vector (8 bytes, `f64` since R3) so only dot is needed per
 row. Decided (c) for a cosine column (a column flag, called `cosine` here; its name is the PRD's): the norm is stored
-beside the vector as an `f32`, user data is intact, the scan pays one accumulation, and the query's norm is computed
+beside the vector as an `f64` (R3, below), user data is intact, the scan pays one accumulation, and the query's norm is computed
 once. The norm is computed at write by the same fixed-order kernel (then one `sqrt`), so it is bit-identical on every
 platform. For `i8` the scale is not the norm: the stored norm is that of the dequantized vector (the exact integer sum
-of squares, times the scale squared, then `sqrt`). A cosine column of `f32`, `f16` or `i8` elements pays the 4 bytes;
+of squares, times the scale squared, then `sqrt`). A cosine column of `f32`, `f16` or `i8` elements pays the 8 bytes;
 `bit` columns use Hamming only.
 
 ### 2. Distance functions
@@ -128,10 +128,28 @@ with `-128` times `-128`) fits `i32` with room, so integer results are exact and
 
 **NaN and infinity.** Floating-point storage refuses them (decided). pgvector rejects both on insert ("NaN not allowed
 in vector", "infinite value not allowed in vector", `vector.c`). Krummi rejects NaN and ±inf on write for
-`f32`/`f16`; the dimension check and this check are both write-time errors. Then a distance over stored data is never
-NaN, except for overflow to +inf on huge finite values (`f32::MAX` squared): treat an infinite result as greater than
-any threshold. The query vector gets the same validation. A rule that stored values are finite also makes the order
-"smaller distance first" total, which the heap needs (use `f32::total_cmp`, no panics).
+`f32`/`f16`; the dimension check and this check are both write-time errors. The query vector gets the same
+validation.
+
+**Arithmetic in `f64`** (corrected 2026-11-10 after the Codex review, R3). Finite inputs do not make finite results
+in `f32` arithmetic: identical vectors `[1e20]` square to +inf, so cosine computes `1 - inf/inf`, NaN; identical
+`[1e-30]` underflow to `0/0`, NaN; and the dot product of `[1e20, 1e20]` and `[1e20, -1e20]` adds +inf and -inf, NaN.
+The first version claimed that a distance over stored data is never NaN; Codex compiled and ran these cases. So every
+floating kernel converts each element to `f64` (exact for `f32` and `f16`) and accumulates in `f64`:
+
+- the product of two `f32` values is exact in `f64` (24 + 24 significant bits, under 53), so no product rounds;
+- the largest product, `f32::MAX`², about 1.2e77, times 4,096 terms is far below `f64::MAX` (1.8e308): no overflow;
+- the smallest nonzero product, the `f32` subnormal minimum squared, about 2e-90, is far above `f64`'s smallest
+  subnormal (4.9e-324): a nonzero product never underflows to zero;
+- `i8` kernels keep the exact `i32` sum and multiply by the scales in `f64` (scale² up to about 1.2e77 times the sum,
+  at most 6.7e7: no overflow).
+
+Then, for vectors the write validation admits (finite, and nonzero in a cosine column), the sum of squares is
+positive and finite, the norm is positive and finite, and every distance is finite: never NaN, never infinite. The
+norm is stored as `f64` (8 bytes) and distances are `f64`. The order "smaller distance first" is total over finite
+values (`f64::total_cmp` for the heap, no panics). Cost: `f64` lanes are half as wide as `f32` lanes, so a scan's
+arithmetic may take up to about twice as long (estimate, not measured); the golden test below pins the bits, and the
+measurement decides whether a faster path is worth a second, exactly equivalent kernel.
 
 **Determinism.** Float addition is not associative. Two scans that add in a different order can differ in the last
 bits, and a row at `distance == t - ε` could appear in one run and not in the other. Does the filter need bit-exact
@@ -152,7 +170,9 @@ the test. Identical bits across platforms also depend on the conversions (`f16` 
 type are exact; `sqrt` and division are correctly rounded by IEEE 754) and on the compiler never contracting or
 reordering, which no source review proves (added 2026-11-10 after an external review). So the property is checked by
 results, not by the code: a test with fixed vectors, including values near overflow, subnormals and lengths that leave
-a tail, asserts the exact `u32`/`u64` bit pattern of every distance and norm, and CI runs it on every platform it
+a tail, and the cases of R3 above (identical `[1e20]` and `[1e-30]` under cosine, giving 0 or within a few ulps of it,
+and the dot product of `[1e20, 1e20]` and `[1e20, -1e20]`, giving 0), asserts the exact `u64` bit pattern of every
+distance and norm, and that none is NaN or infinite, and CI runs it on every platform it
 builds (today win-x64 and linux-x64); a new platform joins only when that test passes on it.
 
 Cost of that choice: with `L = 16` on AVX2 the compiler holds 2 ymm accumulators; throughput is limited by the
@@ -278,7 +298,7 @@ f32 : dim x 4 bytes, little-endian IEEE 754 binary32
 f16 : dim x 2 bytes, little-endian IEEE 754 binary16
 i8  : dim x 1 byte, then scale: 4 bytes f32 (value = byte x scale)
 bit : ceil(dim / 8) bytes, bit i = (byte[i / 8] >> (i % 8)) & 1; unused high bits of the last byte are zero
-+ for a cosine column: 4 bytes, the L2 norm as f32, after the elements and the scale
++ for a cosine column: 8 bytes, the L2 norm as f64, after the elements and the scale
 ```
 
 No length prefix: the length is a function of the column (element, dimension, cosine flag). Fixed length helps the row
@@ -286,7 +306,7 @@ codec (doc 1), which repeats this layout, and the key-value size accounting. Qua
 does not quantize); a helper `quantize` can come in the bindings.
 
 **Kernels.** One generic function per distance written over `&[u8]` with `as_chunks::<{ 4 * L }>()`, `L = 16`, that
-converts with `from_le_bytes` into `[f32; L]` accumulators, adds lanes in a documented fixed order, then the tail
+converts with `from_le_bytes` and then to `f64` into `[f64; L]` accumulators (R3), adds lanes in a documented fixed order, then the tail
 (`< L` elements) element by element. `f16` goes through the in-engine bit conversion; `i8` accumulates in `i32` (exact);
 `hamming` uses `u64::count_ones` over `u64` chunks (the compiler emits `popcnt`/`cnt` where the target has it and a bit
 trick otherwise; result is exact). Kernels live in a `distance` module with no `unsafe` and no dependency.
@@ -300,7 +320,7 @@ cross-platform bit-identity is guaranteed by construction and verified on x86-64
 vector is committed so that an arm64 job, when one exists, checks it at once. Also: rejection of NaN/inf, of a zero
 vector in a cosine column, and of a wrong dimension.
 
-**Query surface** (feeds doc 4): expression `Distance(column, query_vector, metric)` returning `f32`, usable in
+**Query surface** (feeds doc 4): expression `Distance(column, query_vector, metric)` returning `f64` (R3), usable in
 `Where(expr < t)`, in `OrderBy(expr)` with `Limit(k)`, and projectable. The query vector is validated like a stored one
 (finite, right dimension). A bounded heap implements `OrderBy+Limit` on a distance expression when no index delivers
 the order.
@@ -324,7 +344,7 @@ approximate index re-ranks candidates to the same distances the scan produces.
 | Rust codegen | Auto-vectorization is not guaranteed across compiler versions | A micro-benchmark gate (like the engine's performance method) and a test on the generated speed class; fall back to wider `L` if needed |
 | Large vector rows | A row with a 6 KiB vector always spills off its leaf (cell limit 4,078 bytes), and a scan of its other columns reads the run; a 768-dim row stays inline | Doc 2's clustered layout keeps the row one contiguous run; a companion tree for large columns is a later remedy (doc 1) |
 | Cosine on zero vectors | Division by zero | Rejected at write in a cosine column (decided); a zero query vector is rejected too |
-| `i8` scale | Distances between vectors with different scales need rescaling | Compute `dot` as `Σ aᵢbᵢ x sa x sb` in f32 after the exact integer sum; accuracy documented |
+| `i8` scale | Distances between vectors with different scales need rescaling | Compute `dot` as `Σ aᵢbᵢ x sa x sb` in f64 after the exact integer sum (R3); accuracy documented |
 | Overflow | Huge finite f32 squares overflow to +inf | Treat +inf as "greater than any threshold"; documented |
 | Dependency policy | `half`, `wide` and `pulp` are unnecessary for v1; each has `unsafe` or build-time dispatch inside | v1 has no dependency; revisit with a measured gain (policy in doc 4, question 5) |
 | Memory for top-k | `k` is user-supplied; each heap entry holds a distance and the primary key (up to 2,048 bytes) | `k` is capped at 10,000 (decided): at most 10,000 x (4 + key length) bytes, about 20 MB for the longest keys, 0.2 MB for a 16-byte key |
