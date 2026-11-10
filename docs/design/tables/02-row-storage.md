@@ -261,9 +261,11 @@ counterexamples to the two phases):
   range over a secondary index returns entries ordered by the indexed columns and then by primary key.
 - *Truncate and drop:* emptying or deleting the trees (A2) frees every page at once.
 
-**Primary key columns live only in the key.** The row value does not repeat them (document 1); a reader that needs one
-decodes the key by the schema. This saves the key's length per row and cannot disagree with the key. If the PRD's
-measurement shows the decode costs more than the bytes, repeating the columns is a layout change per schema version.
+**Fixed-width primary key columns live only in the key.** The row value does not repeat them (document 1); a reader
+that needs one decodes the key by the schema. This saves the key's length per row and cannot disagree with the key. If
+the PRD's measurement shows the decode costs more than the bytes, repeating them is a layout change per schema
+version. `string` and `bytes` primary key columns are also in the row, raw, so they read without a copy (document 1;
+corrected 2026-11-10, Codex review R4).
 
 **Order of a full scan.** It is primary key order, because that is how the rows are stored. Document it as a
 guarantee: there is no other table kind to change it.
@@ -288,8 +290,9 @@ guarantee: there is no other table kind to change it.
   key for the heap. Prefix compression of keys is not available (key bytes are stored whole); not worth adding.
 - **Off-leaf rows** (value over 4,074 bytes minus the key, for example a vector of 1,024 floats or more) take whole
   pages plus one (V5), need contiguous pages (F5, V6) and are rewritten whole on update (runs are never changed,
-  `lib.rs:7-9`). Same as in Voron overflow. A scan that reads only the primary key columns stays in the leaves: freeing
-  and key reads never touch the run (V7). A scan of small non-key columns of a table with large vectors reads every
+  `lib.rs:7-9`). Same as in Voron overflow. A scan that reads only fixed-width primary key columns stays in the leaves: freeing
+  and key reads never touch the run (V7); a `string` or `bytes` primary key column of an off-leaf row is read from
+  the run, where it is stored raw (Codex R4). A scan of small non-key columns of a table with large vectors reads every
   run. A companion tree keyed by the primary key for large columns is a later remedy that the layout permits
   (document 1); it is not part of the first version.
 - **Hole compaction.** A leaf that updates rows to larger sizes eventually compacts its cells, which changes much of the
