@@ -56,3 +56,13 @@ Fix commit: `0b19078`.
   now excludes JSON (from 7.5) from the decoded copies. A search of every PRD under `docs/prd/krummi/` for the old
   list (`` `bytes` y vector ``, `` `bytes` ni vector `` and their English forms) finds no other occurrence.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-10 (verification, round 3)
+
+Follow-up review [2026-11-10-prd-03.md](2026-11-10-prd-03.md) over `ef4bc7c..3ecffca`, wrapper status `approved`,
+`threadId` `01a1c6c0-dcba-7cf0-9ebd-683881ecbb0d`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review` `gpt-6.1-sol` / `high`. Verdict, quoted: "Ready for implementation within the reviewed scope; no
+findings remain open."
+
+- R1: verified resolved.
+- R2: verified resolved in round 2.
