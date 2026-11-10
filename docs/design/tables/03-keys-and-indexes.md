@@ -293,7 +293,14 @@ Composite keys and prefix scans:
   | no bound at the low byte end | `start = P ‖ null ‖ FF` when the nulls come first, else `P` | same |
   | no bound at the high byte end | `end = P ‖ null` when the nulls come last, else `P ‖ FF` | same |
 
-  `null` is the column's null element; a not-null column has no null and uses `P` and `P ‖ FF`. A comparison with
+  `null` is the column's null element; a not-null column has no null and uses `P` and `P ‖ FF`.
+
+  A bound of the form `B ‖ FF` can be one byte longer than the 2,048-byte maximum key, which the tree's range API
+  rejects (corrected 2026-11-10 after the Codex review, R5: a `bytes` primary key of 2,046 bytes without `00` encodes in
+  exactly 2,048 bytes, so `enc(v) ‖ FF` is 2,049). When `B` itself is 2,048 bytes, no stored key extends it, so the
+  keys at or after `B ‖ FF` are exactly the keys after `B`: a start `B ‖ FF` becomes `B` excluded, and an end `B ‖ FF`
+  (excluded) becomes `B` included. Every bound passed to the tree is therefore at most 2,048 bytes, and the tree's
+  included and excluded bounds express the same set of keys. A comparison with
   a value never matches a null, so no range includes the nulls; `IS NULL` is the range
   `[P ‖ null, P ‖ null ‖ FF)`. A backward scan reads the same byte range in reverse. The same bounds serve the
   primary key of 7.1: a range on a prefix of a composite primary key, or on a whole one, where the table tree's key
@@ -455,8 +462,10 @@ incluso si no hay índices para las columnas, algo como hace SQL Server con las 
   the fourth review round (H18), all in AC-N8: a write transaction that changes rows, runs `analyze` and aborts
   leaves rows, counter and statistics as before; one that runs `analyze`, changes more rows and commits keeps the
   counter of the moment of `analyze` with the statistics, so the later changes count toward staleness; and a bulk
-  load that fails while a background build samples leaves no row of the load in the stored statistics (the load's
-  rows were never committed, so no snapshot sees them).
+  load that fails while a background build samples leaves in the stored statistics only the rows of the load that
+  were committed, as 7.1 fixes: none if the load fails whole, since its rows were never committed and no snapshot
+  sees them (corrected 2026-11-10 after the Codex review, R1: the first wording assumed the whole-load rule that 7.1
+  has not decided yet).
 - "Stale" means the modification counter since the build exceeds SQL Server's dynamic threshold, as N8 fixes: 500 if
   the table had up to 500 rows at build, otherwise the lesser of 500 + 20 % of the rows and √(1000 × rows) (README,
   correction of 2026-11-09). Corrected 2026-11-10: this line still gave the first draft's proposal, the larger of 500
