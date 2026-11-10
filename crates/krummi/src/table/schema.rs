@@ -14,6 +14,9 @@ use std::fmt;
 use krummi_pager::{SchemaDifference, SchemaRule};
 
 use super::row::{RowColumn, RowLayout};
+#[cfg(test)]
+#[path = "schema_tests.rs"]
+mod tests;
 use super::value::{
     ColumnType, UuidOrder, Value, VectorElement, VectorType, check_type, normalize,
 };
@@ -162,10 +165,18 @@ impl Next {
     }
 
     /// The new schema with its new schema state and, when the change adds a column, that column's identity.
+    ///
+    /// # Panics
+    ///
+    /// Unless `column_id` is given exactly when [`adds_column`](Self::adds_column) says: an added column never keeps
+    /// the placeholder identity of the plan.
     pub(crate) fn identify(mut self, schema_state: u64, column_id: Option<u64>) -> TableSchema {
         self.schema.schema_state = schema_state;
-        if let (true, Some(id)) = (self.added, column_id) {
-            self.schema.columns.last_mut().expect("the added column").id = id;
+        match (self.added, column_id) {
+            (true, Some(id)) => self.schema.columns.last_mut().expect("the added column").id = id,
+            (true, None) => panic!("an added column needs its identity"),
+            (false, Some(_)) => panic!("only an added column takes an identity"),
+            (false, None) => {}
         }
         self.schema
     }
@@ -545,12 +556,11 @@ fn default_text(default: Option<&Value<'_>>) -> String {
     default.map_or_else(|| "no default".to_owned(), ToString::to_string)
 }
 
-/// Whether two normalized defaults are the same value: floats by their bits, so that the one NaN equals itself.
+/// Whether two normalized defaults are the same value (see [`Value::same`]).
 fn same_default(a: Option<&Value<'_>>, b: Option<&Value<'_>>) -> bool {
     match (a, b) {
-        (Some(Value::F32(a)), Some(Value::F32(b))) => a.to_bits() == b.to_bits(),
-        (Some(Value::F64(a)), Some(Value::F64(b))) => a.to_bits() == b.to_bits(),
-        (a, b) => a == b,
+        (Some(a), Some(b)) => a.same(b),
+        (a, b) => a.is_none() && b.is_none(),
     }
 }
 
@@ -829,10 +839,24 @@ impl TableSchema {
         let mut key = Vec::with_capacity(key_count);
         for _ in 0..key_count {
             let id = r.u64()?;
-            if key.contains(&id) || !columns.iter().any(|c| c.id == id) {
+            let column = columns.iter().find(|c| c.id == id)?;
+            // A primary key column without nulls, not a vector, without a default (E4).
+            let bad_key = column.nullable
+                || matches!(column.ty, ColumnType::Vector(_))
+                || column.default.is_some();
+            if key.contains(&id) || bad_key {
                 return None;
             }
             key.push(id);
+        }
+        // The other invariants of E5 that Krummi never writes broken: distinct identities and names, a version.
+        let mut ids = HashSet::with_capacity(count);
+        let mut names = HashSet::with_capacity(count);
+        let distinct = columns
+            .iter()
+            .all(|c| ids.insert(c.id) && names.insert(c.name.as_str()));
+        if version == 0 || !distinct {
+            return None;
         }
         r.is_empty().then_some((
             TableSchema {

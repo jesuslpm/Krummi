@@ -25,8 +25,11 @@
 //! Module 7 adds tables, which share the catalog and its names with the trees: a table has a [`Schema`] of typed
 //! columns and a primary key, and is opened with [`WriteTransaction::open_table_with`] in the modes of the trees;
 //! [`WriteTransaction::describe_table`] gives its [`TableSchema`], and its columns are added, dropped, renamed or
-//! made to allow nulls in a write. Tree operations on a table, and table operations on a tree, fail with
-//! [`ErrorKind::DifferentTreeType`].
+//! made to allow nulls in a write. Rows are given as pairs of column name and value and are inserted, updated (only
+//! the columns given), inserted or updated, read and deleted by their primary key
+//! ([`WriteTransaction::insert_row`], [`ReadTransaction::get_row`]); a read row ([`TableRow`]) has every live column
+//! and borrows its text and bytes from the store. Tree operations on a table, and table operations on a tree, fail
+//! with [`ErrorKind::DifferentTreeType`].
 //!
 //! ```
 //! use krummi::{OpenMode, Store, StoreOptions};
@@ -75,7 +78,9 @@ use sealed::{AsReadTree, AsWriteTree, Token};
 pub mod ids;
 pub mod table;
 
-pub use table::{Column, ReadTable, Schema, SchemaColumn, TableMode, TableSchema, WriteTable};
+pub use table::{
+    Column, ReadTable, Schema, SchemaColumn, TableMode, TableRow, TableSchema, Upserted, WriteTable,
+};
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
 const MAX_NAME: usize = 1024;

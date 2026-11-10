@@ -312,6 +312,26 @@ pub enum Value<'a> {
 }
 
 impl Value<'_> {
+    /// The value borrowing its text, bytes or vector from this one, without copying them.
+    pub fn reborrow(&self) -> Value<'_> {
+        match self {
+            Value::String(text) => Value::String(Cow::Borrowed(text)),
+            Value::Bytes(bytes) => Value::Bytes(Cow::Borrowed(bytes)),
+            Value::Vector(bytes) => Value::Vector(Cow::Borrowed(bytes)),
+            other => other.clone(),
+        }
+    }
+
+    /// Whether two normalized values are the same value, as a row reads them (E10, E11): floats by their bits, so
+    /// that the one NaN equals itself.
+    pub(crate) fn same(&self, other: &Value<'_>) -> bool {
+        match (self, other) {
+            (Value::F32(a), Value::F32(b)) => a.to_bits() == b.to_bits(),
+            (Value::F64(a), Value::F64(b)) => a.to_bits() == b.to_bits(),
+            (a, b) => a == b,
+        }
+    }
+
     /// The value with its borrowed parts copied, so that it outlives what it borrowed.
     pub fn into_owned(self) -> Value<'static> {
         match self {

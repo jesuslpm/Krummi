@@ -28,16 +28,37 @@ use crate::{
 /// between threads (T6); it ends when it is dropped.
 pub struct ReadTransaction<'e> {
     snapshot: Snapshot<'e>,
+    /// The pages, runs and meta slots read, while tests count them.
+    #[cfg(feature = "test-hooks")]
+    pages_read: std::sync::atomic::AtomicU64,
 }
 
 impl<'e> ReadTransaction<'e> {
     pub(crate) fn new(snapshot: Snapshot<'e>) -> ReadTransaction<'e> {
-        ReadTransaction { snapshot }
+        ReadTransaction {
+            snapshot,
+            #[cfg(feature = "test-hooks")]
+            pages_read: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// How many pages, value runs and meta slots this transaction read so far (tests of the tables with schema PRD:
+    /// an operation reads the same pages whatever the size of a table, AC9).
+    #[cfg(feature = "test-hooks")]
+    pub fn pages_read(&self) -> u64 {
+        self.pages_read.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn count_read(&self) {
+        #[cfg(feature = "test-hooks")]
+        self.pages_read
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The payload of page `page_number` as this transaction sees it, without copying it (D11, T16). The
     /// reference lives as long as the transaction (T8).
     pub fn page(&self, page_number: u64) -> Result<&[u8]> {
+        self.count_read();
         self.snapshot.page(page_number)
     }
 
@@ -45,6 +66,7 @@ impl<'e> ReadTransaction<'e> {
     /// the integrity code its read verified when it comes from the store (C2 of the remembered node layout check
     /// PRD), or whether a version of the scratch area already passed the check (U1 of the version checks PRD).
     pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        self.count_read();
         let (page, origin) = self.snapshot.page_and_code(page_number)?;
         Ok((page, origin.into()))
     }
@@ -83,6 +105,7 @@ impl<'e> ReadTransaction<'e> {
     ///
     /// If `first` is one of the store's header pages.
     pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.count_read();
         Ok(&self.snapshot.run(first, count)?[PAGE_HEADER_SIZE..])
     }
 
@@ -101,6 +124,7 @@ impl<'e> ReadTransaction<'e> {
     ///
     /// If `slot` is not below [`META_SLOTS`](crate::META_SLOTS).
     pub fn slot(&self, slot: usize) -> Result<u64> {
+        self.count_read();
         let at = slot_offset(slot);
         match self.snapshot.page(META_PAGE) {
             Ok(meta) => Ok(meta_field(meta, at)),
@@ -163,6 +187,9 @@ pub struct WriteTransaction<'e> {
     /// build adds no type that cannot be shared between threads.
     #[cfg(feature = "test-hooks")]
     layout_log: std::sync::Mutex<Option<Vec<LayoutEvent>>>,
+    /// The pages, runs and meta slots read, while tests count them.
+    #[cfg(feature = "test-hooks")]
+    pages_read: std::sync::atomic::AtomicU64,
 }
 
 /// A page this transaction changed, and how. Its layout is never checked by this transaction (H1 of the commit checks
@@ -204,6 +231,8 @@ impl<'e> WriteTransaction<'e> {
             failure: RefCell::new(None),
             #[cfg(feature = "test-hooks")]
             layout_log: std::sync::Mutex::new(None),
+            #[cfg(feature = "test-hooks")]
+            pages_read: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -237,6 +266,7 @@ impl<'e> WriteTransaction<'e> {
     }
 
     fn page_with(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+        self.count_read();
         self.track(self.engine.injected_fault())?;
         self.check_reserved(page_number, 1);
         if let Err(error) = self.check_page(page_number) {
@@ -344,6 +374,7 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If the pages were never reserved.
     pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.count_read();
         self.track(self.engine.injected_fault())?;
         self.check_reserved(first, count);
         let end = first + count;
@@ -388,6 +419,7 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If `slot` is not below [`META_SLOTS`](crate::META_SLOTS).
     pub fn slot(&self, slot: usize) -> Result<u64> {
+        self.count_read();
         let at = slot_offset(slot);
         if let Some(meta) = self.dirty.get(&META_PAGE) {
             return Ok(meta_field(&meta.payload[..], at));
@@ -847,6 +879,19 @@ impl<'e> WriteTransaction<'e> {
                 (first, run)
             })
             .collect()
+    }
+
+    /// How many pages, value runs and meta slots this transaction read so far, its own changes included (tests of the
+    /// tables with schema PRD: an operation reads the same pages whatever the size of a table, AC9).
+    #[cfg(feature = "test-hooks")]
+    pub fn pages_read(&self) -> u64 {
+        self.pages_read.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn count_read(&self) {
+        #[cfg(feature = "test-hooks")]
+        self.pages_read
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Starts recording the changes of pages, the reads of changed pages and the layout checks the layers above

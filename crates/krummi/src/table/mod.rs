@@ -5,10 +5,14 @@ pub mod catalog;
 mod identity;
 pub mod key;
 pub mod row;
+#[cfg(test)]
+mod row_tests;
+mod rows;
 pub mod schema;
 pub mod value;
 
 pub use catalog::{ReadTable, TableMode, WriteTable};
+pub use rows::{TableRow, Upserted};
 pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 
 /// Test hooks, not part of the interface.

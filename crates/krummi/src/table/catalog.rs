@@ -13,12 +13,14 @@
 
 use std::cell::Ref;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use krummi_pager::{Error, Result, SizeSubject, TreeKind};
 use krummi_tree::PageSource;
 use krummi_tree::catalog::{self, Entry};
 
 use super::identity;
+use super::rows::Reader;
 use super::schema::{
     Change, Column, Different, Invalid, MAX_COLUMN_NAME, Schema, TableSchema, check_new,
     identity_key, schema_names, version_key,
@@ -31,10 +33,16 @@ use crate::{Folder, ReadTransaction, Store, WriteTransaction};
 /// and fails with [`ErrorKind::Misuse`](crate::ErrorKind::Misuse) without effect in another transaction.
 pub struct ReadTable<'s> {
     serial: u64,
-    root: u64,
+    /// The name it was opened with, for the data of its errors.
+    pub(super) name: String,
+    /// The root and the row count of its rows tree.
+    pub(super) rows: u64,
     count: u64,
-    history: u64,
+    /// The root of its schema history tree.
+    pub(super) history: u64,
     schema: TableSchema,
+    /// How its rows are read.
+    pub(super) reader: Arc<Reader>,
     _store: PhantomData<&'s Store>,
 }
 
@@ -46,7 +54,7 @@ pub struct ReadTable<'s> {
 pub struct WriteTable<'s> {
     serial: u64,
     /// The table's identity (P12).
-    id: u64,
+    pub(super) id: u64,
     /// The raw pointer keeps the handle on its thread: it is neither `Send` nor `Sync`.
     _store: PhantomData<(&'s Store, *const ())>,
 }
@@ -98,11 +106,11 @@ impl Tables {
         self.0.binary_search_by_key(&id, |state| state.id)
     }
 
-    fn get(&self, id: u64) -> Option<&TableState> {
+    pub(super) fn get(&self, id: u64) -> Option<&TableState> {
         self.find(id).ok().map(|at| &self.0[at])
     }
 
-    fn get_mut(&mut self, id: u64) -> Option<&mut TableState> {
+    pub(super) fn get_mut(&mut self, id: u64) -> Option<&mut TableState> {
         self.find(id).ok().map(|at| &mut self.0[at])
     }
 }
@@ -112,16 +120,18 @@ pub(crate) struct TableState {
     /// Its identity (P12).
     id: u64,
     /// Its current name or, once deleted, the last one it had (A6).
-    name: String,
+    pub(super) name: String,
     /// The root and the row count of its rows tree.
-    root: u64,
-    count: u64,
+    pub(super) rows: u64,
+    pub(super) count: u64,
     /// The root of its schema history tree.
-    history: u64,
+    pub(super) history: u64,
     schema: TableSchema,
+    /// How the rows of its current schema are read and written.
+    pub(super) reader: Arc<Reader>,
     deleted: bool,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
-    dirty: bool,
+    pub(super) dirty: bool,
 }
 
 impl TableState {
@@ -129,9 +139,15 @@ impl TableState {
         Entry {
             id: self.id,
             kind: TreeKind::Table,
-            root: self.root,
+            root: self.rows,
             count: self.count,
         }
+    }
+
+    /// Makes `schema` the table's current one, for every handle (E4, B9).
+    fn set_schema(&mut self, schema: TableSchema) {
+        self.reader = Arc::new(Reader::new(&schema));
+        self.schema = schema;
     }
 }
 
@@ -162,7 +178,7 @@ fn find_table<S: PageSource>(folder: Folder<'_>, tx: &S, name: &str) -> Result<O
 
 impl Folder<'_> {
     /// Fails with [`Error::InvalidSize`] unless the column name has 1 to 1,024 bytes (E4, E18).
-    fn check_column_name(self, name: &str) -> Result<()> {
+    pub(super) fn check_column_name(self, name: &str) -> Result<()> {
         self.check_size(SizeSubject::ColumnName, name.len(), 1, MAX_COLUMN_NAME)
     }
 
@@ -185,7 +201,7 @@ impl Folder<'_> {
         }
     }
 
-    fn different_schema(self, table: &str, different: Different) -> Error {
+    pub(super) fn different_schema(self, table: &str, different: Different) -> Error {
         Error::DifferentSchema {
             folder: self.owned(),
             table: table.to_owned(),
@@ -196,7 +212,7 @@ impl Folder<'_> {
         }
     }
 
-    fn foreign_table(self) -> Error {
+    pub(super) fn foreign_table(self) -> Error {
         Error::Misuse {
             folder: self.owned(),
             reason: "the table was opened in another transaction",
@@ -214,9 +230,11 @@ impl<'s> ReadTransaction<'s> {
         let found = found.ok_or_else(|| self.folder.not_found(name))?;
         Ok(ReadTable {
             serial: self.serial,
-            root: found.entry.root,
+            name: name.to_owned(),
+            rows: found.entry.root,
             count: found.entry.count,
             history: found.history,
+            reader: Arc::new(Reader::new(&found.schema)),
             schema: found.schema,
             _store: PhantomData,
         })
@@ -245,12 +263,12 @@ impl<'s> ReadTransaction<'s> {
     pub fn table_trees(&self, table: &ReadTable<'_>) -> Result<TableTrees> {
         self.check_table(table)?;
         Ok(TableTrees {
-            rows: table.root,
+            rows: table.rows,
             history: table.history,
         })
     }
 
-    fn check_table(&self, table: &ReadTable<'_>) -> Result<()> {
+    pub(super) fn check_table(&self, table: &ReadTable<'_>) -> Result<()> {
         if table.serial == self.serial {
             Ok(())
         } else {
@@ -348,7 +366,7 @@ impl<'s> WriteTransaction<'s> {
     pub fn table_trees(&self, table: &WriteTable<'_>) -> Result<TableTrees> {
         let state = self.live_table(table)?;
         Ok(TableTrees {
-            rows: state.root,
+            rows: state.rows,
             history: state.history,
         })
     }
@@ -450,9 +468,10 @@ impl<'s> WriteTransaction<'s> {
                 TableState {
                     id: found.entry.id,
                     name,
-                    root: found.entry.root,
+                    rows: found.entry.root,
                     count: found.entry.count,
                     history: found.history,
+                    reader: Arc::new(Reader::new(&found.schema)),
                     schema: found.schema,
                     deleted: false,
                     dirty: false,
@@ -468,7 +487,7 @@ impl<'s> WriteTransaction<'s> {
 
     /// The state of the table of `table`. Fails with misuse for a handle of another transaction and with not found
     /// once the table was deleted, without reading anything (A7, E17).
-    fn live_table(&self, table: &WriteTable<'_>) -> Result<Ref<'_, TableState>> {
+    pub(super) fn live_table(&self, table: &WriteTable<'_>) -> Result<Ref<'_, TableState>> {
         if table.serial != self.serial {
             return Err(self.folder.foreign_table());
         }
@@ -542,11 +561,11 @@ impl<'s> WriteTransaction<'s> {
     /// rows give way to one empty root (E3).
     fn empty_table(&mut self, name: &str, found: Found) -> Result<WriteTable<'s>> {
         let handle = self.join(name, found)?;
-        let old = self.tables.get_mut().get(handle.id).expect("joined").root;
+        let old = self.tables.get_mut().get(handle.id).expect("joined").rows;
         krummi_tree::free_all(&mut self.inner, old)?;
         let root = krummi_tree::create(&mut self.inner)?;
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
-        state.root = root;
+        state.rows = root;
         state.count = 0;
         state.dirty = true;
         Ok(handle)
@@ -558,7 +577,7 @@ impl<'s> WriteTransaction<'s> {
         let id = self.join(name, found)?.id;
         let (root, history) = {
             let state = self.tables.get_mut().get(id).expect("joined");
-            (state.root, state.history)
+            (state.rows, state.history)
         };
         krummi_tree::free_all(&mut self.inner, root)?;
         krummi_tree::free_all(&mut self.inner, history)?;
@@ -608,7 +627,7 @@ impl<'s> WriteTransaction<'s> {
             .get_mut()
             .get_mut(table.id)
             .expect("a live handle");
-        state.schema = schema;
+        state.set_schema(schema);
         state.history = history;
         state.dirty = false;
         let (name, entry, extra) = (

@@ -1683,6 +1683,62 @@ fn g6_a_malformed_table_entry_is_damage_of_its_catalog_page() {
     assert_eq!(list(&read), [("t".to_owned(), TreeKind::Table)]);
 }
 
+/// G6 (E5): a table entry whose bytes after the catalog's fixed part are garbage (a valid schema with a byte more,
+/// bytes of no schema, a schema that breaks E5, a single byte) is damage of its catalog page for Open and Describe,
+/// which never panic.
+#[test]
+fn g6_garbage_after_a_table_entry_is_damage_of_its_catalog_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_table(&store, "t", &people());
+    store.close().unwrap();
+    let page = leaf_page(tmp.path(), None, b"t");
+    let valid = inspect(tmp.path(), |read| {
+        catalog::lookup_with_extra(read, "t")
+            .unwrap()
+            .unwrap()
+            .extra
+            .to_vec()
+    });
+    let mut longer = valid.clone();
+    longer.push(0);
+    let noise: Vec<u8> = (0..valid.len())
+        .map(|i| (i as u8).wrapping_mul(151).wrapping_add(7))
+        .collect();
+    // The version (bytes 8 and 9, after the history root) set to 0, which no schema has (E4).
+    let mut version_zero = valid.clone();
+    version_zero[8..10].copy_from_slice(&[0, 0]);
+    for (label, extra) in [
+        ("a byte more", longer),
+        ("noise", noise),
+        ("version 0", version_zero),
+        ("one byte", vec![0xFF]),
+    ] {
+        {
+            let engine = krummi_tx::Engine::open(tmp.path(), &Default::default()).unwrap();
+            let mut write = engine.write(None).unwrap();
+            let entry = catalog::lookup(&write, "t").unwrap().unwrap();
+            catalog::put_with_extra(&mut write, "t", &entry, &extra).unwrap();
+            write.commit().unwrap();
+            engine.close().unwrap();
+        }
+        let store = open(tmp.path());
+        let read = store.read().unwrap();
+        assert_eq!(
+            damaged_page(read.open_table("t").err().unwrap()),
+            page,
+            "{label}"
+        );
+        assert_eq!(
+            damaged_page(read.describe_table("t").err().unwrap()),
+            page,
+            "{label}"
+        );
+        drop(read);
+        store.close().unwrap();
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // AC18: the format
 

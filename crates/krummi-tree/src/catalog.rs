@@ -185,39 +185,51 @@ pub fn list<S: PageSource + ?Sized>(tx: &S) -> Result<Vec<(String, TreeKind)>> {
 
 /// Stores `entry` under `name`, creating the catalog with the first tree (A12) or replacing the entry there. A table's
 /// entry goes through [`put_with_extra`].
+///
+/// # Panics
+///
+/// If `entry` is a table's: without its schema it would be damage of the catalog page.
 pub fn put(tx: &mut WriteTransaction<'_>, name: &str, entry: &Entry) -> Result<()> {
-    debug_assert!(
+    assert!(
         entry.kind != TreeKind::Table,
         "a table's entry has its schema"
     );
-    let mut root = tx.slot(ROOT_SLOT)?;
-    if root == 0 {
-        root = crate::create(tx)?;
-    }
     let (bytes, len) = entry.encode();
-    let update = crate::set(tx, root, name.as_bytes(), &bytes[..len])?;
-    tx.set_slot(ROOT_SLOT, update.root)
+    store(tx, name, &bytes[..len])
 }
 
-/// Stores the entry of a table under `name`: its fixed part followed by `extra`, which must not be empty, the
-/// table's schema (see [`lookup_with_extra`]).
+/// Stores the entry of a table under `name`: its fixed part followed by `extra`, the table's schema (see
+/// [`lookup_with_extra`]).
+///
+/// # Panics
+///
+/// If `entry` is not a table's, or `extra` is empty: either would be damage of the catalog page.
 pub fn put_with_extra(
     tx: &mut WriteTransaction<'_>,
     name: &str,
     entry: &Entry,
     extra: &[u8],
 ) -> Result<()> {
-    debug_assert!(entry.kind == TreeKind::Table && !extra.is_empty());
-    let mut root = tx.slot(ROOT_SLOT)?;
-    if root == 0 {
-        root = crate::create(tx)?;
-    }
+    assert!(
+        entry.kind == TreeKind::Table,
+        "only a table's entry has extra bytes"
+    );
+    assert!(!extra.is_empty(), "a table's entry has its schema");
     let (fixed, len) = entry.encode();
     let mut bytes = Vec::new();
     crate::reserve(&*tx, &mut bytes, len + extra.len())?;
     bytes.extend_from_slice(&fixed[..len]);
     bytes.extend_from_slice(extra);
-    let update = crate::set(tx, root, name.as_bytes(), &bytes)?;
+    store(tx, name, &bytes)
+}
+
+/// Stores the encoded entry `bytes` under `name`, creating the catalog with the first tree (A12).
+fn store(tx: &mut WriteTransaction<'_>, name: &str, bytes: &[u8]) -> Result<()> {
+    let mut root = tx.slot(ROOT_SLOT)?;
+    if root == 0 {
+        root = crate::create(tx)?;
+    }
+    let update = crate::set(tx, root, name.as_bytes(), bytes)?;
     tx.set_slot(ROOT_SLOT, update.root)
 }
 
@@ -237,4 +249,46 @@ pub fn new_identity(tx: &mut WriteTransaction<'_>) -> Result<u64> {
         .expect("fewer than 2^64 trees are ever created");
     tx.set_slot(IDENTITIES_SLOT, next)?;
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use krummi_tx::{Engine, OpenOptions};
+
+    use super::*;
+
+    fn entry(kind: TreeKind) -> Entry {
+        Entry {
+            id: 1,
+            kind,
+            root: 9,
+            count: 0,
+        }
+    }
+
+    /// The guards hold in every build, not only with debug assertions: a table's entry without its schema would be
+    /// damage of the catalog page, and a tree's entry with extra bytes too.
+    #[test]
+    #[should_panic(expected = "a table's entry has its schema")]
+    fn put_refuses_a_table_entry() {
+        let engine = Engine::open_temporary(&OpenOptions::default()).unwrap();
+        let mut tx = engine.write(None).unwrap();
+        let _ = put(&mut tx, "t", &entry(TreeKind::Table));
+    }
+
+    #[test]
+    #[should_panic(expected = "only a table's entry has extra bytes")]
+    fn put_with_extra_refuses_a_tree_entry() {
+        let engine = Engine::open_temporary(&OpenOptions::default()).unwrap();
+        let mut tx = engine.write(None).unwrap();
+        let _ = put_with_extra(&mut tx, "t", &entry(TreeKind::Normal), b"x");
+    }
+
+    #[test]
+    #[should_panic(expected = "a table's entry has its schema")]
+    fn put_with_extra_refuses_an_empty_schema() {
+        let engine = Engine::open_temporary(&OpenOptions::default()).unwrap();
+        let mut tx = engine.write(None).unwrap();
+        let _ = put_with_extra(&mut tx, "t", &entry(TreeKind::Table), b"");
+    }
 }
