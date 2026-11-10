@@ -32,3 +32,27 @@ Review record: `docs/reviews/tables-ann/2026-11-10-prd.md`, wrapper status `find
   trees.
 - Fix: the *Datos* row of *Estado de partida*, in both languages, now gives the key and value limits per tree kind.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-10 (verification)
+
+Follow-up review [2026-11-10-prd-02.md](2026-11-10-prd-02.md) over `8aa74da..ef4bc7c`, wrapper status `findings`
+(open R1), `threadId` `01a1c6bb-2f81-75c2-b888-4ed4a01e51be`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Verdict, quoted: "Ready for implementation with a minor
+documentation correction outstanding: R1 remains open; R2 is verified resolved."
+
+- R1: "still open, partially resolved; severity reduced to minor". The edits to *Salida* and the root D11/AC20
+  annotation were verified; the umbrella's own annotation summary (*Anotaciones a otros PRD*) still excluded only
+  `string`, `bytes` and vector.
+- R2: verified resolved.
+
+## 2026-11-10 (round 2 fixes)
+
+Fix commit: `0b19078`.
+
+### R1 — minor: JSON ownership annotation still contradicts the corrected output
+
+- Disposition: fixed.
+- Fix: the "Padre raíz, D11 y AC20" item of *Anotaciones a otros PRD*, in `tables.prd.md` and `tables.prd.en.md`,
+  now excludes JSON (from 7.5) from the decoded copies. A search of every PRD under `docs/prd/krummi/` for the old
+  list (`` `bytes` y vector ``, `` `bytes` ni vector `` and their English forms) finds no other occurrence.
+- Status: claimed fixed, unverified until a follow-up review.
