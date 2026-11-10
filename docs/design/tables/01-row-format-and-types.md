@@ -172,7 +172,7 @@ offset  size            field
 2       1               flags                 bits 0-1: offset width (0=u8, 1=u16, 2=u32)
                                               bit 2: body compressed (hook for doc 7, see below)
                                               bits 3-7: 0 (reserved)
-3       ceil(N/8)       null bitmap           1 bit per nullable column, in column-id order, 1 = null;
+3       ceil(N/8)       null bitmap           1 bit per nullable column, in the version's column order, 1 = null;
                                               absent if the version has no nullable column
 .       F               fixed section         small fixed columns (<= 16 B) at schema-computed offsets
 .       (V-1) * w       end offsets           end of variable column j relative to the variable section
@@ -183,7 +183,9 @@ offset  size            field
 Rules:
 
 - **Layout order is computed from the schema version**, not stored: fixed columns sorted by descending width (8, 4,
-  2, 1) so the fixed section needs no padding, with ties broken by column id; variable columns in column-id order.
+  2, 1) so the fixed section needs no padding, with ties broken by the column's position in the version's list
+  (the order columns were added); variable columns in that order. The position, not the random `column_id`, keeps
+  the layout of existing columns stable when one is added.
   The offset of every fixed column is a constant of the (table, version), cached in a per-version table.
 - **Nullable fixed columns keep their slot** (a null writes zeros); that wastes at most 16 bytes per null and keeps
   every offset constant. **Variable and large columns take 0 bytes when null**: the end offset equals the previous
@@ -224,7 +226,9 @@ Rules:
 ### Schema evolution
 
 The catalog stores, per table, an append-only list of **schema versions**; each version lists its columns (stable
-`column_id`, current name, type, nullable, default). A row records the version it was written with.
+`column_id`, current name, type, nullable, default). A row records the version it was written with. The `column_id`
+is the column's random 64-bit identity (document 11, P12 and P19, approved 2026-11-10), not a counter: rows never
+store it, and the lookup below is indexed by version, so it needs no dense number.
 
 - **Add a nullable column:** new version; old rows read it as null (the reader sees that the row's version has no such
   column). **Add with default:** the default is stored in the catalog and returned for old rows, as PostgreSQL does

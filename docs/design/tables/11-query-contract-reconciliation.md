@@ -103,6 +103,25 @@ table of round 2. P20 (the random source of 7.1) is new in this round; §2.8 has
 and P18 are new, but their alternatives are minor or there is none left after the reviews; each is stated below with
 its recommendation.
 
+**Block approved (2026-11-10).** The user approved the twelve, with the external review's verdict: "Considera aprobadas
+estas siete decisiones con las aclaraciones indicadas" (P9, P10, P12, P13, P17, P18, P19), and for P1, P2, P5, P7 and
+P8 "conserva las decisiones anteriores que ya estén formalmente aprobadas" (U1-U6, U9). The clarifications, each
+applied where the decision lives:
+
+- P9: "los límites necesarios para evitar agotamiento de recursos no puedan desactivarse accidentalmente mediante un
+  presupuesto arbitrariamente grande". Every budget that guards memory or work has a hard maximum; §2.5.
+- P10: errors structured and precise enough for tools and agents to correct the document (already §2.5's path,
+  expected and found).
+- P12: "La probabilidad de 2⁻⁶⁴ corresponde a una comparación entre valores independientes, no a la probabilidad
+  acumulada de colisión durante toda la vida del almacén." §2.2 states both, and the detectable collisions are drawn
+  again and tested.
+- P17: "Mantén diferenciada la revinculación de consultas lógicas y la validación de planes físicos explícitos" (§2.2
+  keeps them as two rules).
+- P18: approved for V1; a C convenience function stays possible later if performance or ergonomics justify it.
+- P19: "`column_id` no debería tratarse como un contador si ahora es una identidad aleatoria". `column_id` is now the
+  column's random identity (doc 1); the internal counter left is the `u16` schema version, and it fails before any
+  state changes.
+
 | # | Proposed decision | Viable alternatives | Recommendation | 7.1 | 7.2 | 17 | 18 | Backing or approval |
 |---|---|---|---|---|---|---|---|---|
 | P1 | Typed JSON documents (`query/1`, `plan/1`, `execution/1`, `explain/1`) replace the binary envelope; Krummi's operators and the Substrait vocabulary stay | — | Adopt | — | — | Parser, emitter, golden documents | C# writes JSON with `Utf8JsonWriter` | Backed: U1, U9 |
@@ -113,17 +132,17 @@ its recommendation.
 | P6 | Stored queries are a versioned contract; stored plans have no promise beyond typed rejection; statements never persist | After 1.0: every published `query` major accepted, or only the current and the previous | None before 1.0 (as D7); after 1.0 every published major, since queries are small and old majors cost a reader each | — | — | Versioning rule, readers per major | — | Approval (block 5); the three concepts backed by U4 |
 | P7 | Text forms cover 7.1's whole date and time domains; no domain change | Restrict 7.1's domain to 0001-9999 (a 7.1 decision) | Whole domain | Text conversion over its domain | — | §2.4 forms | Raw accessor or error for dates outside .NET's range | Backed: U5, C4 |
 | P8 | A versioned JSON Schema per kind, published with the library | — | Adopt; distribution is open question 4 | — | — | Schema files, CI check | Shipped schema (if question 4 says so) | Backed: U6, U9 |
-| P9 | Document limits are application budgets with safe defaults, ceilings only where an implementation bound exists | Fixed contract maxima | Budgets, as doc 4 question 9 recommended | — | — | `limits`, defaults | Limits in the C options | Approval (block) |
-| P10 | Errors with JSON Pointer path, expected, found; new D8 class **invalid document**; stale documents fail with N10's **schema mismatch** | Report bad documents as misuse | New class: an application must tell a bad document from a call in the wrong order | Schema mismatch data (tokens, versions) | — | Error object | Status code | Approval (block); the path backed by U6 |
+| P9 | Document limits are application budgets with safe defaults, ceilings only where an implementation bound exists; a budget that guards memory or work has a hard maximum no setting exceeds | Fixed contract maxima | Budgets, as doc 4 question 9 recommended | — | — | `limits`, defaults, hard maxima | Limits in the C options | Approved 2026-11-10 |
+| P10 | Errors with JSON Pointer path, expected, found; new D8 class **invalid document**; stale documents fail with N10's **schema mismatch** | Report bad documents as misuse | New class: an application must tell a bad document from a call in the wrong order | Schema mismatch data (tokens, versions) | — | Error object | Status code | Approved 2026-11-10; the path backed by U6 |
 | P11 | `serde`, `serde_derive`, `serde_json` and their crates, after the dependency rule is written into D12, annotated in D12 and module 17's PRD | A strict reader of Krummi's own in safe Rust | `serde_json` (§2.6), the reviewer's preference | — | — | Dependencies of the query crate only | None (C# uses `System.Text.Json`) | Approval (block 2): two annotations |
-| P12 | Catalog identities and state tokens are random 64-bit values, readable by applications through introspection and in emitted documents; collisions stated at 2^-64 per comparison | Identities only inside emitted documents, no introspection call | Introspection: agents and tools need it without running `explain` | Catalog stores identities and `schema_state`; describe call | Index identity, `index_state` | `refs`, `bind`, cache keys | Describe through C | Approval (block); partly backed by README *Plans* |
-| P13 | Objective 4, AI-assisted development, in the root PRD; no MCP or AI-provider dependency in the library | Leave the objective out | Add it; the reviews treat it as a goal | — | — | Introspection and schemas serve it | — | Approval (block); the dependency rule backed by U8 |
+| P12 | Catalog identities and state tokens are random 64-bit values, readable by applications through introspection and in emitted documents; collisions stated at 2^-64 per comparison and at most m × 2^-64 over m comparisons in a store's life; a drawn value equal to a known one is drawn again | Identities only inside emitted documents, no introspection call | Introspection: agents and tools need it without running `explain` | Catalog stores identities (a column's is its `column_id`) and `schema_state`; describe call | Index identity, `index_state` | `refs`, `bind`, cache keys | Describe through C | Approved 2026-11-10 |
+| P13 | Objective 4, AI-assisted development, in the root PRD; no MCP or AI-provider dependency in the library | Leave the objective out | Add it; the reviews treat it as a goal | — | — | Introspection and schemas serve it | — | Approved 2026-11-10; the dependency rule backed by U8 |
 | P14 | One statement serves several threads and open cursors; argument sets and cursors one thread at a time | SQLite's model: values in the statement, one thread at a time | Shared: read transactions are shareable (T6) | — | — | `Send + Sync` statement | Thread-safe handle; argument set handle | Approval (block 7) |
 | P15 | No literals: constants such as a fixed `limit` count are parameters | Integer literals for `limit`, `offset` and `k` only | Parameters only: one way to write a value, as the README says | — | — | No literal nodes | The builder turns constants into parameters | Approval (block 6) |
 | P16 | A statement pins the column identities it bound; a `query` may carry `bind`, emitted by Krummi, optional on input | (a) pin the whole schema state; (b) re-bind by name | Pin column identities: catches a replaced column, survives unrelated changes | Stable column identities | — | `bind`, binding check | — | Approval (block 3) |
-| P17 | Validity follows the identities and tokens the executing transaction sees, whatever happened to the transaction that prepared; no restriction on `prepare` and `explain` in write transactions | None left after C13 and C14 | Adopt | Tokens drawn when a change is made in a write transaction | Same for indexes | Validity rule, cursors across changes | Cursor misuse after a change | Approval (block) |
-| P18 | No one-shot C function; convenience methods in Rust and C# | A C one-shot taking `execution/1` | No C one-shot: four calls do it, one path to test | — | — | Rust convenience | C# convenience | Approval (block) |
-| P19 | A change past the maximum of an internal counter (the `u16` schema version, `column_id`) fails without effect with a typed error | — | Adopt; 7.1 fixes the class | The error and its test hook | — | — | — | Backed: round 2, C10 |
+| P17 | Validity follows the identities and tokens the executing transaction sees, whatever happened to the transaction that prepared; no restriction on `prepare` and `explain` in write transactions | None left after C13 and C14 | Adopt | Tokens drawn when a change is made in a write transaction | Same for indexes | Validity rule (logical re-binding and plan validation kept apart), cursors across changes | Cursor misuse after a change | Approved 2026-11-10 |
+| P18 | No one-shot C function in V1; convenience methods in Rust and C# | A C one-shot taking `execution/1` | No C one-shot: four calls do it, one path to test; one may be added later if performance or ergonomics justify it | — | — | Rust convenience | C# convenience | Approved 2026-11-10 (V1) |
+| P19 | A change past the maximum of an internal counter (the `u16` schema version) fails with a typed error before any state changes; no counter wraps or reuses a value; `column_id` is a random identity (P12), not a counter | — | Adopt; 7.1 fixes the class | The error and its test hook | — | — | — | Approved 2026-11-10; backed by round 2, C10 |
 | P20 | The pager exposes one safe function that fills a buffer from the operating system's generator, through `rustix`'s `rand` feature on Linux and `windows-sys`'s `Win32_Security_Cryptography` on Windows; 7.1's generators and the catalog tokens use it | The `getrandom` crate as a dependency of the engine | The pager function: no new crate, no D12 exception, no generator of Krummi's own (§2.8) | Generators and tokens call it | Index tokens | — | — | Approval (block 1) |
 
 Design, not product: the document layout, `"op"` tags, the type table's grammar, the default values of limits, the
@@ -203,11 +222,15 @@ unchanged). They come from the random source that 7.1's `ulid` and `uuid` genera
 entry; §2.8, P20); a test hook may inject a deterministic source. A drawn value that already exists in the store's catalog, or
 in the table's schema history, is drawn again; if the random source fails, the change fails with an error and nothing
 weaker is drawn (self-review of round 2). In JSON an identity or token is a string of 16 lowercase
-hexadecimal digits. Doc 1's internal numbers (the `u16` schema version, `column_id`) stay internal to rows and
-storage; the schema version is still emitted, read-only, for people and error messages. A stale document is caught
-because the tokens it pins differ from the current ones; two different states share a token with probability 2^-64
-per comparison, and the ids and names must agree as well. Krummi states this bound instead of calling a collision
-impossible.
+hexadecimal digits. A column's identity is doc 1's `column_id` itself, so a column has one identifier (P19, approved
+2026-11-10); doc 1's `u16` schema version stays internal to rows and storage and is still emitted, read-only, for
+people and error messages. A stale document is caught because the tokens it pins differ from the current ones; two
+different states share a token with probability 2^-64 per comparison, and the ids and names must agree as well. That
+is the bound of one comparison of independent values, not of a store's life: over m comparisons of stale pins with
+current tokens, the probability that any one matches is at most m × 2^-64 (for 10^12 comparisons, about 5.4 × 10^-8).
+The collisions Krummi can detect, a drawn value equal to one in the catalog or the table's schema history, are drawn
+again, and a test injects a source that repeats a value to prove it. Krummi states these bounds instead of calling a
+collision impossible (clarified 2026-11-10 at P12's approval).
 
 **Catalog state.** For one table, the catalog state is (table id, `schema_state`, `index_state`). A read transaction
 sees an immutable catalog (G3, T2). A write transaction sees its own schema changes as it makes them (T2), so the
@@ -294,9 +317,10 @@ transaction that sees its key:
 A logical statement keeps the AST, its shape key and its bound identities; it never keeps "the" plan. Applications that
 want a fixed plan prepare the `plan` member of an `explain/1`.
 
-**Exhaustion (C10, P19).** Identities and tokens are random, so they have no maximum. Doc 1's `u16` schema version,
-the `column_id` and any other internal counter fail without effect with a typed error when the next change would
-exceed them (the class is 7.1's); none is ever wrapped or reused, and none identifies a catalog state in a document.
+**Exhaustion (C10, P19).** Identities and tokens are random, so they have no maximum; `column_id` is one of them, not
+a counter. Doc 1's `u16` schema version and any other internal counter fail with a typed error, checked before any
+state changes, when the next change would exceed them (the class is 7.1's); none is ever wrapped or reused, and none
+identifies a catalog state in a document.
 
 **Threads (P14).** A statement is `Send + Sync` (C#: thread-safe); an argument set and a cursor are used by one thread
 at a time (documented, as cursors in doc 6); an execution in a write transaction runs on that transaction's thread
@@ -419,6 +443,12 @@ of an implementation that no setting raises; **budget**, configurable by the app
 | Execute | `top_k` `k` | 10,000 | Ceiling (README, vectors entry: "`k` up to 10,000") | Admission |
 | Execute | Memory, spill, rows examined, deadline, cancellation | 64 MiB, 1 GiB, none, none | Budgets per call (doc 8, README *Plans*) | Each reservation, batch, 1,024 rows |
 | Execute | Concurrent executions | Each has its own budget; no store-wide cap (README *Plans*); the total is the application's (below) | Decided | Documented: they add up |
+
+**Hard maxima of budgets (P9, approved 2026-11-10).** A budget that guards memory or work (the document size, depth,
+nodes, parameters, planning work, cache entries, `in` lists, ranges, memory and spill) also has a hard maximum, and a
+setting above it fails with a typed error naming the budget and its maximum, instead of being clamped; no such budget
+has a "none" setting. Rows examined and the deadline guard time, not memory, so "none" stays their default. Module
+17's PRD fixes the maxima.
 
 Nothing allocates in proportion to an untrusted size before the check of its row: lengths and counts arrive with
 the C calls and the JSON string lengths before any copy or decode. Statements and argument sets are application
