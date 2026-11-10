@@ -92,7 +92,7 @@ table of round 2. P20 (the random source of 7.1) is new in this round; §2.8 has
    (recommended), or a strict reader of Krummi's own. **Decided 2026-11-10: `serde_json`, in the query crate only;
    the dependency rule is already in the root PRD (annotation of `b471cc4`), so module 17's PRD annotates the crates.**
 3. **P16, pinning columns** (17): pin column identities (recommended), pin the table's whole schema state, or re-bind
-   by name like SQL text.
+   by name like SQL text. **Decided 2026-11-10: pin column identities.**
 4. **P4, re-planning** (17): doc 4's adaptive policy (recommended), re-plan only on catalog changes, or plan every run.
 5. **P6, promise for stored queries** (17): none before 1.0 and every published major after it (recommended), or only
    the current and the previous major after 1.0.
@@ -140,7 +140,7 @@ applied where the decision lives:
 | P13 | Objective 4, AI-assisted development, in the root PRD; no MCP or AI-provider dependency in the library | Leave the objective out | Add it; the reviews treat it as a goal | — | — | Introspection and schemas serve it | — | Approved 2026-11-10; the dependency rule backed by U8 |
 | P14 | One statement serves several threads and open cursors; argument sets and cursors one thread at a time | SQLite's model: values in the statement, one thread at a time | Shared: read transactions are shareable (T6) | — | — | `Send + Sync` statement | Thread-safe handle; argument set handle | Approval (block 7) |
 | P15 | No literals: constants such as a fixed `limit` count are parameters | Integer literals for `limit`, `offset` and `k` only | Parameters only: one way to write a value, as the README says | — | — | No literal nodes | The builder turns constants into parameters | Approval (block 6) |
-| P16 | A statement pins the column identities it bound; a `query` may carry `bind`, emitted by Krummi, optional on input | (a) pin the whole schema state; (b) re-bind by name | Pin column identities: catches a replaced column, survives unrelated changes | Stable column identities | — | `bind`, binding check | — | Approval (block 3) |
+| P16 | A statement pins the column identities it bound; a `query` may carry `bind`, emitted by Krummi, optional on input | (a) pin the whole schema state; (b) re-bind by name | Pin column identities: catches a replaced column, survives unrelated changes | Stable column identities | — | `bind`, binding check | — | Approved 2026-11-10 |
 | P17 | Validity follows the identities and tokens the executing transaction sees, whatever happened to the transaction that prepared; no restriction on `prepare` and `explain` in write transactions | None left after C13 and C14 | Adopt | Tokens drawn when a change is made in a write transaction | Same for indexes | Validity rule (logical re-binding and plan validation kept apart), cursors across changes | Cursor misuse after a change | Approved 2026-11-10 |
 | P18 | No one-shot C function in V1; convenience methods in Rust and C# | A C one-shot taking `execution/1` | No C one-shot: four calls do it, one path to test; one may be added later if performance or ergonomics justify it | — | — | Rust convenience | C# convenience | Approved 2026-11-10 (V1) |
 | P19 | A change past the maximum of an internal counter (the `u16` schema version) fails with a typed error before any state changes; no counter wraps or reuses a value; `column_id` is a random identity (P12), not a counter | — | Adopt; 7.1 fixes the class | The error and its test hook | — | — | — | Approved 2026-11-10; backed by round 2, C10 |
