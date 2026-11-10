@@ -9,7 +9,8 @@ still open are marked in the last section.
 1. A table value (a row) is one contiguous byte string stored as the value of the table tree, whose key is the primary
    key (document 2). It has a **fixed-offset section** for small fixed-width columns, a **null bitmap**, an
    **end-offset table** for the variable-length and large columns and a **variable section**. It is a schema-driven
-   layout, not self-describing. Primary key columns live in the key, not in the row.
+   layout, not self-describing. Fixed-width primary key columns live only in the key; `string` and `bytes` primary
+   key columns are also in the row, so that they read without a copy (corrected 2026-11-10, Codex review R4).
 2. Access to column *i* is O(1) with no decoding: a fixed column is `base + offset[i]`; a variable column is two
    offset reads. Reads return `&[u8]` slices into the page (D11); numbers and vector elements are read with
    `from_le_bytes` (safe code, D12), so **no alignment** of the row, of a column or of a vector is needed or
@@ -85,11 +86,11 @@ f32 : dim x 4 bytes, little-endian IEEE 754 binary32
 f16 : dim x 2 bytes, little-endian IEEE 754 binary16
 i8  : dim x 1 byte, then the scale: 4 bytes f32 (value = byte x scale)
 bit : ceil(dim / 8) bytes, bit i = (byte[i / 8] >> (i % 8)) & 1; unused high bits of the last byte are zero
-+ for a cosine column (f32, f16, i8): 4 bytes f32, the L2 norm, after the elements and the scale
++ for a cosine column (f32, f16, i8): 8 bytes f64, the L2 norm, after the elements and the scale (doc 5, R3)
 ```
 
-The length is a function of the column (element, dimension, cosine flag), so no length is stored. `bit` does not need
-`dim` to be a multiple of 8. There is no alignment padding.
+The length is a function of the column (element, dimension, cosine flag), so no length is stored. A `bit` column's
+`dim` is a multiple of 8 (N4; corrected 2026-11-10, Codex review R7). There is no alignment padding.
 
 Everything above encodes into one of three physical classes, which is what the row layout cares about: **small fixed**
 (<= 16 bytes), **large fixed** (vectors; any fixed-width type above 16 bytes), **variable** (string, bytes).
@@ -200,9 +201,14 @@ Rules:
   (null bitmap, fixed section, end offsets and variable section). The body is decompressed once into transaction
   memory (D11) and read as above. Compression is whole-row; vectors and numbers are not compressed on their own.
   Nothing else in the layout changes, and until document 7 is built the bit is always clear.
-- **Primary key columns are not in the row.** In a clustered table the key of the tree holds them (document 2); the
-  layout of a schema version omits them, and a reader that needs one decodes the key (document 3). Repeating them
-  would cost their length in every row and invite no benefit but an O(1) read.
+- **Primary key columns in the row: only `string` and `bytes`.** In a clustered table the key of the tree holds every
+  primary key column (document 2). A fixed-width one (integers, `uuid`, `ulid`, temporal types, `decimal`, `bool`) is
+  left out of the row and decoded from the key: its value is a scalar the API returns by value anyway (the PRD's
+  scalar exception). A `string` or `bytes` one is also stored in the row, because its key element escapes each `00`
+  as `00 FF` (document 3): a `bytes` key `41 00 42` is `01 41 00 FF 42 00` in the key, so the original bytes are not
+  contiguous there, and returning them would need a copy, which the PRD's output rule and T16 forbid. Corrected
+  2026-11-10 after the Codex review (R4): the first version left every primary key column out of the row. Cost: the
+  length of the variable primary key columns once more per row, zero for the usual `ulid`, `uuid` or integer keys.
 
 ### Reading
 
@@ -223,10 +229,15 @@ The catalog stores, per table, an append-only list of **schema versions**; each 
 - **Add a nullable column:** new version; old rows read it as null (the reader sees that the row's version has no such
   column). **Add with default:** the default is stored in the catalog and returned for old rows, as PostgreSQL does
   with `attmissingval`. Writing a new row always uses the latest version.
-- **Drop a column:** the next version omits it; old rows keep its bytes until rewritten (space is reclaimed lazily).
-  Index entries are dropped by the schema change itself.
+- **Drop a column:** only a column outside the primary key and every index (N3); dropping one that a primary key or
+  index uses fails without effect (AC-N6, AC-N7). The next version omits it; old rows keep its bytes until rewritten
+  (space is reclaimed lazily). Corrected 2026-11-10 (Codex review R7): the first version dropped the index entries.
 - **Rename:** catalog only; rows refer to `column_id`.
-- **Change type or nullability:** widening of integers could be done by the reader, but v1 should reject it (Q6).
+- **Allow nulls** in a `NOT NULL` column outside the primary key (N3): catalog only; the new version marks it
+  nullable and old rows, which always hold a value, read unchanged (corrected 2026-11-10, R7: the first version
+  rejected every nullability change).
+- **Change type, forbid nulls:** rejected in this module (N3). Widening of integers could be done by the reader, a
+  later version's decision (Q6).
 - **Cost of mixed versions:** a scan resolves `(version, column_id) -> offset` through a small array indexed by
   version, built once per scan and column; the hot loop is the same as for a single version. If the number of live
   versions grows, a background or opportunistic rewrite on update upgrades rows; a full-table "upgrade" operation
@@ -278,8 +289,9 @@ rows (say three `i64` columns, 24 bytes) the proposed overhead is 3 bytes with n
   `u32` offset would cap rows at 4 GiB, fine.
 - **Float semantics** (NaN, -0) are fixed at the type level (decided: `-0` stored as `+0`, one canonical NaN sorting
   after `+∞`), so that equal values compare the same in index and row (doc 3).
-- **Primary key columns decoded from the key.** Reading one costs a walk of the key's elements (document 3), not the
-  O(1) of a row column; repeating them in the row is a per-schema-version layout change if measurement asks for it.
+- **Fixed-width primary key columns decoded from the key.** Reading one costs a walk of the key's elements (document
+  3), not the O(1) of a row column; repeating them in the row is a per-schema-version layout change if measurement
+  asks for it. `string` and `bytes` primary key columns are in the row (R4 above).
 - **Endianness** is fixed to little-endian; big-endian hosts are not a target.
 - **UUID/ULID vs C# `Guid`/third-party ULID types** differ in byte order; the C# binding (doc 6) converts, and tests
   must pin it.
@@ -298,7 +310,7 @@ rows (say three `i64` columns, 24 bytes) the proposed overhead is 3 bytes with n
 3. **Time zones.** *Decided:* UTC instants only; local time and zone stay in the application.
 4. **Decimal.** *Decided:* `decimal(p, s)` as 128-bit fixed point up to 38 digits.
 5. **Vector limits.** *Decided:* at most 4,096 dimensions for every element type (one maximum, document 5); elements
-   `f32`, `f16`, `i8`, `bit`; `bit` does not require a multiple of 8; a vector column is nullable like any other
+   `f32`, `f16`, `i8`, `bit`; `bit` requires a multiple of 8 (N4, README; corrected 2026-11-10, R7); a vector column is nullable like any other
    column (the layout supports a null vector at zero cost). The first draft proposed 16,384 and padding to 4 and 2
    bytes; both are dropped (document 5 reads `&[u8]`, so no alignment is needed).
 6. **Schema changes in v1.** *Decided with the split of module 7:* child 7.1 includes "schema changes without
@@ -307,8 +319,9 @@ rows (say three `i64` columns, 24 bytes) the proposed overhead is 3 bytes with n
 7. **Collation.** *Decided:* binary UTF-8 order, no collation.
 8. **Both `uuid` and `ulid`?** *Decided:* two logical types over the same 16-byte storage; `uuid` has a per-column
    order option (document 3).
-9. **Primary key columns in the row.** *Still open, internal:* they are left out of the row (stored once, in the key).
-   Repeating them is the alternative if measurement shows decoding the key costs more than the bytes.
+9. **Primary key columns in the row.** *Settled 2026-11-10 (Codex review R4):* `string` and `bytes` primary key
+   columns are in the row, because zero-copy reads require it; fixed-width ones stay only in the key. Repeating those
+   too remains open, if measurement shows decoding the key costs more than the bytes.
 
 ## Sources
 
