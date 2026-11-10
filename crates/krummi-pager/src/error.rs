@@ -525,6 +525,16 @@ impl fmt::Display for Error {
                 name,
                 found,
                 requested,
+            } if is_tree(found) && is_tree(requested) => write!(
+                f,
+                "tree {name:?} of {} is a {found} tree, not a {requested} tree",
+                store_name(folder)
+            ),
+            Error::DifferentTreeType {
+                folder,
+                name,
+                found,
+                requested,
             } => write!(
                 f,
                 "{name:?} of {} is a {}, not a {}",
@@ -545,17 +555,17 @@ impl fmt::Display for Error {
                 sequence,
                 rule,
             } => {
-                write!(f, "invalid value ({rule:?})")?;
-                if let Some(table) = table {
-                    write!(f, " in table {table:?}")?;
+                f.write_str("invalid value in ")?;
+                match (table, column, sequence) {
+                    (Some(table), Some(column), _) => {
+                        write!(f, "column {column:?} of table {table:?} of ")?
+                    }
+                    (None, Some(column), _) => write!(f, "column {column:?} of ")?,
+                    (Some(table), None, _) => write!(f, "table {table:?} of ")?,
+                    (None, None, Some(sequence)) => write!(f, "sequence {sequence:?} of ")?,
+                    (None, None, None) => {}
                 }
-                if let Some(column) = column {
-                    write!(f, ", column {column:?}")?;
-                }
-                if let Some(sequence) = sequence {
-                    write!(f, " in sequence {sequence:?}")?;
-                }
-                write!(f, " of {}", store_name(folder))
+                write!(f, "{}: {}", store_name(folder), value_rule_text(*rule))
             }
             Error::DuplicateKey { folder, table, key } => write!(
                 f,
@@ -576,8 +586,9 @@ impl fmt::Display for Error {
                 }
                 write!(
                     f,
-                    " of {}: {difference:?} expected {expected}, found {found}",
-                    store_name(folder)
+                    " of {}: {} expected {expected}, found {found}",
+                    store_name(folder),
+                    difference_text(*difference)
                 )
             }
             Error::InvalidSchema {
@@ -586,11 +597,11 @@ impl fmt::Display for Error {
                 column,
                 rule,
             } => {
-                write!(f, "invalid schema ({rule:?}) for table {table:?}")?;
+                write!(f, "invalid schema for table {table:?}")?;
                 if let Some(column) = column {
                     write!(f, ", column {column:?}")?;
                 }
-                write!(f, " of {}", store_name(folder))
+                write!(f, " of {}: {}", store_name(folder), schema_rule_text(*rule))
             }
         }
     }
@@ -622,11 +633,71 @@ impl fmt::Display for SizeSubject {
     }
 }
 
-/// A kind as a noun: "normal tree", "table".
+/// Whether `kind` is a kind of tree, not another class of catalog object (N1).
+fn is_tree(kind: &TreeKind) -> bool {
+    !matches!(kind, TreeKind::Table | TreeKind::Sequence)
+}
+
+/// A kind as a noun: "normal tree", "fixed-size tree of 8 bytes", "table".
 fn kind_noun(kind: &TreeKind) -> String {
     match kind {
-        TreeKind::Table | TreeKind::Sequence => kind.to_string(),
-        tree => format!("{tree} tree"),
+        TreeKind::FixedSize(len) => format!("fixed-size tree of {len} bytes"),
+        tree if is_tree(tree) => format!("{tree} tree"),
+        other => other.to_string(),
+    }
+}
+
+/// A rule of [`ValueRule`] as a short phrase.
+fn value_rule_text(rule: ValueRule) -> &'static str {
+    match rule {
+        ValueRule::RepeatedColumn => "a column given more than once",
+        ValueRule::MissingKeyColumn => "a primary key column is missing",
+        ValueRule::NullNotAllowed => "null is not allowed",
+        ValueRule::WrongType => "a value of another type than its column",
+        ValueRule::MalformedText => "malformed text",
+        ValueRule::OutOfDomain => "outside its domain",
+        ValueRule::DecimalPrecision => "the decimal does not fit its precision",
+        ValueRule::VectorDimension => "a vector of another dimension",
+        ValueRule::VectorNotFinite => "a NaN or an infinity in a vector",
+        ValueRule::ZeroVectorCosine => "a zero vector with the cosine metric",
+        ValueRule::InvalidRange => "a malformed range",
+        ValueRule::SequenceExhausted => "the sequence is at its maximum",
+        ValueRule::MillisecondOutOfRange => "the millisecond does not fit in 48 bits",
+    }
+}
+
+/// A rule of [`SchemaRule`] as a short phrase.
+fn schema_rule_text(rule: SchemaRule) -> &'static str {
+    match rule {
+        SchemaRule::NoPrimaryKey => "no primary key",
+        SchemaRule::InvalidKeyColumn => {
+            "a primary key column allows nulls, is a vector or has a default value"
+        }
+        SchemaRule::InvalidKeyReference => {
+            "the primary key names a column that does not exist or repeats one"
+        }
+        SchemaRule::DuplicateColumnName => "two columns with the same name",
+        SchemaRule::TooManyColumns => "more than 1,024 columns",
+        SchemaRule::VectorOutOfLimits => "a vector outside its limits",
+        SchemaRule::DecimalOutOfLimits => "a decimal outside its limits",
+        SchemaRule::CosineOnBit => "the cosine metric on bit elements",
+        SchemaRule::InvalidDefault => "a default value that breaks the rules of its column",
+        SchemaRule::NotNullWithoutDefault => "a new column without nulls needs a default value",
+        SchemaRule::UnsupportedChange => "a change that is not supported",
+        SchemaRule::ColumnNotFound => "the column does not exist",
+        SchemaRule::DropKeyColumn => "a primary key column cannot be dropped",
+        SchemaRule::VersionExhausted => "the schema version would pass 65,535",
+    }
+}
+
+/// A [`SchemaDifference`] as a short phrase.
+fn difference_text(difference: SchemaDifference) -> &'static str {
+    match difference {
+        SchemaDifference::Type => "type",
+        SchemaDifference::Nullability => "nullability",
+        SchemaDifference::Default => "default value",
+        SchemaDifference::MissingColumn => "column",
+        SchemaDifference::PrimaryKey => "primary key",
     }
 }
 
@@ -649,3 +720,98 @@ impl std::error::Error for Error {
 
 /// Result type of the engine.
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tree_type(found: TreeKind, requested: TreeKind) -> String {
+        Error::DifferentTreeType {
+            folder: None,
+            name: "t".to_owned(),
+            found,
+            requested,
+        }
+        .to_string()
+    }
+
+    /// Between two trees the text names them as trees, as before the tables; a table or a sequence is a noun.
+    #[test]
+    fn different_tree_type_reads_well_for_trees_and_for_other_classes() {
+        assert_eq!(
+            tree_type(TreeKind::MultiValue, TreeKind::Normal),
+            "tree \"t\" of temporary store is a multi-value tree, not a normal tree"
+        );
+        assert_eq!(
+            tree_type(TreeKind::Table, TreeKind::FixedSize(8)),
+            "\"t\" of temporary store is a table, not a fixed-size tree of 8 bytes"
+        );
+        assert_eq!(
+            tree_type(TreeKind::Normal, TreeKind::Table),
+            "\"t\" of temporary store is a normal tree, not a table"
+        );
+    }
+
+    fn invalid_value(table: Option<&str>, column: Option<&str>, sequence: Option<&str>) -> String {
+        Error::InvalidValue {
+            folder: None,
+            table: table.map(str::to_owned),
+            column: column.map(str::to_owned),
+            sequence: sequence.map(str::to_owned),
+            rule: ValueRule::OutOfDomain,
+        }
+        .to_string()
+    }
+
+    /// No dangling comma when the table is absent, and the rule as a phrase, not its debug form.
+    #[test]
+    fn invalid_value_names_where_the_value_is() {
+        assert_eq!(
+            invalid_value(Some("t"), Some("c"), None),
+            "invalid value in column \"c\" of table \"t\" of temporary store: outside its domain"
+        );
+        assert_eq!(
+            invalid_value(None, Some("c"), None),
+            "invalid value in column \"c\" of temporary store: outside its domain"
+        );
+        assert_eq!(
+            invalid_value(Some("t"), None, None),
+            "invalid value in table \"t\" of temporary store: outside its domain"
+        );
+        assert_eq!(
+            invalid_value(None, None, Some("s")),
+            "invalid value in sequence \"s\" of temporary store: outside its domain"
+        );
+        assert_eq!(
+            invalid_value(None, None, None),
+            "invalid value in temporary store: outside its domain"
+        );
+    }
+
+    #[test]
+    fn schema_errors_read_as_phrases() {
+        let invalid = Error::InvalidSchema {
+            folder: None,
+            table: "t".to_owned(),
+            column: Some("c".to_owned()),
+            rule: SchemaRule::NotNullWithoutDefault,
+        };
+        assert_eq!(
+            invalid.to_string(),
+            "invalid schema for table \"t\", column \"c\" of temporary store: a new column without nulls needs a \
+             default value"
+        );
+        let different = Error::DifferentSchema {
+            folder: None,
+            table: "t".to_owned(),
+            column: Some("c".to_owned()),
+            difference: SchemaDifference::Type,
+            expected: "i64".into(),
+            found: "i32".into(),
+        };
+        assert_eq!(
+            different.to_string(),
+            "different schema for table \"t\", column \"c\" of temporary store: type expected i64, found i32"
+        );
+    }
+}

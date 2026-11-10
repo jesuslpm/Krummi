@@ -1794,3 +1794,146 @@ fn rows_that_do_not_fit_their_layout_are_damaged() {
         Err(RowDamaged)
     );
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Fixes of the RDD review of T3 (R3-row-encode-silent-type-mismatch, R3-row-decode-temporal-domain,
+// R3-decode-key-decimal-precision, R3-key-len-zip-truncation, R2-decode-fallthrough)
+
+/// A value of another type than its fixed column is not truncated into its slot: encoding panics.
+#[test]
+#[should_panic(expected = "of another type than its column")]
+fn row_encode_refuses_a_value_of_another_type() {
+    let layout = RowLayout::new(1, vec![column(1, ColumnType::I8, false)]);
+    layout.encode(&[Value::I64(300)]);
+}
+
+/// A null in a column that does not allow nulls is never written as zeros: encoding panics.
+#[test]
+#[should_panic(expected = "null in a column that does not allow nulls")]
+fn row_encode_refuses_a_null_in_a_not_null_column() {
+    let layout = RowLayout::new(1, vec![column(1, ColumnType::I32, false)]);
+    layout.encode(&[Value::Null]);
+}
+
+/// A vector of another dimension than its column is refused too.
+#[test]
+#[should_panic(expected = "of another type than its column")]
+fn row_encode_refuses_a_vector_of_another_dimension() {
+    let layout = RowLayout::new(
+        1,
+        vec![column(1, vector(VectorElement::F32, 2, false), false)],
+    );
+    layout.encode(&[vec_value(vec![0; 4])]);
+}
+
+/// A stored temporal value outside its domain, or a decimal over its precision, reads as damage.
+#[test]
+fn rows_with_values_outside_their_domains_are_damaged() {
+    let cases: [(ColumnType, Value<'static>, Vec<u8>); 6] = [
+        (
+            ColumnType::Date,
+            Value::Date(0),
+            (DATE_MAX + 1).to_le_bytes().to_vec(),
+        ),
+        (
+            ColumnType::Date,
+            Value::Date(0),
+            (DATE_MIN - 1).to_le_bytes().to_vec(),
+        ),
+        (
+            ColumnType::Time,
+            Value::Time(0),
+            (TIME_MAX + 1).to_le_bytes().to_vec(),
+        ),
+        (
+            ColumnType::Timestamp,
+            Value::Timestamp(0),
+            (TIMESTAMP_MIN - 1).to_le_bytes().to_vec(),
+        ),
+        (
+            ColumnType::Duration,
+            Value::Duration(0),
+            (DURATION_MAX + 1).to_le_bytes().to_vec(),
+        ),
+        (
+            ColumnType::Decimal {
+                precision: 4,
+                scale: 2,
+            },
+            dec(0, 2),
+            10_000i128.to_le_bytes().to_vec(),
+        ),
+    ];
+    for (ty, value, stored) in cases {
+        let layout = RowLayout::new(1, vec![column(1, ty, false)]);
+        let mut row = layout.encode(&[value]);
+        let at = row.len() - stored.len();
+        assert_eq!(
+            layout.row(&row).unwrap().value(0).map(|v| v.is_some()),
+            Ok(true),
+            "{ty:?}"
+        );
+        row[at..].copy_from_slice(&stored);
+        assert_eq!(
+            layout.row(&row).unwrap().value(0),
+            Err(RowDamaged),
+            "{ty:?}"
+        );
+    }
+    // The ends of each domain still read.
+    let layout = RowLayout::new(1, vec![column(1, ColumnType::Duration, false)]);
+    let row = layout.encode(&[Value::Duration(-i128::from(DURATION_MAX) * NANOS)]);
+    assert!(layout.row(&row).unwrap().value(0).is_ok());
+}
+
+/// A key whose decimal does not fit the column's precision, or whose float is `-0` or a NaN other than the canonical
+/// one, is not a key that Krummi writes: decoding refuses it.
+#[test]
+fn key_decoding_rejects_decimals_over_precision_and_non_canonical_floats() {
+    let decimal = ColumnType::Decimal {
+        precision: 4,
+        scale: 2,
+    };
+    let fits = encode_key(&[decimal], &[dec(9_999, 2)]).unwrap();
+    assert!(decode_key(&[decimal], &fits).is_some());
+    let wide = ColumnType::Decimal {
+        precision: 5,
+        scale: 2,
+    };
+    let over = encode_key(&[wide], &[dec(10_000, 2)]).unwrap();
+    assert_eq!(decode_key(&[decimal], &over), None);
+
+    for bits in [0x8000_0000u32, 0x7FC0_0001, 0xFFC0_0000] {
+        let key = encode_key(&[ColumnType::F32], &[Value::F32(f32::from_bits(bits))]).unwrap();
+        assert_eq!(decode_key(&[ColumnType::F32], &key), None, "{bits:#x}");
+    }
+    for bits in [0x8000_0000_0000_0000u64, 0x7FF8_0000_0000_0001] {
+        let key = encode_key(&[ColumnType::F64], &[Value::F64(f64::from_bits(bits))]).unwrap();
+        assert_eq!(decode_key(&[ColumnType::F64], &key), None, "{bits:#x}");
+    }
+    let nan = encode_key(&[ColumnType::F64], &[Value::F64(f64::NAN)]).unwrap();
+    assert!(decode_key(&[ColumnType::F64], &nan).is_some());
+}
+
+/// A float column refuses the element of the other float width, and an integer column a float's code.
+#[test]
+fn key_decoding_rejects_the_code_of_another_type() {
+    let f64_key = encode_key(&[ColumnType::F64], &[Value::F64(1.0)]).unwrap();
+    assert_eq!(decode_key(&[ColumnType::F32], &f64_key), None);
+    assert_eq!(decode_key(&[ColumnType::I64], &f64_key), None);
+    let int_key = encode_key(&[ColumnType::I64], &[Value::I64(1)]).unwrap();
+    assert_eq!(decode_key(&[ColumnType::F64], &int_key), None);
+    assert_eq!(decode_key(&[ColumnType::Bool], &int_key), None);
+}
+
+#[test]
+#[should_panic(expected = "one value per primary key column")]
+fn key_len_refuses_fewer_values_than_columns() {
+    key_len(&[ColumnType::I64, ColumnType::I64], &[Value::I64(1)]);
+}
+
+#[test]
+#[should_panic(expected = "one value per primary key column")]
+fn encode_key_refuses_more_values_than_columns() {
+    let _ = encode_key(&[ColumnType::I64], &[Value::I64(1), Value::I64(2)]);
+}

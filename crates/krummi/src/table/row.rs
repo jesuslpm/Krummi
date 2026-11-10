@@ -19,7 +19,10 @@
 use std::borrow::Cow;
 use std::cmp::Reverse;
 
-use super::value::{ColumnType, Decimal, Value, vector_norm};
+use super::value::{
+    ColumnType, Decimal, NANOS_PER_MICRO, Value, fits_precision, is_of_type, stored_in_domain,
+    vector_norm,
+};
 use crate::ids::{Ulid, Uuid};
 
 /// The largest row, in its stored form: the largest value of a tree (B6, E18).
@@ -27,8 +30,6 @@ pub const MAX_ROW: usize = krummi_tree::MAX_VALUE;
 
 /// The bytes of the header: the schema version and the flags.
 const HEADER: usize = 3;
-/// Nanoseconds per microsecond of a temporal [`Value`].
-const NANOS_PER_MICRO: i128 = 1000;
 
 /// A row whose bytes do not fit its layout: the caller reports it as damage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,9 +137,22 @@ impl RowLayout {
 
     /// The row of `values`, one per column in version order, normalized for their columns (see
     /// [`super::value::normalize`]); the values of fixed-width primary key columns are not stored. Panics if
-    /// `values` does not have one value per column or a value is not of its column's type.
+    /// `values` does not have one value per column, a value is not of its column's type, or a null is in a column
+    /// that does not allow nulls: a slot is never written with another type's bytes, nor a null as zeros.
     pub fn encode(&self, values: &[Value<'_>]) -> Vec<u8> {
         assert_eq!(values.len(), self.columns.len(), "one value per column");
+        for (column, value) in self.columns.iter().zip(values) {
+            match value {
+                Value::Null => assert!(
+                    column.nullable && !column.key,
+                    "a null in a column that does not allow nulls"
+                ),
+                value => assert!(
+                    is_of_type(&column.ty, value),
+                    "a value of another type than its column"
+                ),
+            }
+        }
         let variable = self.variable_len(values);
         let (code, width) = offset_width(variable);
         let var_start = self.offsets_start + self.variables.saturating_sub(1) * width;
@@ -397,10 +411,21 @@ impl<'r> Row<'_, 'r> {
     }
 }
 
-/// The value of the stored bytes of a column of type `ty`.
+/// The value of the stored bytes of a column of type `ty`. A temporal value outside its domain or a `decimal` over
+/// its precision, which Krummi never writes, is damage.
 fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged> {
     fn array<const N: usize>(bytes: &[u8]) -> [u8; N] {
         bytes.try_into().expect("the slot's width")
+    }
+    let stored = match ty {
+        ColumnType::Date => Some(i128::from(i32::from_le_bytes(array(bytes)))),
+        ColumnType::Time | ColumnType::Timestamp | ColumnType::Duration => {
+            Some(i128::from(i64::from_le_bytes(array(bytes))))
+        }
+        _ => None,
+    };
+    if stored.is_some_and(|stored| !stored_in_domain(ty, stored)) {
+        return Err(RowDamaged);
     }
     let nanos = |micros: [u8; 8]| i128::from(i64::from_le_bytes(micros)) * NANOS_PER_MICRO;
     Ok(match ty {
@@ -419,10 +444,16 @@ fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged>
         ColumnType::U64 => Value::U64(u64::from_le_bytes(array(bytes))),
         ColumnType::F32 => Value::F32(f32::from_le_bytes(array(bytes))),
         ColumnType::F64 => Value::F64(f64::from_le_bytes(array(bytes))),
-        ColumnType::Decimal { scale, .. } => Value::Decimal(Decimal {
-            mantissa: i128::from_le_bytes(array(bytes)),
-            scale: *scale,
-        }),
+        ColumnType::Decimal { precision, scale } => {
+            let mantissa = i128::from_le_bytes(array(bytes));
+            if !fits_precision(mantissa, *precision) {
+                return Err(RowDamaged);
+            }
+            Value::Decimal(Decimal {
+                mantissa,
+                scale: *scale,
+            })
+        }
         ColumnType::Date => Value::Date(i32::from_le_bytes(array(bytes))),
         ColumnType::Time => {
             Value::Time(i64::try_from(nanos(array(bytes))).map_err(|_| RowDamaged)?)

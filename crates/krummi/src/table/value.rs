@@ -29,11 +29,11 @@ pub const TIMESTAMP_MAX: i64 = 253_402_300_799_999_999;
 pub const DURATION_MAX: i64 = 922_337_203_685_477_580;
 
 /// The one NaN a `f32` column stores (N4): the positive quiet NaN.
-const CANONICAL_NAN_F32: u32 = 0x7FC0_0000;
+pub(crate) const CANONICAL_NAN_F32: u32 = 0x7FC0_0000;
 /// The one NaN a `f64` column stores (N4): the positive quiet NaN.
-const CANONICAL_NAN_F64: u64 = 0x7FF8_0000_0000_0000;
-/// Nanoseconds per microsecond.
-const NANOS_PER_MICRO: i128 = 1000;
+pub(crate) const CANONICAL_NAN_F64: u64 = 0x7FF8_0000_0000_0000;
+/// Nanoseconds per microsecond: temporal [`Value`]s hold nanoseconds, rows and keys store microseconds.
+pub(crate) const NANOS_PER_MICRO: i128 = 1000;
 
 /// The type of a column (N4; document 1 of the table design, *Column types*).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -143,6 +143,98 @@ impl ColumnType {
     /// Whether the type has an order, so that it can be in a primary key: every type but vectors (N5).
     pub fn is_orderable(&self) -> bool {
         !matches!(self, ColumnType::Vector(_))
+    }
+}
+
+/// Whether `value` is a value of type `ty`, not null: its variant is the type's and a vector has the column's
+/// number of bytes. It says nothing of the value's domain.
+pub fn is_of_type(ty: &ColumnType, value: &Value<'_>) -> bool {
+    match (ty, value) {
+        (ColumnType::Vector(vector), Value::Vector(bytes)) => bytes.len() == vector.value_len(),
+        (ColumnType::Bool, Value::Bool(_))
+        | (ColumnType::I8, Value::I8(_))
+        | (ColumnType::I16, Value::I16(_))
+        | (ColumnType::I32, Value::I32(_))
+        | (ColumnType::I64, Value::I64(_))
+        | (ColumnType::U8, Value::U8(_))
+        | (ColumnType::U16, Value::U16(_))
+        | (ColumnType::U32, Value::U32(_))
+        | (ColumnType::U64, Value::U64(_))
+        | (ColumnType::F32, Value::F32(_))
+        | (ColumnType::F64, Value::F64(_))
+        | (ColumnType::Decimal { .. }, Value::Decimal(_))
+        | (ColumnType::String, Value::String(_))
+        | (ColumnType::Bytes, Value::Bytes(_))
+        | (ColumnType::Date, Value::Date(_))
+        | (ColumnType::Time, Value::Time(_))
+        | (ColumnType::Timestamp, Value::Timestamp(_))
+        | (ColumnType::Duration, Value::Duration(_))
+        | (ColumnType::Uuid(_), Value::Uuid(_))
+        | (ColumnType::Ulid, Value::Ulid(_)) => true,
+        _ => false,
+    }
+}
+
+/// Whether a stored temporal value, in its stored unit (days of a `date`, microseconds of the others), is within
+/// the domain of its type (E8); every other type is within its domain.
+pub(crate) fn stored_in_domain(ty: &ColumnType, stored: i128) -> bool {
+    let (min, max) = match ty {
+        ColumnType::Date => (DATE_MIN.into(), DATE_MAX.into()),
+        ColumnType::Time => (0, TIME_MAX.into()),
+        ColumnType::Timestamp => (TIMESTAMP_MIN.into(), TIMESTAMP_MAX.into()),
+        ColumnType::Duration => ((-DURATION_MAX).into(), DURATION_MAX.into()),
+        _ => return true,
+    };
+    (min..=max).contains(&stored)
+}
+
+/// Whether a `decimal` mantissa has at most `precision` digits.
+pub(crate) fn fits_precision(mantissa: i128, precision: u8) -> bool {
+    10u128
+        .checked_pow(u32::from(precision))
+        .is_none_or(|limit| mantissa.unsigned_abs() < limit)
+}
+
+/// The text of a type, for error data (E6): `i64`, `decimal(10, 2)`, `uuid`, `uuid(sql server)`,
+/// `vector(f32, 3, cosine)`.
+impl fmt::Display for ColumnType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            ColumnType::Bool => "bool",
+            ColumnType::I8 => "i8",
+            ColumnType::I16 => "i16",
+            ColumnType::I32 => "i32",
+            ColumnType::I64 => "i64",
+            ColumnType::U8 => "u8",
+            ColumnType::U16 => "u16",
+            ColumnType::U32 => "u32",
+            ColumnType::U64 => "u64",
+            ColumnType::F32 => "f32",
+            ColumnType::F64 => "f64",
+            ColumnType::String => "string",
+            ColumnType::Bytes => "bytes",
+            ColumnType::Date => "date",
+            ColumnType::Time => "time",
+            ColumnType::Timestamp => "timestamp",
+            ColumnType::Duration => "duration",
+            ColumnType::Uuid(UuidOrder::Rfc9562) => "uuid",
+            ColumnType::Uuid(UuidOrder::SqlServer) => "uuid(sql server)",
+            ColumnType::Ulid => "ulid",
+            ColumnType::Decimal { precision, scale } => {
+                return write!(f, "decimal({precision}, {scale})");
+            }
+            ColumnType::Vector(vector) => {
+                let element = match vector.element {
+                    VectorElement::F32 => "f32",
+                    VectorElement::F16 => "f16",
+                    VectorElement::I8 => "i8",
+                    VectorElement::Bit => "bit",
+                };
+                let cosine = if vector.cosine { ", cosine" } else { "" };
+                return write!(f, "vector({element}, {}{cosine})", vector.dimension);
+            }
+        };
+        f.write_str(name)
     }
 }
 
@@ -367,10 +459,7 @@ fn round_decimal(d: Decimal, precision: u8, scale: u8) -> Result<Decimal, ValueR
             .and_then(|factor| d.mantissa.checked_mul(factor))
             .ok_or(ValueRule::DecimalPrecision)?
     };
-    let fits = 10u128
-        .checked_pow(u32::from(precision))
-        .is_none_or(|limit| mantissa.unsigned_abs() < limit);
-    if fits {
+    if fits_precision(mantissa, precision) {
         Ok(Decimal { mantissa, scale })
     } else {
         Err(ValueRule::DecimalPrecision)

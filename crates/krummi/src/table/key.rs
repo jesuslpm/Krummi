@@ -8,8 +8,8 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use krummi_pager::ValueRule;
 
 use super::value::{
-    ColumnType, DATE_MAX, DATE_MIN, DURATION_MAX, Decimal, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN,
-    UuidOrder, Value, normalize,
+    CANONICAL_NAN_F32, CANONICAL_NAN_F64, ColumnType, Decimal, NANOS_PER_MICRO, UuidOrder, Value,
+    fits_precision, is_of_type, normalize, stored_in_domain,
 };
 use crate::ids::{Ulid, Uuid};
 
@@ -32,9 +32,6 @@ const ESCAPE: u8 = 0xFF;
 /// The bytes of a `uuid` key in SQL Server's order: key byte i is RFC 9562 byte `SQL_SERVER[i]` (document 3,
 /// *UUID and ULID*: `r10..r15, r8 r9, r7 r6, r5 r4, r3 r2 r1 r0`).
 const SQL_SERVER: [usize; 16] = [10, 11, 12, 13, 14, 15, 8, 9, 7, 6, 5, 4, 3, 2, 1, 0];
-
-/// Microseconds per nanosecond of a temporal [`Value`].
-const NANOS_PER_MICRO: i128 = 1000;
 
 /// Why a key or a range of keys could not be encoded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,14 +63,19 @@ impl KeyRange {
 }
 
 /// The encoded length of the key of `values`, without encoding it, so that a value too large for a key is
-/// measured without copying it. `values` are those of [`encode_key`].
+/// measured without copying it. `values` are those of [`encode_key`]. Panics if there is not one value per column.
 pub fn key_len(types: &[ColumnType], values: &[Value<'_>]) -> usize {
-    types.iter().zip(values).map(|(_, v)| element_len(v)).sum()
+    assert_eq!(
+        types.len(),
+        values.len(),
+        "one value per primary key column"
+    );
+    values.iter().map(element_len).sum()
 }
 
 /// The key of `values`, normalized values (see [`normalize`]) of the primary key columns of `types`, in key order.
 /// A value of another type than its column fails with [`ValueRule::WrongType`]; a key of more than [`MAX_KEY`]
-/// bytes, with its size.
+/// bytes, with its size. Panics if there is not one value per column.
 pub fn encode_key(types: &[ColumnType], values: &[Value<'_>]) -> Result<Vec<u8>, KeyError> {
     let len = key_len(types, values);
     if len > MAX_KEY {
@@ -300,7 +302,7 @@ fn encode_element(ty: &ColumnType, value: &Value<'_>, key: &mut Vec<u8>) -> bool
             | ColumnType::Timestamp
             | ColumnType::Duration,
             _,
-        ) if same_type(ty, value) => {
+        ) if is_of_type(ty, value) => {
             let v = integer(value).expect("an integer type");
             let magnitude = v.unsigned_abs();
             let n = magnitude_len(magnitude);
@@ -315,25 +317,6 @@ fn encode_element(ty: &ColumnType, value: &Value<'_>, key: &mut Vec<u8>) -> bool
         _ => return false,
     }
     true
-}
-
-/// Whether `value` has the variant of the integer or temporal type `ty`.
-fn same_type(ty: &ColumnType, value: &Value<'_>) -> bool {
-    matches!(
-        (ty, value),
-        (ColumnType::I8, Value::I8(_))
-            | (ColumnType::I16, Value::I16(_))
-            | (ColumnType::I32, Value::I32(_))
-            | (ColumnType::I64, Value::I64(_))
-            | (ColumnType::U8, Value::U8(_))
-            | (ColumnType::U16, Value::U16(_))
-            | (ColumnType::U32, Value::U32(_))
-            | (ColumnType::U64, Value::U64(_))
-            | (ColumnType::Date, Value::Date(_))
-            | (ColumnType::Time, Value::Time(_))
-            | (ColumnType::Timestamp, Value::Timestamp(_))
-            | (ColumnType::Duration, Value::Duration(_))
-    )
 }
 
 fn escape(code: u8, bytes: &[u8], key: &mut Vec<u8>) {
@@ -361,40 +344,75 @@ fn take_array<const N: usize>(rest: &mut &[u8]) -> Option<[u8; N]> {
     take(rest, N).map(|bytes| bytes.try_into().expect("N bytes"))
 }
 
+/// The element of a value of type `ty` at the front of `rest`, or `None` when it starts with another type's code or
+/// is not an element Krummi writes: a `-0` or a NaN other than the canonical one (N4), a `decimal` over its column's
+/// precision, a value outside its domain.
 fn decode_element(ty: &ColumnType, rest: &mut &[u8]) -> Option<Value<'static>> {
     let code = take(rest, 1)?[0];
+    let expected = match ty {
+        ColumnType::Bool if code == FALSE => return Some(Value::Bool(false)),
+        ColumnType::Bool if code == TRUE => return Some(Value::Bool(true)),
+        ColumnType::Bool | ColumnType::Vector(_) => return None,
+        ColumnType::F32 => F32,
+        ColumnType::F64 => F64,
+        ColumnType::Decimal { .. } => DECIMAL,
+        ColumnType::Uuid(_) | ColumnType::Ulid => UUID,
+        ColumnType::String => STRING,
+        ColumnType::Bytes => BYTES,
+        ColumnType::I8
+        | ColumnType::I16
+        | ColumnType::I32
+        | ColumnType::I64
+        | ColumnType::U8
+        | ColumnType::U16
+        | ColumnType::U32
+        | ColumnType::U64
+        | ColumnType::Date
+        | ColumnType::Time
+        | ColumnType::Timestamp
+        | ColumnType::Duration => return decode_integer(ty, code, rest),
+    };
+    if code != expected {
+        return None;
+    }
     Some(match ty {
-        ColumnType::Bool => match code {
-            FALSE => Value::Bool(false),
-            TRUE => Value::Bool(true),
-            _ => return None,
-        },
-        ColumnType::F32 if code == F32 => {
+        ColumnType::F32 => {
             let ordered = u32::from_be_bytes(take_array(rest)?);
             let bits = if ordered >> 31 == 1 {
                 ordered ^ (1 << 31)
             } else {
                 !ordered
             };
-            Value::F32(f32::from_bits(bits))
+            let v = f32::from_bits(bits);
+            if bits == 1 << 31 || (v.is_nan() && bits != CANONICAL_NAN_F32) {
+                return None;
+            }
+            Value::F32(v)
         }
-        ColumnType::F64 if code == F64 => {
+        ColumnType::F64 => {
             let ordered = u64::from_be_bytes(take_array(rest)?);
             let bits = if ordered >> 63 == 1 {
                 ordered ^ (1 << 63)
             } else {
                 !ordered
             };
-            Value::F64(f64::from_bits(bits))
+            let v = f64::from_bits(bits);
+            if bits == 1 << 63 || (v.is_nan() && bits != CANONICAL_NAN_F64) {
+                return None;
+            }
+            Value::F64(v)
         }
-        ColumnType::Decimal { scale, .. } if code == DECIMAL => {
+        ColumnType::Decimal { precision, scale } => {
             let mantissa = (u128::from_be_bytes(take_array(rest)?) ^ (1 << 127)) as i128;
+            if !fits_precision(mantissa, *precision) {
+                return None;
+            }
             Value::Decimal(Decimal {
                 mantissa,
                 scale: *scale,
             })
         }
-        ColumnType::Uuid(order) if code == UUID => {
+        ColumnType::Uuid(order) => {
             let bytes: [u8; 16] = take_array(rest)?;
             Value::Uuid(Uuid(match order {
                 UuidOrder::Rfc9562 => bytes,
@@ -407,13 +425,10 @@ fn decode_element(ty: &ColumnType, rest: &mut &[u8]) -> Option<Value<'static>> {
                 }
             }))
         }
-        ColumnType::Ulid if code == UUID => Value::Ulid(Ulid(take_array(rest)?)),
-        ColumnType::String if code == STRING => {
-            Value::String(Cow::Owned(String::from_utf8(unescape(rest)?).ok()?))
-        }
-        ColumnType::Bytes if code == BYTES => Value::Bytes(Cow::Owned(unescape(rest)?)),
-        ColumnType::Vector(_) => return None,
-        _ => decode_integer(ty, code, rest)?,
+        ColumnType::Ulid => Value::Ulid(Ulid(take_array(rest)?)),
+        ColumnType::String => Value::String(Cow::Owned(String::from_utf8(unescape(rest)?).ok()?)),
+        ColumnType::Bytes => Value::Bytes(Cow::Owned(unescape(rest)?)),
+        _ => unreachable!("the other types return above"),
     })
 }
 
@@ -455,7 +470,9 @@ fn decode_integer(ty: &ColumnType, code: u8, rest: &mut &[u8]) -> Option<Value<'
     } else {
         i128::try_from(magnitude).ok()?
     };
-    let micros = |min: i64, max: i64| (i128::from(min)..=i128::from(max)).contains(&v);
+    if !stored_in_domain(ty, v) {
+        return None;
+    }
     Some(match ty {
         ColumnType::I8 => Value::I8(v.try_into().ok()?),
         ColumnType::I16 => Value::I16(v.try_into().ok()?),
@@ -465,18 +482,10 @@ fn decode_integer(ty: &ColumnType, code: u8, rest: &mut &[u8]) -> Option<Value<'
         ColumnType::U16 => Value::U16(v.try_into().ok()?),
         ColumnType::U32 => Value::U32(v.try_into().ok()?),
         ColumnType::U64 => Value::U64(v.try_into().ok()?),
-        ColumnType::Date if (i128::from(DATE_MIN)..=i128::from(DATE_MAX)).contains(&v) => {
-            Value::Date(v.try_into().ok()?)
-        }
-        ColumnType::Time if micros(0, TIME_MAX) => {
-            Value::Time((v * NANOS_PER_MICRO).try_into().ok()?)
-        }
-        ColumnType::Timestamp if micros(TIMESTAMP_MIN, TIMESTAMP_MAX) => {
-            Value::Timestamp(v * NANOS_PER_MICRO)
-        }
-        ColumnType::Duration if micros(-DURATION_MAX, DURATION_MAX) => {
-            Value::Duration(v * NANOS_PER_MICRO)
-        }
+        ColumnType::Date => Value::Date(v.try_into().ok()?),
+        ColumnType::Time => Value::Time((v * NANOS_PER_MICRO).try_into().ok()?),
+        ColumnType::Timestamp => Value::Timestamp(v * NANOS_PER_MICRO),
+        ColumnType::Duration => Value::Duration(v * NANOS_PER_MICRO),
         _ => return None,
     })
 }
