@@ -329,7 +329,7 @@ translations too):
 - Root parent, objective 2 and D4: the product is complete with the modules of the split without 9 (annotation of
   2026-11-09 on encryption), with 17, 18 and 19, and without dictionary compression (N2), although Voron has it.
 - Root parent, D2: the public surface adds the C interface and the C# binding of module 18.
-- Root parent, D11 and AC20: the values of the columns that are not `string`, `bytes` or vector are returned decoded
+- Root parent, D11 and AC20: the values of the columns that are not `string`, `bytes`, vector or JSON (from 7.5) are returned decoded
   into a copy owned by the application (Output), like List in A3.
 - Root parent, Out of scope: the item «Servidor de red, protocolo remoto, lenguaje de consulta o SQL» now excludes
   only the network server, the remote protocol, a text query language and SQL: the query tree and the execution plans

@@ -328,7 +328,7 @@ traducciones también):
   2026-11-09 sobre el cifrado), con el 17, el 18 y el 19, y sin la compresión por diccionario (N2), aunque Voron la
   tiene.
 - Padre raíz, D2: la superficie pública añade la interfaz C y el binding C# del módulo 18.
-- Padre raíz, D11 y AC20: los valores de las columnas que no son `string`, `bytes` ni vector se devuelven
+- Padre raíz, D11 y AC20: los valores de las columnas que no son `string`, `bytes`, vector ni JSON (desde 7.5) se devuelven
   decodificados en una copia propia de la aplicación (Salida), como Listar en A3.
 - Padre raíz, Fuera de alcance: el punto «Servidor de red, protocolo remoto, lenguaje de consulta o SQL» pasa a
   excluir solo el servidor de red, el protocolo remoto, un lenguaje de consulta de texto y SQL: el árbol de consulta y
