@@ -141,7 +141,7 @@ applied where the decision lives:
 | P7 | Text forms cover 7.1's whole date and time domains; no domain change | Restrict 7.1's domain to 0001-9999 (a 7.1 decision) | Whole domain | Text conversion over its domain | — | §2.4 forms | Raw accessor or error for dates outside .NET's range | Backed: U5, C4 |
 | P8 | A versioned JSON Schema per kind, published with the library | — | Adopt; distribution is open question 4 | — | — | Schema files, CI check | Shipped schema (if question 4 says so) | Backed: U6, U9 |
 | P9 | Document limits are application budgets with safe defaults, ceilings only where an implementation bound exists; a budget that guards memory or work has a hard maximum no setting exceeds | Fixed contract maxima | Budgets, as doc 4 question 9 recommended | — | — | `limits`, defaults, hard maxima | Limits in the C options | Approved 2026-11-10 |
-| P10 | Errors with JSON Pointer path, expected, found; new D8 class **invalid document**; stale documents fail with N10's **schema mismatch** | Report bad documents as misuse | New class: an application must tell a bad document from a call in the wrong order | Schema mismatch data (tokens, versions) | — | Error object | Status code | Approved 2026-11-10; the path backed by U6 |
+| P10 | Errors with JSON Pointer path, expected, found; new D8 class **invalid document**; stale documents fail with N10's **different schema** | Report bad documents as misuse | New class: an application must tell a bad document from a call in the wrong order | Different schema data (tokens, versions) | — | Error object | Status code | Approved 2026-11-10; the path backed by U6 |
 | P11 | `serde`, `serde_derive`, `serde_json` and their crates, after the dependency rule is written into D12, annotated in D12 and module 17's PRD | A strict reader of Krummi's own in safe Rust | `serde_json` (§2.6), the reviewer's preference | — | — | Dependencies of the query crate only | None (C# uses `System.Text.Json`) | Approved 2026-11-10: `serde_json`; module 17's PRD annotates the crates |
 | P12 | Catalog identities and state tokens are random 64-bit values, readable by applications through introspection and in emitted documents; collisions stated at 2^-64 per comparison and at most m × 2^-64 over m comparisons in a store's life; a drawn value equal to a known one is drawn again | Identities only inside emitted documents, no introspection call | Introspection: agents and tools need it without running `explain` | Catalog stores identities (a column's is its `column_id`) and `schema_state`; describe call | Index identity, `index_state` | `refs`, `bind`, cache keys | Describe through C | Approved 2026-11-10 |
 | P13 | Objective 4, AI-assisted development, in the root PRD; no MCP or AI-provider dependency in the library | Leave the objective out | Add it; the reviews treat it as a goal | — | — | Introspection and schemas serve it | — | Approved 2026-11-10; the dependency rule backed by U8 |
@@ -221,7 +221,7 @@ ninguna incompatibilidad con la versión 2.1. No quisiera mantener código antig
   and name together; a query's optional
   `"bind": { "table": "9f3a0c7e5b1d2468", "columns": { "country": "03c1d9a07e44b2f5" } }` does the same for a query.
   Identities and tokens are §2.2's random 64-bit values. A name that resolves to an object with another identity fails
-  with schema mismatch, naming the object, the expected and the found identity.
+  with different schema, naming the object, the expected and the found identity.
 - **Shared vocabulary.** Expression nodes are the same in both kinds (`eq`, `lt`, `le`, `gt`, `ge`, `and`, `or`,
   `not`, `in`, `prefix`, `is_null`, `distance`); doc 4's `VectorWithin` becomes a comparison over a `distance`
   operand, as doc 8 has it. Physical operators take doc 8's names in snake case (`table_scan`, `index_scan`,
@@ -279,7 +279,7 @@ execution is a convenience method on top in Rust and C# (P18).
 **Execution in a transaction X.** If the catalog state X sees equals the statement's bound state, the compiled plan
 is used. Otherwise the statement re-binds against what X sees: a logical statement resolves its names again and
 requires the same column identities (P16), then plans; a plan statement re-runs phases 2-4 against X and fails with
-schema mismatch when a table or column identity, a name or `schema_state` differs, or a referenced index is gone. An
+different schema when a table or column identity, a name or `schema_state` differs, or a referenced index is gone. An
 old read transaction after a schema change therefore runs a plan for its own catalog, and a plan `explain` produced
 in T1 runs in T1 although a later commit dropped its index (the counterexample of C1).
 
@@ -287,7 +287,7 @@ in T1 runs in T1 although a later commit dropped its index (the counterexample o
 sees, its uncommitted changes included, and each schema or index change in W draws new tokens at once. So:
 
 - A statement prepared in W and executed after a later change in W re-binds (the tokens differ) and sees the change:
-  a renamed or dropped column fails with schema mismatch; an added column or index is planned for.
+  a renamed or dropped column fails with different schema; an added column or index is planned for.
 - Validity is decided by what the executing transaction sees, never by how W ended (corrected 2026-11-10 after review
   round 3, C14). A statement or document is valid in a transaction X when every identity and token it pins exists in
   the catalog X sees: a logical statement pins the table and column identities; a plan pins the table identity, its
@@ -327,15 +327,15 @@ transaction that sees its key:
 
 | Event seen by the executing transaction | Logical statement (`query/1`) | Plan statement (`plan/1`) |
 |---|---|---|
-| A column renamed | Fails with schema mismatch: the name no longer resolves (re-prepare) | Fails with schema mismatch |
-| A column dropped, and another added under its name (N3: "es nueva") | Fails with schema mismatch: same name, another identity (P16) | Fails with schema mismatch |
-| Any other schema change (N3) | Re-binds and re-plans | Fails with schema mismatch, naming the table, both schema versions and both tokens |
+| A column renamed | Fails with different schema: the name no longer resolves (re-prepare) | Fails with different schema |
+| A column dropped, and another added under its name (N3: "es nueva") | Fails with different schema: same name, another identity (P16) | Fails with different schema |
+| Any other schema change (N3) | Re-binds and re-plans | Fails with different schema, naming the table, both schema versions and both tokens |
 | Table dropped and recreated under the same name | Fails: table identity differs | Fails: table identity differs |
 | An index created | Re-plans (`index_state` changed) | Re-binds and runs: it does not use the index |
 | An index the plan uses dropped or recreated | Re-plans | Fails: index identity differs or the index is gone |
 | Statistics rebuilt | Re-plans at the next run, same key | Runs unchanged; only explain's estimates change |
 | Values whose estimate leaves doc 4's band (4x) | Plans that run separately; after two such runs, every run | Runs unchanged |
-| A non-durable commit lost in a crash (G11), then other changes | A pinned column identity or token from the lost state matches nothing: schema mismatch | Same |
+| A non-durable commit lost in a crash (G11), then other changes | A pinned column identity or token from the lost state matches nothing: different schema | Same |
 | A restored backup or a compacted copy (modules 10, 11) | Tokens are copied unchanged, so documents made before the copy mean the same on both; later changes on either draw independent tokens | Same |
 | Krummi upgraded | Not applicable: statements die with the process | Not applicable |
 
@@ -368,7 +368,7 @@ rejected") and doc 8 (line 119, `est` "ignored by the executor"):
 3. A plan Krummi emits for a transaction passes Krummi's validator unchanged, with the same meaning, in that
    transaction and in every transaction that sees the identities and tokens it pins, however the transaction that
    made it ended; preparing `explain.plan` there and running it with the same values returns the rows of the statement
-   that produced it. Elsewhere it fails with schema mismatch, never runs with another meaning, up to §2.2's 2^-64
+   that produced it. Elsewhere it fails with different schema, never runs with another meaning, up to §2.2's 2^-64
    bound, also after a lost non-durable commit or an abort (corrected after review rounds 1, 2 and 3, C1, C9, C13,
    C14).
 4. Krummi writes documents in one deterministic form (fixed member order, canonical values, §2.4), so it re-emits a
@@ -676,7 +676,7 @@ it was accepted.
   uncommitted states stay inside their write transaction (P17, from the self-review below).
 - Invariant: a document is always bound against the snapshot of the transaction that uses it.
 - Acceptance: (a) the counterexample runs in T1 and returns the rows of the logical statement in T1; the same plan in
-  a transaction opened after W fails with schema mismatch naming the index; (b) a statement prepared after a schema
+  a transaction opened after W fails with different schema naming the index; (b) a statement prepared after a schema
   change runs in an older read transaction against that transaction's schema; (c) and (d), superseded by round 2
   (C13) and round 3 (C14): W creates an index, prepares a logical statement and takes the plan from its `explain`,
   which uses the index; after a commit both work in later transactions; after an abort the plan fails with schema
@@ -744,7 +744,7 @@ una que se quitó es nueva". Doc 1 gives columns a stable `column_id` (line 220)
 - Fix: P16: a statement pins the column ids it bound; a `query` document may carry `bind`, always emitted by Krummi.
   Alternatives in §1.
 - Invariant: once bound, a name never silently denotes another column.
-- Acceptance: drop and re-add `status`: the statement fails with schema mismatch naming `status` and both ids; the
+- Acceptance: drop and re-add `status`: the statement fails with different schema naming `status` and both ids; the
   stored query with `bind` fails the same way; without `bind` it binds to the new column (documented); a rename makes
   both fail; an unrelated added column changes neither.
 - Changed: §1 P16, §2.1, §2.2, §2.5, §4.
@@ -775,7 +775,7 @@ which the root PRD does not hold yet. Fix: §2.6, two approvals and a comparison
    committed states (doc 1's append-only history gives it for columns; tables and indexes need the same rule).
    *Superseded by round 2: public identities are random; internal numbers fail at their maximum (P19).*
 4. **C6 with C1:** a statement prepared in a newer snapshot and run in an older one where the name resolves to another
-   id fails with schema mismatch: correct, since the column differs; noted in the acceptance of C6.
+   id fails with different schema: correct, since the column differs; noted in the acceptance of C6.
 5. **C5 with shared statements:** after a statistics rebuild, every thread running a statement may re-plan the same
    key at once; results stay correct and the cost is bounded by the number of threads. A single planning per key is
    an optimization to measure, not to build now.
@@ -805,7 +805,7 @@ had recorded it as a documented residual, which does not keep the promise of §2
 - Invariant: a document validates only against the catalog state it was made for, up to 2^-64 per comparison.
 - Acceptance: in a non-durable mode with a crash hook, commit a schema change, take `explain` and a normalized query
   with `bind`, crash so the commit is lost, reopen, make another schema change that reuses the readable schema version:
-  both documents fail with schema mismatch naming the table, both versions and both tokens; a restored backup and its
+  both documents fail with different schema naming the table, both versions and both tokens; a restored backup and its
   source each make a schema change: documents from either after the change fail on the other, documents from before
   work on both.
 - Changed: Summary 3, §2.1, §2.2 (identities, invalidation table), §2.3 rule 3, §3.
@@ -836,7 +836,7 @@ inside it, only sequence.
   uncommitted changes.
 - Acceptance: the reviewer's sequence, for each change (rename, drop and add a column, create and drop an index used
   by the plan): open W, prepare S on `t` (a logical query and the plan from its `explain`), make the change in W, run
-  S in W. Rename and drop fail with schema mismatch for both; an added column runs; a created index runs and the
+  S in W. Rename and drop fail with different schema for both; an added column runs; a created index runs and the
   logical statement may use it (`explain` shows it); a dropped index re-plans the logical statement and fails the plan
   statement. Then commit and run S in a new read transaction, which follows what that transaction sees (§2.2); and
   the abort variant, where S runs as on the committed state it was prepared on (corrected after review round 3, C14:
@@ -899,7 +899,7 @@ user are those marked "Yes" in §1's table.
 5. **Minor: cache entries of aborted write transactions** stay until LRU evicts them; a write transaction that makes
    many changes and prepares after each may push useful entries out. Cost only.
 6. **Minor: error texts.** After a lost commit two different states may show the same readable schema version, so the
-   schema mismatch error also carries both tokens (§2.2's invalidation table).
+   different schema error also carries both tokens (§2.2's invalidation table).
 
 ## Review round 3 (2026-11-10)
 
@@ -921,11 +921,11 @@ to the preparing transaction's outcome instead of to the catalog.
 - Acceptance:
   1. W prepares a logical statement and takes a plan with `explain` on a committed schema, inserts and deletes rows,
      aborts: both run in a new read transaction and return its rows.
-  2. W prepares a plan that uses `ix_a`, drops `ix_a`, commits: the plan fails with schema mismatch naming `ix_a` in W
+  2. W prepares a plan that uses `ix_a`, drops `ix_a`, commits: the plan fails with different schema naming `ix_a` in W
      after the drop and in every transaction opened after the commit; a read transaction opened before the commit
      still runs it; the logical statement re-plans without `ix_a`.
   3. The abort variant of 2: the plan runs again in every transaction after the abort.
-  4. W adds a column and takes a plan that reads it, then aborts: the plan fails with schema mismatch everywhere; a
+  4. W adds a column and takes a plan that reads it, then aborts: the plan fails with different schema everywhere; a
      logical statement prepared in W before the change still runs.
 - Changed: Summary 3, §1 P17, §2.2, §2.3, Review rounds 1 and 2 (as marked).
 
@@ -964,7 +964,7 @@ cursors across changes, error detail). No further review round is open.
 | R7 (43-44) | One call per tree, a byte buffer | Prepare in a transaction (UTF-8 JSON), bind, execute | P2, P3 |
 | Handles and closing (105-123) | Store, transactions, cursors | Statements and argument sets hold the store's reference; close with live statements is misuse | P3 |
 | Threads (128-135) | Read and write transactions, cursors | Plus statements (shareable) and argument sets (one thread); a cursor's next call after a change of its own write transaction returns misuse (round 2, C11) | P14, P17 |
-| Status codes (148-150) | Pager and tree classes | Plus invalid document, schema mismatch, invalid value, duplicate key, resource exhausted, cancelled | P10 |
+| Status codes (148-150) | Pager and tree classes | Plus invalid document, different schema, invalid value, duplicate key, resource exhausted, cancelled | P10 |
 | C sketch (183-187) | `krummi_read_query`, `krummi_write_query` | §2.2's functions, explain, error detail, document schema; no one-shot (P18); writes by tree removed (out of scope, README) | D, P18 |
 | C# builder (239-244) | Binary serializer; error "with the byte offset"; golden bytes | `Utf8JsonWriter`; error path (doc 9, claim 4); golden JSON shared with Rust | D |
 | Testing (254-261) | Golden query bytes | Golden documents; prepare, bind, invalidation and thread tests (acceptance of C1, C2) | D |
