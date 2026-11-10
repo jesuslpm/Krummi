@@ -96,7 +96,8 @@ table of round 2. P20 (the random source of 7.1) is new in this round; §2.8 has
 4. **P4, re-planning** (17): doc 4's adaptive policy (recommended), re-plan only on catalog changes, or plan every run. **Decided 2026-11-10: doc 4's
    adaptive policy.**
 5. **P6, promise for stored queries** (17): none before 1.0 and every published major after it (recommended), or only
-   the current and the previous major after 1.0.
+   the current and the previous major after 1.0. **Decided 2026-11-10, neither: the user's semantic versioning with
+   one reader (§2.1, *Versions*).**
 6. **P15, constants** (17, 18): parameters only (recommended), or integer literals for `limit`, `offset` and `k`.
 7. **P3 with P14, statement scope** (17, 18): a store-scoped statement shared by threads (recommended), or a statement
    per transaction, or SQLite's one-thread statement holding its values.
@@ -131,7 +132,7 @@ applied where the decision lives:
 | P3 | A statement is prepared in a transaction, belongs to the store, runs in any transaction; closing a store with live statements fails with misuse | A statement per transaction (simpler lifetime, prepared again per transaction) | Store-scoped: reuse across transactions is the point of preparing | — | — | `Statement` tied to the store's lifetime | Handles hold the store; close rule | Approval (block 7) |
 | P4 | Logical statements re-plan on a catalog change, a statistics rebuild or values outside doc 4's band; plan statements never re-plan | (a) re-plan only on catalog changes; (b) plan every run | Doc 4's policy: stable for most shapes, adaptive where values matter; a fixed plan is one `explain` away | — | — | Cache, revalidation, counters | — | Approved 2026-11-10; revalidation itself backed by U2 |
 | P5 | `explain` returns an editable, resubmittable plan; explain text output only; DD9 no longer applies to documents | — | Adopt | — | — | `explain/1` | Explain through C | Backed: U3, U9 |
-| P6 | Stored queries are a versioned contract; stored plans have no promise beyond typed rejection; statements never persist | After 1.0: every published `query` major accepted, or only the current and the previous | None before 1.0 (as D7); after 1.0 every published major, since queries are small and old majors cost a reader each | — | — | Versioning rule, readers per major | — | Approval (block 5); the three concepts backed by U4 |
+| P6 | Stored queries are a versioned contract; stored plans have no promise beyond typed rejection; statements never persist | After 1.0: every published `query` major accepted, or only the current and the previous | None before 1.0 (as D7); after 1.0 every published major, since queries are small and old majors cost a reader each | — | — | Versioning rule, one reader | — | Decided 2026-11-10: semantic versioning, one reader that accepts any earlier version unless it uses a removed construct, and no construct ever changes meaning (§2.1, *Versions*); the three concepts backed by U4 |
 | P7 | Text forms cover 7.1's whole date and time domains; no domain change | Restrict 7.1's domain to 0001-9999 (a 7.1 decision) | Whole domain | Text conversion over its domain | — | §2.4 forms | Raw accessor or error for dates outside .NET's range | Backed: U5, C4 |
 | P8 | A versioned JSON Schema per kind, published with the library | — | Adopt; distribution is open question 4 | — | — | Schema files, CI check | Shipped schema (if question 4 says so) | Backed: U6, U9 |
 | P9 | Document limits are application budgets with safe defaults, ceilings only where an implementation bound exists; a budget that guards memory or work has a hard maximum no setting exceeds | Fixed contract maxima | Budgets, as doc 4 question 9 recommended | — | — | `limits`, defaults, hard maxima | Limits in the C options | Approved 2026-11-10 |
@@ -155,7 +156,24 @@ test plan.
 
 ### 2.1 Documents
 
-Every document is a JSON object whose member `"krummi"` names its kind and major version.
+Every document is a JSON object whose member `"krummi"` names its kind and version, `major.minor` (`"query/1.2"`;
+`"query/1"` means 1.0). Below, `query/1` names the whole major.
+
+**Versions (P6, decided 2026-11-10).** User: "Yo creo que lo mejor es utilizar versionado semántico y además intentar
+hacer compatibles los formatos hacia atrás. También podría ser que una consulta escrita en la versión 1.2 no tenga
+ninguna incompatibilidad con la versión 2.1. No quisiera mantener código antiguo..."
+
+- Semantic versioning per kind: a minor version only adds constructs; a major version may remove them.
+- One reader, the current one, with no code kept for old versions. It accepts a document of any earlier version; one
+  that uses a removed construct fails with **invalid document**, naming the construct and the version that removed
+  it, and one of a later version than the reader fails with a typed error too.
+- No construct ever changes meaning: a new meaning takes a new name. User: "en vez de cambiar el significado de like
+  por ejemplo, podríamos añadir cs_like como case sensitive like". V1's `prefix` compares bytes, so it is already
+  case-sensitive; a case-insensitive one would be a new operation (for example `ci_prefix`), never a change to
+  `prefix`. This is what makes accepting an old document safe: it reads with its meaning or fails.
+- Before 1.0 there is no promise, as D7 for stores.
+- The cost: a stored query that uses a removed construct has no automatic migration; its error says what to change.
+- `plan/1` follows the same versioning, but stored plans keep no promise beyond a typed rejection (U4).
 
 | Kind | Holds | Persisted by applications | Accepted by |
 |---|---|---|---|
@@ -1036,8 +1054,7 @@ with Rust, the error detail, dates outside .NET's range (C4).
 
 ## 4. Open product questions
 
-1. **Promise for stored queries.** Before 1.0, no promise beyond a typed rejection (as D7 for stores)? After 1.0, does
-   every published `query` major stay accepted with the same meaning, or only the current and the previous one?
+1. **Promise for stored queries.** Decided 2026-11-10 (P6): semantic versioning with one reader (§2.1, *Versions*).
 2. **A performance threshold for prepared runs.** Should the module 18 PRD set one (for example a prepared point lookup
    from C# against a key-value `get`, B1 of doc 9), or only measure it?
 3. **Plan stability for logical statements.** Is preparing an explained plan the only way to pin a plan, or should a
