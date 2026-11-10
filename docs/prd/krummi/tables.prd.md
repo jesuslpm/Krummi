@@ -28,8 +28,8 @@ ellos lo observable; el cómo queda en esos documentos, que son el estado de par
 umbrales del banco en Windows y en Linux (ejecuciones completas del 2026-11-09).
 
 Este PRD hereda todo lo del padre y lo de los árboles (B1–B12) y sus hijos; aquí solo se añade lo común del módulo.
-Lo que cambia o precisa reglas anteriores está declarado en sus decisiones y anotado en los documentos afectados (ver
-[Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
+Lo que cambia o precisa reglas anteriores está declarado en sus decisiones y se anota en los documentos afectados al
+cerrar este PRD (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 
 En este documento, una **tabla** es una colección con nombre de filas dentro de un almacén; una **fila** es un valor
 para cada columna del esquema; el **esquema** es la lista de columnas de la tabla, con su nombre, su tipo, si admiten
@@ -249,7 +249,8 @@ Valen los de los ascendientes. Cada criterio lo comprueba el PRD hijo que se nom
    dentro de una escritura, cuando esa escritura cambia filas, analiza y aborta, entonces las filas, el contador y
    las estadísticas quedan como antes, y cuando cambia más filas después de analizar y confirma, entonces esas
    modificaciones cuentan para el umbral; cuando una carga masiva falla mientras se construyen estadísticas en
-   segundo plano, entonces las que se guardan no cuentan ninguna fila de la carga; y con el guardado de las estadísticas detenido en su gancho, una escritura de la aplicación con tiempo
+   segundo plano, entonces las que se guardan cuentan solo las filas de la carga que quedaron confirmadas según fije
+   7.1 (ninguna si la carga falla entera); y con el guardado de las estadísticas detenido en su gancho, una escritura de la aplicación con tiempo
    límite falla con tiempo de espera agotado al vencer (T4) (7.3).
 9. **AC-N9** — Dadas las cargas de N11, cuando se comparan con las tablas de Voron en una ejecución completa del banco,
    entonces Krummi llega al umbral de K7 en cada una, en Windows y en Linux; un umbral incumplido sigue K13: no
@@ -260,7 +261,8 @@ Valen los de los ascendientes. Cada criterio lo comprueba el PRD hijo que se nom
 
 ## Anotaciones a otros PRD
 
-Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotaciones correspondientes:
+Este PRD cambia o precisa reglas de documentos anteriores. Al cerrarlo, cuando esté acordado y revisado, cada uno
+recibe su anotación con fecha; hasta entonces esta lista es la de las anotaciones pendientes:
 
 - Padre raíz, reparto: la fila del módulo 7 pasa a decir que fija también los tipos de columna (N4) y el error de
   valor no válido (N10), sin las secciones de datos en bruto (fuera de alcance; las cubre el módulo 13), con la
@@ -273,6 +275,8 @@ Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotac
   2026-11-09 sobre el cifrado), con el 17, el 18 y el 19, y sin la compresión por diccionario (N2), aunque Voron la
   tiene.
 - Padre raíz, D2: la superficie pública añade la interfaz C y el binding C# del módulo 18.
+- Padre raíz, D11 y AC20: los valores de las columnas que no son `string`, `bytes` ni vector se devuelven
+  decodificados en una copia propia de la aplicación (Salida), como Listar en A3.
 - Padre raíz, Fuera de alcance: el punto «Servidor de red, protocolo remoto, lenguaje de consulta o SQL» pasa a
   excluir solo el servidor de red, el protocolo remoto, un lenguaje de consulta de texto y SQL: el árbol de consulta y
   los planes de ejecución entran en el módulo 17. El punto «Bindings para otros lenguajes (API C, .NET, Python)» pasa
