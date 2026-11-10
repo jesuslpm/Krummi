@@ -84,5 +84,5 @@ order and input order, shown with schema `id, a, b` and the row `[(b,2),(b,3),(i
   example and a missing-key case.
 - Status: claimed fixed, unverified until a follow-up review.
 
-Review record: telemetry as in the first round's report header (wrapper telemetry: coordinator `gpt-6.1-sol` /
-`high`).
+Review record: telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review-critical` `gpt-6-astra` /
+`xhigh`.
