@@ -171,6 +171,11 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *Out of scope, "Tables with a schema, secondary indexes and dictionary compression of values (module 7)": module 7
   covers it.*
 
+*Annotations of 2026-11-10 from tables with schema ([tables-schema.prd.md](tables-schema.prd.md), 7.1, Spanish, authoritative):*
+
+- *B3: sequences share the catalog like tables; the list of tree types does not change (E14).*
+- *B7: the precedence of E17 of 7.1 applies to table and sequence operations.*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

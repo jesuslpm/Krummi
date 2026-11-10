@@ -94,6 +94,13 @@ hilos (G4); Krummi además las lleva al disco agrupadas (E4).
 - *K6: las cargas de tablas siguen su regla de motores que no las ofrecen (`no aplica`).*
 - *K4 y K11: los datos de las cargas de tablas y su lugar en la ejecución reducida los fijan 7.1 y 7.2.*
 
+*Anotaciones del 2026-11-10 desde las tablas con esquema ([tables-schema.prd.md](tables-schema.prd.md), 7.1):*
+
+- *Tabla de cargas: se añaden W23 a W29, las cargas de tablas de 7.1 (E21 y *Cargas del banco* de [tables-schema.prd.md](tables-schema.prd.md)).*
+- *K4: W26, W27, W28 y W29 empiezan en el almacén que deja W23, cada una en su copia, como las del almacén base.*
+- *K7 y Salida: el informe cuenta 29 umbrales.*
+- *K9: el tamaño del almacén se mide también tras W23, W24, W25 y W29.*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

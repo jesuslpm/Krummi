@@ -94,6 +94,13 @@ brings them to disk grouped (E4).
 - *K6: the table loads follow its rule for engines that do not offer them (`no aplica`).*
 - *K4 and K11: the data of the table loads and their place in the reduced run are fixed by 7.1 and 7.2.*
 
+*Annotations of 2026-11-10 from tables with schema ([tables-schema.prd.md](tables-schema.prd.md), 7.1, Spanish, authoritative):*
+
+- *Load table: W23 to W29 are added, the table loads of 7.1 (E21 and *Cargas del banco* of [tables-schema.prd.md](tables-schema.prd.md)).*
+- *K4: W26, W27, W28 and W29 start from the store W23 leaves, each in its own copy, like the base store loads.*
+- *K7 and Output: the report counts 29 thresholds.*
+- *K9: the store size is also measured after W23, W24, W25 and W29.*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

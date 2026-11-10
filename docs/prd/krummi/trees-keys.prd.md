@@ -105,6 +105,11 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
   Listar cubren también las tablas, con su tipo. Los modos de apertura, las clases de no encontrado y ya existente,
   la precedencia, el daño y los cambios de las operaciones de tabla los fija 7.1.*
 
+*Anotaciones del 2026-11-10 desde las tablas con esquema ([tables-schema.prd.md](tables-schema.prd.md), 7.1):*
+
+- *A1, A3, A6, A9 y A10 valen también para las tablas y las secuencias (E1, E2, E14, E16 y E19 de 7.1), y las clases de A6 nombran una tabla o una secuencia.*
+- *A7: en las operaciones de tablas y secuencias, uso incorrecto y el tiempo de espera de una carga masiva van primero, y el tamaño no válido que necesita el esquema (una clave primaria o una fila) va después de los fallos del catálogo, del esquema y de valor no válido (E17).*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

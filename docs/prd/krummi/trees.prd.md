@@ -174,6 +174,11 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *Fuera de alcance, «Tablas con esquema, índices secundarios y compresión de valores por diccionario (módulo 7)»:
   lo cubre el módulo 7.*
 
+*Anotaciones del 2026-11-10 desde las tablas con esquema ([tables-schema.prd.md](tables-schema.prd.md), 7.1):*
+
+- *B3: las secuencias comparten el catálogo como las tablas; la lista de tipos de árbol no cambia (E14).*
+- *B7: la precedencia de E17 de 7.1 vale para las operaciones de tablas y secuencias.*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

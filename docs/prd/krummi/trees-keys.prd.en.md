@@ -103,6 +103,11 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
   Exists and List also cover tables, with their type. The open modes, the not found and already exists classes, the
   precedence, the damage and the changes of table operations are fixed by 7.1.*
 
+*Annotations of 2026-11-10 from tables with schema ([tables-schema.prd.md](tables-schema.prd.md), 7.1, Spanish, authoritative):*
+
+- *A1, A3, A6, A9 and A10 also apply to tables and sequences (E1, E2, E14, E16 and E19 of 7.1), and the classes of A6 name a table or a sequence.*
+- *A7: in table and sequence operations, misuse and the wait timeout of a bulk load come first, and the invalid size that needs the schema (a primary key or a row) comes after the catalog, schema and invalid value failures (E17).*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:
