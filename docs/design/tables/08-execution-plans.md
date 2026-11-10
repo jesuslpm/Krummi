@@ -197,10 +197,10 @@ query's context, created at that moment:
 
 | Structure | Representation in the scratch store |
 |---|---|
-| Sort runs | Each sorted run bulk-inserted in order into its own tree keyed `sort key ‖ sequence` (append path of doc 2); a k-way merge over the run cursors. Merge fan-in limited, as DataFusion's disk manager limits `max_spill_merge_fan_in` |
+| Sort runs | Each run is sorted in memory before it spills, then appended in that order to its own fixed-size tree keyed by its position in the run (a `u64`, append path of doc 2), with the encoded sort key and the row as the value; a k-way merge over the run cursors compares the decoded sort keys in memory. Merge fan-in limited, as DataFusion's disk manager limits `max_spill_merge_fan_in`. Corrected 2026-11-10 after the Codex review (R6): the first version keyed the run tree by `sort key ‖ sequence`, which a sort key over a long `string` or `bytes` column (3,000 bytes is valid in a row) cannot fit in the tree's 2,048-byte key; the sort key now lives in the value, which has no such limit (large values go off-leaf), and the run's order needs no key comparison because the run is already sorted |
 | Key set (`KeyUnion`, `KeyIntersect`) | A sorted run of primary keys, merged with duplicate removal |
 | Table spool (reserved) | One tree keyed by a big-endian sequence number; eager builds in a write transaction, commits, then reads through a read transaction with zero-copy references; lazy appends while reading, copying rows out (a write transaction's reference is valid only until the next mutation, doc 6) |
-| Index spool and temporary index (reserved) | A tree keyed `seek columns ‖ sequence`; the seek is the tree's own range scan. This is SQL Server's Index Spool and SQLite's automatic index, built from the trees Krummi already has |
+| Index spool and temporary index (reserved) | A tree keyed `seek columns ‖ sequence`; the seek is the tree's own range scan. When they are designed, seek columns that can exceed the key limit need the same care as the sort runs (R6). This is SQL Server's Index Spool and SQLite's automatic index, built from the trees Krummi already has |
 | Hash table (reserved) | Grace partitioning: rows written to N partition trees keyed `hash ‖ sequence`, each partition rebuilt in memory afterward |
 
 The scratch store has no journal, no recovery, and no log of any kind. The trees give ordered runs and seeks for free; the cost is that rows
