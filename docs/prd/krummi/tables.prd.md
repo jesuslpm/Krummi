@@ -28,8 +28,8 @@ ellos lo observable; el cómo queda en esos documentos, que son el estado de par
 umbrales del banco en Windows y en Linux (ejecuciones completas del 2026-11-09).
 
 Este PRD hereda todo lo del padre y lo de los árboles (B1–B12) y sus hijos; aquí solo se añade lo común del módulo.
-Lo que cambia o precisa reglas anteriores está declarado en sus decisiones y se anota en los documentos afectados al
-cerrar este PRD (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
+Lo que cambia o precisa reglas anteriores está declarado en sus decisiones y anotado en los documentos afectados (ver
+[Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 
 En este documento, una **tabla** es una colección con nombre de filas dentro de un almacén; una **fila** es un valor
 para cada columna del esquema; el **esquema** es la lista de columnas de la tabla, con su nombre, su tipo, si admiten
@@ -261,8 +261,8 @@ Valen los de los ascendientes. Cada criterio lo comprueba el PRD hijo que se nom
 
 ## Anotaciones a otros PRD
 
-Este PRD cambia o precisa reglas de documentos anteriores. Al cerrarlo, cuando esté acordado y revisado, cada uno
-recibe su anotación con fecha; hasta entonces esta lista es la de las anotaciones pendientes:
+Este PRD cambia o precisa reglas de documentos anteriores, que llevan las anotaciones del 2026-11-10 (en sus
+traducciones también):
 
 - Padre raíz, reparto: la fila del módulo 7 pasa a decir que fija también los tipos de columna (N4) y el error de
   valor no válido (N10), sin las secciones de datos en bruto (fuera de alcance; las cubre el módulo 13), con la

@@ -118,6 +118,12 @@ reads end.*
 
 *Annotation of 2026-11-02 from fixed-size trees ([trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)): whole document, the current format version becomes `9` (decision X12).*
 
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+
+- *T4: a waiting write may wait for the internal write that stores statistics (N8 of tables). With a zero limit, a
+  write fails if that store is in the queue.*
+- *T12: that internal write may be the one that meets the first I/O failure; how it is reported is fixed by 7.3.*
+
 ### Starting state
 
 Verified on 2026-10-22:

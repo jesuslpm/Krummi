@@ -97,6 +97,14 @@ de lo cual se opera con él (B9). **Borrar** se usa solo para árboles y **quita
 - *A9: el daño de organización de un nodo es un solape, una entrada fuera de la página o de sus tamaños, o un
   registro de huecos que no coincide con sus entradas (decisión Y4).*
 
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+
+- *A1, A3, A6, A7, A9 y A10: borrar, renombrar o vaciar como árbol una tabla falla con tipo distinto, y Renombrar
+  con sobrescritura no borra un destino que es una tabla: también falla con tipo distinto (A3 decía «sea del tipo
+  que sea»); sin sobrescritura, un destino que es una tabla falla con árbol ya existente, como dice A3. Existe y
+  Listar cubren también las tablas, con su tipo. Los modos de apertura, las clases de no encontrado y ya existente,
+  la precedencia, el daño y los cambios de las operaciones de tabla los fija 7.1.*
+
 ### Estado de partida
 
 Verificado el 2026-10-25 en el código:

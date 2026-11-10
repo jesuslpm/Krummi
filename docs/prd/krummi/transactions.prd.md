@@ -116,6 +116,13 @@ espacio se recupera al terminar las lecturas.*
 
 *Anotación del 2026-11-02 desde los árboles de tamaño fijo ([trees-fixed-size.prd.md](trees-fixed-size.prd.md)): todo el documento, la versión de formato vigente pasa a ser `9` (decisión X12).*
 
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+
+- *T4: la escritura que espera puede esperar a la escritura interna que guarda las estadísticas (N8 de las tablas).
+  Con un límite de cero, una escritura falla si ese guardado está en la cola.*
+- *T12: esa escritura interna puede ser la que encuentra el primer fallo de entrada y salida; cómo se informa lo
+  fija 7.3.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

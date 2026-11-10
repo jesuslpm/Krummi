@@ -86,6 +86,14 @@ W9, W12 and W13), the journal and group commit (W4–W6 and W13), free space (W1
 fixed-size ones). In W5 and W6, the engines with a single writer queue the threads' writes (G4); Krummi in addition
 brings them to disk grouped (E4).
 
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+
+- *K7 and Output: besides the 22 loads of modules 1 to 5, the table loads have thresholds (N11 of tables, D5),
+  against Voron only. The report counts every threshold, so "Krummi meets N of 22 thresholds" counts over the total,
+  and K13 applies to them: missing one ends with code `1`.*
+- *K6: the table loads follow its rule for engines that do not offer them (`no aplica`).*
+- *K4 and K11: the data of the table loads and their place in the reduced run are fixed by 7.1 and 7.2.*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

@@ -158,6 +158,22 @@ En este documento, un **árbol** es una colección con nombre de entradas ordena
 - *Organización de las páginas: un nodo de los árboles con entradas de tamaño variable puede tener huecos que dejan
   las entradas borradas o sustituidas (decisión Y4).*
 
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+
+- *B3: el catálogo guarda también tablas (N1). Pedir como árbol algo que es una tabla, o al revés, falla con tipo
+  distinto, con la misma precedencia sobre ya existente; y las operaciones de árbol nunca destruyen una tabla, así
+  que la frase «Las operaciones que nombran un árbol sin pedir un tipo (como borrarlo) nunca fallan con tipo de
+  árbol distinto» deja de valer cuando el nombre es de una tabla. La lista de tipos no cambia: una tabla no es un
+  tipo de árbol, pero comparte su catálogo.*
+- *B4 sigue valiendo, porque los árboles internos de una tabla no ocupan nombres.*
+- *B7: la regla de los errores de validación pública vale también para las tres clases de N10 de las tablas.*
+- *B8: los datos del tamaño no válido de los tamaños nuevos (una entrada de índice, un nombre de columna, una clave
+  primaria, una fila) los fijan 7.1 y 7.2, y los del tipo de árbol distinto pueden nombrar el tipo tabla.*
+- *B11: los árboles internos de las tablas no tienen límite propio; el límite de índices por tabla que fije 7.2 es
+  un límite de las tablas, no del número de árboles.*
+- *Fuera de alcance, «Tablas con esquema, índices secundarios y compresión de valores por diccionario (módulo 7)»:
+  lo cubre el módulo 7.*
+
 ### Estado de partida
 
 Verificado el 2026-10-24 en el código y en la referencia de Voron que recoge el padre:

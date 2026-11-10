@@ -107,6 +107,25 @@ no contiene un almacén de Krummi (D10, decisión R6).*
   fallo del motor, del hardware o de la memoria lo dejó inconsistente; la confirmación lo guarda, y cada lectura de
   él por otra transacción falla con la clase de daño.*
 
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+
+- *Objetivo 2 y D4: el producto está completo con los módulos del reparto sin el 9 (anotación del 2026-11-09 sobre
+  el cifrado), con el 17, el 18 y el 19, y sin la compresión por diccionario, aplazada (N2 de las tablas), aunque
+  Voron la tiene.*
+- *D2: la superficie pública añade la interfaz C y el binding C# del módulo 18.*
+- *D11 y AC20: los valores de las columnas de una tabla que no son `string`, `bytes` ni vector se devuelven
+  decodificados en una copia propia de la aplicación (Salida de las tablas), como Listar en A3; los de `string`,
+  `bytes` y vector siguen siendo referencias sin copia.*
+- *D12 y AC21: la interfaz C (módulo 18) es, con el Pager, la única parte del motor que puede usar código no seguro.
+  Una dependencia que usa código no seguro se admite caso por caso, si es muy usada y mantenida, solo Rust (sin C),
+  sin una alternativa segura razonable, y anotada con su motivo en el PRD que la introduce; las dependencias con
+  código C quedan fuera salvo decisión expresa.*
+- *AC19: las cargas del banco son las de K6 y K7 más las de tablas (N11 de las tablas).*
+- *Fuera de alcance: el punto «Servidor de red, protocolo remoto, lenguaje de consulta o SQL» pasa a excluir solo el
+  servidor de red, el protocolo remoto, un lenguaje de consulta de texto y SQL: el árbol de consulta y los planes de
+  ejecución entran en el módulo 17. El punto «Bindings para otros lenguajes (API C, .NET, Python)» pasa a excluir
+  los demás lenguajes: la interfaz C y el binding .NET entran en el módulo 18.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
@@ -249,6 +268,19 @@ bytes), de valor (256 MiB) y de nombre de árbol (1.024 bytes) y sus errores est
 *Anotación del 2026-11-03 al módulo 5: la compresión de páginas hoja sale de su contenido y del alcance del
 producto (excepción al objetivo 2 y a D4); el módulo se reparte en cinco PRD hijos (5.1 a 5.5) y cuenta como cerrado para
 el objetivo 2 cuando lo están los cinco (anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md)).*
+
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+
+- *Módulo 7: fija también los tipos de columna (N4) y el error de valor no válido (N10); las secciones de datos en
+  bruto quedan fuera de él (las cubre el módulo 13) y la compresión por diccionario queda aplazada (N2). Se reparte
+  en los PRD hijos 7.1 a 7.4, el último aplazado.*
+- *Módulos 10, 11 y 12: el backup, la compactación y la verificación y el rescate copian o comprueban también los
+  árboles internos de las tablas, como árboles (N1).*
+- *Módulos nuevos, numerados así para que no se muevan los números que ya citan otros documentos: el 17, Consultas
+  (árbol de consulta construido con una API fluida, validación, planificador por coste, planes de ejecución que la
+  interfaz pública también acepta, y ejecución por cursor), y el 18, Interfaz C y binding C#, que se construyen
+  justo después del 7, en ese orden; y el 19, Importar y exportar archivos de filas (CSV, JSON por líneas, Parquet),
+  después del 18.*
 
 ## Validaciones y mensajes
 

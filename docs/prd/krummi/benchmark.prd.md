@@ -86,6 +86,14 @@ los árboles (todas; W10 y W11 para el recorrido, W17 y W18 para los valores gra
 W21 y W22 para los de tamaño fijo). En W5 y W6, los motores con un solo escritor ponen en cola las escrituras de los
 hilos (G4); Krummi además las lleva al disco agrupadas (E4).
 
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+
+- *K7 y Salida: además de las 22 cargas de los módulos 1 a 5, tienen umbral las cargas de tablas (N11 de las tablas,
+  D5), solo frente a Voron. El informe cuenta todos los umbrales, así que «Krummi cumple N de 22 umbrales» pasa a
+  contar sobre el total, y K13 vale para ellos: incumplir uno termina con código `1`.*
+- *K6: las cargas de tablas siguen su regla de motores que no las ofrecen (`no aplica`).*
+- *K4 y K11: los datos de las cargas de tablas y su lugar en la ejecución reducida los fijan 7.1 y 7.2.*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

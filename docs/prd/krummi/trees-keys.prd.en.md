@@ -95,6 +95,14 @@ the tree is operated on (B9). **Delete** is used only for trees and **remove** f
 - *A9: a node's organization damage is an overlap, an entry outside the page or its sizes, or a hole count that
   does not match its entries (decision Y4).*
 
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+
+- *A1, A3, A6, A7, A9 and A10: removing, renaming or emptying a table as a tree fails with different type, and
+  Rename with overwrite does not remove a destination that is a table: it also fails with different type (A3 said
+  "whatever its type"); without overwrite, a destination that is a table fails with tree already exists, as A3 says.
+  Exists and List also cover tables, with their type. The open modes, the not found and already exists classes, the
+  precedence, the damage and the changes of table operations are fixed by 7.1.*
+
 ### Starting state
 
 Verified on 2026-10-25 in the code:

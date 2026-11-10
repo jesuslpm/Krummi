@@ -155,6 +155,22 @@ their name and their type; and the **type** of a tree is normal, multi-value or 
 - *Page organization: a node of the trees with variable-size entries may have holes that removed or replaced
   entries leave (decision Y4).*
 
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+
+- *B3: the catalog also holds tables (N1). Asking as a tree for something that is a table, or the reverse, fails
+  with different type, with the same precedence over already exists; and tree operations never destroy a table, so
+  the sentence "Operations that name a tree without asking for a type (such as removing it) never fail with
+  different tree type" no longer holds when the name is a table's. The list of types does not change: a table is not
+  a tree type, but it shares their catalog.*
+- *B4 still holds, because the internal trees of a table take no names.*
+- *B7: the rule of public validation errors also applies to the three classes of N10 of tables.*
+- *B8: the data of the invalid size error for the new sizes (an index entry, a column name, a primary key, a row)
+  are fixed by 7.1 and 7.2, and those of different tree type may name the table type.*
+- *B11: the internal trees of tables have no limit of their own; the limit of indexes per table that 7.2 fixes is a
+  limit of tables, not of the number of trees.*
+- *Out of scope, "Tables with a schema, secondary indexes and dictionary compression of values (module 7)": module 7
+  covers it.*
+
 ### Starting state
 
 Verified on 2026-10-24 in the code and in the Voron reference collected by the parent:

@@ -108,6 +108,25 @@ contain a Krummi store (D10, decision R6).*
   hardware or the memory left it inconsistent; the commit stores it, and every read of it by another transaction
   fails with the damage class.*
 
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+
+- *Objective 2 and D4: the product is complete with the modules of the split except 9 (annotation of 2026-11-09 on
+  encryption), with 17, 18 and 19, and without dictionary compression, deferred (N2 of tables), although Voron has
+  it.*
+- *D2: the public surface adds module 18's C interface and C# binding.*
+- *D11 and AC20: the values of a table's columns that are not `string`, `bytes` or vector are returned decoded into
+  a copy the application owns (tables, Output), like List in A3; `string`, `bytes` and vector values remain
+  references without a copy.*
+- *D12 and AC21: the C interface (module 18) is, with the Pager, the only part of the engine that may use unsafe
+  code. A dependency that uses unsafe code is admitted case by case, if it is widely used and maintained, Rust only
+  (no C), with no reasonable safe alternative, and annotated with its reason in the PRD that introduces it;
+  dependencies with C code stay out unless expressly decided.*
+- *AC19: the benchmark loads are those of K6 and K7 plus the table loads (N11 of tables).*
+- *Out of scope: the item "Network server, remote protocol, query language or SQL" now excludes only the network
+  server, the remote protocol, a text query language and SQL: the query tree and execution plans come into module
+  17. The item "Bindings for other languages (C API, .NET, Python)" now excludes the other languages: the C
+  interface and the .NET binding come into module 18.*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:
@@ -248,6 +267,18 @@ bytes), a value (256 MiB) and a tree name (1,024 bytes) and their errors are in 
 *Annotation of 2026-11-03 to module 5: leaf page compression leaves its content and the scope of the product
 (exception to objective 2 and D4); the module is split into five child PRDs (5.1 to 5.5) and counts as closed for
 objective 2 when the five are (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md)).*
+
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+
+- *Module 7: it also fixes the column types (N4) and the invalid value error (N10); raw data sections leave it
+  (module 13 covers them) and dictionary compression is deferred (N2). It is split into child PRDs 7.1 to 7.4, the
+  last one deferred.*
+- *Modules 10, 11 and 12: backup, compaction, and verification and rescue also copy or check the internal trees of
+  tables, as trees (N1).*
+- *New modules, numbered so that the numbers other documents already cite do not move: 17, Queries (a query tree
+  built with a fluent API, validation, a cost-based planner, execution plans that the public interface also accepts,
+  and execution by cursor), and 18, C interface and C# binding, built right after 7, in that order; and 19,
+  Importing and exporting row files (CSV, JSON lines, Parquet), after 18.*
 
 ## Validations and messages
 
