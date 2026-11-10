@@ -1,0 +1,34 @@
+# Tables PRD (ANN scope) review resolutions
+
+Resolutions of [2026-11-10-prd.md](2026-11-10-prd.md). Append-only: each update is dated and keeps the earlier
+ones. A claimed fix stays unverified until a follow-up review confirms it.
+
+## 2026-11-10
+
+Reviewed revision: `8aa74da` (child PRD 7.6 annotation). Fix commits: `883c4ab` (R1), `2353251` (R2).
+
+Review record: `docs/reviews/tables-ann/2026-11-10-prd.md`, wrapper status `findings` (open R1, R2), `threadId`
+`01a1c6b2-0584-73c0-804b-90570b0cba97`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. No product question was raised.
+
+### R1 — major: JSON reads conflict with the common ownership contract
+
+- Disposition: fixed.
+- Evidence: the 7.5 annotation (`tables.prd.md`, *Reparto en PRD hijos*) stores JSON in a binary format "que se lee
+  sin copiar ni analizar el texto", while *Salida* and the root's D11/AC20 annotation listed only `string`, `bytes`
+  and vector as values returned without a copy. The user's choice in 7.5 already fixes the behavior, so the fix
+  propagates it; it decides nothing new.
+- Fix: *Salida* of `tables.prd.md` and `tables.prd.en.md` adds JSON (from 7.5) to the values read without copying;
+  the D11/AC20 annotation of `krummi.prd.md` and `krummi.prd.en.md` excludes JSON from the decoded copies and keeps
+  it among the references without a copy.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R2 — minor: starting state generalizes normal-tree limits to all tree kinds
+
+- Disposition: fixed.
+- Evidence: fixed-size trees take `u64` keys (`crates/krummi/src/lib.rs:633`) and values of a fixed length of 0 to
+  2,048 bytes (`crates/krummi-tree/src/fixed.rs:1-2`); a multi-value tree caps each value at the key maximum
+  (`crates/krummi/src/lib.rs:69`); B5 of `trees.prd.md` limits the 1 to 2,048-byte keys to normal and multi-value
+  trees.
+- Fix: the *Datos* row of *Estado de partida*, in both languages, now gives the key and value limits per tree kind.
+- Status: claimed fixed, unverified until a follow-up review.
