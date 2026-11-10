@@ -10,8 +10,10 @@
 //!
 //! A table's entry (D2 and D3 of the tables with schema execution) is the fixed part of a tree's, with the table's
 //! identity, its kind, the root and the row count of its rows tree, followed by bytes that the catalog does not
-//! interpret: the table code stores its schema there ([`lookup_with_extra`], [`put_with_extra`]). The kind byte `5`
-//! is reserved for the sequences of 7.1 (D2) and is damage until they are built.
+//! interpret: the table code stores its schema there ([`lookup_with_extra`], [`put_with_extra`]).
+//!
+//! A sequence's entry (D2 and D4 of the tables with schema execution) has the size of a normal tree's: the sequence's
+//! identity, its kind and the root of its own one-entry tree, which holds its next value; its count is unused.
 
 use krummi_tx::{Result, TreeKind, WriteTransaction};
 
@@ -35,6 +37,8 @@ const MULTI_VALUE: u8 = 2;
 const FIXED_SIZE: u8 = 3;
 /// The kind byte of a table (D2 of the tables with schema execution).
 const TABLE: u8 = 4;
+/// The kind byte of a sequence (D2 and D4 of the tables with schema execution).
+const SEQUENCE: u8 = 5;
 
 /// The catalog's entry of a tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +68,7 @@ impl Entry {
                 (FIXED_SIZE, FIXED_ENTRY_SIZE)
             }
             TreeKind::Table => (TABLE, ENTRY_SIZE),
+            TreeKind::Sequence => (SEQUENCE, ENTRY_SIZE),
             // `TreeKind` is non-exhaustive for the applications; the catalog knows every kind of its version.
             kind => unreachable!("the catalog has no {kind} entries"),
         };
@@ -78,6 +83,7 @@ impl Entry {
             (&NORMAL, ENTRY_SIZE) => TreeKind::Normal,
             (&MULTI_VALUE, ENTRY_SIZE) => TreeKind::MultiValue,
             (&TABLE, len) if len > ENTRY_SIZE => TreeKind::Table,
+            (&SEQUENCE, ENTRY_SIZE) => TreeKind::Sequence,
             (&FIXED_SIZE, FIXED_ENTRY_SIZE) => {
                 let len = u16::from_le_bytes([bytes[25], bytes[26]]);
                 if usize::from(len) > fixed::MAX_LEN {

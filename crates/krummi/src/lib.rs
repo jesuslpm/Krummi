@@ -28,8 +28,10 @@
 //! made to allow nulls in a write. Rows are given as pairs of column name and value and are inserted, updated (only
 //! the columns given), inserted or updated, read and deleted by their primary key
 //! ([`WriteTransaction::insert_row`], [`ReadTransaction::get_row`]); a read row ([`TableRow`]) has every live column
-//! and borrows its text and bytes from the store. Tree operations on a table, and table operations on a tree, fail
-//! with [`ErrorKind::DifferentTreeType`].
+//! and borrows its text and bytes from the store. Sequences, opened with [`WriteTransaction::open_sequence_with`],
+//! hand out increasing 64-bit integers in a write ([`WriteTransaction::next_value`]), transactionally. Tree operations
+//! on a table or a sequence, and table or sequence operations on another class, fail with
+//! [`ErrorKind::DifferentTreeType`].
 //!
 //! ```
 //! use krummi::{OpenMode, Store, StoreOptions};
@@ -79,7 +81,8 @@ pub mod ids;
 pub mod table;
 
 pub use table::{
-    Column, ReadTable, Schema, SchemaColumn, TableMode, TableRow, TableSchema, Upserted, WriteTable,
+    Column, ReadSequence, ReadTable, Schema, SchemaColumn, SequenceMode, TableMode, TableRow,
+    TableSchema, Upserted, WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
@@ -190,6 +193,7 @@ impl Store {
             serial: next_serial(),
             trees: RefCell::default(),
             tables: RefCell::default(),
+            sequences: RefCell::default(),
         })
     }
 }
@@ -212,6 +216,8 @@ pub struct WriteTransaction<'s> {
     trees: RefCell<Trees>,
     /// The state of every table this transaction opened, shared by all the table's handles (E4, B9).
     tables: RefCell<table::catalog::Tables>,
+    /// The state of every sequence this transaction opened, shared by all the sequence's handles (E14, B9).
+    sequences: RefCell<table::Sequences>,
 }
 
 /// How [`WriteTransaction::open_tree_with`], [`WriteTransaction::open_multi_tree_with`] and
