@@ -77,3 +77,35 @@ apply beyond reading.
 Review record: [2026-11-10-code.md](2026-11-10-code.md), wrapper status `findings`, thread
 `01a1c4b8-243c-7da2-8e90-437cb62ac8e0`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-10 (verification)
+
+Follow-up report: [2026-11-10-code-02.md](2026-11-10-code-02.md), thread `01a1c4cb-efe8-7de2-9b00-a128226cd5fb`,
+wrapper status `findings`, verdict "Changes requested: R4 and R6 remain major; R2 remains minor." R1, R3, R5, R7 and
+R8 were verified resolved; R4 and R6 "still open, partially corrected"; R2 "still open".
+
+## 2026-11-10 (second fixes)
+
+### R4 — major, follow-up: index-only reads still cannot return variable primary keys without copying
+
+- Disposition: fixed. The finding holds and is wider than stated: a `string` or `bytes` column of the index key is
+  escaped in the key too, not only the primary key.
+- Fix (`docs/design/tables/03-keys-and-indexes.md`, `04-query-tree-and-planner.md`, `06-c-interface-and-csharp.md`):
+  an index-only read returns only fixed-width key columns from the key; `string` and `bytes` columns of the index key
+  or the primary key come from an included column or from the row (doc 1 stores `string` and `bytes` primary key
+  columns raw). Doc 4's covering rule no longer counts them; the C and C# accessors read them from the row.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R6 — major, follow-up: spill runs still violate the reused tree's value constraints
+
+- Disposition: fixed. The finding holds: fixed-size trees have one constant value length of at most 2,048 bytes and
+  no values off their leaf (X1); the first fix chose the wrong tree kind.
+- Fix (`docs/design/tables/08-execution-plans.md`): a run is a normal tree keyed by its position, a big-endian `u64`
+  (8 bytes, appended in order), with the encoded sort key and the row as a value of any length, a long one going off
+  its leaf by the normal tree's large-value rule up to B6's maximum.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R2 — minor
+
+- Disposition: pending the user's approval to close the tables PRD, which applies the annotations (see the PRD
+  resolutions).
