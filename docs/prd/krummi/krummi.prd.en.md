@@ -184,6 +184,18 @@ detected as until now (decision C7 of [trees-node-check-cache.prd.en.md](trees-n
 
 *Annotation of 2026-11-06: the previous annotation said that write transactions keep checking everything they read; they now use the remembered pages, as read transactions do. The exception to G6 widens: a write can seal into a new version a change to a remembered page made while the store is open by something other than the engine, and the damage stays stored. AC10 does not change (decisions S2 and S3 of [pager-writer-checks.prd.en.md](pager-writer-checks.prd.en.md)).*
 
+*Annotation of 2026-11-09 (the user's decision in the design of the tables,
+[docs/design/tables/README.md](../../design/tables/README.md)): encrypting what the engine writes while the store is
+in use leaves the scope. The confidentiality at rest of a store is delegated to the file system's encryption (for
+example BitLocker, EFS, LUKS or fscrypt): the process needs the key at hand to use it, which makes it very hard to
+protect, and encrypting the data files costs on every page read or written. Only backups are encrypted, on request
+(module 10): the key is given when making the backup and when restoring it, Krummi never keeps it, and restoring
+with a wrong key is never reported as damage. Therefore: G8 holds only for encrypted backups; module 9 leaves the
+split and backup encryption moves to module 10; D12 no longer names an encrypted variant of the Pager; D11 no longer
+names encrypted pages; G9 in what it says about asking for encryption in temporary mode, its row of Validations and
+messages, step 6 of the checks on opening, AC13 and what D10 says about what is readable without the key no longer
+apply to the store; key management and custody stay out of scope.*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,

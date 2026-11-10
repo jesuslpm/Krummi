@@ -184,6 +184,19 @@ las alteraciones hechas con el almacén cerrado se detectan como hasta ahora (de
 
 *Anotación del 2026-11-06: la anotación anterior decía que las transacciones de escritura siguen comprobando todo lo que leen; ahora usan las páginas recordadas como las de lectura. La excepción a G6 se amplía: una escritura puede sellar en una versión nueva un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor, y el daño queda guardado. AC10 no cambia (decisiones S2 y S3 de [pager-writer-checks.prd.md](pager-writer-checks.prd.md)).*
 
+*Anotación del 2026-11-09 (decisión del usuario en el diseño de las tablas,
+[docs/design/tables/README.md](../../design/tables/README.md)): el cifrado de lo que el motor escribe mientras el
+almacén está en uso sale del alcance. La confidencialidad en reposo de un almacén se delega en el cifrado del
+sistema de archivos (por ejemplo BitLocker, EFS, LUKS o fscrypt): el proceso necesita la clave a mano para usarla,
+lo que la hace muy difícil de proteger, y cifrar los archivos de datos cuesta en cada página que se lee o se
+escribe. Solo se cifran, a petición, los backups (módulo 10): la clave se da al hacer el backup y al restaurarlo,
+Krummi nunca la guarda, y restaurar con una clave incorrecta nunca se informa como daño. En consecuencia: G8 vale
+solo para los backups cifrados; el módulo 9 desaparece del reparto y el cifrado de los backups pasa al módulo 10;
+D12 deja de nombrar una variante cifrada del Pager; D11 deja de nombrar páginas cifradas; G9 en lo que dice de pedir
+cifrado en modo temporal, su fila de Validaciones y mensajes, el paso 6 de las comprobaciones al abrir, AC13 y lo
+que D10 dice de lo legible sin clave dejan de aplicarse al almacén; la gestión y custodia de claves sigue fuera de
+alcance.*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,
