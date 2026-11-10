@@ -195,6 +195,9 @@ whose key the write adds, skipping the row's own entry (duplicate key, naming th
 phase** change the table tree, the indexes, the autonumeric counter (whose next value the check phase reads without
 taking it) and the modification counter. A public validation error leaves every structure as it was and the
 transaction usable (B7); a failure in the write phase (full disk, maximum size, memory, damage, I/O) follows T11.
+(Superseded in part on 2026-11-10 by PRD 7.1, `tables-schema.prd.md`: there are no autonumeric columns or counter;
+integer keys come from named sequences (E14), transactional catalog objects whose next value the application asks for
+in the write transaction; an update writes only the columns given (E10). The rest of this paragraph holds.)
 
 Operations over many rows cannot check row by row and then write, because a later row may fail after earlier ones
 were written, and a write transaction has no savepoint to undo them (found 2026-11-10 when looking for
@@ -209,7 +212,9 @@ counterexamples to the two phases):
   existing row is found by the same probe as any duplicate. Any failure (invalid value, duplicate, size, the
   autonumeric counter exhausted, the transaction's maximum size P10, a full disk) aborts that transaction, and the
   load fails with that class: no row of it remains, whichever row failed, the last one included, and the counters
-  (autonumeric and modifications) are as before, since they are table data of the aborted transaction. Only the size
+  (autonumeric and modifications) are as before, since they are table data of the aborted transaction (since PRD 7.1,
+  2026-11-10: sequences instead of the autonumeric counter, same rule; the guarantee holds until the commit's point
+  of no return, after which the commit rules apply, E13). Only the size
   of `krummi.data` may stay larger, as after any aborted write that grew it (T10, P11). Memory is that of any large
   write (the scratch area), and the load's size limit is the transaction's (P10). A thread that already holds the
   write transaction and starts a load gets T5's misuse error at once, as for any second write of the same thread.

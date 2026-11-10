@@ -135,7 +135,9 @@ Decisions taken with the user after the first drafts:
 - Generators of primary key values: monotonic `ulid`; sequential `uuid` in SQL Server order (the user's algorithm),
   for `uuid` columns with that order; `uuid` version 7, for `uuid` columns in RFC order; and auto-increment
   (`identity`) 64-bit integer columns that Krummi assigns on insert, increasing and never reused, with a counter per
-  table kept with each commit that inserts. User: "Si todos". Their random bits come straight from the operating
+  table kept with each commit that inserts. User: "Si todos". (Superseded 2026-11-10 by PRD 7.1, E14: no
+  auto-increment columns; named, transactional sequences instead. User: "Yo preferiría no tener autonuméricos y en su
+  lugar tener secuencias para generarlos.") Their random bits come straight from the operating
   system through the pager at each new millisecond, with no pseudo-random generator in between (document 11, P20,
   decided 2026-11-10).
 - Writing rows by primary key: three operations. Insert fails with duplicate key, without effect, when the key
@@ -188,7 +190,7 @@ Decisions taken with the user after the first drafts:
   between trees of different types (A3), and with type mismatch with overwrite, so a tree operation never destroys a
   table; the three new error classes follow B7's rule (the operation fails without effect, the transaction can still
   commit); emptying a table does not reset its auto-increment counter, unlike SQL Server's `TRUNCATE TABLE`, so "never
-  reused" holds. User: "Sí".
+  reused" holds. User: "Sí". (Since PRD 7.1, 2026-11-10: emptying a table touches no sequence, E3.)
 - Exclusions of module 7: foreign keys and `CHECK` constraints stay out (only the foreign key is a constraint between
   tables); changing a column's default or the order of the columns stays out; updating part of a row stays out with no
   exception, an update replaces the whole row; the exclusion of the command-line tool is removed, because its

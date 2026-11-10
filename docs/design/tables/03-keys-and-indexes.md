@@ -262,7 +262,8 @@ UUID and ULID:
   `r0..r15` the RFC 9562 bytes, `ToByteArray()` is `r3 r2 r1 r0 r5 r4 r7 r6 r8 .. r15`, so the bytes of the key,
   most significant first, are `r10..r15, r8 r9, r7 r6, r5 r4, r3 r2 r1 r0`. Applying the same numbers directly to
   the RFC bytes (`r10..r15, r8 r9, r6 r7, r4 r5, r0..r3`) is wrong. The PRD still pins the permutation with test
-  vectors taken from SQL Server.
+  vectors, generated once with .NET's `SqlGuid` as a reference independent of Krummi: they test .NET's semantics,
+  not results from a SQL Server instance (corrected 2026-11-10, PRD 7.1 AC17).
 - `ulid` is its own type (decided), 16 bytes with the time first, generated monotonically (48 bits of Unix
   milliseconds, 80 random bits incremented within a millisecond) by a generator the product provides.
 - A random UUID (v4) used as a primary key or index key sends every insert to a random leaf; a time-ordered key (ULID,
