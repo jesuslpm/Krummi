@@ -47,6 +47,15 @@ pub enum ErrorKind {
     TreeNotFound,
     /// A tree with that name already exists (A1, A3).
     TreeAlreadyExists,
+    /// A value breaks a rule of its column or of its operation (N4 of the tables PRD, E17 of the tables with schema
+    /// PRD).
+    InvalidValue,
+    /// A row with that primary key already exists (N10 of the tables PRD).
+    DuplicateKey,
+    /// A schema given to open a table, or a column of a row, does not match the table (E6).
+    DifferentSchema,
+    /// A table schema, or a change to it, breaks a rule (E5).
+    InvalidSchema,
 }
 
 /// The kind of a tree (B2 of the trees PRD). Opening an existing tree with another kind fails with
@@ -61,6 +70,10 @@ pub enum TreeKind {
     /// A tree whose keys are unsigned 64-bit integers in numeric order and whose values all have this number of
     /// bytes, 0 to 2,048, fixed when it is created (5.5): two lengths are two kinds (X3 of the fixed-size trees PRD).
     FixedSize(u16),
+    /// A table: a catalog object with a schema, not a tree the application opens as one (7.1, E2).
+    Table,
+    /// A sequence: a catalog object that hands out increasing integers, not a tree (7.1, E14).
+    Sequence,
 }
 
 /// What an [`Error::InvalidSize`] is about.
@@ -75,6 +88,96 @@ pub enum SizeSubject {
     Value,
     /// The prefix of a scan or a range removal of a tree.
     Prefix,
+    /// A column name, measured in bytes of UTF-8 (E18).
+    ColumnName,
+    /// The primary key of a row, or a bound of a range of it, in its stored form (E18, E12).
+    PrimaryKey,
+    /// A row, in its stored form (E18).
+    Row,
+}
+
+/// The rule an [`Error::InvalidValue`] reports, in the order of E17 of the tables with schema PRD: when a row
+/// breaks several, the first one in that order is reported (with the column steps of E17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum ValueRule {
+    /// A column given more than once.
+    RepeatedColumn,
+    /// A primary key column missing.
+    MissingKeyColumn,
+    /// A null, or no value, in a column that does not allow nulls.
+    NullNotAllowed,
+    /// A value of a type other than its column's.
+    WrongType,
+    /// A malformed `ulid` or `uuid` text (E9).
+    MalformedText,
+    /// A value outside its type's domain, also after rounding (E8).
+    OutOfDomain,
+    /// A `decimal` that does not fit its precision.
+    DecimalPrecision,
+    /// A vector of another dimension than its column's.
+    VectorDimension,
+    /// A NaN or an infinity in a vector.
+    VectorNotFinite,
+    /// A zero vector in a column with the cosine metric.
+    ZeroVectorCosine,
+    /// A malformed range (E12).
+    InvalidRange,
+    /// A sequence at the maximum of the signed 64-bit integers (E14).
+    SequenceExhausted,
+    /// A generator millisecond that does not fit in 48 bits (E15).
+    MillisecondOutOfRange,
+}
+
+/// The rule an [`Error::InvalidSchema`] reports, in the order of E5: when a schema breaks several, the first one in
+/// this order is reported, and within it the first column in schema order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum SchemaRule {
+    /// No primary key.
+    NoPrimaryKey,
+    /// A primary key column that allows nulls, is a vector or has a default value.
+    InvalidKeyColumn,
+    /// A primary key that names a column that does not exist, or repeats a column.
+    InvalidKeyReference,
+    /// Two columns with the same name.
+    DuplicateColumnName,
+    /// More than 1,024 live columns.
+    TooManyColumns,
+    /// A vector outside its limits (N4).
+    VectorOutOfLimits,
+    /// A `decimal(p, s)` outside 1 <= p <= 38 and 0 <= s <= p.
+    DecimalOutOfLimits,
+    /// The cosine metric on `bit` elements.
+    CosineOnBit,
+    /// A default value that breaks the rules of its column.
+    InvalidDefault,
+    /// An added column that does not allow nulls and has no default value.
+    NotNullWithoutDefault,
+    /// A change N3 does not allow: changing a type, changing the primary key, forbidding nulls.
+    UnsupportedChange,
+    /// Dropping, renaming or modifying a column that does not exist.
+    ColumnNotFound,
+    /// Dropping a primary key column (or, from 7.2, an index column).
+    DropKeyColumn,
+    /// A schema version past 65,535 (P19).
+    VersionExhausted,
+}
+
+/// What differs in an [`Error::DifferentSchema`] (E6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SchemaDifference {
+    /// The column's type.
+    Type,
+    /// Whether the column allows nulls.
+    Nullability,
+    /// The column's default value.
+    Default,
+    /// A column named by the schema or by a row that the table does not have.
+    MissingColumn,
+    /// The primary key columns or their order.
+    PrimaryKey,
 }
 
 /// An engine error.
@@ -145,6 +248,38 @@ pub enum Error {
         folder: Option<PathBuf>,
         name: String,
     },
+    /// See [`ErrorKind::InvalidValue`]. `table` and `column` name where the value is, when there is one;
+    /// `sequence` names the sequence when it is the subject (E17).
+    InvalidValue {
+        folder: Option<PathBuf>,
+        table: Option<String>,
+        column: Option<String>,
+        sequence: Option<String>,
+        rule: ValueRule,
+    },
+    /// See [`ErrorKind::DuplicateKey`]. `key` is the primary key's values in their text form.
+    DuplicateKey {
+        folder: Option<PathBuf>,
+        table: String,
+        key: String,
+    },
+    /// See [`ErrorKind::DifferentSchema`]. `expected` and `found` describe in text what differs: what the schema or
+    /// the row gives and what the table has.
+    DifferentSchema {
+        folder: Option<PathBuf>,
+        table: String,
+        column: Option<String>,
+        difference: SchemaDifference,
+        expected: Box<str>,
+        found: Box<str>,
+    },
+    /// See [`ErrorKind::InvalidSchema`].
+    InvalidSchema {
+        folder: Option<PathBuf>,
+        table: String,
+        column: Option<String>,
+        rule: SchemaRule,
+    },
 }
 
 impl Error {
@@ -167,6 +302,10 @@ impl Error {
             Error::DifferentTreeType { .. } => ErrorKind::DifferentTreeType,
             Error::TreeNotFound { .. } => ErrorKind::TreeNotFound,
             Error::TreeAlreadyExists { .. } => ErrorKind::TreeAlreadyExists,
+            Error::InvalidValue { .. } => ErrorKind::InvalidValue,
+            Error::DuplicateKey { .. } => ErrorKind::DuplicateKey,
+            Error::DifferentSchema { .. } => ErrorKind::DifferentSchema,
+            Error::InvalidSchema { .. } => ErrorKind::InvalidSchema,
         }
     }
 
@@ -252,6 +391,50 @@ impl Error {
             Error::TreeAlreadyExists { folder, name } => Error::TreeAlreadyExists {
                 folder: folder.clone(),
                 name: name.clone(),
+            },
+            Error::InvalidValue {
+                folder,
+                table,
+                column,
+                sequence,
+                rule,
+            } => Error::InvalidValue {
+                folder: folder.clone(),
+                table: table.clone(),
+                column: column.clone(),
+                sequence: sequence.clone(),
+                rule: *rule,
+            },
+            Error::DuplicateKey { folder, table, key } => Error::DuplicateKey {
+                folder: folder.clone(),
+                table: table.clone(),
+                key: key.clone(),
+            },
+            Error::DifferentSchema {
+                folder,
+                table,
+                column,
+                difference,
+                expected,
+                found,
+            } => Error::DifferentSchema {
+                folder: folder.clone(),
+                table: table.clone(),
+                column: column.clone(),
+                difference: *difference,
+                expected: expected.clone(),
+                found: found.clone(),
+            },
+            Error::InvalidSchema {
+                folder,
+                table,
+                column,
+                rule,
+            } => Error::InvalidSchema {
+                folder: folder.clone(),
+                table: table.clone(),
+                column: column.clone(),
+                rule: *rule,
             },
         }
     }
@@ -344,14 +527,70 @@ impl fmt::Display for Error {
                 requested,
             } => write!(
                 f,
-                "tree {name:?} of {} is a {found} tree, not a {requested} tree",
-                store_name(folder)
+                "{name:?} of {} is a {}, not a {}",
+                store_name(folder),
+                kind_noun(found),
+                kind_noun(requested)
             ),
             Error::TreeNotFound { folder, name } => {
                 write!(f, "tree {name:?} not found in {}", store_name(folder))
             }
             Error::TreeAlreadyExists { folder, name } => {
                 write!(f, "tree {name:?} already exists in {}", store_name(folder))
+            }
+            Error::InvalidValue {
+                folder,
+                table,
+                column,
+                sequence,
+                rule,
+            } => {
+                write!(f, "invalid value ({rule:?})")?;
+                if let Some(table) = table {
+                    write!(f, " in table {table:?}")?;
+                }
+                if let Some(column) = column {
+                    write!(f, ", column {column:?}")?;
+                }
+                if let Some(sequence) = sequence {
+                    write!(f, " in sequence {sequence:?}")?;
+                }
+                write!(f, " of {}", store_name(folder))
+            }
+            Error::DuplicateKey { folder, table, key } => write!(
+                f,
+                "duplicate primary key {key} in table {table:?} of {}",
+                store_name(folder)
+            ),
+            Error::DifferentSchema {
+                folder,
+                table,
+                column,
+                difference,
+                expected,
+                found,
+            } => {
+                write!(f, "different schema for table {table:?}")?;
+                if let Some(column) = column {
+                    write!(f, ", column {column:?}")?;
+                }
+                write!(
+                    f,
+                    " of {}: {difference:?} expected {expected}, found {found}",
+                    store_name(folder)
+                )
+            }
+            Error::InvalidSchema {
+                folder,
+                table,
+                column,
+                rule,
+            } => {
+                write!(f, "invalid schema ({rule:?}) for table {table:?}")?;
+                if let Some(column) = column {
+                    write!(f, ", column {column:?}")?;
+                }
+                write!(f, " of {}", store_name(folder))
             }
         }
     }
@@ -363,6 +602,8 @@ impl fmt::Display for TreeKind {
             TreeKind::Normal => f.write_str("normal"),
             TreeKind::MultiValue => f.write_str("multi-value"),
             TreeKind::FixedSize(len) => write!(f, "fixed-size of {len} bytes"),
+            TreeKind::Table => f.write_str("table"),
+            TreeKind::Sequence => f.write_str("sequence"),
         }
     }
 }
@@ -374,7 +615,18 @@ impl fmt::Display for SizeSubject {
             SizeSubject::Key => "key",
             SizeSubject::Value => "value",
             SizeSubject::Prefix => "prefix",
+            SizeSubject::ColumnName => "column name",
+            SizeSubject::PrimaryKey => "primary key",
+            SizeSubject::Row => "row",
         })
+    }
+}
+
+/// A kind as a noun: "normal tree", "table".
+fn kind_noun(kind: &TreeKind) -> String {
+    match kind {
+        TreeKind::Table | TreeKind::Sequence => kind.to_string(),
+        tree => format!("{tree} tree"),
     }
 }
 

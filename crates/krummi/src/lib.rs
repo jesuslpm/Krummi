@@ -56,12 +56,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-pub use krummi_pager::{Error, ErrorKind, Info as StoreInfo, Result, SizeSubject, TreeKind};
+pub use krummi_pager::{
+    Error, ErrorKind, Info as StoreInfo, Result, SchemaDifference, SchemaRule, SizeSubject,
+    TreeKind, ValueRule,
+};
 use krummi_tree::catalog::{self, Entry};
 use krummi_tree::fixed::{self, FixedRange};
 use krummi_tree::{Interval, PageSource, RangeUpdate, multi};
 
 use sealed::{AsReadTree, AsWriteTree, Token};
+
+pub mod ids;
+pub mod table;
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
 const MAX_NAME: usize = 1024;

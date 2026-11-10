@@ -945,7 +945,7 @@ fn ac_x16_formats_6_to_8_are_previous_and_a_new_store_has_the_current_format() {
                 expected,
             }) => {
                 assert_eq!(folder, tmp.path(), "{name}");
-                assert_eq!((found, expected), (format, 10), "{name}");
+                assert_eq!((found, expected), (format, 11), "{name}");
             }
             other => panic!("{name}: expected a previous format, got {other:?}"),
         }
@@ -959,7 +959,7 @@ fn ac_x16_formats_6_to_8_are_previous_and_a_new_store_has_the_current_format() {
 
     stores(|store, _| {
         let info = store.info();
-        assert_eq!(info.format_version, 10);
+        assert_eq!(info.format_version, 11);
         assert_eq!(
             (info.size_bytes, info.page_count, info.free_pages),
             (65_536, 8, 4)
