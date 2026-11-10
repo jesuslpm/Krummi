@@ -13,5 +13,6 @@ pub mod orchestrator;
 pub mod protocol;
 pub mod report;
 pub mod size;
+pub mod table_data;
 pub mod worker;
 pub mod workload;

@@ -1,4 +1,4 @@
-// The 22 loads on Voron, exactly as design D10 of odd/tasks/benchmark.md, and the stores of the worker protocol
+// The 22 loads on Voron, exactly as design D10 of odd/tasks/benchmark.md (the table loads W23-W29 are in Tables.cs), and the stores of the worker protocol
 // (crates/krummi-bench/src/protocol.rs). Every load generates its data, its digest and its expected sums before any
 // timer starts; a repetition's time goes from its first operation to its last commit or read (K8).
 
@@ -72,7 +72,7 @@ sealed class Entries
     }
 }
 
-static class Loads
+static partial class Loads
 {
     const string Bench = "bench", Multi = "multi", Fixed = "fixed";
     /// How long a writer waits for the write lock (see `Batches`).
@@ -255,6 +255,8 @@ static class Loads
                 return FixedAdd(n, b, (int)p.Batch);
             case W22:
                 return FixedRead(n);
+            case >= W23 and <= W29:
+                return BuildTable(load, p);
             default:
                 throw new BenchFailure($"carga no válida: {Id(load)}");
         }

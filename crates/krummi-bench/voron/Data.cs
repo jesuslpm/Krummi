@@ -151,3 +151,81 @@ sealed class Digest
 
     public string Hex => _h.ToString("x16");
 }
+
+/// The data of the table loads W23-W29: a port of crates/krummi-bench/src/table_data.rs, whose module comment gives
+/// every column, key and order. Row r takes its values from Word(r, j) = Splitmix((r * 0x10000 + j) ^ Salt).
+static class TableData
+{
+    public const int IdLen = 16, NameLen = 75;
+    /// 2000-01-01T00:00:00Z and 2030-01-01T00:00:00Z (excluded) in microseconds since the Unix epoch.
+    public const long TsMin = 946_684_800_000_000, TsMax = 1_893_456_000_000_000;
+    /// The millisecond of the ulid of row 0: 2026-01-01T00:00:00Z.
+    public const ulong UlidMs0 = 1_767_225_600_000;
+    const ulong Salt = 0x7AB1E00000000000UL;
+    const ulong NameWord = 4, UlidWord = 79, UuidWord = 81, NewNWord = 83;
+
+    /// The characters of `name`, in ASCII order.
+    static ReadOnlySpan<byte> NameAlphabet => "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"u8;
+
+    static ulong Word(ulong r, ulong j) => Data.Splitmix(unchecked(r * 0x10000UL + j) ^ Salt);
+
+    /// The high 64 bits of a * b: uniform in 0..b when a is uniform over every ulong.
+    static ulong Hi(ulong a, ulong b) => Math.BigMul(a, b, out _);
+
+    public static long N(ulong r) => unchecked((long)Word(r, 0));
+
+    /// x in [0, 1), as its IEEE bits: (word >> 11) * 2^-53, exact.
+    public static long XBits(ulong r) => BitConverter.DoubleToInt64Bits((Word(r, 1) >> 11) * (1.0 / (1UL << 53)));
+
+    public static long Ts(ulong r) => TsMin + (long)Hi(Word(r, 2), (ulong)(TsMax - TsMin));
+
+    public static bool Flag(ulong r) => (Word(r, 3) & 1) == 1;
+
+    public static void NameInto(ulong r, Span<byte> out75)
+    {
+        for (int k = 0; k < NameLen; k++)
+            out75[k] = NameAlphabet[(int)Hi(Word(r, NameWord + (ulong)k), (ulong)NameAlphabet.Length)];
+    }
+
+    /// The key of row r: E15's ulid layout (millisecond UlidMs0 + r, then 80 bits), or a version 4 uuid in RFC 9562
+    /// byte order.
+    public static void KeyInto(ulong r, bool uuid, Span<byte> out16)
+    {
+        if (uuid)
+        {
+            BinaryPrimitives.WriteUInt64BigEndian(out16, Word(r, UuidWord));
+            BinaryPrimitives.WriteUInt64BigEndian(out16.Slice(8), Word(r, UuidWord + 1));
+            out16[6] = (byte)((out16[6] & 0x0F) | 0x40);
+            out16[8] = (byte)((out16[8] & 0x3F) | 0x80);
+        }
+        else
+        {
+            Span<byte> ms = stackalloc byte[8];
+            BinaryPrimitives.WriteUInt64BigEndian(ms, UlidMs0 + r);
+            ms.Slice(2).CopyTo(out16);
+            BinaryPrimitives.WriteUInt16BigEndian(out16.Slice(6), (ushort)Word(r, UlidWord));
+            BinaryPrimitives.WriteUInt64BigEndian(out16.Slice(8), Word(r, UlidWord + 1));
+        }
+    }
+
+    /// The new `n` W28 gives row r; never the old one.
+    public static long NewN(ulong r) => unchecked((long)Word(r, NewNWord));
+
+    /// The checksum of a row read, the same in both engines: the wrapping sum of the bytes of id, n, the bits of x,
+    /// ts, flag as 0 or 1 and the bytes of name.
+    public static ulong Checksum(ReadOnlySpan<byte> id, long n, long xBits, long ts, bool flag, ReadOnlySpan<byte> name) =>
+        unchecked(Data.ByteSum(id) + (ulong)n + (ulong)xBits + (ulong)ts + (flag ? 1UL : 0UL) + Data.ByteSum(name));
+
+    /// The checksum of row r of W23's table.
+    public static ulong RowChecksum(ulong r)
+    {
+        Span<byte> id = stackalloc byte[IdLen];
+        Span<byte> name = stackalloc byte[NameLen];
+        KeyInto(r, false, id);
+        NameInto(r, name);
+        return Checksum(id, N(r), XBits(r), Ts(r), Flag(r), name);
+    }
+
+    /// The rows 0..n of W23's table in the random order of `load` (W26-W29).
+    public static uint[] Order(int load, ulong n) => Data.Permutation(n, Data.Seed(load, 0));
+}

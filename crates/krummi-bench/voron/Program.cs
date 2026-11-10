@@ -5,6 +5,8 @@
 //   versions                                      prints `versions dotnet <x.y.z>`
 //   selftest                                      prints known answers of the data functions, to compare with Rust
 //
+// <load> is W1-W22 (W13 runs inside W12) or one of the table loads W23-W29 (Workload.cs lists their names and starts).
+//
 // On success only protocol lines go to standard output and the exit code is 0; on failure one line with the cause
 // goes to standard error and the exit code is 1. KRUMMI_BENCH_FAIL=voron:<load>:<kind> simulates a failure (AC-K10).
 
@@ -122,6 +124,15 @@ static class Program
         }
     }
 
+    /// The known answers of the table data (tests/table_data.rs): the checksum of row 0, then the reduced digests of
+    /// W23 to W29.
+    static readonly string[] TableAnswers =
+    [
+        "cea75ae64ee7f42b",
+        "04ee91a577139ff6", "bf13a9866b014afd", "04ee91a577139ff6", "f9ff3b9819b073e3",
+        "5a536accc3f3dfb3", "793fdb33803d5329", "1b518456c7d6073c",
+    ];
+
     /// Prints the known answers of the data functions and fails if any differs from the Rust side's (data.rs pins
     /// the same values in its tests).
     static void SelfTest()
@@ -135,6 +146,7 @@ static class Program
             ("splitmix(1)", $"{Data.Splitmix(1):x16}", "910a2dec89025cc1"),
             ("permutation(8,42)", string.Join(' ', Data.Permutation(8, 42)), "0 1 4 7 3 6 2 5"),
             ("digest(key(0),value(3,100))", d.Hex, "95a8df032a8a94d0"),
+            .. Loads.TableSelfTest().Zip(TableAnswers, (a, e) => (a.Name, a.Got, e)),
         ];
         foreach (var (name, got, _) in answers)
             Console.Out.WriteLine($"{name} {got}");

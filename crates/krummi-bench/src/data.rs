@@ -56,7 +56,13 @@ pub fn fixed_key(i: u64) -> u64 {
 
 /// The seed of the random order of `thread` in `load`.
 pub fn seed(load: Load, thread: u64) -> u64 {
-    splitmix((load.number() << 32) | thread)
+    seed_of(load.number(), thread)
+}
+
+/// The seed of the random order of `thread` in the load numbered `number` (23 for W23): `splitmix((number << 32) |
+/// thread)`.
+pub fn seed_of(number: u64, thread: u64) -> u64 {
+    splitmix((number << 32) | thread)
 }
 
 /// The indices `0..n` in the random order of `seed` (Fisher–Yates from the last position down, as the timing
