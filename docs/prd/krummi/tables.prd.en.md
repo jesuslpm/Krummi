@@ -72,7 +72,7 @@ Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the desi
 
 | Aspect | Situation |
 |---|---|
-| Data | Applications store bytes in named trees: normal, multi-value and fixed-size (module 5). Keys are bytes from 1 to 2,048, ordered byte by byte (B5); values, from 0 to 256 MiB (B6). There are no types, schema or secondary indexes. |
+| Data | Applications store bytes in named trees: normal, multi-value and fixed-size (module 5). In normal and multi-value trees, keys are bytes from 1 to 2,048, ordered byte by byte (B5); values of normal trees, from 0 to 256 MiB (B6), and each value of a multi-value tree, up to 2,048 bytes. Fixed-size trees have unsigned 64-bit integer keys, in numeric order, and values of the tree's fixed length, from 0 to 2,048 bytes. There are no types, schema or secondary indexes. |
 | Catalog | It stores trees with their type: normal, multi-value or fixed-size (B3), with the opening modes and the operations of A1 and A3. |
 | Format | The current format version is `10`. |
 | Benchmark | 22 workloads with a threshold against Voron (K7); none of tables. |

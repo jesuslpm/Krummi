@@ -69,7 +69,7 @@ Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los 
 
 | Aspecto | Situación |
 |---|---|
-| Datos | Las aplicaciones guardan bytes en árboles con nombre: normales, multivalor y de tamaño fijo (módulo 5). Las claves son bytes de 1 a 2.048, ordenados byte a byte (B5); los valores, de 0 a 256 MiB (B6). No hay tipos, esquema ni índices secundarios. |
+| Datos | Las aplicaciones guardan bytes en árboles con nombre: normales, multivalor y de tamaño fijo (módulo 5). En los normales y multivalor, las claves son bytes de 1 a 2.048, ordenados byte a byte (B5); los valores de los normales, de 0 a 256 MiB (B6), y cada valor de un multivalor, hasta 2.048 bytes. Los de tamaño fijo tienen claves enteras sin signo de 64 bits, en orden numérico, y valores de la longitud fija del árbol, de 0 a 2.048 bytes. No hay tipos, esquema ni índices secundarios. |
 | Catálogo | Guarda árboles con su tipo: normal, multivalor o de tamaño fijo (B3), con los modos de apertura y las operaciones de A1 y A3. |
 | Formato | La versión de formato vigente es `10`. |
 | Banco | 22 cargas con umbral frente a Voron (K7); ninguna de tablas. |
