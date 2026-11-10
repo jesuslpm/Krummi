@@ -471,9 +471,12 @@ are never part of the key, so §2.4's accepted forms cannot split or merge entri
 
 **Differential tests** (a structurally valid plan need not express a query's intent; Krummi never claims it does):
 
-1. For generated queries over generated schemas and rows (the property tests of AC-N1), the planner's plan, every
-   alternative within its margin, and the reference plan (`table_scan`, `filter`, `sort` or `top_k`, `project` or
-   `aggregate`) return the same rows on one snapshot: as multisets, in order under `sort`, ties by primary key.
+1. For generated queries over generated schemas and rows (the property tests of AC-N1), the planner's plan and every
+   alternative within its margin return results that are admissible for the query, by document 10's rule (C7),
+   against the reference plan (`table_scan`, `filter`, `sort` or `top_k`, `project` or `aggregate`) on one snapshot.
+   A generated query that wants equality gives itself a total order by adding the primary key to its sort keys.
+   Corrected 2026-11-10 after the Codex review (R8): the first version required the same rows with ties by primary
+   key, which a correct `sort` and `limit` plan over tied rows does not give.
 2. Round trip: emit, parse, compare typed trees; emit again, compare bytes; run `explain.plan` as a plan statement in
    the same transaction and compare rows with the logical statement.
 3. Mutated plans (dropped ranges, swapped operators, keys removed from a `key_lookup` input) either fail validation
