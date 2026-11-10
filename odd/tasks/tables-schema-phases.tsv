@@ -1,3 +1,13 @@
 2026-11-10T21:28:54+00:00	mark	explore	
 2026-11-10T21:31:54+00:00	mark	wait	estimate and start confirmation
 2026-11-10T21:32:39+00:00	start	plan	
+2026-11-10T21:49:59+00:00	mark	implement	T2-T4
+2026-11-10T21:51:30+00:00	mark	review	T1
+2026-11-10T21:54:03+00:00	mark	implement	T5-prep
+2026-11-10T22:05:19+00:00	bg-start	review	RDD T2
+2026-11-10T22:05:20+00:00	bg-end	review	RDD T2
+2026-11-10T22:05:48+00:00	bg-start	review	RDD T2
+2026-11-10T22:05:50+00:00	bg-end	review	RDD T2
+2026-11-10T22:05:57+00:00	bg-start	review	RDD T2
+2026-11-10T22:06:58+00:00	bg-end	review	RDD T2
+2026-11-10T22:18:32+00:00	mark	review	T3

@@ -94,10 +94,10 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 
 | ID | Specs | Design | Route | Status | Commit |
 |---|---|---|---|---|---|
-| T1 | S14, S15, S18 (error classes, sizes, format) | D2, D5, D8 | inline | pending | |
-| T2 | S8 (generator half), S12, S23 | README P20; 11 §2.8; D7 | delegated: parallel with T3 and T4 | pending | |
-| T3 | S6, S7, S8 (text forms), S17, S20 (encoding half), S21 (value rules) | 01; 03 key encoding; 05 payload; 07 hook | delegated: parallel with T2 and T4 | pending | |
-| T4 | S16, S26 (Voron side and shared data) | benchmark PRD K4; PRD *Cargas del banco* | delegated: parallel with T2 and T3 | pending | |
+| T1 | S14, S15, S18 (error classes, sizes, format) | D2, D5, D8 | inline | done (RED/GREEN: format asserts and the `bytes_tests` pin failed at 10, pass at 11; suite 594 passed) | `17d8a82` |
+| T2 | S8 (text forms and generators), S12, S23 | README P20; 11 §2.8; D7 | delegated: parallel with T3 and T4 (Writer trigger a: three independent units, disjoint surfaces) | done (RED/GREEN: 3 pager and 10 generator tests failed against stubs, pass) | `56c5a6b` |
+| T3 | S6, S7, S17, S20 (encoding half), S21 (value rules) | 01; 03 key encoding; 05 payload; 07 hook | delegated: parallel with T2 and T4 | done (RED/GREEN: 18 key and row tests against `todo!()` stubs; value tests written after the code, no RED; 3 mutants caught) | `cab64a6` |
+| T4 | S16, S26 (Voron side and shared data) | benchmark PRD K4; PRD *Cargas del banco* | delegated: parallel with T2 and T3 | done (RED/GREEN: `tests/table_data.rs` failed to compile, then 10 passed; C# `selftest` equals the Rust answers) | `0edd736` |
 | T5 | S1, S2, S3, S4, S24, S25 | 01 schema evolution; 02 truncate and drop; 11 §2.2; D2, D3, D6 | to decide | pending | |
 | T6 | S5, S13, S14, S15, S21, S22 (row half) | 02 two phases and operations; 01; 03 | to decide | pending | |
 | T7 | S9, S20, S22 (range and count half) | 03 composite keys and range bounds; 02 scans | to decide | pending | |
@@ -115,3 +115,42 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 - **L2** (2026-11-10): exploration done (explorer map of the catalog, errors, format, bench and test layout). Branch
   `feat/tables-schema` created from `docs/tables`, which is 50 commits ahead of `main` and holds the PRD and the
   design documents. RDD: on (global).
+- **L3** (2026-11-10): T1 committed (`17d8a82`). Default taken: the display of `DifferentTreeType` now names the
+  classes as nouns ("a table, not a normal tree"); the kind display pinned by the fixed-size trees *Salida* test
+  (`fixed-size of 8 bytes`) is unchanged. `DifferentSchema.expected/found` are `Box<str>` to keep `Error` under
+  clippy's `result_large_err` limit. The `bytes_tests` data-file pin changed only through the header page (format
+  version). `ulid`/`uuid` text forms (E9) moved to T2 with the `Ulid`/`Uuid` types in `crates/krummi/src/ids.rs`
+  (D1: generators and the two types in `ids.rs`, not `generate.rs`). T2, T3 and T4 launched in parallel at 21:51.
+- **L4** (2026-11-10): RDD review of T1 (`d487cde..17d8a82`, escalated as high-risk item 1, format bump): lenses
+  risk and readability, lineage `review-6baa1e8b06e51441`, **approved** and acknowledged. Advisory findings (non
+  blocking): R1-001 and R2-different-tree-type-message (WARNING, `error.rs:530-533`, the tree-versus-tree text of
+  `DifferentTreeType` lost its leading "tree"); R2-debug-format-in-display and R2-invalid-value-dangling-comma
+  (SUGGESTION, `error.rs:548-589`). Resolution: fixed in T5 (restore the tree-versus-tree wording, tidy the
+  `InvalidValue` text). Engram mirror pending: `mem_save` fails with "host session already ended".
+- **L5** (2026-11-10): T2 done (`56c5a6b`): `krummi_pager::fill_random` (rustix `rand`, `BCryptGenRandom`, the only
+  new `unsafe`), fault `Op::Random`; `Ulid`/`Uuid` text forms; `ids::ulid`, `ids::uuid_v7`, `ids::sequential_uuid`
+  with a hidden `ids::testing::Generator` hook; vectors from `tools/guid-vectors` (3 generators × 9 scenarios).
+  Defaults: a random-source `Io` error has an empty `folder`; a draw is 10 bytes big-endian (v7 keeps the low 74
+  bits); a clock before 1970 reads as millisecond 0; the hook is a separate generator instance. Deviation from
+  design 11 §2.8: `fill_random` returns the engine's `Result` (mapped to `Io`), in `random.rs` instead of `sys.rs`.
+- **L6** (2026-11-10): RDD review of T2 (`17d8a82..56c5a6b`, assessed medium/under budget, escalated as item 2:
+  new `unsafe` FFI in the pager): lenses risk and reliability, lineage `review-518dbc901dd2906a`, **approved** and
+  acknowledged, no findings.
+- **L7** (2026-11-10): T4 done (`0edd736`): `krummi-bench/src/table_data.rs` (the data specification of W23–W29,
+  checksums and digests), `seed_of` in `data.rs` (existing data byte-identical), the C# port in `Data.cs`, W23–W29 on
+  Voron's `Table` API in `voron/Tables.cs`; reduced runs passed with matching digests and checksums. Defaults: W24's
+  random key is a version 4 uuid; the ulid millisecond is 2026-01-01 + row. Found for T11: `orchestrator/plan.rs`
+  deletes a `Start::After` store after its first dependent load, but W26–W29 all start from W23's store. The harness
+  must be built against `work/ravendb-7.2.7` (`C:\projects\ravendb` is on v7.1); the csproj header now uses
+  double-dash dotnet options.
+- **L8** (2026-11-10): T3 done (`cab64a6`): `table::{value, key, row}` and `tests/table_encoding.rs` (33 tests with
+  the N5 property test), SQL Server order vectors from `tools/sqlguid-vectors` (1,266 uuids). Defaults: temporal
+  `Value`s hold nanoseconds (stored as microseconds); `Value::Vector` holds elements and the `i8` scale, the encoder
+  computes the norm; a row with the compressed bit or a reserved bit set reads as damaged; no integer widening; a
+  decimal that overflows its precision after rescaling or rounding reports `DecimalPrecision`; `key_range` checks
+  value rules, then `InvalidRange`, then size. Seam check after T2–T4: fmt, clippy clean, 650 tests passed.
+  RDD review of T3 (`0edd736..cab64a6`, escalated item 1: persisted key and row formats): lenses risk, readability
+  and reliability, lineage `review-197a225f96da64f8`, **approved** and acknowledged, advisory findings:
+  R2-nanos-doc-inverted (WARNING, `key.rs:36`), R2-nanos-duplicated, R2-decode-fallthrough (SUGGESTION),
+  R3-row-encode-silent-type-mismatch, R3-row-decode-temporal-domain, R3-decode-key-decimal-precision (WARNING),
+  R3-key-len-zip-truncation (SUGGESTION). Resolution: fixed at the start of T5.
