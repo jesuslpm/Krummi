@@ -177,7 +177,7 @@ Per table, these trees (names are examples; the catalog naming is document 3's):
 
 | Tree | Type | Key | Value |
 |---|---|---|---|
-| `rows` | normal | encoded primary key (document 3), 1 to 2,048 bytes | encoded row (document 1) without the primary key columns, up to 256 MiB; off-leaf above the leaf threshold |
+| `rows` | normal | encoded primary key (document 3), 1 to 2,048 bytes | encoded row (document 1) without its fixed-width primary key columns (`string` and `bytes` ones stay in it, Codex R4), up to 256 MiB; off-leaf above the leaf threshold |
 | `ix:<name>` | normal | `encoded index columns ‖ encoded primary key` (document 3) | the included (covering) columns in document 1's row format, or empty |
 | `stats` | normal | column id (and index id) | histogram and counts (document 3, statistics) |
 | `meta` | normal | fixed names | schema versions, flags, modification counter |

@@ -109,3 +109,27 @@ R8 were verified resolved; R4 and R6 "still open, partially corrected"; R2 "stil
 
 - Disposition: pending the user's approval to close the tables PRD, which applies the annotations (see the PRD
   resolutions).
+
+## 2026-11-10 (third round verification and fixes)
+
+Follow-up report: [2026-11-10-code-03.md](2026-11-10-code-03.md), thread `01a1c4d4-f724-7251-832e-44f63b900804`,
+wrapper status `findings`, verdict "Changes requested: R6 remains major; R4 and R2 remain minor." This was the third
+automatic round, the limit of the codex-review loop; a further round needs the user's authorization.
+
+### R6 — major, third round: combined spill records can exceed the normal tree's value limit
+
+- Disposition: fixed. The finding holds (a 100 MiB `bytes` row and its 200 MiB escaped sort key exceed B6 together).
+- Fix (`docs/design/tables/08-execution-plans.md`): a run record is the row alone, as the table holds it, so it fits
+  wherever the row fits; the merge decodes the sort columns from each row in memory and compares typed values, as the
+  in-memory sort does; a computed sort key or projected value goes in a second small tree keyed by the same position.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R4 — minor, third round: corrected zero-copy rules still conflict with dependent descriptions
+
+- Disposition: fixed: doc 3's primary key and covering paragraphs, doc 2's `rows` table entry and doc 4's batch
+  description now follow the fixed-width / `string` and `bytes` distinction.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R2 — minor
+
+- Disposition: unchanged, pending the user's approval to apply the annotations.

@@ -364,14 +364,16 @@ layouts that every scan and decode must tell apart. Branches are about one page 
 is small; it
 is an optimization to measure with 7.2's bench loads (N11), not a first-version layout.
 
-**Primary key.** The table tree is the primary index, with key = `tuple(pk columns)` and value = the row without those
-columns (document 2). The primary key is mandatory and its columns are never null (decided).
+**Primary key.** The table tree is the primary index, with key = `tuple(pk columns)` and value = the row without its
+fixed-width primary key columns; `string` and `bytes` primary key columns stay in the row (documents 1 and 2; Codex
+R4). The primary key is mandatory and its columns are never null (decided).
 
 **Multi-column indexes.** No limit on columns other than the key size. The planner can use any prefix of the columns.
 
 **Covering columns.** The definition has an `include` list from the first version. The cost is write maintenance when
-an included column changes (below), and size. An index-only scan is possible when every column a query needs is a key
-column, a primary key column or an included one.
+an included column changes (below), and size. An index-only scan is possible when every column a query needs is a
+fixed-width key or primary key column, or an included one; a `string` or `bytes` key or primary key column needs the
+row (Composite keys and prefix scans; Codex R4).
 
 **Partial indexes.** The definition reserves a `filter` field (a predicate over the row's columns). An entry exists
 only while the predicate is true; maintenance evaluates it on the old and new row. It is built after document 4's AST
