@@ -1,14 +1,17 @@
 //! Tables with schema (7.1): column types and values, the key encoding of document 3 and the row format of
 //! document 1 of the table design, schemas and their changes, and the tables of the catalog.
 
+mod bulk;
 pub mod catalog;
 mod identity;
 pub mod key;
+mod ranges;
 pub mod row;
 #[cfg(test)]
 mod row_tests;
 mod rows;
 pub mod schema;
+mod sequence;
 pub mod value;
 
 pub use catalog::{ReadTable, TableMode, WriteTable};
