@@ -87,7 +87,7 @@ table of round 2. P20 (the random source of 7.1) is new in this round; §2.8 has
 **Decide one by one: the decisions with real alternatives**, in the order the modules need them:
 
 1. **P20, random source** (blocks 7.1): the pager reads the operating system's generator through features of crates
-   it already uses (recommended), or the `getrandom` crate.
+   it already uses (recommended), or the `getrandom` crate. **Decided 2026-11-10: the pager function (§2.8).**
 2. **P11, JSON library** (17): `serde_json` after writing the dependency rule into D12 and annotating it
    (recommended), or a strict reader of Krummi's own.
 3. **P16, pinning columns** (17): pin column identities (recommended), pin the table's whole schema state, or re-bind
@@ -143,7 +143,7 @@ applied where the decision lives:
 | P17 | Validity follows the identities and tokens the executing transaction sees, whatever happened to the transaction that prepared; no restriction on `prepare` and `explain` in write transactions | None left after C13 and C14 | Adopt | Tokens drawn when a change is made in a write transaction | Same for indexes | Validity rule (logical re-binding and plan validation kept apart), cursors across changes | Cursor misuse after a change | Approved 2026-11-10 |
 | P18 | No one-shot C function in V1; convenience methods in Rust and C# | A C one-shot taking `execution/1` | No C one-shot: four calls do it, one path to test; one may be added later if performance or ergonomics justify it | — | — | Rust convenience | C# convenience | Approved 2026-11-10 (V1) |
 | P19 | A change past the maximum of an internal counter (the `u16` schema version) fails with a typed error before any state changes; no counter wraps or reuses a value; `column_id` is a random identity (P12), not a counter | — | Adopt; 7.1 fixes the class | The error and its test hook | — | — | — | Approved 2026-11-10; backed by round 2, C10 |
-| P20 | The pager exposes one safe function that fills a buffer from the operating system's generator, through `rustix`'s `rand` feature on Linux and `windows-sys`'s `Win32_Security_Cryptography` on Windows; 7.1's generators and the catalog tokens use it | The `getrandom` crate as a dependency of the engine | The pager function: no new crate, no D12 exception, no generator of Krummi's own (§2.8) | Generators and tokens call it | Index tokens | — | — | Approval (block 1) |
+| P20 | The pager exposes one safe function that fills a buffer from the operating system's generator, through `rustix`'s `rand` feature on Linux and `windows-sys`'s `Win32_Security_Cryptography` on Windows; 7.1's generators and the catalog tokens use it | The `getrandom` crate as a dependency of the engine | The pager function: no new crate, no D12 exception, no generator of Krummi's own (§2.8) | Generators and tokens call it | Index tokens | — | — | Approved 2026-11-10: A, random bits from the operating system at each new millisecond, no `XorShift64` in between (§2.8) |
 
 Design, not product: the document layout, `"op"` tags, the type table's grammar, the default values of limits, the
 validation phases, the cache key and its entries, the token mechanism, the planner's search cap, the API names and the
@@ -618,6 +618,24 @@ only for uniformity with 2026-11-06.
 
 P20 and P11 stay separate: P20 is for 7.1, now, and needs no change to D12; P11 is for modules 17 and 18, later, and
 needs the dependency rule in D12 first.
+
+**Decided (2026-11-10): A, with the user's sequential algorithm, and no pseudo-random generator.** The user chose A
+and first asked to keep "mi algoritmo, que es más rápido, usa el random del sistema operativo pero luego usa
+XorShilf64" (a `XorShift64`, `x ^= x << 7; x ^= x >> 9`, seeded once from the operating system). Checked: that pair of
+shifts has full period 2^64 - 1 (its matrix over GF(2) has that order; the control `13, 7, 17` gives the same). It was
+not adopted, and the user agreed ("Sí"), for two reasons:
+
+- Speed does not matter here: the sequential algorithm (README, generators entry) draws random bits only when the
+  millisecond changes and increments within it, so at most one draw per millisecond and generator; catalog tokens are
+  drawn only on schema and index changes.
+- `Next()` returns the whole state, and the 64-bit low random part is one full output, so one generated value
+  predicts every later one. RFC 9562 §6.9 asks for a cryptographically secure generator so that identifiers are hard
+  to guess, and a library cannot know whether an application exposes its keys.
+
+So each generator keeps the user's algorithm (48 bits of Unix milliseconds, 80 random bits incremented within a
+millisecond; `uuid` version 7 its 74 random bits) and takes the random bits straight from `fill_random` at each new
+millisecond; identities and tokens take theirs from it too. No pseudo-random generator sits between the operating
+system and Krummi. 7.1's PRD records where the generators' randomness comes from.
 
 ## Review round 1 (2026-11-10)
 

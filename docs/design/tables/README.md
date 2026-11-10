@@ -135,7 +135,9 @@ Decisions taken with the user after the first drafts:
 - Generators of primary key values: monotonic `ulid`; sequential `uuid` in SQL Server order (the user's algorithm),
   for `uuid` columns with that order; `uuid` version 7, for `uuid` columns in RFC order; and auto-increment
   (`identity`) 64-bit integer columns that Krummi assigns on insert, increasing and never reused, with a counter per
-  table kept with each commit that inserts. User: "Si todos".
+  table kept with each commit that inserts. User: "Si todos". Their random bits come straight from the operating
+  system through the pager at each new millisecond, with no pseudo-random generator in between (document 11, P20,
+  decided 2026-11-10).
 - Writing rows by primary key: three operations. Insert fails with duplicate key, without effect, when the key
   exists; update replaces the row when it exists and does nothing, reporting that it did not find it, when it does
   not; insert-or-update (upsert) replaces or inserts. User: "Sí".
