@@ -15,6 +15,7 @@ mod sequence;
 pub mod value;
 
 pub use catalog::{ReadTable, TableMode, WriteTable};
+pub use ranges::{ReadRows, WriteRows};
 pub use rows::{TableRow, Upserted};
 pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 pub(crate) use sequence::Sequences;

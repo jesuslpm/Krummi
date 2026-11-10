@@ -128,14 +128,16 @@
 //! ```
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
+use std::ops::Bound;
 use std::sync::Arc;
 
 use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
 
 use super::catalog::{ReadTable, WriteTable};
-use super::key::{KeyError, MAX_KEY, decode_key, encode_key};
+use super::key::{KeyError, KeyRange, MAX_KEY, decode_key, encode_key, key_range};
 use super::row::{MAX_ROW, RowLayout, row_version};
 use super::schema::{Different, TableSchema, decode_version, version_key};
 use super::value::{ColumnType, Value, key_text, normalize};
@@ -395,27 +397,54 @@ impl Reader {
         Ok(encode_key(&self.key_types, &values)?)
     }
 
-    /// The row stored under `key` as `bytes` in the rows tree at `rows`, with every live column (E11): a column of
-    /// the row's version by its place in that version, which the history tree at `history` gives for an older one;
-    /// a fixed-width key column from the key; a column added after the row was written, its default or null.
-    /// Bytes that are not such a row are damage of the page that holds them (G6).
-    fn decode<'t, S: PageSource + ?Sized>(
+    /// The byte bounds of the range of `prefix` and the bounds `lower` and `upper` on the next key column (E12), as
+    /// [`key_range`] gives them, with the failures of public validation named for `table` in `folder`: a value that
+    /// breaks its column's rules, with the column; a malformed range; a prefix or bound over the maximum of a key.
+    pub(super) fn key_range<'v>(
+        &self,
+        folder: Folder<'_>,
+        table: &str,
+        prefix: &[Value<'v>],
+        lower: Bound<&Value<'v>>,
+        upper: Bound<&Value<'v>>,
+    ) -> Result<KeyRange> {
+        key_range(&self.key_types, prefix, lower, upper).map_err(|error| {
+            let fault = match error {
+                KeyError::Value {
+                    column: Some(k),
+                    rule,
+                } => self.columns[self.key_columns[k]].fault(rule),
+                error => Fault::from(error),
+            };
+            fault.error(folder, table)
+        })
+    }
+
+    /// The row stored under `key` as `bytes` in the rows tree at `rows_root`, with every live column (E11): a column
+    /// of the row's version by its place in that version, which the history tree at `history` gives for an older
+    /// one, resolved once into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the
+    /// key; a column added after the row was written, its default or null. Bytes that are not such a row are damage
+    /// of the page that holds them (G6).
+    pub(super) fn decode<'t, S: PageSource + ?Sized>(
         self: &Arc<Self>,
         tx: &'t S,
-        rows: u64,
+        rows_root: u64,
         history: u64,
+        versions: &mut Versions,
         key: &[u8],
         bytes: &'t [u8],
     ) -> Result<TableRow<'t>> {
-        let damaged = || row_damage(tx, rows, key);
+        let damaged = || row_damage(tx, rows_root, key);
         let version = row_version(bytes).map_err(|_| damaged())?;
         let current = self.layout.version();
-        let old;
         let (layout, places) = if version == current {
             (&self.layout, None)
         } else if (1..current).contains(&version) {
-            old = self.version_layout(tx, history, version)?;
-            (&old.0, Some(&old.1))
+            let old = match versions.0.entry(version) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => entry.insert(self.version_layout(tx, history, version)?),
+            };
+            (&old.layout, Some(&old.places))
         } else {
             return Err(damaged());
         };
@@ -450,7 +479,7 @@ impl Reader {
         tx: &S,
         history: u64,
         version: u16,
-    ) -> Result<(RowLayout, Vec<Option<usize>>)> {
+    ) -> Result<OldVersion> {
         let key = version_key(version);
         let damaged = || match krummi_tree::leaf_of(tx, history, &key) {
             Ok(page) => tx.damaged(page),
@@ -470,16 +499,27 @@ impl Reader {
             .iter()
             .map(|c| at.get(&c.id).copied())
             .collect();
-        Ok((layout, places))
+        Ok(OldVersion { layout, places })
     }
 }
 
-/// The damage error of the page that holds the row of `key` in the rows tree at `rows`: the first page of its value
+/// The layouts of the older row versions that a read has met, each read from the history tree once: a scan keeps one
+/// for all its rows (document 1, *Cost of mixed versions*).
+#[derive(Default)]
+pub(super) struct Versions(HashMap<u16, OldVersion>);
+
+/// The layout of an older row version, and the place in it of each live column (`None` for one added after it).
+struct OldVersion {
+    layout: RowLayout,
+    places: Vec<Option<usize>>,
+}
+
+/// The damage error of the page that holds the row of `key` in the rows tree at `rows_root`: the first page of its value
 /// run, or its leaf.
-fn row_damage<S: PageSource + ?Sized>(tx: &S, rows: u64, key: &[u8]) -> Error {
-    let page = krummi_tree::run_of(tx, rows, key).and_then(|run| match run {
+fn row_damage<S: PageSource + ?Sized>(tx: &S, rows_root: u64, key: &[u8]) -> Error {
+    let page = krummi_tree::run_of(tx, rows_root, key).and_then(|run| match run {
         Some((first, _)) => Ok(first),
-        None => krummi_tree::leaf_of(tx, rows, key),
+        None => krummi_tree::leaf_of(tx, rows_root, key),
     });
     match page {
         Ok(page) => tx.damaged(page),
@@ -571,6 +611,14 @@ enum Op {
     Upsert,
 }
 
+/// How a write changed the row count of a table.
+#[derive(Clone, Copy)]
+pub(super) enum RowCount {
+    Kept,
+    Added,
+    Removed(u64),
+}
+
 /// What a write of a row did.
 #[derive(PartialEq, Eq)]
 enum Written {
@@ -596,10 +644,17 @@ impl ReadTransaction<'_> {
             .reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &table.name))?;
-        match krummi_tree::get(&self.inner, table.rows, &key)? {
+        match krummi_tree::get(&self.inner, table.rows_root, &key)? {
             Some(bytes) => table
                 .reader
-                .decode(&self.inner, table.rows, table.history, &key, bytes)
+                .decode(
+                    &self.inner,
+                    table.rows_root,
+                    table.history,
+                    &mut Versions::default(),
+                    &key,
+                    bytes,
+                )
                 .map(Some),
             None => Ok(None),
         }
@@ -656,13 +711,20 @@ impl WriteTransaction<'_> {
         table: &WriteTable<'_>,
         key: &[Value<'_>],
     ) -> Result<Option<TableRow<'_>>> {
-        let (rows, history, reader) = self.live_rows(table)?;
+        let (rows_root, history, reader) = self.live_rows(table)?;
         let key = reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &self.table_name(table)))?;
-        match krummi_tree::get(&self.inner, rows, &key)? {
+        match krummi_tree::get(&self.inner, rows_root, &key)? {
             Some(bytes) => reader
-                .decode(&self.inner, rows, history, &key, bytes)
+                .decode(
+                    &self.inner,
+                    rows_root,
+                    history,
+                    &mut Versions::default(),
+                    &key,
+                    bytes,
+                )
                 .map(Some),
             None => Ok(None),
         }
@@ -671,16 +733,20 @@ impl WriteTransaction<'_> {
     /// Deletes the row of `table` whose primary key is `key`, and returns whether it was there (E11), with the
     /// failures of the key of [`get_row`](Self::get_row).
     pub fn delete_row(&mut self, table: &WriteTable<'_>, key: &[Value<'_>]) -> Result<bool> {
-        let (rows, _, reader) = self.live_rows(table)?;
+        let (rows_root, _, reader) = self.live_rows(table)?;
         let key = reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &self.table_name(table)))?;
-        let update = krummi_tree::remove(&mut self.inner, rows, &key)?;
-        self.apply_rows(table, update.root, update.count_changed.then_some(false));
+        let update = krummi_tree::remove(&mut self.inner, rows_root, &key)?;
+        let removed = u64::from(update.count_changed);
+        self.apply_rows(table, update.root, RowCount::Removed(removed))?;
         Ok(update.count_changed)
     }
 
-    /// The two phases of a write of `row` (document 2): the check phase, which changes nothing, then the write.
+    /// The two phases of a write of `row` (document 2): the check phase, which changes nothing, then the write. An
+    /// insert, and an insert or update of a missing row, add the row with the columns it does not give filled (for an
+    /// insert, the check phase filled them already); an update, and an insert or update of a row that is there, merge
+    /// it with the stored row.
     fn write_row(
         &mut self,
         table: &WriteTable<'_>,
@@ -690,15 +756,23 @@ impl WriteTransaction<'_> {
         for (name, _) in row {
             self.folder.check_column_name(name)?;
         }
-        let (rows, history, reader) = self.live_rows(table)?;
+        let (rows_root, history, reader) = self.live_rows(table)?;
         let fail = |tx: &Self, fault: Fault| fault.error(tx.folder, &tx.table_name(table));
         let Checked { values, key } = reader
             .check(row, op == Op::Insert)
             .map_err(|fault| fail(self, fault))?;
-        if op == Op::Insert {
+        let stored = match op {
+            // The insert learns whether the key is there from the tree's own addition.
+            Op::Insert => None,
+            Op::Update | Op::Upsert => krummi_tree::get(&self.inner, rows_root, &key)?,
+        };
+        let Some(bytes) = stored else {
+            if op == Op::Update {
+                return Ok(Written::NotFound);
+            }
             let values = reader.fill(values).map_err(|fault| fail(self, fault))?;
             let encoded = reader.encode(&values).map_err(|fault| fail(self, fault))?;
-            let update = krummi_tree::try_add(&mut self.inner, rows, &key, &encoded)?;
+            let update = krummi_tree::try_add(&mut self.inner, rows_root, &key, &encoded)?;
             if !update.count_changed {
                 return Err(Error::DuplicateKey {
                     folder: self.folder.owned(),
@@ -706,50 +780,44 @@ impl WriteTransaction<'_> {
                     key: reader.key_text(&values),
                 });
             }
-            self.apply_rows(table, update.root, Some(true));
+            self.apply_rows(table, update.root, RowCount::Added)?;
             return Ok(Written::Inserted);
-        }
-        let encoded = match krummi_tree::get(&self.inner, rows, &key)? {
-            None if op == Op::Update => return Ok(Written::NotFound),
-            None => {
-                let values = reader.fill(values).map_err(|fault| fail(self, fault))?;
-                let encoded = reader.encode(&values).map_err(|fault| fail(self, fault))?;
-                let update = krummi_tree::try_add(&mut self.inner, rows, &key, &encoded)?;
-                debug_assert!(update.count_changed, "the row was not there");
-                self.apply_rows(table, update.root, Some(true));
-                return Ok(Written::Inserted);
-            }
-            Some(bytes) => {
-                let old = reader.decode(&self.inner, rows, history, &key, bytes)?;
-                let merged: Vec<Value<'_>> = values
-                    .into_iter()
-                    .zip(old.values())
-                    .map(|(new, old)| new.unwrap_or_else(|| old.reborrow()))
-                    .collect();
-                if merged
-                    .iter()
-                    .zip(old.values())
-                    .all(|(new, old)| new.same(old))
-                {
-                    return Ok(Written::Updated);
-                }
-                reader.encode(&merged).map_err(|fault| fail(self, fault))?
-            }
         };
-        let update = krummi_tree::set(&mut self.inner, rows, &key, &encoded)?;
-        self.apply_rows(table, update.root, None);
+        let old = reader.decode(
+            &self.inner,
+            rows_root,
+            history,
+            &mut Versions::default(),
+            &key,
+            bytes,
+        )?;
+        let merged: Vec<Value<'_>> = values
+            .into_iter()
+            .zip(old.values())
+            .map(|(new, old)| new.unwrap_or_else(|| old.reborrow()))
+            .collect();
+        if merged
+            .iter()
+            .zip(old.values())
+            .all(|(new, old)| new.same(old))
+        {
+            return Ok(Written::Updated);
+        }
+        let encoded = reader.encode(&merged).map_err(|fault| fail(self, fault))?;
+        let update = krummi_tree::set(&mut self.inner, rows_root, &key, &encoded)?;
+        self.apply_rows(table, update.root, RowCount::Kept)?;
         Ok(Written::Updated)
     }
 
     /// The rows tree, the history tree and the reader of the table of `table`, with the failures of a handle (misuse
     /// for one of another transaction, not found once the table was deleted), without reading anything.
-    fn live_rows(&self, table: &WriteTable<'_>) -> Result<(u64, u64, Arc<Reader>)> {
+    pub(super) fn live_rows(&self, table: &WriteTable<'_>) -> Result<(u64, u64, Arc<Reader>)> {
         let state = self.live_table(table)?;
-        Ok((state.rows, state.history, Arc::clone(&state.reader)))
+        Ok((state.rows_root, state.history, Arc::clone(&state.reader)))
     }
 
     /// The name of the table of `table`, for the data of an error.
-    fn table_name(&self, table: &WriteTable<'_>) -> String {
+    pub(super) fn table_name(&self, table: &WriteTable<'_>) -> String {
         self.tables
             .borrow()
             .get(table.id)
@@ -758,22 +826,45 @@ impl WriteTransaction<'_> {
             .clone()
     }
 
-    /// Records what a write of a row did to the rows tree of `table`: its new `root`, and whether it added a row
-    /// (`Some(true)`) or removed one (`Some(false)`).
-    fn apply_rows(&mut self, table: &WriteTable<'_>, root: u64, added: Option<bool>) {
+    /// Records what a write did to the rows tree of `table`: its new `root` and the change of its row count. A
+    /// removal of more rows than the count says is damage of the catalog page that holds the table's entry, whose
+    /// count it read (G6), and the transaction's failure (T11).
+    pub(super) fn apply_rows(
+        &mut self,
+        table: &WriteTable<'_>,
+        root: u64,
+        change: RowCount,
+    ) -> Result<()> {
         let state = self
             .tables
             .get_mut()
             .get_mut(table.id)
             .expect("a live handle");
-        match added {
-            Some(true) => state.count += 1,
-            Some(false) => state.count -= 1,
-            None => {}
-        }
-        if added.is_some() || root != state.rows {
-            state.rows = root;
+        let count = match change {
+            RowCount::Kept => Some(state.count),
+            RowCount::Added => state.count.checked_add(1),
+            RowCount::Removed(n) => state.count.checked_sub(n),
+        };
+        let Some(count) = count else {
+            return Err(self.count_damage(table));
+        };
+        if count != state.count || root != state.rows_root {
+            state.count = count;
+            state.rows_root = root;
             state.dirty = true;
+        }
+        Ok(())
+    }
+
+    /// The damage of the catalog page that holds the entry of the table of `table`, as the transaction's failure.
+    fn count_damage(&self, table: &WriteTable<'_>) -> Error {
+        match krummi_tree::catalog::lookup_with_extra(&self.inner, &self.table_name(table)) {
+            Ok(Some(located)) => self.inner.damaged(located.page),
+            Ok(None) => self.inner.fail(Error::Damaged {
+                folder: self.folder.owned(),
+                page: None,
+            }),
+            Err(error) => error,
         }
     }
 }

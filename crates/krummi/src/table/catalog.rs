@@ -36,7 +36,7 @@ pub struct ReadTable<'s> {
     /// The name it was opened with, for the data of its errors.
     pub(super) name: String,
     /// The root and the row count of its rows tree.
-    pub(super) rows: u64,
+    pub(super) rows_root: u64,
     count: u64,
     /// The root of its schema history tree.
     pub(super) history: u64,
@@ -122,7 +122,7 @@ pub(crate) struct TableState {
     /// Its current name or, once deleted, the last one it had (A6).
     pub(super) name: String,
     /// The root and the row count of its rows tree.
-    pub(super) rows: u64,
+    pub(super) rows_root: u64,
     pub(super) count: u64,
     /// The root of its schema history tree.
     pub(super) history: u64,
@@ -139,7 +139,7 @@ impl TableState {
         Entry {
             id: self.id,
             kind: TreeKind::Table,
-            root: self.rows,
+            root: self.rows_root,
             count: self.count,
         }
     }
@@ -231,7 +231,7 @@ impl<'s> ReadTransaction<'s> {
         Ok(ReadTable {
             serial: self.serial,
             name: name.to_owned(),
-            rows: found.entry.root,
+            rows_root: found.entry.root,
             count: found.entry.count,
             history: found.history,
             reader: Arc::new(Reader::new(&found.schema)),
@@ -263,7 +263,7 @@ impl<'s> ReadTransaction<'s> {
     pub fn table_trees(&self, table: &ReadTable<'_>) -> Result<TableTrees> {
         self.check_table(table)?;
         Ok(TableTrees {
-            rows: table.rows,
+            rows: table.rows_root,
             history: table.history,
         })
     }
@@ -366,7 +366,7 @@ impl<'s> WriteTransaction<'s> {
     pub fn table_trees(&self, table: &WriteTable<'_>) -> Result<TableTrees> {
         let state = self.live_table(table)?;
         Ok(TableTrees {
-            rows: state.rows,
+            rows: state.rows_root,
             history: state.history,
         })
     }
@@ -468,7 +468,7 @@ impl<'s> WriteTransaction<'s> {
                 TableState {
                     id: found.entry.id,
                     name,
-                    rows: found.entry.root,
+                    rows_root: found.entry.root,
                     count: found.entry.count,
                     history: found.history,
                     reader: Arc::new(Reader::new(&found.schema)),
@@ -561,11 +561,16 @@ impl<'s> WriteTransaction<'s> {
     /// rows give way to one empty root (E3).
     fn empty_table(&mut self, name: &str, found: Found) -> Result<WriteTable<'s>> {
         let handle = self.join(name, found)?;
-        let old = self.tables.get_mut().get(handle.id).expect("joined").rows;
+        let old = self
+            .tables
+            .get_mut()
+            .get(handle.id)
+            .expect("joined")
+            .rows_root;
         krummi_tree::free_all(&mut self.inner, old)?;
         let root = krummi_tree::create(&mut self.inner)?;
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
-        state.rows = root;
+        state.rows_root = root;
         state.count = 0;
         state.dirty = true;
         Ok(handle)
@@ -577,7 +582,7 @@ impl<'s> WriteTransaction<'s> {
         let id = self.join(name, found)?.id;
         let (root, history) = {
             let state = self.tables.get_mut().get(id).expect("joined");
-            (state.rows, state.history)
+            (state.rows_root, state.history)
         };
         krummi_tree::free_all(&mut self.inner, root)?;
         krummi_tree::free_all(&mut self.inner, history)?;
