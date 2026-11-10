@@ -77,7 +77,7 @@ Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the desi
 | Format | The current format version is `10`. |
 | Benchmark | 22 workloads with a threshold against Voron (K7); none of tables. |
 | Voron (reference) | Tables with schema and indexes, whose rows carry no types or nulls and whose keys are built by the application; optional dictionary compression (design documents 1, 2 and 7). |
-| Design | Eight design documents with the user's decisions and a verification of their claims against primary sources ([README](../../design/tables/README.md), [verification](../../design/tables/verification.md)). |
+| Design | Eight design documents with the user's decisions and a verification of their claims against primary sources ([README](../../design/tables/README.md), [verification](../../design/tables/verification.md)). *Annotation of 2026-11-10:* there are twelve since that day; the four additions cover the interchange format of queries, the tooling for agents, the query contract and the approximate vector indexes. |
 
 ## Actors
 
@@ -119,6 +119,31 @@ annotation, like P11 of design document 11) or a reader of Krummi's own; that a 
 column. With this annotation, N2 closes module 7 when 7.1, 7.2, 7.3 and 7.5 are closed, and "JSON" leaves *Out of
 scope*. Indexing paths inside a JSON stays outside 7.5 (expression indexes, after 7.2 and module 17).
 
+*Annotation of 2026-11-10 (child PRD 7.6):* child PRD **7.6, Approximate vector indexes** is added, built after 7.5
+and before module 17, so that queries can search for the nearest neighbours approximately from the start. User:
+«Además los índices ANN hay que inluirlos en el alcance» and, on the order, «Tras 7.5, antes del 17». Its technical
+starting state is [design document 12](../../design/tables/12-vector-indexes.md). **Content**: an approximate vector
+index over a vector column, of a class distinct from the secondary indexes of 7.2, which document 12 recommends
+building with partitions (IVF) and 8-bit codes per component (SQ8); its asynchronous maintenance: writing a row only
+records that the row changed, and the store brings the index up to date in the background, in short batches, also
+when it is created and rebuilt; a search for the k nearest neighbours that the application asks for explicitly as
+approximate and that returns only rows visible in its snapshot that satisfy its filters, with their exact distance;
+its benchmark loads (N11). Exact distance searches never use the index and return the same as without it. **Sets**:
+the algorithm, after measuring document 12's experiment against its recall and latency thresholds, and the
+alternative if it misses them; which element types and metrics it supports; whether a search sees the rows the index
+has not yet brought up to date and what it does when there are too many; whether an index can declare partition
+columns, for example per tenant; whether creating and rebuilding it is done without blocking writes; how long the
+background work may hold the write turn (G4), and with how many threads and how much memory it trains; whether
+rebuilds are explicit and which metrics recommend them; what a search does while the index is not ready and how many
+rows it needs to train; the classes with which invalid definitions fail; what the store information (P12) reports
+about the index; what happens to the index when the table or the column is deleted, when the table is emptied and in
+a bulk load; whether its change is incompatible (B12). The six product questions of document 12 are part of what it
+sets. With this annotation, N2 closes module 7 when 7.1, 7.2, 7.3, 7.5 and 7.6 are closed; the sentence of N7 "Every
+write of a row leaves all its indexes in agreement with the table in the same transaction (G1)" holds for secondary
+indexes, not for approximate vector indexes, which are brought up to date after the transaction; "cannot be the
+primary key or columns of an index", of N5, refers to the primary key and to secondary indexes; and "Vector indexes" leaves
+*Out of scope*. Filtering by a distance threshold stays exact and belongs to module 17.
+
 ## Validations and messages
 
 Those of the ancestors hold. This module adds these situations, only from the library, with the rule of N10:
@@ -153,7 +178,9 @@ what 7.3 sets. The benchmark report adds the workloads of N11 and counts their t
 
 - Queries with filters, order, limits and aggregates, the cost-based planner and the execution plans (module 17).
 - The C interface and the C# binding (module 18).
-- Vector indexes: filtering by distance is a traversal of module 17.
+- Vector indexes: filtering by distance is a traversal of module 17. *Annotation of 2026-11-10:* approximate vector
+  indexes come into scope as child PRD 7.6 (see *Split into child PRDs*), with [design document
+  12](../../design/tables/12-vector-indexes.md) as its technical starting state.
 - Raw data sections: storing bytes under an identifier is covered by the containers (module 13).
 - Joins, `GROUP BY`, views and triggers; foreign keys, constraints between tables, and `CHECK` constraints.
 - Arrays, enums, JSON, stored time zones, `f16` as a scalar and case-insensitive text comparison.
@@ -349,5 +376,5 @@ translations too):
   [trees-keys.prd.en.md](trees-keys.prd.en.md) (A1–A15) and [trees-scan.prd.en.md](trees-scan.prd.en.md)
 - Transactions: [transactions.prd.en.md](transactions.prd.en.md) (T4, T10, T11, T12, T16)
 - Benchmark: [benchmark.prd.en.md](benchmark.prd.en.md) (K4, K6, K7, K11, K13, *Output*)
-- Design: [docs/design/tables/README.md](../../design/tables/README.md) and its documents 1 to 8
+- Design: [docs/design/tables/README.md](../../design/tables/README.md) and its documents 1 to 12
 - Parked document product: [documents.prd.md](../documents/documents.prd.md)

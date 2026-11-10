@@ -74,7 +74,7 @@ Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los 
 | Formato | La versión de formato vigente es `10`. |
 | Banco | 22 cargas con umbral frente a Voron (K7); ninguna de tablas. |
 | Voron (referencia) | Tablas con esquema e índices, cuyas filas no llevan tipos ni nulos y cuyas claves construye la aplicación; compresión opcional por diccionario (documentos de diseño 1, 2 y 7). |
-| Diseño | Ocho documentos de diseño con las decisiones del usuario y una verificación de sus afirmaciones contra fuentes primarias ([README](../../design/tables/README.md), [verificación](../../design/tables/verification.md)). |
+| Diseño | Ocho documentos de diseño con las decisiones del usuario y una verificación de sus afirmaciones contra fuentes primarias ([README](../../design/tables/README.md), [verificación](../../design/tables/verification.md)). *Anotación del 2026-11-10:* desde ese día son doce; los cuatro añadidos tratan del formato de intercambio de las consultas, las herramientas para agentes, el contrato de las consultas y los índices vectoriales aproximados. |
 
 ## Actores
 
@@ -117,6 +117,33 @@ de diseño 11) o un lector propio; que un JSON no es clave primaria ni columna d
 cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3 y 7.5, y «JSON» deja de estar en *Fuera de alcance*. Indexar rutas
 dentro de un JSON queda fuera de 7.5 (índices sobre expresiones, después de 7.2 y del módulo 17).
 
+*Anotación del 2026-11-10 (PRD hijo 7.6):* se añade el PRD hijo **7.6, Índices vectoriales aproximados**, que se
+construye después de 7.5 y antes del módulo 17, para que las consultas puedan buscar de forma aproximada los vecinos
+más cercanos desde el principio. Usuario: «Además los índices ANN hay que inluirlos en el alcance» y, sobre el orden,
+«Tras 7.5, antes del 17». Su estado de partida técnico es el
+[documento de diseño 12](../../design/tables/12-vector-indexes.md). **Contenido**: un índice vectorial aproximado
+sobre una columna vector, de una clase distinta de los índices secundarios de 7.2, que el documento 12 recomienda
+construir con particiones (IVF) y códigos de 8 bits por componente (SQ8); su mantenimiento asíncrono: la escritura de
+una fila solo deja anotado que la fila cambió, y el almacén pone el índice al día en segundo plano, en lotes cortos,
+también al crearlo y al reconstruirlo; una operación de búsqueda de los k vecinos más cercanos que la aplicación pide
+expresamente como aproximada y que devuelve solo filas visibles en su instantánea, que cumplen sus filtros, con su
+distancia exacta; sus cargas del banco (N11). Las búsquedas exactas por distancia nunca usan el índice y devuelven lo
+mismo que sin él. **Fija**: el algoritmo, después de medir el experimento del documento 12 contra sus umbrales de
+recall y latencia, y la alternativa si no los cumple; qué tipos de elemento y qué métricas admite; si una búsqueda ve
+las filas que el índice aún no ha puesto al día y qué hace cuando son demasiadas; si un índice puede declarar columnas
+de partición, por ejemplo por inquilino; si crearlo y reconstruirlo se hace sin bloquear las escrituras; cuánto tiempo
+puede retener el turno de escritura (G4) el trabajo en segundo plano, y con cuántos hilos y cuánta memoria entrena; si
+las reconstrucciones son explícitas y qué métricas las recomiendan; qué hace una búsqueda mientras el índice no está
+listo y cuántas filas necesita para entrenarse; con qué clases fallan las definiciones no válidas; qué informa del
+índice la información del almacén (P12); qué pasa con el índice al borrar la tabla o la columna, al vaciar la tabla y
+en la carga masiva; si su cambio es incompatible (B12). Las seis preguntas de producto del documento 12 son parte de
+lo que fija. Con esta anotación, N2 cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3, 7.5 y 7.6; la frase de N7
+«Cada escritura de una fila deja todos sus índices de acuerdo con la tabla en la misma transacción (G1)» vale para los
+índices secundarios, no para los vectoriales aproximados, que se ponen al día después de la transacción; «no pueden
+ser clave primaria ni columnas de un índice», de N5, se refiere a la clave primaria y a los índices secundarios; e
+«Índices vectoriales» deja de estar en *Fuera de alcance*. Filtrar por un umbral de distancia sigue siendo exacto y
+del módulo 17.
+
 ## Validaciones y mensajes
 
 Valen las de los ascendientes. Este módulo añade estas situaciones, solo de la biblioteca, con la regla de N10:
@@ -150,7 +177,9 @@ informe del banco añade las cargas de N11 y cuenta sus umbrales con los demás.
 
 - Consultas con filtros, orden, límites y agregados, el planificador por coste y los planes de ejecución (módulo 17).
 - La interfaz C y el binding C# (módulo 18).
-- Índices vectoriales: filtrar por distancia es un recorrido del módulo 17.
+- Índices vectoriales: filtrar por distancia es un recorrido del módulo 17. *Anotación del 2026-11-10:* los índices
+  vectoriales aproximados entran en el alcance como PRD hijo 7.6 (ver *Reparto en PRD hijos*), con el
+  [documento de diseño 12](../../design/tables/12-vector-indexes.md) como estado de partida técnico.
 - Las secciones de datos en bruto: guardar bytes bajo un identificador lo cubren los containers (módulo 13).
 - Joins, `GROUP BY`, vistas y disparadores; las claves foráneas, restricciones entre tablas, y las restricciones
   `CHECK`.
@@ -347,5 +376,5 @@ traducciones también):
   (A1–A15) y [trees-scan.prd.md](trees-scan.prd.md)
 - Transacciones: [transactions.prd.md](transactions.prd.md) (T4, T10, T11, T12, T16)
 - Banco: [benchmark.prd.md](benchmark.prd.md) (K4, K6, K7, K11, K13, *Salida*)
-- Diseño: [docs/design/tables/README.md](../../design/tables/README.md) y sus documentos 1 a 8
+- Diseño: [docs/design/tables/README.md](../../design/tables/README.md) y sus documentos 1 a 12
 - Producto documental (aparcado): [documents.prd.md](../documents/documents.prd.md)
