@@ -8,6 +8,7 @@ mod error;
 pub mod format;
 mod journal;
 mod pager;
+mod random;
 mod recovery;
 mod remembered;
 mod scratch;
@@ -24,6 +25,7 @@ pub use pager::{
     DATA_FILE, INITIAL_SIZE, Info, Integrity, MAX_GROWTH_STEP, MIN_MAX_SIZE, NEW_DATA_FILE,
     OpenOptions, Pager, TEMPORARY_RESERVATION, growth_target,
 };
+pub use random::fill_random;
 pub use scratch::{
     Memory, Origin, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged, alloc_payload,
     alloc_run, reuse_payload, try_reserve,

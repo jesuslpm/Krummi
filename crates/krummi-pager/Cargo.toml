@@ -27,10 +27,11 @@ unsafe_op_in_unsafe_fn = "deny"
 undocumented_unsafe_blocks = "deny"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.5", features = ["fs", "mm"] }
+# P20 of the table design: `rand` reads the operating system's generator (`fill_random`).
+rustix = { version = "1.1.5", features = ["fs", "mm", "rand"] }
 
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Memory"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Memory", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

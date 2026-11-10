@@ -36,10 +36,12 @@ pub enum Op {
     Thread,
     /// The direct write that checks a new journal file takes them (E6).
     Probe,
+    /// Reading random bytes from the operating system's generator (P20 of the table design).
+    Random,
 }
 
 #[inline]
-fn before(op: Op, path: &Path) -> io::Result<()> {
+pub(crate) fn before(op: Op, path: &Path) -> io::Result<()> {
     #[cfg(any(test, feature = "test-hooks"))]
     {
         hooks::before(op, path)
