@@ -93,7 +93,8 @@ table of round 2. P20 (the random source of 7.1) is new in this round; §2.8 has
    the dependency rule is already in the root PRD (annotation of `b471cc4`), so module 17's PRD annotates the crates.**
 3. **P16, pinning columns** (17): pin column identities (recommended), pin the table's whole schema state, or re-bind
    by name like SQL text. **Decided 2026-11-10: pin column identities.**
-4. **P4, re-planning** (17): doc 4's adaptive policy (recommended), re-plan only on catalog changes, or plan every run.
+4. **P4, re-planning** (17): doc 4's adaptive policy (recommended), re-plan only on catalog changes, or plan every run. **Decided 2026-11-10: doc 4's
+   adaptive policy.**
 5. **P6, promise for stored queries** (17): none before 1.0 and every published major after it (recommended), or only
    the current and the previous major after 1.0.
 6. **P15, constants** (17, 18): parameters only (recommended), or integer literals for `limit`, `offset` and `k`.
@@ -128,7 +129,7 @@ applied where the decision lives:
 | P1 | Typed JSON documents (`query/1`, `plan/1`, `execution/1`, `explain/1`) replace the binary envelope; Krummi's operators and the Substrait vocabulary stay | — | Adopt | — | — | Parser, emitter, golden documents | C# writes JSON with `Utf8JsonWriter` | Backed: U1, U9 |
 | P2 | Documents run through prepared statements from the first version | — | Adopt | — | — | Statement API | C functions and C# API of §2.2 | Backed: U2, U9 |
 | P3 | A statement is prepared in a transaction, belongs to the store, runs in any transaction; closing a store with live statements fails with misuse | A statement per transaction (simpler lifetime, prepared again per transaction) | Store-scoped: reuse across transactions is the point of preparing | — | — | `Statement` tied to the store's lifetime | Handles hold the store; close rule | Approval (block 7) |
-| P4 | Logical statements re-plan on a catalog change, a statistics rebuild or values outside doc 4's band; plan statements never re-plan | (a) re-plan only on catalog changes; (b) plan every run | Doc 4's policy: stable for most shapes, adaptive where values matter; a fixed plan is one `explain` away | — | — | Cache, revalidation, counters | — | Approval (block 4); revalidation itself backed by U2 |
+| P4 | Logical statements re-plan on a catalog change, a statistics rebuild or values outside doc 4's band; plan statements never re-plan | (a) re-plan only on catalog changes; (b) plan every run | Doc 4's policy: stable for most shapes, adaptive where values matter; a fixed plan is one `explain` away | — | — | Cache, revalidation, counters | — | Approved 2026-11-10; revalidation itself backed by U2 |
 | P5 | `explain` returns an editable, resubmittable plan; explain text output only; DD9 no longer applies to documents | — | Adopt | — | — | `explain/1` | Explain through C | Backed: U3, U9 |
 | P6 | Stored queries are a versioned contract; stored plans have no promise beyond typed rejection; statements never persist | After 1.0: every published `query` major accepted, or only the current and the previous | None before 1.0 (as D7); after 1.0 every published major, since queries are small and old majors cost a reader each | — | — | Versioning rule, readers per major | — | Approval (block 5); the three concepts backed by U4 |
 | P7 | Text forms cover 7.1's whole date and time domains; no domain change | Restrict 7.1's domain to 0001-9999 (a 7.1 decision) | Whole domain | Text conversion over its domain | — | §2.4 forms | Raw accessor or error for dates outside .NET's range | Backed: U5, C4 |
