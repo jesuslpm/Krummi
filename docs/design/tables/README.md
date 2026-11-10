@@ -348,3 +348,4 @@ Consequences already known:
 | 8 | [08-execution-plans.md](08-execution-plans.md) | Physical plans, their representation and execution, spools and the executor's temporary structures |
 | 9 | [09-query-serialization-format.md](09-query-serialization-format.md) | Evaluation of the interchange format of query trees and plans: typed JSON against CBOR, MessagePack, Protocol Buffers and the binary envelope |
 | 10 | [10-agent-tooling.md](10-agent-tooling.md) | Evaluation of the tools for AI agents: one capability layer, a CLI, a skill, JSON Schemas and an MCP server |
+| 12 | [12-vector-indexes.md](12-vector-indexes.md) | Approximate (ANN) vector indexes: IVF-SQ8 maintained asynchronously, HNSW as fallback; a proposal with six decisions open |

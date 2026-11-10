@@ -332,7 +332,10 @@ the order.
 **Future-proofing for an index.** A vector index (HNSW, IVF) would be a new secondary index kind (doc 3) holding primary keys;
 the query tree needs no change because `Distance < t` and `OrderBy(Distance)` are exactly what an index would accelerate.
 The kernels are reused as the index's distance function and for re-ranking, and since they are bit-exact, a future
-approximate index re-ranks candidates to the same distances the scan produces.
+approximate index re-ranks candidates to the same distances the scan produces. Document 12
+([12-vector-indexes.md](12-vector-indexes.md), a proposal of 2026-11-10) recommends IVF-SQ8 maintained asynchronously
+and corrects one point of this paragraph: an approximate index cannot serve `OrderBy(Distance)` without changing its
+result, so exact queries never use it and approximate search gets its own opt-in node, `ApproxNearest`.
 
 ## Costs and risks
 
