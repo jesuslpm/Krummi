@@ -98,7 +98,7 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 | T2 | S8 (text forms and generators), S12, S23 | README P20; 11 §2.8; D7 | delegated: parallel with T3 and T4 (Writer trigger a: three independent units, disjoint surfaces) | done (RED/GREEN: 3 pager and 10 generator tests failed against stubs, pass) | `56c5a6b` |
 | T3 | S6, S7, S17, S20 (encoding half), S21 (value rules) | 01; 03 key encoding; 05 payload; 07 hook | delegated: parallel with T2 and T4 | done (RED/GREEN: 18 key and row tests against `todo!()` stubs; value tests written after the code, no RED; 3 mutants caught) | `cab64a6` |
 | T4 | S16, S26 (Voron side and shared data) | benchmark PRD K4; PRD *Cargas del banco* | delegated: parallel with T2 and T3 | done (RED/GREEN: `tests/table_data.rs` failed to compile, then 10 passed; C# `selftest` equals the Rust answers) | `0edd736` |
-| T5 | S1, S2, S3, S4, S24, S25 | 01 schema evolution; 02 truncate and drop; 11 §2.2; D2, D3, D6 | to decide | pending | |
+| T5 | S1, S2, S3, S4, S24, S25 (catalog parts), S13 and S18 (catalog parts) | 01 schema evolution; 02 truncate and drop; 11 §2.2; D2, D3, D6 | delegated (context backstop) | done (advisory fixes RED/GREEN; catalog and schema code written before its tests: 3 mutants caught) | `7841b95`, `7b32e4f`, `520fd73` |
 | T6 | S5, S13, S14, S15, S21, S22 (row half) | 02 two phases and operations; 01; 03 | to decide | pending | |
 | T7 | S9, S20, S22 (range and count half) | 03 composite keys and range bounds; 02 scans | to decide | pending | |
 | T8 | S10, S22 (bulk half) | 02 bulk load | to decide | pending | |
@@ -154,3 +154,21 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   R2-nanos-doc-inverted (WARNING, `key.rs:36`), R2-nanos-duplicated, R2-decode-fallthrough (SUGGESTION),
   R3-row-encode-silent-type-mismatch, R3-row-decode-temporal-domain, R3-decode-key-decimal-precision (WARNING),
   R3-key-len-zip-truncation (SUGGESTION). Resolution: fixed at the start of T5.
+- **L9** (2026-11-10): T5 done, committed as three slices because RDD refused the single 4,138-line commit with
+  `lens_context_budget_exceeded`: `7841b95` (fixes of the T1 and T3 advisory findings), `7b32e4f` (catalog kind
+  `TABLE = 4`, `table::{schema, identity, catalog}`, handles `ReadTable`/`WriteTable`, `TableMode`, the four schema
+  changes, `describe_table`, `row_count`, `table_trees` hook), `520fd73` (25 tests in `tests/tables.rs`). Deviation from
+  D3: the history tree also keeps every identity the table used (8-byte keys), so the P12 redraw check is one lookup.
+  Existing test changed for D2: `fixed_trees.rs` used kind byte 4 as "unknown"; now 6, plus a table entry without
+  schema as damage. Defaults: tree operations on a table report `requested: Normal`; modify checks InvalidKeyColumn,
+  type limits, ColumnNotFound, UnsupportedChange, VersionExhausted in that order; renaming a missing column is
+  ColumnNotFound; E6 texts as in the report; `TableMode` carries the schema. Left for T6: the row-level parts of
+  AC1–AC4, AC-N6 and AC13.
+  RDD: `7841b95` lineage `review-893e6d1ac090d520` (risk, reliability; escalated item 1) **approved**, advisories
+  R3-001 to R3-005 (panics on arity and type mismatch in `key_len` and `RowLayout::encode` are deliberate caller
+  checks; untested `Display for ColumnType`; row floats not checked on read). `7b32e4f` lineage
+  `review-c04c39664134ff6e` (risk, reliability, readability; escalated item 1) **approved**, advisories:
+  R2-put-table-guard-debug-only, R3-decode-weak-damage-checks, R3-kind4-damage-coverage-narrowed (WARNING),
+  R2-identify-silent-zero-id, R2-put-root-init-duplicated, R2-root-field-naming (SUGGESTION); R3-untested-table-lifecycle
+  and R3-tree-guard-untested are covered by `520fd73`. `520fd73` assessed medium, `under_budget`: pending in the
+  slice. Resolution of the advisories: start of T6.
