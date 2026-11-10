@@ -67,3 +67,22 @@ which follows the user's approved principle). No product question remains for th
 Review record: [2026-11-10-prd.md](2026-11-10-prd.md), wrapper status `findings`, thread
 `01a1c5c8-9d7d-7d61-87cc-607d0d590214`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-10 (verification)
+
+Follow-up report: [2026-11-10-prd-02.md](2026-11-10-prd-02.md), range `dab30ed..f765311`, thread
+`01a1c5d5-34df-7ec3-9bb1-d3cdf7b64269`, wrapper status `findings`, verdict "Not ready for implementation: R4 remains
+open." R1, R2, R3, R5 and R6 verified resolved; R4 open as a regression of its fix: the column selector mixed schema
+order and input order, shown with schema `id, a, b` and the row `[(b,2),(b,3),(id,1),(a,NULL)]`.
+
+### R4 — major, follow-up: error selection mixes schema order and input order
+
+- Disposition: fixed. The finding holds.
+- Fix (`baf036e`): E17 reports one violation in three steps: (1) a repeated column, the first repeated in input
+  order; (2) else a missing key column, the first in key order; (3) else the first column in schema order that breaks
+  another rule, with its first rule in the list's order. AC14 adds the review's mixed row (repeated `b`), the original
+  example and a missing-key case.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Review record: telemetry as in the first round's report header (wrapper telemetry: coordinator `gpt-6.1-sol` /
+`high`).
