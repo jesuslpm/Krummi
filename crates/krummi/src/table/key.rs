@@ -106,6 +106,51 @@ pub fn decode_key(types: &[ColumnType], key: &[u8]) -> Option<Vec<Value<'static>
     rest.is_empty().then_some(values)
 }
 
+/// Whether `key` is a key of the primary key columns `types`, with the checks of [`decode_key`], without decoding its
+/// text and byte elements.
+pub fn is_key(types: &[ColumnType], key: &[u8]) -> bool {
+    let mut rest = key;
+    types.iter().all(|ty| skip_element(ty, &mut rest).is_some()) && rest.is_empty()
+}
+
+/// The value of the fixed-width column `k` of a key of the primary key columns `types` that [`is_key`] accepts.
+/// Panics on another key, or when column `k` is a `string` or `bytes` one, which the row keeps instead.
+pub fn key_value(types: &[ColumnType], key: &[u8], k: usize) -> Value<'static> {
+    let mut rest = key;
+    for ty in &types[..k] {
+        skip_element(ty, &mut rest).expect("a checked key");
+    }
+    assert!(types[k].fixed_width().is_some(), "a fixed-width key column");
+    decode_element(&types[k], &mut rest).expect("a checked key")
+}
+
+/// Takes the element of a value of type `ty` from the front of `rest` with the checks of [`decode_element`]; a text or
+/// byte element is checked in place instead of copied.
+fn skip_element(ty: &ColumnType, rest: &mut &[u8]) -> Option<()> {
+    let code = match ty {
+        ColumnType::String => STRING,
+        ColumnType::Bytes => BYTES,
+        _ => return decode_element(ty, rest).map(drop),
+    };
+    if take(rest, 1)?[0] != code {
+        return None;
+    }
+    // A run between escapes holds no `00`, and a UTF-8 sequence never contains one, so checking each run on its own
+    // checks the unescaped text.
+    loop {
+        let end = rest.iter().position(|&b| b == 0)?;
+        let run = take(rest, end + 1).expect("the run and its 00");
+        if matches!(ty, ColumnType::String) && std::str::from_utf8(&run[..end]).is_err() {
+            return None;
+        }
+        if rest.first() == Some(&ESCAPE) {
+            *rest = &rest[1..];
+        } else {
+            return Some(());
+        }
+    }
+}
+
 /// The byte bounds of a range of the primary key `types` (E12): equal values `prefix` for its first k columns and,
 /// when k is less than the number of columns, a `lower` and an `upper` bound on column k. Bounds follow the table of
 /// document 3 (*Composite keys and prefix scans*) for ascending columns without nulls, and a bound `B ‖ FF` of 2,049

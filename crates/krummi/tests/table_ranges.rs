@@ -159,7 +159,7 @@ fn pairs_store(store: &Store) {
 fn pair_of(row: &TableRow<'_>) -> (i32, i64) {
     assert_eq!(row.len(), 3);
     match (row.get("a"), row.get("b"), row.get("v")) {
-        (Some(&Value::I32(a)), Some(&Value::I64(b)), Some(Value::String(v))) => {
+        (Some(Value::I32(a)), Some(Value::I64(b)), Some(Value::String(v))) => {
             assert_eq!(v.as_ref(), format!("{a}-{b}"));
             (a, b)
         }
@@ -278,7 +278,10 @@ fn ac9_every_prefix_and_bound_scans_forward_and_backward() {
             .get_row(&table, &[Value::I32(2), Value::I64(20)])
             .unwrap()
             .unwrap();
-        assert!(same(row.values(), got.values()));
+        assert!(same(
+            &row.values().collect::<Vec<_>>(),
+            &got.values().collect::<Vec<_>>()
+        ));
     });
 }
 
@@ -1240,7 +1243,7 @@ fn ac17_sql_server_uuid_rows_scan_in_the_order_of_sqlguid() {
                 }
             }
             let uuid_of = |row: TableRow<'_>| match row.get("g") {
-                Some(Value::Uuid(u)) => *u,
+                Some(Value::Uuid(u)) => u,
                 other => panic!("{other:?}"),
             };
             let mut expected: Vec<Uuid> = match order {
@@ -1323,7 +1326,7 @@ impl ModelTable {
     /// A row of a scan as the model holds it, after checking its floats.
     fn row_of(&self, row: &TableRow<'_>) -> (Vec<Value<'static>>, i64) {
         let v = match row.get("v") {
-            Some(&Value::I64(v)) => v,
+            Some(Value::I64(v)) => v,
             other => panic!("{other:?}"),
         };
         (key_values(row, &self.names), v)

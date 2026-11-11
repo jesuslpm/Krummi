@@ -46,7 +46,7 @@ fn row(id: i64) -> Vec<(&'static str, Value<'static>)> {
 /// The id of a read row.
 fn id_of(row: TableRow<'_>) -> i64 {
     match row.get("id") {
-        Some(Value::I64(id)) => *id,
+        Some(Value::I64(id)) => id,
         other => panic!("expected an id, got {other:?}"),
     }
 }

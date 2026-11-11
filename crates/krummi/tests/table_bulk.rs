@@ -92,7 +92,7 @@ fn read_rows(store: &Store, name: &str, ids: impl IntoIterator<Item = i64>) -> (
     let mut found = Vec::new();
     for id in ids {
         if let Some(row) = read.get_row(&table, &[Value::I64(id)]).unwrap() {
-            found.push((id, row.into_owned().values().to_vec()));
+            found.push((id, row.into_owned().values().collect::<Vec<_>>()));
         }
     }
     (count, found)

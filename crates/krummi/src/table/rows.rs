@@ -35,7 +35,7 @@
 //! let table = write.open_table_with("t", TableMode::CreateNew(&schema))?;
 //! write.insert_row(&table, &[("id", Value::I64(1))])?;
 //! let row = write.get_row(&table, &[Value::I64(1)])?.expect("inserted");
-//! assert_eq!(row.get("n"), Some(&Value::I32(7)));
+//! assert_eq!(row.get("n"), Some(Value::I32(7)));
 //! assert_eq!(write.row_count(&table)?, 1);
 //! drop(row);
 //! assert!(write.update_row(&table, &[("id", Value::I64(1)), ("n", Value::I32(8))])?);
@@ -127,6 +127,7 @@
 //! drop(row);
 //! ```
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -137,7 +138,7 @@ use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
 
 use super::catalog::{ReadTable, WriteTable};
-use super::key::{KeyError, KeyRange, MAX_KEY, decode_key, encode_key, key_range};
+use super::key::{KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_value};
 use super::row::{MAX_ROW, RowLayout, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, Value, key_text, normalize};
@@ -424,62 +425,96 @@ impl Reader {
     /// the row's version by its place in that version, which the history tree gives for an older one, resolved once
     /// into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the key; a column added
     /// after the row was written, null or its default, a text, bytes or vector default borrowed from the table's
-    /// catalog entry (D11). Bytes that are not such a row are damage of the page that holds them (G6).
+    /// catalog entry (D11). The whole row is checked here, and its values are decoded when they are read: bytes that
+    /// are not such a row are damage of the page that holds them (G6), and reading a column of the row cannot fail.
     pub(super) fn decode<'t, S: PageSource + ?Sized>(
         self: &Arc<Self>,
         tx: &'t S,
         table: At<'_>,
         versions: &mut Versions<'t>,
-        key: &[u8],
+        key: Cow<'t, [u8]>,
         bytes: &'t [u8],
     ) -> Result<TableRow<'t>> {
-        let damaged = || row_damage(tx, table.rows_root, key);
+        let damaged = || row_damage(tx, table.rows_root, &key);
         let version = row_version(bytes).map_err(|_| damaged())?;
         let current = self.layout.version();
-        let Versions { old, defaults } = versions;
-        let (layout, places) = if version == current {
-            (&self.layout, None)
-        } else if (1..current).contains(&version) {
-            let old = match old.entry(version) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => {
-                    entry.insert(self.version_layout(tx, table.history, version)?)
-                }
+        let old =
+            if version == current {
+                None
+            } else if (1..current).contains(&version) {
+                Some(match versions.old.entry(version) {
+                    Entry::Occupied(entry) => Arc::clone(entry.get()),
+                    Entry::Vacant(entry) => Arc::clone(
+                        entry.insert(Arc::new(self.version_layout(tx, table.history, version)?)),
+                    ),
+                })
+            } else {
+                return Err(damaged());
             };
-            (&old.layout, Some(&old.places))
-        } else {
-            return Err(damaged());
-        };
+        let layout = old.as_ref().map_or(&self.layout, |old| &old.layout);
         let row = layout.row(bytes).map_err(|_| damaged())?;
-        let key_values = decode_key(&self.key_types, key).ok_or_else(damaged)?;
-        let mut values = Vec::new();
-        krummi_tree::reserve(tx, &mut values, self.columns.len())?;
+        if !is_key(&self.key_types, &key) {
+            return Err(damaged());
+        }
+        let mut defaults = None;
         for (i, column) in self.columns.iter().enumerate() {
-            let value = match column.in_key {
-                Some(k) => key_values[k].clone(),
-                None => match places.map_or(Some(i), |places| places[i]) {
-                    Some(place) => row
-                        .value(place)
-                        .map_err(|_| damaged())?
-                        .ok_or_else(damaged)?,
-                    None => match &column.default {
-                        Value::String(_) | Value::Bytes(_) | Value::Vector(_) => {
-                            let stored = match defaults {
-                                Some(stored) => stored,
-                                None => defaults.insert(self.stored_defaults(tx, table.name)?),
-                            };
-                            stored[i].clone()
-                        }
-                        default => default.clone(),
-                    },
-                },
-            };
-            values.push(value);
+            if column.in_key.is_some() {
+                continue;
+            }
+            match old.as_ref().map_or(Some(i), |old| old.places[i]) {
+                Some(place) => row.check(place).map_err(|_| damaged())?,
+                None if needs_stored(&column.default) && defaults.is_none() => {
+                    defaults = Some(match &versions.defaults {
+                        Some(stored) => Arc::clone(stored),
+                        None => Arc::clone(
+                            versions
+                                .defaults
+                                .insert(Arc::new(self.stored_defaults(tx, table.name)?)),
+                        ),
+                    });
+                }
+                None => {}
+            }
         }
         Ok(TableRow {
             reader: Arc::clone(self),
-            values,
+            stored: Stored::Row {
+                key,
+                bytes,
+                old,
+                defaults,
+            },
         })
+    }
+
+    /// The value of the live column `i` of the row `key`, `bytes`, which [`Reader::decode`] checked.
+    #[inline]
+    fn stored_value<'t>(
+        &self,
+        key: &[u8],
+        bytes: &'t [u8],
+        old: Option<&OldVersion>,
+        defaults: Option<&[Value<'t>]>,
+        i: usize,
+    ) -> Value<'t> {
+        let column = &self.columns[i];
+        if let Some(k) = column.in_key {
+            return key_value(&self.key_types, key, k);
+        }
+        let (layout, place) = match old {
+            None => (&self.layout, Some(i)),
+            Some(old) => (&old.layout, old.places[i]),
+        };
+        match place {
+            Some(place) => layout
+                .row(bytes)
+                .expect("a checked row")
+                .checked_value(place),
+            None if needs_stored(&column.default) => {
+                defaults.expect("the stored defaults of a checked row")[i].clone()
+            }
+            None => column.default.clone(),
+        }
     }
 
     /// The default of each live column, [`Value::Null`] for one without, borrowed from the catalog entry `name` of
@@ -551,8 +586,17 @@ impl Reader {
 /// for all its rows.
 #[derive(Default)]
 pub(super) struct Versions<'t> {
-    old: HashMap<u16, OldVersion>,
-    defaults: Option<Vec<Value<'t>>>,
+    old: HashMap<u16, Arc<OldVersion>>,
+    defaults: Option<Arc<Vec<Value<'t>>>>,
+}
+
+/// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes or
+/// vector one.
+fn needs_stored(default: &Value<'_>) -> bool {
+    matches!(
+        default,
+        Value::String(_) | Value::Bytes(_) | Value::Vector(_)
+    )
 }
 
 /// Where the rows of a table are: the name of its catalog entry, which holds its current schema, and the roots of its
@@ -585,35 +629,65 @@ fn row_damage<S: PageSource + ?Sized>(tx: &S, rows_root: u64, key: &[u8]) -> Err
 
 /// A row read from a table (E11): every live column in schema order, each by its name or by its position among the
 /// live columns, with null or its default in a column added after the row was written; a dropped column never
-/// appears. Text, bytes and vectors borrow the transaction's pages without copying them (D11), so the row lives until
-/// the next operation that may modify the transaction.
+/// appears. The row was checked when it was read, and each value is decoded when it is asked for. Text, bytes and
+/// vectors borrow the transaction's pages without copying them (D11), so the row and its values live until the next
+/// operation that may modify the transaction.
 pub struct TableRow<'t> {
     reader: Arc<Reader>,
-    values: Vec<Value<'t>>,
+    stored: Stored<'t>,
+}
+
+/// What a [`TableRow`] holds.
+enum Stored<'t> {
+    /// The stored row: its encoded primary key and its bytes, the layout of its version when it is an older one, and
+    /// the defaults borrowed from the catalog when it needs them.
+    Row {
+        key: Cow<'t, [u8]>,
+        bytes: &'t [u8],
+        old: Option<Arc<OldVersion>>,
+        defaults: Option<Arc<Vec<Value<'t>>>>,
+    },
+    /// Its values, owned ([`TableRow::into_owned`]).
+    Owned(Vec<Value<'static>>),
 }
 
 impl<'t> TableRow<'t> {
     /// The number of live columns.
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.reader.columns.len()
     }
 
     /// Whether the row has no columns, which a row never has: a table has at least one column (E4).
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.reader.columns.is_empty()
     }
 
     /// The value of the live column at `position`, in schema order.
-    pub fn value(&self, position: usize) -> Option<&Value<'t>> {
-        self.values.get(position)
+    #[inline]
+    pub fn value(&self, position: usize) -> Option<Value<'t>> {
+        if position >= self.len() {
+            return None;
+        }
+        Some(match &self.stored {
+            Stored::Row {
+                key,
+                bytes,
+                old,
+                defaults,
+            } => self.reader.stored_value(
+                key,
+                bytes,
+                old.as_deref(),
+                defaults.as_ref().map(|d| d.as_slice()),
+                position,
+            ),
+            Stored::Owned(values) => values[position].clone(),
+        })
     }
 
     /// The value of the live column `name`.
-    pub fn get(&self, name: &str) -> Option<&Value<'t>> {
-        self.reader
-            .names
-            .get(name)
-            .and_then(|&i| self.values.get(i))
+    pub fn get(&self, name: &str) -> Option<Value<'t>> {
+        self.reader.names.get(name).and_then(|&i| self.value(i))
     }
 
     /// The name of the live column at `position`.
@@ -622,24 +696,28 @@ impl<'t> TableRow<'t> {
     }
 
     /// The values of the live columns, in schema order.
-    pub fn values(&self) -> &[Value<'t>] {
-        &self.values
+    pub fn values(&self) -> impl ExactSizeIterator<Item = Value<'t>> + '_ {
+        (0..self.len()).map(|i| self.value(i).expect("a live column"))
     }
 
     /// The live columns' names with their values, in schema order.
-    pub fn columns(&self) -> impl Iterator<Item = (&str, &Value<'t>)> {
+    pub fn columns(&self) -> impl ExactSizeIterator<Item = (&str, Value<'t>)> + '_ {
         self.reader
             .columns
             .iter()
             .map(|c| c.name.as_str())
-            .zip(&self.values)
+            .zip(self.values())
     }
 
     /// The row with its borrowed values copied, so that it outlives its transaction's next change.
     pub fn into_owned(self) -> TableRow<'static> {
+        let values = match &self.stored {
+            Stored::Owned(values) => values.clone(),
+            Stored::Row { .. } => self.values().map(Value::into_owned).collect(),
+        };
         TableRow {
             reader: self.reader,
-            values: self.values.into_iter().map(Value::into_owned).collect(),
+            stored: Stored::Owned(values),
         }
     }
 }
@@ -707,7 +785,7 @@ impl ReadTransaction<'_> {
                     &self.inner,
                     table.at(),
                     &mut Versions::default(),
-                    &key,
+                    Cow::Owned(key),
                     bytes,
                 )
                 .map(Some),
@@ -778,7 +856,7 @@ impl WriteTransaction<'_> {
                     &self.inner,
                     state.at(),
                     &mut Versions::default(),
-                    &key,
+                    Cow::Owned(key),
                     bytes,
                 )
                 .map(Some),
@@ -843,18 +921,18 @@ impl WriteTransaction<'_> {
             &self.inner,
             self.live_table(table)?.at(),
             &mut Versions::default(),
-            &key,
+            Cow::Borrowed(&key),
             bytes,
         )?;
         let merged: Vec<Value<'_>> = values
             .into_iter()
             .zip(old.values())
-            .map(|(new, old)| new.unwrap_or_else(|| old.reborrow()))
+            .map(|(new, old)| new.unwrap_or(old))
             .collect();
         if merged
             .iter()
             .zip(old.values())
-            .all(|(new, old)| new.same(old))
+            .all(|(new, old)| new.same(&old))
         {
             return Ok(Written::Updated);
         }

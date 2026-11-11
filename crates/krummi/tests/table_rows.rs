@@ -248,9 +248,9 @@ fn ac5_insert_takes_defaults_and_nulls() {
             ])
         );
         let row = write.get_row(&table, &[Value::I64(2)]).unwrap().unwrap();
-        assert_eq!(row.get("d"), Some(&Value::Null), "an explicit null");
-        assert_eq!(row.get("n"), Some(&Value::I32(7)));
-        assert_eq!(row.value(4), Some(&Value::Null), "by position");
+        assert_eq!(row.get("d"), Some(Value::Null), "an explicit null");
+        assert_eq!(row.get("n"), Some(Value::I32(7)));
+        assert_eq!(row.value(4), Some(Value::Null), "by position");
         assert_eq!(
             (row.len(), row.get("missing"), row.value(5)),
             (5, None, None)
@@ -1235,7 +1235,7 @@ fn ac15_column_names_in_a_row() {
         let read = store.read().unwrap();
         let table = read.open_table("t").unwrap();
         let row = read.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
-        assert_eq!(row.get(&long), Some(&Value::I32(2)));
+        assert_eq!(row.get(&long), Some(Value::I32(2)));
     });
 }
 
@@ -1724,23 +1724,23 @@ fn ac7_bits_f16_zero_and_text_through_a_table() {
                 .unwrap();
             assert_eq!(
                 row.get("bits"),
-                Some(&Value::Vector(Cow::Borrowed(&[1u8 << bit])))
+                Some(Value::Vector(Cow::Borrowed(&[1u8 << bit])))
             );
         }
         let row = read.get_row(&t, &[Value::I64(10)]).unwrap().unwrap();
         assert_eq!(
             row.get("half"),
-            Some(&Value::Vector(Cow::Borrowed(&[0x00, 0x3E])))
+            Some(Value::Vector(Cow::Borrowed(&[0x00, 0x3E])))
         );
         let plus: Vec<u8> = [0.0f32, 2.0].iter().flat_map(|x| x.to_le_bytes()).collect();
         assert_eq!(
             row.get("floats"),
-            Some(&Value::Vector(Cow::Borrowed(&plus))),
+            Some(Value::Vector(Cow::Borrowed(&plus))),
             "-0 as +0"
         );
-        assert_eq!(row.get("text"), Some(&s("a\0b")));
+        assert_eq!(row.get("text"), Some(s("a\0b")));
         let row = read.get_row(&t, &[Value::I64(11)]).unwrap().unwrap();
-        assert_eq!(row.get("text"), Some(&s("")));
+        assert_eq!(row.get("text"), Some(s("")));
         assert_eq!(
             read_r(&read, "strings", &[s("")]).unwrap(),
             named(vec![("k", s("").into_owned()), ("v", Value::I32(1))])
@@ -1954,9 +1954,9 @@ fn e11_old_rows_borrow_the_defaults_of_added_columns() {
         let elements: Vec<u8> = [1f32, 2.0].iter().flat_map(|v| v.to_le_bytes()).collect();
         let check = |rows: &[TableRow<'_>]| {
             for row in rows {
-                assert_eq!(row.get("b"), Some(&b(&big)));
-                assert_eq!(row.get("s"), Some(&s("text")));
-                assert_eq!(row.get("v"), Some(&Value::Vector(Cow::Borrowed(&elements))));
+                assert_eq!(row.get("b"), Some(b(&big)));
+                assert_eq!(row.get("s"), Some(s("text")));
+                assert_eq!(row.get("v"), Some(Value::Vector(Cow::Borrowed(&elements))));
             }
             for name in ["b", "s", "v"] {
                 let first = borrowed_at(&rows[0], name);
@@ -2125,4 +2125,52 @@ fn ac13_e16_what_row_operations_change() {
         });
         assert!(changed, "change {i}");
     }
+}
+
+/// D11 (S4 of the row reads run): a text or bytes value read from a row borrows the transaction's page, not the row,
+/// so it stays valid after the row is dropped, while the transaction is open, in a read and in a write.
+#[test]
+fn d11_values_outlive_their_row() {
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("s", ColumnType::String),
+                Column::new("b", ColumnType::Bytes),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = create(&mut write, "t", &schema);
+        let row = [
+            ("id", Value::I64(1)),
+            ("s", s("text")),
+            ("b", b(&[0, 1, 2])),
+        ];
+        write.insert_row(&table, &row).unwrap();
+        let (text, bytes) = {
+            let row = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
+            (row.get("s").unwrap(), row.get("b").unwrap())
+        };
+        assert!(
+            matches!(&text, Value::String(Cow::Borrowed("text"))),
+            "{text:?}"
+        );
+        assert!(
+            matches!(&bytes, Value::Bytes(Cow::Borrowed([0, 1, 2]))),
+            "{bytes:?}"
+        );
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let scanned: Vec<Value<'_>> = read
+            .range_rows(&table, &[], ..)
+            .unwrap()
+            .map(|row| row.unwrap().get("s").unwrap())
+            .collect();
+        assert!(
+            matches!(scanned.as_slice(), [Value::String(Cow::Borrowed("text"))]),
+            "{scanned:?}"
+        );
+    });
 }

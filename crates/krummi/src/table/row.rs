@@ -18,6 +18,7 @@
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
+use std::convert::Infallible;
 
 use super::value::{
     ColumnType, Decimal, NANOS_PER_MICRO, Value, fits_precision, is_of_type, stored_in_domain,
@@ -192,6 +193,7 @@ impl RowLayout {
 
     /// The row in `bytes`, after checking its header and that it holds the fixed part of its layout; the columns are
     /// checked as they are read. Fails if the row is of another version (see [`row_version`]).
+    #[inline]
     pub fn row<'r>(&self, bytes: &'r [u8]) -> Result<Row<'_, 'r>, RowDamaged> {
         if row_version(bytes)? != self.version {
             return Err(RowDamaged);
@@ -333,6 +335,7 @@ impl<'r> Row<'_, 'r> {
     }
 
     /// Whether the column at `position` is null.
+    #[inline]
     pub fn is_null(&self, position: usize) -> bool {
         self.layout
             .null_bits
@@ -345,6 +348,7 @@ impl<'r> Row<'_, 'r> {
     /// The stored bytes of the column at `position`: its fixed slot or its part of the variable section, a vector
     /// with its norm in a cosine column. `None` when the column is null or not in the row (a fixed-width primary key
     /// column, or a position past the version's columns).
+    #[inline]
     pub fn column_bytes(&self, position: usize) -> Result<Option<&'r [u8]>, RowDamaged> {
         let Some(place) = self.layout.places.get(position) else {
             return Ok(None);
@@ -377,6 +381,39 @@ impl<'r> Row<'_, 'r> {
         decode(&self.layout.columns[position].ty, bytes).map(Some)
     }
 
+    /// Checks the column at `position` as [`Row::value`] reads it, without building its value: `Ok` for a column of
+    /// the row, null or not, and an error for one that does not decode or is not in the row.
+    #[inline]
+    pub fn check(&self, position: usize) -> Result<(), RowDamaged> {
+        match self.layout.places.get(position) {
+            // Its slot is inside the fixed part that `RowLayout::row` checked, and every value of its width decodes.
+            Some(Place::Fixed { .. }) if always_decodes(&self.layout.columns[position].ty) => {
+                Ok(())
+            }
+            Some(Place::Fixed { .. } | Place::Variable(_)) => match self.column_bytes(position)? {
+                Some(bytes) => decode(&self.layout.columns[position].ty, bytes).map(drop),
+                None => Ok(()),
+            },
+            _ => Err(RowDamaged),
+        }
+    }
+
+    /// The value of the column at `position`, which [`Row::check`] accepted. Panics on a column it rejects.
+    #[inline]
+    pub fn checked_value(&self, position: usize) -> Value<'r> {
+        match self.column_bytes(position) {
+            Ok(Some(bytes)) => {
+                let checked = || -> Infallible { panic!("a checked column") };
+                match decode_with(&self.layout.columns[position].ty, bytes, checked) {
+                    Ok(value) => value,
+                    Err(never) => match never {},
+                }
+            }
+            Ok(None) => Value::Null,
+            Err(RowDamaged) => panic!("a checked column"),
+        }
+    }
+
     /// The value of the column `id` (see [`Row::value`]), or `default` when the row's version does not have the
     /// column: an added column reads null or its default (N3). Finding the column costs a search of the version's
     /// columns; a scan uses [`RowLayout::position`] once and [`Row::value`].
@@ -395,6 +432,7 @@ impl<'r> Row<'_, 'r> {
     }
 
     /// The bytes of variable column `j`: two offset reads.
+    #[inline]
     fn variable(&self, j: usize) -> Result<&'r [u8], RowDamaged> {
         let end_of = |j: usize| {
             let at = self.layout.offsets_start + j * self.width;
@@ -411,9 +449,42 @@ impl<'r> Row<'_, 'r> {
     }
 }
 
+/// Whether [`decode`] accepts every stored value of a fixed-width type `ty` of its width: true of the integers, the
+/// floats, `uuid` and `ulid`; a `bool` other than 0 or 1, a temporal value outside its domain and a `decimal` over its
+/// precision are damage.
+fn always_decodes(ty: &ColumnType) -> bool {
+    matches!(
+        ty,
+        ColumnType::I8
+            | ColumnType::I16
+            | ColumnType::I32
+            | ColumnType::I64
+            | ColumnType::U8
+            | ColumnType::U16
+            | ColumnType::U32
+            | ColumnType::U64
+            | ColumnType::F32
+            | ColumnType::F64
+            | ColumnType::Uuid(_)
+            | ColumnType::Ulid
+    )
+}
+
 /// The value of the stored bytes of a column of type `ty`. A temporal value outside its domain or a `decimal` over
 /// its precision, which Krummi never writes, is damage.
+#[inline]
 fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged> {
+    decode_with(ty, bytes, || RowDamaged)
+}
+
+/// [`decode`], with `damaged()` as the error of bytes that are not such a value: a column already checked
+/// passes an error that cannot exist, so that the result has the value's own layout.
+#[inline]
+fn decode_with<'r, E>(
+    ty: &ColumnType,
+    bytes: &'r [u8],
+    damaged: impl Fn() -> E,
+) -> Result<Value<'r>, E> {
     fn array<const N: usize>(bytes: &[u8]) -> [u8; N] {
         bytes.try_into().expect("the slot's width")
     }
@@ -425,14 +496,14 @@ fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged>
         _ => None,
     };
     if stored.is_some_and(|stored| !stored_in_domain(ty, stored)) {
-        return Err(RowDamaged);
+        return Err(damaged());
     }
     let nanos = |micros: [u8; 8]| i128::from(i64::from_le_bytes(micros)) * NANOS_PER_MICRO;
     Ok(match ty {
         ColumnType::Bool => match bytes {
             [0] => Value::Bool(false),
             [1] => Value::Bool(true),
-            _ => return Err(RowDamaged),
+            _ => return Err(damaged()),
         },
         ColumnType::I8 => Value::I8(i8::from_le_bytes(array(bytes))),
         ColumnType::I16 => Value::I16(i16::from_le_bytes(array(bytes))),
@@ -447,7 +518,7 @@ fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged>
         ColumnType::Decimal { precision, scale } => {
             let mantissa = i128::from_le_bytes(array(bytes));
             if !fits_precision(mantissa, *precision) {
-                return Err(RowDamaged);
+                return Err(damaged());
             }
             Value::Decimal(Decimal {
                 mantissa,
@@ -455,22 +526,62 @@ fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged>
             })
         }
         ColumnType::Date => Value::Date(i32::from_le_bytes(array(bytes))),
-        ColumnType::Time => {
-            Value::Time(i64::try_from(nanos(array(bytes))).map_err(|_| RowDamaged)?)
-        }
+        ColumnType::Time => Value::Time(i64::try_from(nanos(array(bytes))).map_err(|_| damaged())?),
         ColumnType::Timestamp => Value::Timestamp(nanos(array(bytes))),
         ColumnType::Duration => Value::Duration(nanos(array(bytes))),
         ColumnType::Uuid(_) => Value::Uuid(Uuid(array(bytes))),
         ColumnType::Ulid => Value::Ulid(Ulid(array(bytes))),
         ColumnType::String => Value::String(Cow::Borrowed(
-            std::str::from_utf8(bytes).map_err(|_| RowDamaged)?,
+            std::str::from_utf8(bytes).map_err(|_| damaged())?,
         )),
         ColumnType::Bytes => Value::Bytes(Cow::Borrowed(bytes)),
         ColumnType::Vector(vector) => {
             if bytes.len() != vector.stored_len() {
-                return Err(RowDamaged);
+                return Err(damaged());
             }
             Value::Vector(Cow::Borrowed(&bytes[..vector.value_len()]))
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::table::value::UuidOrder;
+
+    /// Every fixed-width type that `always_decodes` names decodes any bytes of its width, which lets `Row::check`
+    /// skip it; every other one rejects some.
+    #[test]
+    fn always_decodes_names_the_types_whose_every_value_decodes() {
+        let types = [
+            ColumnType::Bool,
+            ColumnType::I8,
+            ColumnType::I16,
+            ColumnType::I32,
+            ColumnType::I64,
+            ColumnType::U8,
+            ColumnType::U16,
+            ColumnType::U32,
+            ColumnType::U64,
+            ColumnType::F32,
+            ColumnType::F64,
+            ColumnType::Decimal {
+                precision: 1,
+                scale: 0,
+            },
+            ColumnType::Date,
+            ColumnType::Time,
+            ColumnType::Timestamp,
+            ColumnType::Duration,
+            ColumnType::Uuid(UuidOrder::Rfc9562),
+            ColumnType::Uuid(UuidOrder::SqlServer),
+            ColumnType::Ulid,
+        ];
+        for ty in &types {
+            let width = ty.fixed_width().expect("a fixed-width type");
+            let patterns = [0x00, 0x01, 0x02, 0x7F, 0x80, 0xFE, 0xFF].map(|b| vec![b; width]);
+            let all = patterns.iter().all(|bytes| decode(ty, bytes).is_ok());
+            assert_eq!(always_decodes(ty), all, "{ty:?}");
+        }
+    }
 }

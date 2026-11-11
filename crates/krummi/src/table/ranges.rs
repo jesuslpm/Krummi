@@ -32,7 +32,7 @@
 //! let at: Vec<Value<'static>> = write
 //!     .range_rows(&table, &[Value::I32(1)], Value::I64(20)..)?
 //!     .rev()
-//!     .map(|row| row.map(|row| row.get("at").unwrap().clone().into_owned()))
+//!     .map(|row| row.map(|row| row.get("at").unwrap().into_owned()))
 //!     .collect::<krummi::Result<_>>()?;
 //! assert_eq!(at, [Value::I64(30), Value::I64(20)]);
 //! assert_eq!(write.delete_range(&table, &[Value::I32(1)], ..)?, 3);
@@ -110,8 +110,13 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
                 rows_root: self.rows_root,
                 history: self.history,
             };
-            self.reader
-                .decode(self.tx, table, &mut self.versions, key, bytes)
+            self.reader.decode(
+                self.tx,
+                table,
+                &mut self.versions,
+                std::borrow::Cow::Borrowed(key),
+                bytes,
+            )
         });
         self.failed = row.is_err();
         Some(row)

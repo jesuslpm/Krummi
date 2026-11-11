@@ -97,7 +97,7 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                         for row in range.take(limit) {
                             let row = row.map_err(cause)?;
                             // A range starts at an existing key: its first row is that key's.
-                            if read == 0 && id_of(&row) != Some(start) {
+                            if read == 0 && id_of(&row).as_ref() != Some(start) {
                                 return Err(missing(start));
                             }
                             sum = sum.wrapping_add(checksum(&row)?);
@@ -139,7 +139,7 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                 for (key, &n) in keys.iter().zip(&new_n) {
                     let row = tx.get_row(&table, &[ulid(key)]).map_err(cause)?;
                     let row = row.ok_or_else(|| missing(key))?;
-                    if row.get("n") != Some(&Value::I64(n)) {
+                    if row.get("n") != Some(Value::I64(n)) {
                         return Err(format!("la fila {} no tiene su n nuevo", hex(key)));
                     }
                 }
@@ -225,10 +225,10 @@ fn ulid_keys(rows: Vec<u32>) -> Vec<[u8; ID_LEN]> {
 }
 
 /// The key of a row read.
-fn id_of<'r>(row: &'r TableRow<'_>) -> Option<&'r [u8; ID_LEN]> {
+fn id_of(row: &TableRow<'_>) -> Option<[u8; ID_LEN]> {
     match row.value(0) {
-        Some(Value::Ulid(id)) => Some(&id.0),
-        Some(Value::Uuid(id)) => Some(&id.0),
+        Some(Value::Ulid(id)) => Some(id.0),
+        Some(Value::Uuid(id)) => Some(id.0),
         _ => None,
     }
 }
@@ -237,21 +237,31 @@ fn id_of<'r>(row: &'r TableRow<'_>) -> Option<&'r [u8; ID_LEN]> {
 fn checksum(row: &TableRow<'_>) -> Result<u64> {
     let unexpected = || format!("la fila leída no tiene las columnas de la tabla: {row:?}");
     let (
+        6,
         Some(id),
-        [
-            _,
-            Value::I64(n),
-            Value::F64(x),
-            Value::Timestamp(ts),
-            Value::Bool(flag),
-            Value::String(name),
-        ],
-    ) = (id_of(row), row.values())
+        Some(Value::I64(n)),
+        Some(Value::F64(x)),
+        Some(Value::Timestamp(ts)),
+        Some(Value::Bool(flag)),
+        Some(Value::String(name)),
+    ) = (
+        row.len(),
+        id_of(row),
+        row.value(1),
+        row.value(2),
+        row.value(3),
+        row.value(4),
+        row.value(5),
+    )
     else {
         return Err(unexpected());
     };
-    let ts = i64::try_from(ts / 1_000).map_err(|_| unexpected())?;
-    Ok(table_data::checksum(id, *n, *x, ts, *flag, name.as_bytes()))
+    // A 64-bit division when the nanoseconds fit, as they do in the loads' data; the 128-bit one costs several times more.
+    let ts = match i64::try_from(ts) {
+        Ok(ts) => ts / 1_000,
+        Err(_) => i64::try_from(ts / 1_000).map_err(|_| unexpected())?,
+    };
+    Ok(table_data::checksum(&id, n, x, ts, flag, name.as_bytes()))
 }
 
 /// Creates the empty table with `schema` in a write of its own.
