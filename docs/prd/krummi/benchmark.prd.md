@@ -101,6 +101,8 @@ hilos (G4); Krummi además las lleva al disco agrupadas (E4).
 - *K7 y Salida: el informe cuenta 29 umbrales.*
 - *K9: el tamaño del almacén se mide también tras W23, W24, W25 y W29.*
 
+*Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables-row-reads.prd.md)): K7: En W26 y W27, Voron lee sus filas sin comprobar su contenido y Krummi tampoco desde [tables-row-reads.prd.md](tables-row-reads.prd.md) (L4): las dos cargas comparan el mismo trabajo. Los umbrales no cambian.*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

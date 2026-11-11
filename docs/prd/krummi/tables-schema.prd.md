@@ -59,6 +59,8 @@ ascendientes, que llevan su anotación (*Anotaciones a otros PRD*):
 
 - *E5: se añade un caso al final de su lista: un esquema que, guardado con los nombres y los valores por defecto de sus columnas, pasa de 256 MiB, el máximo de una entrada del catálogo, falla sin efecto con esquema no válido y la regla «esquema demasiado grande», nombrando la columna con la que lo pasa, también al añadir una columna o al renombrarla a un nombre más largo (la columna del cambio). Usuario, ante un valor por defecto de casi 256 MiB que cabía en una fila pero no en el catálogo: «Aceptar el límite».*
 - *E8: el dominio se comprueba sobre el valor ya redondeado al microsegundo, que es el que se guarda: un valor dado fuera de su dominio que el redondeo mete dentro se acepta (una hora de −500 ns se guarda como 00:00:00), y uno que el redondeo saca falla con valor no válido. Usuario: «Se acepta».*
+*Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables-row-reads.prd.md)): E19: Las lecturas por la clave y los recorridos ya no comprueban el contenido de la fila (sus valores, sus desplazamientos, sus bits de nulo y su clave); una fila mal formada en una página cuya integridad pasó G6 se devuelve sin error, y leer una de sus columnas puede devolver un valor que no es el escrito o terminar con un pánico; un texto que no es UTF-8 leído como texto termina siempre con un pánico. Siguen fallando con daño la versión de esquema desconocida o ausente del historial, la cabecera que Krummi no escribe y la fila que no llega al final de su parte fija; actualizar e insertar o actualizar siguen comprobando la fila que reemplazan (decisiones L1–L3 de [tables-row-reads.prd.md](tables-row-reads.prd.md)).*
+
 
 #### Cargas del banco
 

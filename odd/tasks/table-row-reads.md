@@ -160,3 +160,11 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   [resolutions](../../docs/reviews/tables-row-reads/2026-11-11-prd-resolutions.md)): `findings`, R1 and R2 (major,
   product questions), R3 and R4 (minor, fixed). The user's answers, verbatim: R1 «Pánico normal del hilo
   (Recomendado)»; R2 «Sigue intacta (Recomendado)».
+- **L18** (2026-11-11): Codex PRD round 2 ([report](../../docs/reviews/tables-row-reads/2026-11-11-prd-02.md)):
+  R1, R2, R4 verified, R3 reopened (L1 and AC-L3 named different pages for a version missing from the history), fixed
+  in `77325f6`; round 3 ([report](../../docs/reviews/tables-row-reads/2026-11-11-prd-03.md)): `approved`. Annotations
+  of E19 (7.1), G6 (root) and K7 (benchmark) applied; translations in progress.
+- **L19** (2026-11-11): translations done (`tables-row-reads.prd.en.md` and the three English annotations; same
+  headings, decision and criterion IDs). The elaboration time is left out: `prd_time.py` measures a whole session and
+  this one holds several features since 2026-11-03 (it gave 94 h 36 min active), so it cannot isolate this PRD. The PRD
+  waits for the user's authorization to implement it.

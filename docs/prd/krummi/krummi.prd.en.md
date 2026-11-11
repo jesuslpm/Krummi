@@ -215,6 +215,8 @@ names encrypted pages; G9 in what it says about asking for encryption in tempora
 messages, step 6 of the checks on opening, AC13 and what D10 says about what is readable without the key no longer
 apply to the store; key management and custody stay out of scope.*
 
+*Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables-row-reads.prd.md), Spanish, authoritative): Exception to G6: reading by the key and traversing the rows of the tables do not check their content. A malformed row in a page whose integrity passed G6 (a failure of the engine, a file altered with the store closed that recalculates the integrity codes, or a remembered page altered with the store open) may return data that is not the one written or end in a panic instead of an error. Update and insert or update keep checking the row they replace; AC10 does not change (decisions L1–L3 of [tables-row-reads.prd.en.md](tables-row-reads.prd.en.md)).*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,

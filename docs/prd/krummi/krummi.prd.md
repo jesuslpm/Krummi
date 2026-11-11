@@ -216,6 +216,8 @@ cifrado en modo temporal, su fila de Validaciones y mensajes, el paso 6 de las c
 que D10 dice de lo legible sin clave dejan de aplicarse al almacén; la gestión y custodia de claves sigue fuera de
 alcance.*
 
+*Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables-row-reads.prd.md)): Excepción a G6: leer por la clave y recorrer las filas de las tablas no comprueban su contenido. Una fila mal formada en una página cuya integridad pasó G6 (un fallo del motor, un archivo alterado con el almacén cerrado que recalcula los códigos de integridad, o una página recordada alterada con el almacén abierto) puede devolver datos que no son los escritos o terminar en un pánico en lugar de un error. Actualizar e insertar o actualizar siguen comprobando la fila que reemplazan; AC10 no cambia (decisiones L1–L3 de [tables-row-reads.prd.md](tables-row-reads.prd.md)).*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,

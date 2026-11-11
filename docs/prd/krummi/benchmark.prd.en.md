@@ -101,6 +101,8 @@ brings them to disk grouped (E4).
 - *K7 and Output: the report counts 29 thresholds.*
 - *K9: the store size is also measured after W23, W24, W25 and W29.*
 
+*Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables-row-reads.prd.md), Spanish, authoritative): K7: In W26 and W27, Voron reads its rows without checking their content and Krummi does not either since [tables-row-reads.prd.en.md](tables-row-reads.prd.en.md) (L4): the two loads compare the same work. The thresholds do not change.*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:
