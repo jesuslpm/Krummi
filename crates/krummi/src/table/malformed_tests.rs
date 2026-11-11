@@ -247,6 +247,11 @@ fn ac_l1_an_older_row_with_a_text_that_is_not_utf8_reads_it_as_bytes() {
     let table = read.open_table("t").unwrap();
     reads(&read.get_row(&table, &[Value::I64(BAD)]).unwrap().unwrap());
     reads_and_scans!(read, table, (0..ROWS).collect(), id, reads);
+    drop(read);
+    let write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    reads(&write.get_row(&table, &[Value::I64(BAD)]).unwrap().unwrap());
+    reads_and_scans!(write, table, (0..ROWS).collect(), id, reads);
 }
 
 /// AC-L2: a `bool` that is neither 0 nor 1, and a variable value whose offset is past the row, are returned by a read
@@ -515,7 +520,12 @@ fn a_lent_scan_reads_an_older_row_after_current_ones() {
         .unwrap()
         .map(|row| row.unwrap().values().collect())
         .collect();
-    assert_eq!(iterated[usize::try_from(BAD).unwrap()][3], Value::Null);
+    let extra = read.describe_table("t").unwrap().columns().len() - 1;
+    assert_eq!(
+        iterated[usize::try_from(BAD).unwrap()][extra],
+        Value::Null,
+        "the added column"
+    );
     let mut scan = read.range_rows(&table, &[], ..).unwrap();
     let mut lent = Vec::new();
     while let Some(row) = scan.next_row().unwrap() {

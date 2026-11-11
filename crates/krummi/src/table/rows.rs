@@ -721,8 +721,10 @@ pub(crate) struct Readers {
     root: OnceLock<Box<Kept>>,
 }
 
-/// The children of each kept reader in [`Readers`], one per 4-bit digit of a key's hash.
+/// The children of each kept reader in [`Readers`], one per digit of a key's hash, of [`DIGIT`] bits.
 const FANOUT: usize = 16;
+const DIGIT: u32 = FANOUT.trailing_zeros();
+const _: () = assert!(FANOUT.is_power_of_two());
 
 /// A reader of [`Readers`], with its key and its children.
 pub(crate) struct Kept {
@@ -737,15 +739,15 @@ impl Readers {
         let mut make = Some(make);
         let mut made = None;
         // A product by an odd constant is a bijection: distinct keys have distinct hashes, so their paths part within
-        // the 16 digits of a hash.
+        // the digits of a hash.
         let mut hash = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let mut slot = &self.root;
         loop {
             match slot.get() {
                 Some(kept) if kept.key == key => return kept,
                 Some(kept) => {
-                    slot = &kept.children[(hash >> 60) as usize];
-                    hash <<= 4;
+                    slot = &kept.children[(hash >> (u64::BITS - DIGIT)) as usize];
+                    hash <<= DIGIT;
                 }
                 None => {
                     let reader = made

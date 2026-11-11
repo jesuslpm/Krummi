@@ -2259,6 +2259,48 @@ fn many_tables_read_in_turns_keep_their_own_schemas() {
     }
 }
 
+/// Threads of one read transaction open and read many tables at once, in different orders, so that they race to keep
+/// the same readers; each table reads with its own schema (R3-trie-concurrent-publication-uncommitted of the RDD
+/// review of the row reads run).
+#[test]
+fn threads_of_one_read_transaction_keep_each_table_s_reader_once() {
+    let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+    let tables = 64;
+    let schema = |i: usize| {
+        let columns = (0..=i % 8)
+            .map(|j| Column::new(format!("c{j}"), ColumnType::I32).not_null())
+            .collect();
+        Schema::new(columns, &["c0"])
+    };
+    let mut write = store.write().unwrap();
+    for i in 0..tables {
+        let table = create(&mut write, &format!("t{i}"), &schema(i));
+        let names: Vec<String> = (0..=i % 8).map(|j| format!("c{j}")).collect();
+        let row: Vec<(&str, Value<'_>)> = names
+            .iter()
+            .enumerate()
+            .map(|(j, name)| (name.as_str(), Value::I32(j as i32)))
+            .collect();
+        write.insert_row(&table, &row).unwrap();
+    }
+    write.commit().unwrap();
+    let read = store.read().unwrap();
+    std::thread::scope(|scope| {
+        for thread in 0..8 {
+            let read = &read;
+            scope.spawn(move || {
+                for step in 0..tables {
+                    let i = (step * 7 + thread * 13) % tables;
+                    let table = read.open_table(&format!("t{i}")).unwrap();
+                    let row = read.get_row(&table, &[Value::I32(0)]).unwrap().unwrap();
+                    let expected: Vec<Value<'_>> = (0..=(i % 8) as i32).map(Value::I32).collect();
+                    assert_eq!(row.values().collect::<Vec<_>>(), expected, "t{i}");
+                }
+            });
+        }
+    });
+}
+
 /// S3 of the row reads run: every column that the read of a row checked can be read, a null and a variable-length
 /// column of an older version included, by key and in a scan, after a column is added and another dropped.
 #[test]

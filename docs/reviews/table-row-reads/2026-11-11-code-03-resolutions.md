@@ -47,7 +47,7 @@ Follow-up report: [2026-11-11-code-04.md](2026-11-11-code-04.md), fix range `3ec
 `01a1cc7c-84bc-7640-af6e-11e9b273a04e`, wrapper status `findings`, verdict "Changes requested: R2 and R3 verified
 resolved; R4 remains open." Review record: telemetry as in the first round.
 
-## 2026-11-11
+## 2026-11-11 (R4)
 
 Artifact versions: fix in commit `6167d9e`.
 
