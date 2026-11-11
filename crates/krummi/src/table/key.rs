@@ -113,11 +113,16 @@ pub fn is_key(types: &[ColumnType], key: &[u8]) -> bool {
 }
 
 /// Where each element of `key` starts, when [`is_key`] accepts it, so that each column can be read with
-/// [`key_value`] without walking the elements before it.
+/// [`key_value`] without walking the elements before it; `None` also for an element that starts past `u16::MAX`,
+/// which no key of at most [`MAX_KEY`] bytes has.
 pub fn key_starts(types: &[ColumnType], key: &[u8]) -> Option<Vec<u16>> {
     let mut starts = Vec::with_capacity(types.len());
-    let start = |at: usize| starts.push(u16::try_from(at).expect("a key of at most 2,048 bytes"));
-    walk_key(types, key, start).then_some(starts)
+    let mut fits = true;
+    let start = |at: usize| match u16::try_from(at) {
+        Ok(at) => starts.push(at),
+        Err(_) => fits = false,
+    };
+    (walk_key(types, key, start) && fits).then_some(starts)
 }
 
 /// Takes every element of `key` with the checks of [`skip_element`], calling `start` with the offset of each, and
@@ -130,8 +135,9 @@ fn walk_key(types: &[ColumnType], key: &[u8], mut start: impl FnMut(usize)) -> b
     }) && rest.is_empty()
 }
 
-/// The value of a fixed-width column of type `ty` whose element starts `element`, in a key that [`is_key`] accepts.
-/// Panics on another element, or for a `string` or `bytes` column, which the row keeps instead.
+/// The value of a fixed-width key column of type `ty`, where `element` is the rest of a key that [`is_key`] accepts
+/// from that column's start (its [`key_starts`] entry, or 0 for a key of one column). Panics on another slice, or for
+/// a `string` or `bytes` column, which the row keeps instead.
 pub fn key_value(ty: &ColumnType, element: &[u8]) -> Value<'static> {
     assert!(ty.fixed_width().is_some(), "a fixed-width key column");
     decode_element(ty, &mut &element[..]).expect("a checked key")

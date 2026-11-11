@@ -1978,7 +1978,7 @@ fn encode_key_refuses_more_values_than_columns() {
 /// keys that `decode_key` decodes, and `key_value` at each start gives the fixed-width columns as `decode_key` does: over good keys with
 /// escaped zeros and multi-byte characters, each truncation, each byte changed to an edge value and each byte inserted.
 #[test]
-fn is_key_accepts_the_keys_that_decode_key_decodes() {
+fn key_checks_and_starts_agree_with_decode_key() {
     let cases: [(&[ColumnType], Vec<Value<'_>>); 4] = [
         (
             &[ColumnType::I32, ColumnType::String],
