@@ -59,3 +59,21 @@ Checks after the fixes: `cargo fmt --all --check` and `cargo clippy --workspace 
 Review record: [2026-11-11-code.md](2026-11-11-code.md), wrapper status `findings`, thread
 `01a1c810-4d2a-78e0-8dcb-a1b96fb81cf5`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-11 (verification)
+
+Follow-up report: [2026-11-11-code-02.md](2026-11-11-code-02.md), fix range `1479c19..ba8b5d2`, thread
+`01a1c82f-ae14-7db1-91e7-bb5b34abd098`, wrapper status `findings`, verdict "Changes required." Per finding, quoted: R2
+"Verified resolved."; R3 "Verified resolved."; R1 "still open, partially remediated": the panic is gone, but the
+permitted schema of the reproduction is still rejected by a catalog limit no requirement approves. Open questions:
+Q1 (carried forward) and Q2 ("is an additional limit on the aggregate encoded schema/defaults acceptable, and what
+public error should it use?").
+
+### R1 — major, follow-up: valid large defaults rejected by an undeclared catalog limit
+
+- Disposition: pending, a product decision (Q2), asked to the user after the loop. No requirement is edited before
+  the answer.
+- Status: open.
+
+Review record: telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review-critical` `gpt-6-astra` /
+`xhigh`.

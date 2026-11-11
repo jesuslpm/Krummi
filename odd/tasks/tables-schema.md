@@ -234,3 +234,11 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   old rows copied added defaults, D11/AC20) → fixed, borrowed from the catalog page; R3 (minor, norm tail order) →
   fixed per design 05. Fix commits `574f7d3`, `b0288e3`. Q1 (temporal domain before or after rounding) pending for
   the user.
+- **L15** (2026-11-11): RDD of the Codex round 1 fixes (`1479c19..b0288e3`, escalated item 1): lenses risk,
+  readability, reliability, lineage `review-1b1106545ae7a5fc`, **approved**. Advisories: R1-001 and
+  R3-fit-check-coverage (WARNING: `modify` does not run the catalog size check) dismissed: `modify` only allows
+  nulls, which never enlarges the entry (E4); R2-001 (WARNING: the size error names the last column with a default,
+  also after a rename) goes with the user's Q2 decision; R2-002, R2-003, R2-004, R3-stored-defaults-damage-untested
+  (SUGGESTION) accepted as is. Codex round 2 ([report](../../docs/reviews/tables-schema/2026-11-11-code-02.md)):
+  R2 and R3 verified resolved; R1 open pending the product decision Q2; Q1 carried forward. Wait for the user's
+  answers starts.
