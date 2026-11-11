@@ -28,3 +28,14 @@ document 14 defers until the indexes are planned; none is new, and none is answe
 
 Checks for the follow-up: `git diff --check 99277d1..e352bca`, no output. The range changes one Markdown document;
 the cargo checks of `CLAUDE.md` do not apply to it.
+
+## 2026-11-11 (verification)
+
+Follow-up report: [2026-11-11-code-04.md](2026-11-11-code-04.md), wrapper status `approved`, `threadId`
+`01a1ca46-54ea-7860-8988-5b1a88cf0e30`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Fix range `99277d1..5caac57`. Verdict, quoted: "Approved — R1
+verified resolved; no findings remain open in the requested follow-up scope."
+
+- R1: "Verified resolved".
+
+No product question was added; the eight deferred questions of document 14 stay open until the indexes are planned.
