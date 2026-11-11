@@ -111,7 +111,7 @@ The physical choice depends on these guarantees, so they are fixed first. Each r
 | Whitespace | PG `json` and DK keep it; the rest drop it | **Dropped** | Space; a single stored form. An application that needs the exact bytes stores them in a `string` column |
 | Escapes | — | **Normalized**: raw UTF-8 except `"`, `\` and U+0000-U+001F, which use `\"`, `\\`, `\b \f \n \r \t` or `\u00xx` | One spelling per string, so equality of representation is byte equality and most strings are zero-copy `&str` |
 | Unicode | I-JSON: UTF-8, no surrogate or noncharacter code points | Valid UTF-8; an escaped surrogate pair becomes its character; a lone surrogate is invalid; noncharacters and U+0000 are accepted | The domain of Krummi's `string` (PRD 7.1, E7: "cualquier texto UTF-8 válido, incluido el carácter U+0000"); a lone surrogate has no UTF-8 form |
-| Numbers | PG: `numeric` (prints `1.230e-5` as `0.00001230`), no NaN or infinities; MY, RB: integers as integers, others as double (RB keeps the double's text, `LazyNumber`); SL JSONB keeps the text (`INT5`, `FLOAT5`); I-JSON: integers outside ±(2^53−1) are not interoperable | **Kept as written** (validated RFC 8259 grammar); read as `i64`, `u64`, `f64` or `decimal(p, s)` on request, each exact or refused (`f64` correctly rounded); compared by exact mathematical value | No loss ever (J1); 64-bit identifiers and money survive; the lexeme is the cheapest exact model |
+| Numbers | PG: `numeric` (prints `1.230e-5` as `0.00001230`), no NaN or infinities; MY, RB: integers as integers, others as double (RB keeps the double's text, `LazyNumber`); SL JSONB keeps the text (`INT5`, `FLOAT5`); I-JSON: integers outside ±(2^53−1) are not interoperable | **Kept as written** (validated RFC 8259 grammar); read on request as `i64`, `u64` or `decimal(p, s)`, each exact or refused, or as `f64`, correctly rounded and refused only outside its finite range; compared by exact mathematical value | No loss ever (J1); 64-bit identifiers and money survive; the lexeme is the cheapest exact model |
 | Equality | PG: structural, numbers by value; DK: textual (`{"a":1,"b":2}` and `{"b":2,"a":1}` differ) | Two notions. **Representational**: the normalized bytes are equal (used by E10's identical update). **Structural**: same kinds, objects with the same names and equal values in any order, arrays element by element, numbers by exact value, strings by bytes (offered when module 17 compares documents) | The first is free and exact; the second is what a query means by `=` |
 | Ordering | PG defines a cross-type order (`Object > Array > Boolean > Number > String > null`) | **None.** JSON is not a primary key or index column (7.5 annotation); ordering applies to typed values extracted from paths | No consumer needs a total order of documents; extracted scalars use Krummi's typed order (N5) |
 | Depth | PG: stack only; SL: 1,000; MongoDB: 100; .NET `JsonDocument`: 64 by default; `serde_json`: 128 | **128** levels of containers, a ceiling | Matches the query documents' ceiling (doc 11, §2.5); recursion stays bounded. The C# binding must raise .NET's default of 64 (product question 5) |
@@ -289,7 +289,10 @@ scope.
 **Extraction rules** (to fix in module 17, recommended now so 7.5's accessors agree): extracting a path gives a JSON
 value, *missing*, or a typed scalar on request. Typed extraction (`as i64`, `as f64`, `as string`, `as decimal(p, s)`,
 `as bool`) of missing, `null` or the wrong kind gives SQL `NULL`, so a filter is unknown for that row (doc 8's
-three-valued logic); a number that does not fit the requested type gives `NULL` as well, never a rounded value.
+three-valued logic). An integer or `decimal` type gives `NULL` for a number it cannot hold exactly, never a rounded
+value; `f64` gives the correctly rounded nearest value, and `NULL` only outside its finite range (`1e400`). So
+`0.1` and `0.10000000000000001`, two different texts, both read as the same `f64` (corrected 2026-11-11, Codex review
+R1, which found the two rules stated as one).
 Integers are read only from integer text (`1`, not `1.0` or `1e0`), as PostgreSQL's `'1.0'::int` refuses [L].
 
 **Quantifiers over arrays** (requirement for module 17, decided 2026-11-11). The user: "Una cosa que me gustaría hacer
@@ -774,8 +777,13 @@ Measured in module 17's bench on Windows and Linux, on a table of 1,000,000 rows
 - Zero-copy: `as_str` and escape-free strings point into the page (a test hook as in 7.1).
 - **The reader, "muy bien probado"** (product question 7), with these layers, every one in CI on Windows and Linux
   unless it says otherwise:
-  - *Conformance corpus*: Nicolas Seriot's JSONTestSuite [L] (`y_` files must be accepted, `n_` rejected; each `i_`
-    file, implementation-defined, gets a decided outcome pinned by a test), plus a corpus of Krummi's own rules.
+  - *Conformance corpus*: Nicolas Seriot's JSONTestSuite (`y_` files must be accepted, `n_` rejected; each `i_`
+    file, implementation-defined, gets a decided outcome pinned by a test), plus a corpus of Krummi's own rules. A
+    `y_` file that breaks a stricter rule of Krummi is a pinned exception, listed by name with the rule and the
+    expected error: today `y_object_duplicated_key.json` (`{"a":"b","a":"c"}`) and
+    `y_object_duplicated_key_and_value.json` (`{"a":"b","a":"b"}`), both refused as duplicate members; an unlisted
+    difference fails the test (corrected 2026-11-11, Codex review R2: the first version required accepting every
+    `y_` file).
   - *Reference model* (the oracle for values; corrected 2026-11-11, review RJ3): a test-only tree `Null | Bool |
     Number(text) | String | Array | Object(members in order)` whose numbers are their exact text, built directly by
     the property-test generator, so it never goes through a JSON parser. What Krummi's navigator reads back from a

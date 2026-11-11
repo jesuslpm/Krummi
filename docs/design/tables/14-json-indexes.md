@@ -100,7 +100,8 @@ The entry is `tuple(value) ‖ tuple(primary key)`, as for any column (document 
 nulls first or last and uniqueness work the same.
 
 **Extraction.** Missing, `null` and the wrong kind give `NULL`, which is indexed like any null (first by default); a
-number that does not fit the type gives `NULL` too, never a rounded value. A unique expression index therefore lets
+number that an integer or `decimal` type cannot hold exactly gives `NULL` too, never a rounded value, and `f64`
+gives the correctly rounded value, as document 13 defines it. A unique expression index therefore lets
 many rows lack the path, as nulls are distinct in a unique index (N7). Whether a mismatch should fail the write
 instead, as a `CHECK` would, is product question 2.
 
@@ -206,7 +207,10 @@ apart (corrected 2026-11-11, reviews RJ1 and RJ2):
 Two rules decide how a predicate uses the index (corrected 2026-11-11, reviews RJ6 and RJ8):
 
 1. **Candidates**, computed over the predicate tree, at the top level and inside a `JsonAny` element alike: an
-   existence or an equality with a term gives that term's list; `AND` gives the intersection of the lists of the
+   existence or an equality with a term gives that term's list, except an equality on `JsonAs(f64, ...)`, which
+   gives none, because many number texts round to one `f64` and a term holds one exact value (Codex review R1:
+   `{"n":0.1}` and `{"n":0.10000000000000001}` both equal the `f64` 0.1 and have two terms); `AND` gives the
+   intersection of the lists of the
    children that have one (the others are left to the recheck); `OR` gives the union of its children's lists, and
    only when every child has one, otherwise the `OR` gives none; `NOT`, ranges and `JsonAll` give none. A predicate
    with no list does not use the index. The first version intersected the equalities of a `JsonAny` element even
@@ -226,7 +230,8 @@ Two rules decide how a predicate uses the index (corrected 2026-11-11, reviews R
 | `JsonExists` with an array index in its path (`items/0/sku`, `items/0`) | The path term with the array step | Candidates: recheck (`{"items":[{},{"sku":"A"}]}` has the term of `items/0/sku` and lacks that path; `{"items":[{}]}` has the term of `items/0`, RJ7) |
 | `Eq(JsonPath(column, steps), value)` on a scalar, no array index in the path | One value term | **Exact**, numbers compared by value as the term normalizes them |
 | `Eq(JsonAs(string or bool, column, steps), value)`, no array index in the path | One value term | **Exact** |
-| `Eq(JsonAs(i64, u64, f64 or decimal, ...), value)` | One value term | Candidates: recheck, because typed extraction refuses some texts the term accepts (`JsonAs(i64)` reads `1`, not `1.0`, document 13) |
+| `Eq(JsonAs(i64, u64 or decimal, ...), value)` | One value term | Candidates: recheck, because typed extraction refuses some texts the term accepts (`JsonAs(i64)` reads `1`, not `1.0`, document 13) |
+| `Eq(JsonAs(f64, ...), value)`, and ranges on any typed number | None | Not answered by the index: evaluated as a filter, since texts that round to the same `f64` have different terms (Codex review R1); an expression index on `JsonAs(f64, ...)` answers it |
 | An equality with an array index in its path | The term with the array step | Candidates: recheck (`{"items":[{"sku":"A"},{}]}` against `{"items":[{},{"sku":"A"}]}` for `items/0/sku = "A"`) |
 | `JsonAny(column, steps, element)` whose element is one exact equality, no array index in `steps` nor in the element's path | One value term through the array step | **Exact**: the term says that some element holds the value |
 | `JsonAny` with an array index in `steps` (`groups/1/items`) | The term with every position erased | Candidates: recheck (RJ8) |
@@ -365,7 +370,8 @@ For the PRDs that build these indexes:
   `Eq(JsonPath(n), 1)` and rejected after the recheck of `Eq(JsonAs(i64, n), 1)`; `JsonAny(items, sku = "A" OR sku =
   "B")` finds `{"items":[{"sku":"A"}]}` (RJ6); `JsonExists(items/0)` finds `{"items":[{}]}` and not `{"items":[]}`
   (RJ7); `JsonAny(groups/1/items, sku = "A")` does not return `{"groups":[{"items":[{"sku":"A"}]},{"items":[]}]}`
-  (RJ8); `JsonContains({"a":{}})` returns `{"a":{"b":1}}` and not `{"a":1}`.
+  (RJ8); `JsonContains({"a":{}})` returns `{"a":{"b":1}}` and not `{"a":1}`; `Eq(JsonAs(f64, n), 0.1)` returns
+  both `{"n":0.1}` and `{"n":0.10000000000000001}` (Codex review R1).
 - **No false negatives**: for every predicate of the property test, the candidates contain every row that the full
   scan returns, before any recheck (rule 1).
 - **Exactness without recheck**: for each row of *Queries* marked exact, a test hook counts zero rechecks; for the
