@@ -70,3 +70,9 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   R2-003 (the bench's bare `6`), R3-key-skip-equivalence (WARNING: no test that `is_key` accepts the keys `decode_key`
   decodes), R3-checked-value-panic-contract (no direct test that every checked column reads): all fixed in the next
   commit; the `is_key` test fails when the UTF-8 check of `skip_element` is removed (mutation run, reverted).
+- **L6** (2026-11-11): Codex round 1 ([report](../../docs/reviews/table-row-reads/2026-11-11-code.md),
+  [resolutions](../../docs/reviews/table-row-reads/2026-11-11-code-resolutions.md)): `findings`, R1 (major: reading
+  every column of a compound key walked its prefix again for each column, quadratic in the key columns; an identical
+  update read the old values twice) → fixed in `9941b62` (the row keeps where each column of a compound key starts;
+  the update decodes the old values once). Reproduction after the fix: linear, near the base. Single loads after it:
+  W26 997,950, W27 5,043,318, W28 116,014. Checks: fmt, clippy clean, 787 passed.
