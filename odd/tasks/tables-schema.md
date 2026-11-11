@@ -227,3 +227,10 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   (the committer's durable commit saw the transfer thread's injected failure first, `recovery.rs:25`), then passed
   6 times alone, 8 times with its file and in a full rerun (779 passed, 31 ignored): a timing race of an existing test
   under load, in code this run does not change (`krummi-tx` only gained the `pages_read` test hook). Not fixed here.
+- **L14** (2026-11-11): Codex code review round 1 over `d487cde..1479c19`
+  ([report](../../docs/reviews/tables-schema/2026-11-11-code.md),
+  [resolutions](../../docs/reviews/tables-schema/2026-11-11-code-resolutions.md)): `findings`, R1 (major, a large
+  valid default panicked) → fixed with a provisional `InvalidSchema`/`InvalidDefault` pending the user; R2 (major,
+  old rows copied added defaults, D11/AC20) → fixed, borrowed from the catalog page; R3 (minor, norm tail order) →
+  fixed per design 05. Fix commits `574f7d3`, `b0288e3`. Q1 (temporal domain before or after rounding) pending for
+  the user.
