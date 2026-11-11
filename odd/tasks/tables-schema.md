@@ -100,9 +100,9 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 | T4 | S16, S26 (Voron side and shared data) | benchmark PRD K4; PRD *Cargas del banco* | delegated: parallel with T2 and T3 | done (RED/GREEN: `tests/table_data.rs` failed to compile, then 10 passed; C# `selftest` equals the Rust answers) | `0edd736` |
 | T5 | S1, S2, S3, S4, S24, S25 (catalog parts), S13 and S18 (catalog parts) | 01 schema evolution; 02 truncate and drop; 11 §2.2; D2, D3, D6 | delegated (context backstop) | done (advisory fixes RED/GREEN; catalog and schema code written before its tests: 3 mutants caught) | `7841b95`, `7b32e4f`, `520fd73` |
 | T6 | S5, S6, S7 (table level), S13, S14, S15, S21, S22 (row half); row parts of S1–S4, S25 | 02 two phases and operations; 01; 03 | delegated (context backstop) | done (RED/GREEN: 22 row tests against `todo!()` stubs; catalog guards failed in release; 3 mutants caught) | `426f263`, `b535c62` |
-| T7 | S9, S20, S22 (range and count half) | 03 composite keys and range bounds; 02 scans | delegated: parallel with T8 and T9 (Writer trigger a) | in progress | |
-| T8 | S10, S22 (bulk half) | 02 bulk load | delegated: parallel with T7 and T9 | in progress | |
-| T9 | S11, S23 (sequence half) | D4; README sequences | delegated: parallel with T7 and T8 | in progress | |
+| T7 | S9, S17, S20, S22 (range half) | 03 composite keys and range bounds; 02 scans; 01 mixed versions | delegated: parallel with T8 and T9 (Writer trigger a) | done (RED: damaged-count delete overflowed; range code before its tests: 4 mutants caught) | `f0388bc` |
+| T8 | S10, S22 (bulk half) | 02 bulk load | delegated: parallel with T7 and T9 | done (RED/GREEN: 10 of 11 tests failed against a stub returning 0) | `9d1b4aa` |
+| T9 | S11, S23 (sequence half); sequence parts of S2, S13, S14, S19 | D4; README sequences | delegated: parallel with T7 and T8 | done (code before tests: 5 mutants caught, 1 survived on an unreachable root move) | `0a698e5` |
 | T10 | S19, S13 (hooks) | D3, D4 | to decide | pending | |
 | T11 | S16, S26 (Krummi side, report) | benchmark PRD | to decide | pending | |
 | T12 | S16, S26, S27 (runs, measurements), docs | — | to decide | pending | |
@@ -187,3 +187,18 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   (`rows` reads like a count), R2-002 (duplicated insert path), R2-003 (`Option<bool>` in `apply_rows`), R3 (row API
   untested in that slice; covered by `b535c62`): resolved at the start of T7. `b535c62` pending in the slice.
   `ce1abca` declares the `ranges`, `bulk` and `sequence` modules so T7, T8 and T9 run in parallel on disjoint files.
+- **L11** (2026-11-11): T7, T8 and T9 done in parallel and committed as separate units (`0a698e5` sequences,
+  `f0388bc` ranges, `9d1b4aa` bulk load), the shared `lib.rs` and `table/mod.rs` staged in intermediate versions so each
+  commit builds; seam check: fmt, clippy, 766 tests passed. T8 also re-pinned three trybuild outputs whose
+  diagnostics now say `krummi::Store` (diagnostic text only). Defaults: T9 sequence identities come from the
+  catalog's counter like trees (D6 covers tables and columns); the exhausted state is an empty value; T7's API is
+  `range_rows`/`delete_range` with `RangeBounds<Value>`, version layouts cached per scan in a map; T8's API is
+  `Store::bulk_load`/`bulk_load_with_timeout` returning `BulkLoadError::{Store, Source}`. T8's question (rows cannot
+  take sequence values inside the load) needs no decision: E13 makes the load its own transaction, so the source has
+  no access to it and "las secuencias quedan como antes" holds by construction; the test checks a sequence anyway.
+  RDD (all **approved** and acknowledged): slice `426f263..c0056b4` (forced) `review-e9f524372a1b69e2`, advisories
+  R3-001 (no test of the not-null check when an upsert inserts) and R3-002 (several 256 MiB buffers in parallel tests);
+  `0a698e5` (item 1) `review-a7c7be094a0ae49a`, advisory R3-001 (a renamed sequence keeping its next value after
+  commit); `f0388bc` (item 1) `review-8f963b3ed9d247e7`, advisory R3-scan-failure-fuse-untested; `9d1b4aa` (item 4)
+  `review-a4f42bb8d1d7e529`, advisories R4-source-display-opaque, R3-timeout-success-untested,
+  R3-load-side-panic-untested. Resolution: T10.
