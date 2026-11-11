@@ -399,7 +399,43 @@ impl std::fmt::Display for SourceFailed {
 
 impl std::error::Error for SourceFailed {}
 
-/// E13: the message of a load that its source failed names the source's error, which is also its `source`.
+/// An error of the source with a cause of its own.
+#[derive(Debug)]
+struct ReadFailed(SourceFailed);
+
+impl std::fmt::Display for ReadFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("cannot read the rows")
+    }
+}
+
+impl std::error::Error for ReadFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+/// E13: the chain of a load's error goes on with the cause of the source's error, so a reporter that prints every
+/// source shows each message once.
+#[test]
+fn the_chain_of_a_failing_source_goes_on_with_its_cause() {
+    stores(|store, _| {
+        create_with(store, "t", 1..=3);
+        let source = rows(10..=12)
+            .map(|row| row.map_err(|never| match never {}))
+            .chain([Err(ReadFailed(SourceFailed))]);
+        let error = store.bulk_load("t", source).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "the source of the bulk load failed: cannot read the rows"
+        );
+        let cause = std::error::Error::source(&error).expect("the cause of the source's error");
+        assert_eq!(cause.to_string(), "the file is gone");
+        assert!(cause.source().is_none());
+    });
+}
+
+/// E13: the message of a load that its source failed names the source's error.
 #[test]
 fn the_message_of_a_failing_source_includes_its_error() {
     stores(|store, _| {

@@ -15,7 +15,7 @@ use krummi::ids::{Ulid, Uuid};
 use krummi::table::value::{ColumnType, UuidOrder, Value};
 use krummi::{Column, Schema, TableMode, TableRow, WriteTable, WriteTransaction};
 
-use super::{Context, check_count, check_sum, missing, timed};
+use super::{Context, check_count, check_sum, hex, missing, timed};
 use crate::engines::{self, Result, Tree, cause};
 use crate::table_data::{self, ID_LEN, KeyKind, Row};
 use crate::workload::{Load, params};
@@ -140,8 +140,7 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                     let row = tx.get_row(&table, &[ulid(key)]).map_err(cause)?;
                     let row = row.ok_or_else(|| missing(key))?;
                     if row.get("n") != Some(&Value::I64(n)) {
-                        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
-                        return Err(format!("la fila {hex} no tiene su n nuevo"));
+                        return Err(format!("la fila {} no tiene su n nuevo", hex(key)));
                     }
                 }
                 Ok(vec![(load, n, time)])

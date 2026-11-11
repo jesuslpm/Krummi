@@ -228,8 +228,12 @@ impl Fault {
 // Checks of what an engine read (K8).
 
 fn missing(key: &[u8]) -> String {
-    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
-    format!("no se encuentra la clave {hex}")
+    format!("no se encuentra la clave {}", hex(key))
+}
+
+/// A key in lowercase hexadecimal, as the worker's messages show keys.
+fn hex(key: &[u8]) -> String {
+    key.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn missing_fixed(key: u64) -> String {
