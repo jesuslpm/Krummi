@@ -103,8 +103,8 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 | T7 | S9, S17, S20, S22 (range half) | 03 composite keys and range bounds; 02 scans; 01 mixed versions | delegated: parallel with T8 and T9 (Writer trigger a) | done (RED: damaged-count delete overflowed; range code before its tests: 4 mutants caught) | `f0388bc` |
 | T8 | S10, S22 (bulk half) | 02 bulk load | delegated: parallel with T7 and T9 | done (RED/GREEN: 10 of 11 tests failed against a stub returning 0) | `9d1b4aa` |
 | T9 | S11, S23 (sequence half); sequence parts of S2, S13, S14, S19 | D4; README sequences | delegated: parallel with T7 and T8 | done (code before tests: 5 mutants caught, 1 survived on an unreachable root move) | `0a698e5` |
-| T10 | S19, S13 (hooks) | D3, D4 | to decide | pending | |
-| T11 | S16, S26 (Krummi side, report) | benchmark PRD | to decide | pending | |
+| T10 | S19, S13 (hooks); review test gaps | D3, D4 | delegated: parallel with T11 | done (RED/GREEN only for the bulk load message; the other tests pin existing behaviour) | `21d1502` |
+| T11 | S16, S26 (Krummi side, report) | benchmark PRD | delegated: parallel with T10 | done (RED/GREEN: workload tests did not compile, report tests failed at 22 loads; the reduced run failed on the removed W23 store before the plan fix) | `12dd86b`, `18e83d1` |
 | T12 | S16, S26, S27 (runs, measurements), docs | — | to decide | pending | |
 
 ## Log
@@ -202,3 +202,20 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   commit); `f0388bc` (item 1) `review-8f963b3ed9d247e7`, advisory R3-scan-failure-fuse-untested; `9d1b4aa` (item 4)
   `review-a4f42bb8d1d7e529`, advisories R4-source-display-opaque, R3-timeout-success-untested,
   R3-load-side-panic-untested. Resolution: T10.
+- **L12** (2026-11-11): T10 done (`21d1502`): `tests/table_damage.rs` (AC19 for a table's rows leaf, its history page
+  and a sequence page; scans stop and stay fused after damage), the AC13 test reads every raw catalog entry, G6 tests
+  take page numbers after the last commit, and one test per advisory gap (upsert that inserts without a not-null
+  column, 256 MiB tests one at a time, renamed sequence keeps its value, `bulk_load_with_timeout` success, panic in the
+  load path, source message in `Display`). T11 done (`12dd86b`): `Load::W23`–`W29` (29 loads, 12 sized), the Krummi
+  table worker (`src/worker/tables.rs`), `released` keeps W23's store until W29 (the reduced run failed before),
+  report tests at 29 thresholds; it also restored single-dash options in the `VoronBench.csproj` comment, because
+  `--` inside an XML comment breaks the project (MSB4025, T4's change). Reduced run: digests and checksums equal in
+  Krummi and Voron on W23–W29. Defaults: W25 creates the empty table in its own commit before the timer (Voron creates
+  it inside its timed write); `released` lives in `workload.rs`. Seam check: fmt, clippy, 778 tests passed.
+  RDD (both **approved**, forced as slices): `2266828..21d1502` `review-920afc2eea7fcd84` (reliability), advisories
+  R3-display-bound-narrowed (accepted: the `Error` impl already needed `Display`), R3-source-message-duplicated-in-chain,
+  R3-timeout-success-not-proving-wait (SUGGESTION, accepted as is); `21d1502..12dd86b` `review-7767835617d87908`
+  (reliability, readability), advisories R2-001 (`is_table` relied on variant order), R3-w28-w29-postcondition-unchecked.
+  Fixed inline in `18e83d1`: the source error's `source()` skips to its own source, so chain reporters show it once;
+  `is_table` lists its loads; W28 and W29 check their end state after the measured time. README (`9dcceaa`) describes
+  the tables, with an example compiled once as a scratch example.
