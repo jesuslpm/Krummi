@@ -7,3 +7,11 @@
 2026-11-11T13:36:40+00:00	bg-end	review	codex-R1
 2026-11-11T13:53:37+00:00	bg-start	review	codex-R2
 2026-11-11T13:59:25+00:00	bg-end	review	codex-R2
+2026-11-11T14:08:05+00:00	mark	acceptance	T3
+2026-11-11T14:10:12+00:00	bg-start	acceptance	complete windows
+2026-11-11T14:15:49+00:00	bg-end	acceptance	complete windows
+2026-11-11T14:15:49+00:00	bg-start	acceptance	complete wsl
+2026-11-11T14:16:02+00:00	mark	implement	T4
+2026-11-11T14:16:22+00:00	bg-end	acceptance	complete wsl
+2026-11-11T14:41:09+00:00	mark	wait	W27 and W28 scope
+2026-11-11T14:58:58+00:00	mark	implement	T4

@@ -9,7 +9,7 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 
 ## Specs
 
-- **S1** — Acceptance, the annotation of 2026-11-04 to K13 (benchmark PRD), verbatim: «Una optimización que no cambia
+- **S1** — Acceptance (W27 included since L10), the annotation of 2026-11-04 to K13 (benchmark PRD), verbatim: «Una optimización que no cambia
   nada de eso no necesita PRD: se ejecuta directamente y su criterio de aceptación es que las cargas que ataca cumplen
   su umbral en las ejecuciones completas de Windows y de Linux, sin que empeoren las demás cargas (decisión del
   usuario).» The loads it attacks: W26, W27 and W28 (K7: Krummi / Voron ≥ 0,80).
@@ -39,7 +39,8 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 |---|---|---|---|---|
 | T1 | S2, S3, S4 | inline | done (RED: `d11_values_outlive_their_row` does not compile against the reference accessors; `always_decodes_names_the_types_whose_every_value_decodes` pins the skipped checks; suite 785 passed) | `a840f02` |
 | T2 | S1 (single-load measurements of W26–W28 and fixes) | inline | done (L3, L4: W26 and W28 over their threshold in single loads; W27 0.43, left by the user's decision) | `a840f02` |
-| T3 | S1 (complete runs on Windows and Linux) | inline (background runs) | pending | |
+| T4 | S1 (W27): typed accessors that read a checked column without a `Value`; an access plan if needed; a remembered row check if still short | inline | typed reads done (L11); the rest waits for the user | `5409362` |
+| T3 | S1 (complete runs on Windows and Linux) | inline (background runs) | pending (the first attempt was stopped, L10) | |
 
 ## Log
 
@@ -84,3 +85,57 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   SUGGESTION and fixed in the next commit: R2-001 (the `key_value` contract was unclear), R2-002 (the key test's name
   covered only `is_key`), R3-key-starts-u16-panic (`key_starts` panicked past `u16::MAX` instead of returning `None`).
   Checks: fmt, clippy clean, 787 passed.
+- **L9** (2026-11-11): RDD of `a02838b`'s slice `ae39594..a02838b` (forced: medium, `under_budget`, 23 lines), lenses
+  readability and reliability, lineage `review-d0fe117898c0870c`, **approved**
+  and acknowledged. Advisories: R2-001 (SUGGESTION: "or 0 for a key of one column" reads as a special case) dismissed:
+  it is one, since a key of one column does not go through `key_starts` and the row reads it from 0
+  (`Reader::decode`); R3-key-starts-overflow-untested (SUGGESTION) accepted as is: no key of at most 2,048 bytes
+  reaches the branch, which only replaces a panic. T3 started on `a02838b` (`work/rr/complete.sh`).
+- **L10** (2026-11-11, the user's messages, verbatim): «Pues habrá que hacer lo necesario par cumplir. Ya se hace
+  comprobación de checksum, no? no haría falta otra comprobación. ¿Cómo podemos reducir el coste de construir los
+  valores?»; to the plan (typed accessors and an access plan, then a remembered row check like the node check cache if
+  W27 is still short, stopping the complete runs and repeating them at the end), «Sí». This replaces L4: W27 must meet
+  its threshold too. Verified before answering: the integrity check (G6) covers only pages read from the data file,
+  and the trees check a node's organisation "venga de donde venga" (`trees-node-check-cache.prd.md`), so the row
+  check stays; without it W27 only reached 0.53 (L3). The complete runs started at 14:10 were stopped at 14:15.
+- **L11** (2026-11-11): correction of L3: the single loads of L3, L6 and L9 ran without the bench power plan, while the
+  T12 runs (Voron's figures and the thresholds) ran with it, so their ratios were too high. Under the plan, alternating
+  binaries (median op/s, two rounds): W26 `a02838b` 629,952 / 616,782, typed 622,797 / 610,087 (Voron 739,806: 0.84);
+  W27 `a02838b` 3,228,770 / 3,196,773, typed 3,666,620 / 3,636,663 (Voron 10,657,201: 0.34); W28 `a02838b` 93,529 /
+  93,000, typed 92,659 / 92,678 (Voron 127,190: 0.73; T12's head gave 96,609 / 95,773, so its cost is in the write
+  path). Typed reads committed in `5409362` (+14 % in W27); tests `typed_reads_give_the_values_of_their_columns` and
+  `a_typed_read_of_another_type_panics`; suite 789 passed. A first full run failed once in
+  `writer_check_tests::ac_h1_a_write_never_checks_the_nodes_it_changed` (it counts scratch version checks, which depend
+  on the transfer thread's timing; trees code this run does not touch), then passed alone and in a full rerun.
+  Profile of W27 under the plan with typed reads: the row check 30 % (UTF-8 included), the tree step 16 %, the column
+  reads 37 % (the second UTF-8 validation included), the `ulid` key 11 %. Removing the whole check, the second UTF-8
+  validation and half the key cost would give about 170 ns per row, about 0.55: W27 does not reach 0.80 with these
+  steps. Wait for the user starts.
+- **L12** (2026-11-11, the user's answers, verbatim): «Seguir con W27»; then, while T4 went on, «Tienes que encontrar
+  otras optimizaciones.» Wait ends. Plan from the profile, measured one by one under the power plan against the
+  previous binary: an access plan per column of the current version, the `ulid` key read from its element, no
+  `Arc<Reader>` clone per row, the tree step, and the remembered row check.
+- **L13** (2026-11-11): measurement fix: from about 14:15, repetitions of the same binary fell to a quarter mid-run
+  (W27 8.8 M, 8.8 M, 2.6 M, 1.6 M without the plan), Voron too, with the disk idle and 25 GB free: Windows moved the
+  worker to the efficiency cores. Pinned with `start /affinity FFFF` (logical processors 0–15, the performance cores
+  of the i9-13980HX) W27 gave 6.7–8.8 M, pinned to `FFFF0000` (efficiency cores) 2.1 M. The complete runs of the
+  benchmark do not pin their workers; this may affect them (a benchmark matter, recorded for the closing report).
+  The WSL complete run, which went on after the stop of L10 (the first `pkill` came before it started), was killed at
+  15:47; measurements between 14:17 and 15:47 shared the machine with it. From here, every single load runs pinned to
+  the performance cores and under the bench power plan. W27, median op/s, two rounds: Voron 10,531,831–10,653,665;
+  `a02838b` 3,285,776 / 3,267,569 (0.31); `963d126` 5,156,107 / 5,187,309 (0.49). With the column and key checks
+  removed (experiment, reverted), 6,702,691 / 6,850,678 (0.64): the check costs about 48 ns per row.
+  Committed `963d126`: a per-column access plan and check plan, `uuid`/`ulid` key elements checked by code and
+  length, the transaction's kept readers (one `Arc` clone per row cost about 26 ns: measured by adding one), the `ulid`
+  key read from its element and `text_bytes`. Suite 789 passed. Profiling with samply now fails ("samply requires
+  Administrator privileges"): the elevated helper was refused.
+- **L14** (2026-11-11): further steps, each measured pinned and under the plan against the previous binary (W27 median
+  op/s): lean check without building values (`9e8fdaa`) 5.41 M; leaves a read transaction found valid, checked once
+  per leaf (`2802e07`) 5.96 M, 0.56; per-table leaves by exact address (`82b2918`) equal. A direct-mapped table of
+  16,384 leaves was slower (5.45 M: W27's 20,000 leaves thrash it) and a product hash of page-aligned addresses left
+  hashbrown's bucket bits equal (5.37 M); both reverted. New test `a_malformed_row_fails_only_the_scans_that_return_it`
+  (fails when every leaf passes, mutation run). Suite 791 passed. Profiling now works in WSL (samply as the user,
+  `perf_event_paranoid` 1): WSL under the plan, W27 Krummi 5.95–5.99 M against Voron 9.30–10.16 M (0.61). Profile
+  shares inside the load: typed reads (bench `checksum`, `checked_bytes`, `id_of`) about 31 %, the tree step 24 %,
+  `ReadRows::next` and `decode` 21 %, the leaf memory 4.5 %, the bench's own sums about 6 %. The hottest instruction
+  is the pointer chain row → kept reader → `Arc` → `Reader` that each typed read walks.
