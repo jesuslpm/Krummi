@@ -64,3 +64,9 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   confirm W26 and W28 without worsening the other loads; W27 stays a failed threshold (K13), documented with these
   measurements, for a later change. Wait ends. Next: RDD of the slice and the Codex review before the complete runs,
   so that the runs measure the final code.
+- **L5** (2026-11-11): RDD of the slice `bb8acca..e036803` (forced: assessed medium, `under_budget`, 593 lines), lenses
+  risk, readability and reliability, lineage `review-7d3a174b3d64e617`, **approved** and acknowledged. Advisories:
+  R2-001 (`into_owned` cloned an owned row's values), R2-002 (`value` did not say an owned row copies its values),
+  R2-003 (the bench's bare `6`), R3-key-skip-equivalence (WARNING: no test that `is_key` accepts the keys `decode_key`
+  decodes), R3-checked-value-panic-contract (no direct test that every checked column reads): all fixed in the next
+  commit; the `is_key` test fails when the UTF-8 check of `skip_element` is removed (mutation run, reverted).
