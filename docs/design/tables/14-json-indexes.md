@@ -269,6 +269,30 @@ question 5; synchronous is the first choice because it needs no new machinery.
 Under copy-on-write, a frequent term (`"status":"shipped"`) has its last leaf changed by almost every insert: one page
 per frequent term per write transaction, shared by all the rows of that transaction [I].
 
+### Prefixes and ranges over the dictionary (open)
+
+Recorded 2026-11-11 for the detailed design of inverted indexes, without changing rule 1 now. The user: "los
+invertidos tienen una ventaja: no tienes que pensar qué vas a consultar a priori", and, to recording this: "Las dos
+cosas".
+
+- The dictionary is a tree ordered by term bytes, and every value term of one path starts with `V ‖ path ‖ kind`. So
+  the value terms of one path are contiguous, and a prefix or a range of values of that path is a contiguous scan of
+  the dictionary; its result is the union of the lists of the terms scanned, in term order.
+- **Strings** are already in byte order inside the term: a prefix or a range of strings of one path can use the
+  dictionary as it is designed. Example: the orders of one day, with the date stored as text, are the terms from
+  `V ‖ cabecera/creado ‖ string ‖ "2026-11-11"` up to the prefix of the next day. The result is right only when every
+  document writes the value in one form (dates in UTC with `Z`); document 13's `JsonAs(date)` and `JsonAs(timestamp)`
+  are the typed alternative.
+- **Numbers** are not: the normalized decimal form of *Terms* (sign, digits, exponent) does not sort by value. Numeric
+  ranges over the dictionary need an order-preserving decimal encoding in the term (sign, then exponent, then
+  digits, as order-preserving key encodings of arbitrary decimals do), to choose when the inverted index is designed.
+- **Cost against an expression index.** For values that are almost unique per row, such as instants, each term holds
+  one row: the scan reads one dictionary entry per row, whose key repeats the path and the text (about 35 bytes for
+  an instant, against 9 for an encoded `timestamp` in an expression index [I]). It works, at about twice the size;
+  the expression index stays the choice for a path queried by range often, and the inverted index the one for paths
+  nobody chose in advance.
+- Until that design, rule 1 keeps giving ranges no list: conservative and correct (X3).
+
 ## Row identifiers, considered and dropped
 
 GIN and Corax name rows by small integers; Krummi's tables have none. The discussion went through these steps:

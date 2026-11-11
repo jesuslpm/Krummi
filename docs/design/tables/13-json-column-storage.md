@@ -295,6 +295,27 @@ value; `f64` gives the correctly rounded nearest value, and `NULL` only outside 
 R1, which found the two rules stated as one).
 Integers are read only from integer text (`1`, not `1.0` or `1e0`), as PostgreSQL's `'1.0'::int` refuses [L].
 
+**Dates and instants** (requirement for module 17, decided 2026-11-11). JSON has no date type: a date is a string.
+Asked how Krummi would answer "the orders created on a given day" when the date lives only in the document, the
+answer showed that the typed extraction above has no temporal type; the user asked to add it ("Las dos cosas").
+
+- `JsonAs(date, ...)` reads a string of exactly the form `YYYY-MM-DD`, and `JsonAs(timestamp, ...)` one of exactly the
+  form `YYYY-MM-DDTHH:MM:SS` with an optional fraction of 1 to 6 digits and the suffix `Z`, an instant in UTC (RFC
+  3339 restricted to UTC, upper-case `T` and `Z`). One text form for each, as E9 of PRD 7.1 fixes one text form for
+  `ulid` and `uuid`.
+- Anything else gives `NULL`, as typed extraction does for the wrong kind: another offset (`+01:00`), another layout
+  (`11/11/2026`), more than 6 fractional digits (never rounded, as the integer and `decimal` types), a value outside
+  the domains of E8 (`date` from 0001-01-01 to 9999-12-31, `timestamp` to 9999-12-31T23:59:59.999999Z), or a date
+  that does not exist (`2026-02-30`).
+- The values are Krummi's `date` and `timestamp`, so comparisons, ranges, order and expression indexes over them use
+  the typed order of N5. "A given day" is then the range `[day 00:00Z, next day 00:00Z)`; Krummi stores instants in
+  UTC without a time zone (PRD 7.1), so the application turns its local day into that range.
+- Why not compare the text: a prefix `"2026-11-11"` on `JsonAs(string, ...)` equals "that day in UTC" only while every
+  document writes its dates in the same form in UTC; `"2026-11-11T00:30:00+01:00"`, an instant of 10 November in UTC,
+  has the prefix of the 11th, and `"11/11/2026"` misses it, both without an error. With `JsonAs(timestamp, ...)`, the
+  same documents give `NULL`, which the application can find and fix.
+- `time` and `duration` are not extracted from JSON in this requirement; they can be added the same way if needed.
+
 **Quantifiers over arrays** (requirement for module 17, decided 2026-11-11). The user: "Una cosa que me gustaría hacer
 es poder hacer filtros complejos dento del json en una consulta, no sólo por un path. Por ejemplo imagina que tienes
 una columna JSON con un pedido en cada fila, con su cabecera y con sus líneas de pedido y quieres obtener los pedidos
@@ -736,7 +757,8 @@ and a writer. Two ways:
   evaluates them as residual filters until expression indexes exist. **Pending by decision of 2026-11-11 (product
   question 6):** its PRD adds the path filter load JB3 and decides from it whether to build D1, the navigation index
   that 7.5 leaves reserved. **Requirement of 2026-11-11:** its PRD includes the quantifiers `JsonAny` and `JsonAll` of
-  *Quantifiers over arrays*, with the multi-valued index over several members of one element from document 14.
+  *Quantifiers over arrays*, with the multi-valued index over several members of one element from document 14, and
+  the temporal extraction `JsonAs(date, ...)` and `JsonAs(timestamp, ...)` of *Dates and instants*.
 - **18**: text span in C and C#; the C# binding sets `MaxDepth` to 128 when it parses Krummi's documents.
 - **19**: JSON lines import writes the normalized text of each line.
 
