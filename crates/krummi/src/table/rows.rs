@@ -710,20 +710,25 @@ fn needs_stored(default: &Value<'_>) -> bool {
 }
 
 /// The readers of the tables whose rows a transaction reads, kept until it ends, so that its rows borrow their reader
-/// instead of counting a reference to it, which costs two atomic operations per row. An append-only list, each reader
-/// under a key: a read transaction keeps one per table, by the root of its history tree, since its snapshot does not
-/// change; a write transaction keeps one per schema a table had in it, by its reader's address. A kept reader never
-/// moves, so a reference to it lives as long as the transaction.
+/// instead of counting a reference to it, which costs two atomic operations per row. Each reader is kept under a key: a
+/// read transaction keeps one per table, by the root of its history tree, since its snapshot does not change; a write
+/// transaction keeps one per schema a table had in it, by its reader's address. An append-only hash trie: each kept
+/// reader has [`FANOUT`] children, and a key goes down by the successive 4-bit digits of its hash, so finding a reader
+/// among `n` takes about log16 `n` steps, whatever the order of the tables. A kept reader never moves, so a reference
+/// to it lives as long as the transaction.
 #[derive(Default)]
 pub(crate) struct Readers {
-    head: OnceLock<Box<Kept>>,
+    root: OnceLock<Box<Kept>>,
 }
 
-/// A reader of [`Readers`], with its key and the next one.
+/// The children of each kept reader in [`Readers`], one per 4-bit digit of a key's hash.
+const FANOUT: usize = 16;
+
+/// A reader of [`Readers`], with its key and its children.
 pub(crate) struct Kept {
     key: u64,
     pub(super) reader: Arc<Reader>,
-    next: OnceLock<Box<Kept>>,
+    children: [OnceLock<Box<Kept>>; FANOUT],
 }
 
 impl Readers {
@@ -731,21 +736,27 @@ impl Readers {
     pub(crate) fn keep(&self, key: u64, make: impl FnOnce() -> Arc<Reader>) -> &Kept {
         let mut make = Some(make);
         let mut made = None;
-        let mut slot = &self.head;
+        // A product by an odd constant is a bijection: distinct keys have distinct hashes, so their paths part within
+        // the 16 digits of a hash.
+        let mut hash = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let mut slot = &self.root;
         loop {
             match slot.get() {
                 Some(kept) if kept.key == key => return kept,
-                Some(kept) => slot = &kept.next,
+                Some(kept) => {
+                    slot = &kept.children[(hash >> 60) as usize];
+                    hash <<= 4;
+                }
                 None => {
                     let reader = made
                         .take()
                         .unwrap_or_else(|| make.take().expect("made once")());
                     // Another thread of a shared read transaction may have kept one first: the loop then reads it,
-                    // and keeps this one further on if it is under another key.
+                    // and keeps this one further down if it is under another key.
                     if let Err(not_kept) = slot.set(Box::new(Kept {
                         key,
                         reader,
-                        next: OnceLock::new(),
+                        children: Default::default(),
                     })) {
                         made = Some(not_kept.reader);
                     }

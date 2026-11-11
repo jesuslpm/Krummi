@@ -2211,6 +2211,54 @@ fn tables_read_in_one_read_transaction_keep_their_own_schemas() {
     });
 }
 
+/// A transaction finds the reader of each of many tables, read in turns, each with its own schema, in a read and in a
+/// write transaction (R3 of the third Codex code review: the readers a transaction keeps).
+#[test]
+fn many_tables_read_in_turns_keep_their_own_schemas() {
+    let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+    let tables = 300;
+    // Table `t{i}` has `i + 1` columns `c0`.. of `i32`, keyed by `c0`, and the row `c_j = j`.
+    let schema = |i: usize| {
+        let columns = (0..=i)
+            .map(|j| Column::new(&format!("c{j}"), ColumnType::I32).not_null())
+            .collect();
+        Schema::new(columns, &["c0"])
+    };
+    let mut write = store.write().unwrap();
+    for i in 0..tables {
+        let table = create(&mut write, &format!("t{i}"), &schema(i));
+        let names: Vec<String> = (0..=i).map(|j| format!("c{j}")).collect();
+        let row: Vec<(&str, Value<'_>)> = names
+            .iter()
+            .enumerate()
+            .map(|(j, name)| (name.as_str(), Value::I32(j as i32)))
+            .collect();
+        write.insert_row(&table, &row).unwrap();
+    }
+    write.commit().unwrap();
+    let expected = |i: usize| (0..=i as i32).map(Value::I32).collect::<Vec<_>>();
+    let read = store.read().unwrap();
+    let handles: Vec<_> = (0..tables)
+        .map(|i| read.open_table(&format!("t{i}")).unwrap())
+        .collect();
+    for _ in 0..2 {
+        for (i, table) in handles.iter().enumerate().rev() {
+            let row = read.get_row(table, &[Value::I32(0)]).unwrap().unwrap();
+            assert_eq!(row.values().collect::<Vec<_>>(), expected(i), "t{i}");
+        }
+    }
+    drop(read);
+    let write = store.write().unwrap();
+    let handles: Vec<_> = (0..tables)
+        .map(|i| write.open_table(&format!("t{i}")).unwrap())
+        .collect();
+    for (i, table) in handles.iter().enumerate() {
+        let mut scan = write.range_rows(table, &[], ..).unwrap();
+        let row = scan.next_row().unwrap().unwrap();
+        assert_eq!(row.values().collect::<Vec<_>>(), expected(i), "t{i}");
+    }
+}
+
 /// S3 of the row reads run: every column that the read of a row checked can be read, a null and a variable-length
 /// column of an older version included, by key and in a scan, after a column is added and another dropped.
 #[test]
