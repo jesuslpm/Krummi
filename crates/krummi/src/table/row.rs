@@ -684,7 +684,7 @@ mod tests {
         ];
         let mut patterns: Vec<Vec<u8>> = vec![
             b"text".to_vec(),
-            "é ".as_bytes().to_vec(),
+            "é\0".as_bytes().to_vec(),
             vec![0xC3],
             vec![0xFF, 0xFE],
             vec![],
