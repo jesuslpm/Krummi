@@ -191,8 +191,8 @@ pub(crate) struct Reader {
     key_types: Vec<ColumnType>,
     /// The layout of the rows of the current version, whose columns are `columns`, in the same order.
     layout: RowLayout,
-    /// Where each live column is in the rows of the current version, for the typed reads.
-    slots: Vec<Slot>,
+    /// Each live column as the typed reads need it in rows of the current version.
+    fast: Vec<FastColumn>,
     /// The live columns that the check of a row of the current version reads, those it can reject, with their types.
     checks: Vec<(Slot, ColumnType)>,
 }
@@ -297,13 +297,22 @@ impl Reader {
             .filter(|&i| layout.needs_check(i))
             .map(|i| (slots[i], columns[i].ty))
             .collect();
+        let fast = columns
+            .iter()
+            .zip(&slots)
+            .map(|(column, &slot)| FastColumn {
+                slot,
+                ty: column.ty,
+                in_key: column.in_key.is_some(),
+            })
+            .collect();
         Reader {
             columns,
             names,
             key_columns,
             key_types,
             layout,
-            slots,
+            fast,
             checks,
         }
     }
@@ -525,7 +534,7 @@ impl Reader {
         defaults: Option<Arc<Vec<Value<'t>>>>,
     ) -> TableRow<'t> {
         TableRow {
-            reader: RowReader::Kept(self),
+            reader: RowReader::Kept(self, self),
             stored: Stored::Row {
                 key,
                 starts,
@@ -660,6 +669,15 @@ impl Reader {
 pub(super) struct Versions<'t> {
     old: HashMap<u16, Arc<OldVersion>>,
     defaults: Option<Arc<Vec<Value<'t>>>>,
+}
+
+/// A live column as the typed reads need it: where it is in rows of the current version, its type, and whether the
+/// key holds it, together so that a read touches one small record.
+#[derive(Clone, Copy)]
+struct FastColumn {
+    slot: Slot,
+    ty: ColumnType,
+    in_key: bool,
 }
 
 /// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes or
@@ -822,7 +840,8 @@ pub struct TableRow<'t> {
 
 /// The reader of a [`TableRow`]: the one its transaction keeps, or its own once the row is owned.
 enum RowReader<'t> {
-    Kept(&'t Arc<Reader>),
+    /// The reader, and the `Arc` that holds it, for [`TableRow::into_owned`].
+    Kept(&'t Reader, &'t Arc<Reader>),
     Owned(Arc<Reader>),
 }
 
@@ -832,7 +851,7 @@ impl Deref for RowReader<'_> {
     #[inline]
     fn deref(&self) -> &Reader {
         match self {
-            RowReader::Kept(reader) => reader,
+            RowReader::Kept(reader, _) => reader,
             RowReader::Owned(reader) => reader,
         }
     }
@@ -924,7 +943,7 @@ impl<'t> TableRow<'t> {
         };
         TableRow {
             reader: RowReader::Owned(match self.reader {
-                RowReader::Kept(reader) => Arc::clone(reader),
+                RowReader::Kept(_, reader) => Arc::clone(reader),
                 RowReader::Owned(reader) => reader,
             }),
             stored: Stored::Owned(values),
@@ -945,20 +964,21 @@ impl<'t> TableRow<'t> {
         stored: impl Fn(&'t [u8]) -> T,
         value: impl Fn(Value<'t>) -> T,
     ) -> Option<T> {
-        let column = self.reader.columns.get(position)?;
-        assert!(
-            matches(&column.ty),
-            "the column {} is a {}, not a {type_name}",
-            column.name,
-            column.ty
-        );
+        let reader = &*self.reader;
+        let column = reader.fast.get(position)?;
+        if !matches(&column.ty) {
+            let column = &reader.columns[position];
+            panic!(
+                "the column {} is a {}, not a {type_name}",
+                column.name, column.ty
+            );
+        }
         if let Stored::Row {
             bytes, old: None, ..
         } = &self.stored
-            && column.in_key.is_none()
+            && !column.in_key
         {
-            let slot = self.reader.slots[position];
-            return self.reader.layout.checked_bytes(bytes, slot).map(stored);
+            return reader.layout.checked_bytes(bytes, column.slot).map(stored);
         }
         match self.value(position)? {
             Value::Null => None,
@@ -972,11 +992,15 @@ impl<'t> TableRow<'t> {
     /// the key, a type code and the 16 bytes.
     #[inline]
     pub fn ulid(&self, position: usize) -> Option<Ulid> {
-        if let Some(column) = self.reader.columns.get(position)
-            && let (Some(k), ColumnType::Ulid, Stored::Row { key, starts, .. }) =
-                (column.in_key, &column.ty, &self.stored)
+        let reader = &*self.reader;
+        if let Some(column) = reader.fast.get(position)
+            && column.in_key
+            && matches!(column.ty, ColumnType::Ulid)
+            && let Stored::Row { key, starts, .. } = &self.stored
         {
-            let start = starts.as_ref().map_or(0, |starts| usize::from(starts[k]));
+            let start = starts.as_ref().map_or(0, |starts| {
+                usize::from(starts[reader.columns[position].in_key.expect("a key column")])
+            });
             return Some(Ulid(array(&key[start + 1..start + 17])));
         }
         self.typed(

@@ -62,8 +62,26 @@ enum Place {
 /// byte and mask of its bit in the null bitmap. Computed once per column ([`RowLayout::slot`]).
 #[derive(Debug, Clone, Copy)]
 pub struct Slot {
-    place: Place,
-    null: Option<(usize, u8)>,
+    place: SlotPlace,
+    /// The byte of its bit in the null bitmap, and the bit's mask: 0 for a column that does not take nulls.
+    null_byte: u32,
+    null_mask: u8,
+}
+
+/// A column's [`Place`] in a [`Slot`], in 32-bit numbers: a row is at most 256 MiB.
+#[derive(Debug, Clone, Copy)]
+enum SlotPlace {
+    Key,
+    Fixed { offset: u32, width: u32 },
+    Variable(u32),
+}
+
+impl Slot {
+    /// Whether the column is null in `bytes`.
+    #[inline]
+    fn is_null(self, bytes: &[u8]) -> bool {
+        self.null_mask != 0 && bytes[self.null_byte as usize] & self.null_mask != 0
+    }
 }
 
 /// The layout of the rows of one schema version: computed from its columns, never stored (document 1).
@@ -143,9 +161,21 @@ impl RowLayout {
 
     /// Where the column at `position` is in the rows of this layout, if the version has it.
     pub fn slot(&self, position: usize) -> Option<Slot> {
+        let narrow = |n: usize| u32::try_from(n).expect("a row of at most 256 MiB");
+        let place = match *self.places.get(position)? {
+            Place::Key => SlotPlace::Key,
+            Place::Fixed { offset, width } => SlotPlace::Fixed {
+                offset: narrow(offset),
+                width: narrow(width),
+            },
+            Place::Variable(j) => SlotPlace::Variable(narrow(j)),
+        };
+        let (null_byte, null_mask) = self.null_bits[position]
+            .map_or((0, 0), |bit| (narrow(HEADER + bit / 8), 1 << (bit % 8)));
         Some(Slot {
-            place: *self.places.get(position)?,
-            null: self.null_bits[position].map(|bit| (HEADER + bit / 8, 1 << (bit % 8))),
+            place,
+            null_byte,
+            null_mask,
         })
     }
 
@@ -154,15 +184,17 @@ impl RowLayout {
     /// null, or a key column. Panics, or gives other bytes, on a row that was not checked.
     #[inline]
     pub fn checked_bytes<'r>(&self, bytes: &'r [u8], slot: Slot) -> Option<&'r [u8]> {
-        if let Some((byte, mask)) = slot.null
-            && bytes[byte] & mask != 0
-        {
+        if slot.is_null(bytes) {
             return None;
         }
         match slot.place {
-            Place::Key => None,
-            Place::Fixed { offset, width } => Some(&bytes[offset..offset + width]),
-            Place::Variable(j) => {
+            SlotPlace::Key => None,
+            SlotPlace::Fixed { offset, width } => {
+                let offset = offset as usize;
+                Some(&bytes[offset..offset + width as usize])
+            }
+            SlotPlace::Variable(j) => {
+                let j = j as usize;
                 let width = 1usize << bytes[2];
                 let var_start = self.offsets_start + (self.variables - 1) * width;
                 let end_of = |j: usize| {
@@ -458,15 +490,16 @@ impl<'r> Row<'_, 'r> {
     /// Checks the column at `slot` of type `ty`, as [`Row::check`] does for its position, from its slot.
     #[inline]
     pub fn check_slot(&self, slot: Slot, ty: &ColumnType) -> Result<(), RowDamaged> {
-        let null = slot
-            .null
-            .is_some_and(|(byte, mask)| self.bytes[byte] & mask != 0);
+        let null = slot.is_null(self.bytes);
         let stored = match slot.place {
-            Place::Key => return Err(RowDamaged),
-            Place::Fixed { .. } if null => return Ok(()),
-            Place::Fixed { offset, width } => &self.bytes[offset..offset + width],
-            Place::Variable(j) => {
-                let stored = self.variable(j)?;
+            SlotPlace::Key => return Err(RowDamaged),
+            SlotPlace::Fixed { .. } if null => return Ok(()),
+            SlotPlace::Fixed { offset, width } => {
+                let offset = offset as usize;
+                &self.bytes[offset..offset + width as usize]
+            }
+            SlotPlace::Variable(j) => {
+                let stored = self.variable(j as usize)?;
                 match (null, stored.is_empty()) {
                     (true, true) => return Ok(()),
                     (true, false) => return Err(RowDamaged),
