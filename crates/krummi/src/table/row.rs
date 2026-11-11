@@ -455,6 +455,28 @@ impl<'r> Row<'_, 'r> {
         }
     }
 
+    /// Checks the column at `slot` of type `ty`, as [`Row::check`] does for its position, from its slot.
+    #[inline]
+    pub fn check_slot(&self, slot: Slot, ty: &ColumnType) -> Result<(), RowDamaged> {
+        let null = slot
+            .null
+            .is_some_and(|(byte, mask)| self.bytes[byte] & mask != 0);
+        let stored = match slot.place {
+            Place::Key => return Err(RowDamaged),
+            Place::Fixed { .. } if null => return Ok(()),
+            Place::Fixed { offset, width } => &self.bytes[offset..offset + width],
+            Place::Variable(j) => {
+                let stored = self.variable(j)?;
+                match (null, stored.is_empty()) {
+                    (true, true) => return Ok(()),
+                    (true, false) => return Err(RowDamaged),
+                    (false, _) => stored,
+                }
+            }
+        };
+        check_stored(ty, stored)
+    }
+
     /// The value of the column at `position`, which [`Row::check`] accepted. Panics on a column it rejects.
     #[inline]
     pub fn checked_value(&self, position: usize) -> Value<'r> {
@@ -504,6 +526,31 @@ impl<'r> Row<'_, 'r> {
         };
         section.get(start..end).ok_or(RowDamaged)
     }
+}
+
+/// The bytes of a fixed-width slot as an array of its width.
+fn slot_array<const N: usize>(bytes: &[u8]) -> [u8; N] {
+    bytes.try_into().expect("the slot's width")
+}
+
+/// Whether `bytes` are a stored value of type `ty` that [`decode`] accepts, checked without building the value: the
+/// same rules, which `check_stored_accepts_what_decode_accepts` pins.
+#[inline]
+fn check_stored(ty: &ColumnType, bytes: &[u8]) -> Result<(), RowDamaged> {
+    let valid = match ty {
+        ColumnType::Bool => matches!(bytes, [0] | [1]),
+        ColumnType::Date => stored_in_domain(ty, i128::from(i32::from_le_bytes(slot_array(bytes)))),
+        ColumnType::Time | ColumnType::Timestamp | ColumnType::Duration => {
+            stored_in_domain(ty, i128::from(i64::from_le_bytes(slot_array(bytes))))
+        }
+        ColumnType::Decimal { precision, .. } => {
+            fits_precision(i128::from_le_bytes(slot_array(bytes)), *precision)
+        }
+        ColumnType::String => std::str::from_utf8(bytes).is_ok(),
+        ColumnType::Vector(vector) => bytes.len() == vector.stored_len(),
+        _ => true,
+    };
+    if valid { Ok(()) } else { Err(RowDamaged) }
 }
 
 /// Whether [`decode`] accepts every stored value of a fixed-width type `ty` of its width: true of the integers, the
@@ -604,7 +651,64 @@ fn decode_with<'r, E>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::table::value::UuidOrder;
+    use crate::table::value::{UuidOrder, VectorElement, VectorType};
+
+    /// `check_stored`, which the check of a row read runs without building values, accepts exactly the stored
+    /// bytes that `decode` decodes, for every type, over edge patterns of each width and texts, bytes and vectors.
+    #[test]
+    fn check_stored_accepts_what_decode_accepts() {
+        let vector = ColumnType::Vector(VectorType {
+            element: VectorElement::F32,
+            dimension: 2,
+            cosine: true,
+        });
+        let types = [
+            ColumnType::Bool,
+            ColumnType::I8,
+            ColumnType::I64,
+            ColumnType::U64,
+            ColumnType::F64,
+            ColumnType::Decimal {
+                precision: 3,
+                scale: 1,
+            },
+            ColumnType::Date,
+            ColumnType::Time,
+            ColumnType::Timestamp,
+            ColumnType::Duration,
+            ColumnType::Uuid(UuidOrder::SqlServer),
+            ColumnType::Ulid,
+            ColumnType::String,
+            ColumnType::Bytes,
+            vector,
+        ];
+        let mut patterns: Vec<Vec<u8>> = vec![
+            b"text".to_vec(),
+            "é ".as_bytes().to_vec(),
+            vec![0xC3],
+            vec![0xFF, 0xFE],
+            vec![],
+        ];
+        for width in [1, 2, 4, 8, 12, 16, 20] {
+            for b in [0x00, 0x01, 0x02, 0x7F, 0x80, 0xFE, 0xFF] {
+                patterns.push(vec![b; width]);
+            }
+            patterns.push((0..width as u8).collect());
+            patterns.push(999_i128.to_le_bytes()[..width.min(16)].to_vec());
+        }
+        for ty in &types {
+            for bytes in &patterns {
+                if ty.fixed_width().is_some_and(|width| width != bytes.len()) {
+                    continue;
+                }
+                assert_eq!(
+                    check_stored(ty, bytes).is_ok(),
+                    decode(ty, bytes).is_ok(),
+                    "{ty:?} {bytes:02x?}"
+                );
+            }
+        }
+    }
 
     /// Every fixed-width type that `always_decodes` names decodes any bytes of its width, which lets `Row::check`
     /// skip it; every other one rejects some.

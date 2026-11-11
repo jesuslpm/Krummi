@@ -192,8 +192,8 @@ pub(crate) struct Reader {
     layout: RowLayout,
     /// Where each live column is in the rows of the current version, for the typed reads.
     slots: Vec<Slot>,
-    /// The live columns that the check of a row of the current version reads: those it can reject.
-    checks: Vec<usize>,
+    /// The live columns that the check of a row of the current version reads, those it can reject, with their types.
+    checks: Vec<(Slot, ColumnType)>,
 }
 
 /// A failure of public validation of a row or a key, before it knows the table's name and the store's folder.
@@ -289,11 +289,12 @@ impl Reader {
             .collect();
         let key_types = key_columns.iter().map(|&i| columns[i].ty).collect();
         let layout = schema.layout();
-        let slots = (0..columns.len())
+        let slots: Vec<Slot> = (0..columns.len())
             .map(|i| layout.slot(i).expect("a column of the current version"))
             .collect();
         let checks = (0..columns.len())
             .filter(|&i| layout.needs_check(i))
+            .map(|i| (slots[i], columns[i].ty))
             .collect();
         Reader {
             columns,
@@ -483,8 +484,8 @@ impl Reader {
         let mut defaults = None;
         let Some(old_version) = &old else {
             // The current version: only the columns the check can reject, every live column being in its rows.
-            for &i in &self.checks {
-                row.check(i).map_err(|_| damaged())?;
+            for (slot, ty) in &self.checks {
+                row.check_slot(*slot, ty).map_err(|_| damaged())?;
             }
             return Ok(self.stored_row(key, starts, bytes, None, None));
         };
