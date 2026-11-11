@@ -253,3 +253,5 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   and R3-002 (a change names its own column, and reports the version first, as the last rule of E5 requires) are the
   decided behaviour, now documented; R3-001 dismissed: only creation and `add_column` take defaults, and `modify` only
   allows nulls.
+- **L18** (2026-11-11): Codex round 3 ([report](../../docs/reviews/tables-schema/2026-11-11-code-03.md)): `approved`,
+  "Approved."; R1 verified with the user's decision; no open finding or question. Next: T12 measurements.
