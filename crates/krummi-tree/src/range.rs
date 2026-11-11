@@ -213,6 +213,19 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         Ok(range)
     }
 
+    /// The leaf that holds the entry that the front, with `front`, or the back returned last; `None` before its first
+    /// entry, after its end and after a failure. A layer above can tell the leaves apart by it while the transaction
+    /// lives, and read all of a leaf's entries with [`leaf_entries`].
+    pub fn leaf(&self, front: bool) -> Option<&'t [u8]> {
+        let end = if front { &self.front } else { &self.back };
+        match end.path.last() {
+            Some(&(leaf, _)) if end.last.is_some() && !end.finished && node::is_leaf(leaf) => {
+                Some(leaf)
+            }
+            _ => None,
+        }
+    }
+
     /// Ends both ends: after a failure, or once either end is exhausted, nothing more comes out.
     fn stop(&mut self) {
         self.front.finished = true;
@@ -397,6 +410,15 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             }
         }
     }
+}
+
+/// The entries of `leaf`, a leaf that a [`Range`] gave ([`Range::leaf`]), in key order, each with its value when the
+/// leaf holds it, or `None` for a value kept off the leaf, in a run that this reads nothing of.
+pub fn leaf_entries(leaf: &[u8]) -> impl Iterator<Item = (&[u8], Option<&[u8]>)> {
+    (0..node::count(leaf)).map(move |i| match node::value(leaf, i) {
+        crate::Value::Inline(bytes) => (node::key(leaf, i), Some(bytes)),
+        crate::Value::Run { .. } => (node::key(leaf, i), None),
+    })
 }
 
 impl<'t, S: PageSource + ?Sized> Iterator for Range<'t, S> {

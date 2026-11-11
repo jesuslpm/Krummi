@@ -54,7 +54,7 @@ use krummi_tx::{
 };
 use node::{MAX_BRANCH_CELL, MAX_LEAF_CELL, UNDERFULL, Value};
 pub use node::{MAX_KEY, MAX_VALUE};
-pub use range::{Interval, Range};
+pub use range::{Interval, Range, leaf_entries};
 
 /// Read access to pages and meta slots, shared by read and write transactions.
 pub trait PageSource {

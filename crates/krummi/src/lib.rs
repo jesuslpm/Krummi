@@ -153,6 +153,7 @@ impl Store {
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
             readers: table::Readers::default(),
+            checked_leaves: table::CheckedLeaves::default(),
         })
     }
 
@@ -208,6 +209,8 @@ pub struct ReadTransaction<'s> {
     serial: u64,
     /// The readers of the tables it reads rows from, which its rows borrow.
     readers: table::Readers,
+    /// The leaves whose rows its scans found valid.
+    checked_leaves: table::CheckedLeaves,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing

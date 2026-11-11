@@ -128,12 +128,12 @@
 //! ```
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Bound;
 use std::ops::Deref;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
@@ -452,6 +452,7 @@ impl Reader {
         versions: &mut Versions<'t>,
         key: Cow<'t, [u8]>,
         bytes: &'t [u8],
+        leaf_passed: bool,
     ) -> Result<TableRow<'t>> {
         let damaged = || row_damage(tx, table.rows_root, &key);
         let version = row_version(bytes).map_err(|_| damaged())?;
@@ -474,7 +475,7 @@ impl Reader {
         // A key of one column starts at 0; a longer one keeps where each column starts, so that reading every column
         // walks it once.
         let starts = if self.key_types.len() == 1 {
-            if !is_key(&self.key_types, &key) {
+            if !(leaf_passed && old.is_none()) && !is_key(&self.key_types, &key) {
                 return Err(damaged());
             }
             None
@@ -484,8 +485,10 @@ impl Reader {
         let mut defaults = None;
         let Some(old_version) = &old else {
             // The current version: only the columns the check can reject, every live column being in its rows.
-            for (slot, ty) in &self.checks {
-                row.check_slot(*slot, ty).map_err(|_| damaged())?;
+            if !leaf_passed {
+                for (slot, ty) in &self.checks {
+                    row.check_slot(*slot, ty).map_err(|_| damaged())?;
+                }
             }
             return Ok(self.stored_row(key, starts, bytes, None, None));
         };
@@ -530,6 +533,27 @@ impl Reader {
                 defaults,
             },
         }
+    }
+
+    /// Whether `key` and `bytes` are a row of the current version that [`Reader::decode`] accepts.
+    fn check_current(&self, key: &[u8], bytes: &[u8]) -> bool {
+        let Ok(version) = row_version(bytes) else {
+            return false;
+        };
+        let Ok(row) = self.layout.row(bytes) else {
+            return false;
+        };
+        let key_valid = if self.key_types.len() == 1 {
+            is_key(&self.key_types, key)
+        } else {
+            key_starts(&self.key_types, key).is_some()
+        };
+        version == self.layout.version()
+            && key_valid
+            && self
+                .checks
+                .iter()
+                .all(|(slot, ty)| row.check_slot(*slot, ty).is_ok())
     }
 
     /// The value of the live column `i` of the row `key`, `bytes`, which [`Reader::decode`] checked.
@@ -689,6 +713,37 @@ impl Readers {
                 }
             }
         }
+    }
+}
+
+/// The leaves of rows trees whose every row a read transaction found valid for a table's current schema, so that its
+/// scans do not check those rows again (E19 holds: a row of such a leaf passed the same check). A leaf is told apart
+/// by its address, which no other page has while the transaction lives, and a table by its reader's: one leaf passes
+/// for one table only. It holds at most [`CHECKED_LEAVES`] leaves, and forgets them all when full.
+#[derive(Default)]
+pub(crate) struct CheckedLeaves(Mutex<HashSet<(usize, usize)>>);
+
+/// Leaves a read transaction remembers at most: 1 MiB or so of addresses.
+const CHECKED_LEAVES: usize = 1 << 16;
+
+impl CheckedLeaves {
+    /// Whether the rows of `leaf` passed the check of `reader`, or, if not yet known, checks them all and remembers
+    /// it when they do: rows of an older version or kept off the leaf make a leaf whose rows are checked one by one.
+    pub(super) fn passes(&self, leaf: &[u8], reader: &Reader) -> bool {
+        let key = (leaf.as_ptr() as usize, std::ptr::from_ref(reader) as usize);
+        let mut leaves = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if leaves.contains(&key) {
+            return true;
+        }
+        let passes = krummi_tree::leaf_entries(leaf)
+            .all(|(key, bytes)| bytes.is_some_and(|bytes| reader.check_current(key, bytes)));
+        if passes {
+            if leaves.len() >= CHECKED_LEAVES {
+                leaves.clear();
+            }
+            leaves.insert(key);
+        }
+        passes
     }
 }
 
@@ -1048,6 +1103,7 @@ impl ReadTransaction<'_> {
                     &mut Versions::default(),
                     Cow::Owned(key),
                     bytes,
+                    false,
                 )
                 .map(Some),
             None => Ok(None),
@@ -1121,6 +1177,7 @@ impl WriteTransaction<'_> {
                     &mut Versions::default(),
                     Cow::Owned(key),
                     bytes,
+                    false,
                 )
                 .map(Some),
             None => Ok(None),
@@ -1186,6 +1243,7 @@ impl WriteTransaction<'_> {
             &mut Versions::default(),
             Cow::Borrowed(&key),
             bytes,
+            false,
         )?;
         // Decoded once: the merge and the comparison both read every old value.
         let old: Vec<Value<'_>> = old.values().collect();

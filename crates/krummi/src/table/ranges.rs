@@ -63,7 +63,7 @@ use krummi_tree::{Interval, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
 use super::key::KeyRange;
-use super::rows::{At, Reader, RowCount, TableRow, Versions, write_key};
+use super::rows::{At, CheckedLeaves, Reader, RowCount, TableRow, Versions, write_key};
 use super::value::Value;
 use crate::{ReadTransaction, WriteTransaction};
 
@@ -72,6 +72,10 @@ struct Scan<'t, S: PageSource + ?Sized> {
     tx: &'t S,
     entries: krummi_tree::Range<'t, S>,
     reader: &'t Arc<Reader>,
+    /// The leaves a read transaction found valid, `None` in a write transaction, whose pages may change in place.
+    leaves: Option<&'t CheckedLeaves>,
+    /// The last leaf a row came from, by its address, and whether its rows passed.
+    leaf: (usize, bool),
     /// The name of the table's catalog entry and the roots of its trees.
     name: String,
     rows_root: u64,
@@ -82,11 +86,19 @@ struct Scan<'t, S: PageSource + ?Sized> {
 }
 
 impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
-    fn new(tx: &'t S, reader: &'t Arc<Reader>, table: At<'_>, range: &KeyRange) -> Result<Self> {
+    fn new(
+        tx: &'t S,
+        reader: &'t Arc<Reader>,
+        leaves: Option<&'t CheckedLeaves>,
+        table: At<'_>,
+        range: &KeyRange,
+    ) -> Result<Self> {
         Ok(Scan {
             tx,
             entries: krummi_tree::Range::new(tx, table.rows_root, interval(range))?,
             reader,
+            leaves,
+            leaf: (0, false),
             name: krummi_tree::copy_str(tx, table.name)?,
             rows_root: table.rows_root,
             history: table.history,
@@ -99,12 +111,20 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
     /// end.
     fn row(
         &mut self,
+        front: bool,
         step: impl FnOnce(&mut krummi_tree::Range<'t, S>) -> Option<Result<(&'t [u8], &'t [u8])>>,
     ) -> Option<Result<TableRow<'t>>> {
         if self.failed {
             return None;
         }
-        let row = step(&mut self.entries)?.and_then(|(key, bytes)| {
+        let entry = step(&mut self.entries)?;
+        if let (Ok(_), Some(leaves), Some(leaf)) = (&entry, self.leaves, self.entries.leaf(front))
+            && leaf.as_ptr() as usize != self.leaf.0
+        {
+            self.leaf = (leaf.as_ptr() as usize, leaves.passes(leaf, self.reader));
+        }
+        let leaf_passed = self.leaf.1;
+        let row = entry.and_then(|(key, bytes)| {
             let table = At {
                 name: &self.name,
                 rows_root: self.rows_root,
@@ -116,6 +136,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
                 &mut self.versions,
                 std::borrow::Cow::Borrowed(key),
                 bytes,
+                leaf_passed,
             )
         });
         self.failed = row.is_err();
@@ -149,13 +170,13 @@ macro_rules! rows_iterator {
             type Item = Result<TableRow<'t>>;
 
             fn next(&mut self) -> Option<Self::Item> {
-                self.0.row(|entries| entries.next())
+                self.0.row(true, |entries| entries.next())
             }
         }
 
         impl DoubleEndedIterator for $scan<'_> {
             fn next_back(&mut self) -> Option<Self::Item> {
-                self.0.row(|entries| entries.next_back())
+                self.0.row(false, |entries| entries.next_back())
             }
         }
 
@@ -192,6 +213,7 @@ impl ReadTransaction<'_> {
             &self.inner,
             self.readers
                 .keep(table.history, || Arc::clone(&table.reader)),
+            Some(&self.checked_leaves),
             table.at(),
             &range,
         )?))
@@ -221,6 +243,7 @@ impl WriteTransaction<'_> {
             &self.inner,
             self.readers
                 .keep(write_key(&state.reader), || Arc::clone(&state.reader)),
+            None,
             state.at(),
             &range,
         )?))
@@ -291,5 +314,65 @@ mod tests {
         let error = write.delete_range(&table, &[], ..).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Damaged);
         assert!(write.inner.has_failed());
+    }
+}
+
+#[cfg(test)]
+mod leaf_tests {
+    use crate::table::key::encode_key;
+    use crate::table::rows::RowCount;
+    use crate::table::value::{ColumnType, Value};
+    use crate::{Column, ErrorKind, Schema, Store, StoreOptions, TableMode};
+
+    /// E19 with the leaves a read transaction remembers: a row whose text is not UTF-8, in a page whose integrity
+    /// holds, fails a scan that returns it, and only such a scan, also when another scan of the same transaction read
+    /// rows of its leaf before and after it; a scan of the same leaf that does not return it reads every row.
+    #[test]
+    fn a_malformed_row_fails_only_the_scans_that_return_it() {
+        let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("s", ColumnType::String),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("t", TableMode::CreateNew(&schema))
+            .unwrap();
+        for id in 0..20 {
+            let text = format!("row{id}");
+            let row = [("id", Value::I64(id)), ("s", Value::String(text.into()))];
+            write.insert_row(&table, &row).unwrap();
+        }
+        // Row 5's text ends in a byte that is not UTF-8: its page's integrity code is computed over it at the commit.
+        let (rows_root, _) = write.live_rows(&table).unwrap();
+        let key = encode_key(&[ColumnType::I64], &[Value::I64(5)]).unwrap();
+        let mut bad = krummi_tree::get(&write.inner, rows_root, &key)
+            .unwrap()
+            .unwrap()
+            .to_vec();
+        *bad.last_mut().unwrap() = 0xFF;
+        let update = krummi_tree::set(&mut write.inner, rows_root, &key, &bad).unwrap();
+        write
+            .apply_rows(&table, update.root, RowCount::Kept)
+            .unwrap();
+        write.commit().unwrap();
+
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let ids = |from: i64, to: i64| -> crate::Result<Vec<i64>> {
+            read.range_rows(&table, &[], Value::I64(from)..Value::I64(to))?
+                .map(|row| row.map(|row| row.i64(0).unwrap()))
+                .collect()
+        };
+        for _ in 0..2 {
+            assert_eq!(ids(10, 15).unwrap(), (10..15).collect::<Vec<_>>());
+            assert_eq!(ids(0, 5).unwrap(), (0..5).collect::<Vec<_>>());
+            assert_eq!(ids(0, 10).unwrap_err().kind(), ErrorKind::Damaged);
+            assert_eq!(ids(5, 6).unwrap_err().kind(), ErrorKind::Damaged);
+            assert_eq!(ids(6, 20).unwrap(), (6..20).collect::<Vec<_>>());
+        }
     }
 }
