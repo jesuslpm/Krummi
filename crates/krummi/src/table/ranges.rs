@@ -84,6 +84,8 @@ struct Scan<'t, S: PageSource + ?Sized> {
     /// What the scan resolves once for all its rows.
     versions: Versions<'t>,
     failed: bool,
+    /// The row that [`Scan::lend`] lent last, whose place the next one takes.
+    current: Option<TableRow<'t>>,
 }
 
 impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
@@ -105,7 +107,53 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
             history: table.history,
             versions: Versions::default(),
             failed: false,
+            current: None,
         })
+    }
+
+    /// The next row from the front, lent until the next call, with the failures of [`Scan::row`].
+    #[inline]
+    fn lend(&mut self) -> Result<Option<&TableRow<'t>>> {
+        if self.failed {
+            return Ok(None);
+        }
+        let entry = match self.entries.next() {
+            None => return Ok(None),
+            Some(Ok(entry)) => entry,
+            Some(Err(error)) => {
+                self.failed = true;
+                return Err(error);
+            }
+        };
+        let leaf_passed = self.leaf_passed(true);
+        let table = At {
+            name: &self.name,
+            rows_root: self.rows_root,
+            history: self.history,
+        };
+        if let Err(error) = self.reader.decode_into(
+            self.tx,
+            table,
+            &mut self.versions,
+            entry,
+            leaf_passed,
+            &mut self.current,
+        ) {
+            self.failed = true;
+            return Err(error);
+        }
+        Ok(self.current.as_ref())
+    }
+
+    /// Whether the rows of the leaf of the entry that an end returned last passed, finding it when the leaf changed.
+    #[inline]
+    fn leaf_passed(&mut self, front: bool) -> bool {
+        if let (Some(leaves), Some(leaf)) = (self.leaves, self.entries.leaf(front))
+            && leaf.as_ptr() as usize != self.leaf.0
+        {
+            self.leaf = (leaf.as_ptr() as usize, leaves.leaf_passes(leaf));
+        }
+        self.leaf.1
     }
 
     /// The row of the entry that `step` takes from an end of the scan; after a failure, nothing more from either
@@ -120,12 +168,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
             return None;
         }
         let entry = step(&mut self.entries)?;
-        if let (Ok(_), Some(leaves), Some(leaf)) = (&entry, self.leaves, self.entries.leaf(front))
-            && leaf.as_ptr() as usize != self.leaf.0
-        {
-            self.leaf = (leaf.as_ptr() as usize, leaves.leaf_passes(leaf));
-        }
-        let leaf_passed = self.leaf.1;
+        let leaf_passed = entry.is_ok() && self.leaf_passed(front);
         let row = entry.and_then(|(key, bytes)| {
             let table = At {
                 name: &self.name,
@@ -185,6 +228,16 @@ macro_rules! rows_iterator {
         }
 
         impl std::iter::FusedIterator for $scan<'_> {}
+
+        impl<'t> $scan<'t> {
+            /// The next row from the front, as [`Iterator::next`] gives it, lent until the next call instead of moved
+            /// out: a scan that only reads the rows' columns costs less this way, as Voron's table scans, which lend
+            /// one holder for every row. `Ok(None)` at the end and after a failure; a failure is returned once.
+            #[inline]
+            pub fn next_row(&mut self) -> Result<Option<&TableRow<'t>>> {
+                self.0.lend()
+            }
+        }
     };
 }
 
@@ -375,6 +428,13 @@ mod leaf_tests {
                 .map(|row| row.map(|row| row.i64(0).unwrap()))
                 .collect()
         };
+        // `next_row` returns the failure once, then nothing.
+        let mut rows = read.range_rows(&table, &[], ..).unwrap();
+        for id in 0..5 {
+            assert_eq!(rows.next_row().unwrap().unwrap().i64(0), Some(id));
+        }
+        assert_eq!(rows.next_row().unwrap_err().kind(), ErrorKind::Damaged);
+        assert!(rows.next_row().unwrap().is_none());
         for _ in 0..2 {
             assert_eq!(ids(10, 15).unwrap(), (10..15).collect::<Vec<_>>());
             assert_eq!(ids(0, 5).unwrap(), (0..5).collect::<Vec<_>>());

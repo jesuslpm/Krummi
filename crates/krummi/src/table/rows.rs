@@ -455,6 +455,59 @@ impl Reader {
     /// after the row was written, null or its default, a text, bytes or vector default borrowed from the table's
     /// catalog entry (D11). The whole row is checked here, and its values are decoded when they are read: bytes that
     /// are not such a row are damage of the page that holds them (G6), and reading a column of the row cannot fail.
+    /// As [`Reader::decode`] of the entry `key`, `bytes`, into `slot`: a row of the current version with a key of one
+    /// column, when `slot` holds such a row of this reader, only takes the place of its key and bytes, without
+    /// building another row.
+    #[inline]
+    pub(super) fn decode_into<'t, S: PageSource + ?Sized>(
+        self: &'t Arc<Self>,
+        tx: &'t S,
+        table: At<'_>,
+        versions: &mut Versions<'t>,
+        (key, bytes): (&'t [u8], &'t [u8]),
+        leaf_passed: bool,
+        slot: &mut Option<TableRow<'t>>,
+    ) -> Result<()> {
+        if let Some(TableRow {
+            stored:
+                Stored::Row {
+                    key: Cow::Borrowed(row_key),
+                    starts: None,
+                    bytes: row_bytes,
+                    old: None,
+                    defaults: None,
+                },
+            ..
+        }) = slot
+            && self.key_types.len() == 1
+            && row_version(bytes) == Ok(self.layout.version())
+        {
+            if !self.current_row_passes(key, bytes, leaf_passed) {
+                return Err(row_damage(tx, table.rows_root, key));
+            }
+            *row_key = key;
+            *row_bytes = bytes;
+            return Ok(());
+        }
+        *slot = Some(self.decode(tx, table, versions, Cow::Borrowed(key), bytes, leaf_passed)?);
+        Ok(())
+    }
+
+    /// Whether `key` and `bytes`, a row of the current version under a key of one column, pass the check of
+    /// [`Reader::decode`]: its header, and its key and the columns it can reject unless its leaf passed already.
+    #[inline]
+    fn current_row_passes(&self, key: &[u8], bytes: &[u8], leaf_passed: bool) -> bool {
+        let Ok(row) = self.layout.row(bytes) else {
+            return false;
+        };
+        leaf_passed
+            || (is_key(&self.key_types, key)
+                && self
+                    .checks
+                    .iter()
+                    .all(|(slot, ty)| row.check_slot(*slot, ty).is_ok()))
+    }
+
     pub(super) fn decode<'t, S: PageSource + ?Sized>(
         self: &'t Arc<Self>,
         tx: &'t S,

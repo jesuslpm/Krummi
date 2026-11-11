@@ -85,22 +85,24 @@ pub(super) fn run(cx: &Context) -> Result<()> {
         Load::W27 => {
             let starts = ulid_keys(table_data::range_starts(n, p.ranges));
             let (rows, expected) = table_data::expected_ranges(n, p.ranges, p.range_len);
-            let limit = usize::try_from(p.range_len).unwrap_or(usize::MAX);
             cx.read_only::<Krummi>(Tree::Normal, |store| {
                 let ((count, sum), time) = timed(|| {
                     let tx = store.inner().read().map_err(cause)?;
                     let table = tx.open_table(TABLE).map_err(cause)?;
                     let (mut count, mut sum) = (0u64, 0u64);
                     for start in &starts {
-                        let range = tx.range_rows(&table, &[], ulid(start)..).map_err(cause)?;
-                        let mut read = 0;
-                        for row in range.take(limit) {
-                            let row = row.map_err(cause)?;
+                        // The rows are lent one after another, as Voron's scan lends its holder.
+                        let mut range = tx.range_rows(&table, &[], ulid(start)..).map_err(cause)?;
+                        let mut read = 0u64;
+                        while read < p.range_len {
+                            let Some(row) = range.next_row().map_err(cause)? else {
+                                break;
+                            };
                             // A range starts at an existing key: its first row is that key's.
-                            if read == 0 && id_of(&row).as_ref() != Some(start) {
+                            if read == 0 && id_of(row).as_ref() != Some(start) {
                                 return Err(missing(start));
                             }
-                            sum = sum.wrapping_add(checksum(&row)?);
+                            sum = sum.wrapping_add(checksum(row)?);
                             read += 1;
                         }
                         if read == 0 {

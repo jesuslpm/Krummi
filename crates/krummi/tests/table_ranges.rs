@@ -1562,3 +1562,79 @@ fn check_read_scan_is_sendable(read: &ReadTransaction<'_>) {
     let scan = read.range_rows(&table, &[], ..).unwrap();
     sendable(&scan);
 }
+
+/// `next_row` lends the rows that the iterator gives, in the same order, over several leaves, with a key of one column
+/// and with a key of two, rows of an older version among them, and then `Ok(None)` (T4 of the row reads run).
+#[test]
+fn next_row_lends_the_rows_the_iterator_gives() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let one = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("s", ColumnType::String),
+            ],
+            &["id"],
+        );
+        let two = Schema::new(
+            vec![
+                Column::new("a", ColumnType::I32).not_null(),
+                Column::new("b", ColumnType::String).not_null(),
+                Column::new("s", ColumnType::String),
+            ],
+            &["a", "b"],
+        );
+        let t1 = create_table(&mut write, "one", &one);
+        let t2 = create_table(&mut write, "two", &two);
+        let text = |i: i64| format!("text {i} {}", "x".repeat(usize::try_from(i % 50).unwrap()));
+        for i in 0..400 {
+            let t = text(i);
+            write
+                .insert_row(
+                    &t1,
+                    &[
+                        ("id", Value::I64(i)),
+                        ("s", Value::String(t.as_str().into())),
+                    ],
+                )
+                .unwrap();
+            let k = format!("k{i}");
+            write
+                .insert_row(
+                    &t2,
+                    &[
+                        ("a", Value::I32((i % 7) as i32)),
+                        ("b", Value::String(k.as_str().into())),
+                        ("s", Value::String(t.as_str().into())),
+                    ],
+                )
+                .unwrap();
+            if i == 200 {
+                write
+                    .add_column(&t1, &Column::new("added", ColumnType::I32))
+                    .unwrap();
+                write
+                    .add_column(&t2, &Column::new("added", ColumnType::I32))
+                    .unwrap();
+            }
+        }
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        for name in ["one", "two"] {
+            let table = read.open_table(name).unwrap();
+            let iterated: Vec<Vec<Value<'_>>> = read
+                .range_rows(&table, &[], ..)
+                .unwrap()
+                .map(|row| row.unwrap().values().collect())
+                .collect();
+            let mut rows = read.range_rows(&table, &[], ..).unwrap();
+            let mut lent = Vec::new();
+            while let Some(row) = rows.next_row().unwrap() {
+                lent.push(row.values().collect::<Vec<_>>());
+            }
+            assert_eq!(lent, iterated, "{name}");
+            assert_eq!(lent.len(), 400, "{name}");
+            assert!(rows.next_row().unwrap().is_none(), "{name}: after its end");
+        }
+    });
+}
