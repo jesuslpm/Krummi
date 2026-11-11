@@ -110,6 +110,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
 
     /// The row of the entry that `step` takes from an end of the scan; after a failure, nothing more from either
     /// end.
+    #[inline]
     fn row(
         &mut self,
         front: bool,
@@ -170,12 +171,14 @@ macro_rules! rows_iterator {
         impl<'t> Iterator for $scan<'t> {
             type Item = Result<TableRow<'t>>;
 
+            #[inline]
             fn next(&mut self) -> Option<Self::Item> {
                 self.0.row(true, |entries| entries.next())
             }
         }
 
         impl DoubleEndedIterator for $scan<'_> {
+            #[inline]
             fn next_back(&mut self) -> Option<Self::Item> {
                 self.0.row(false, |entries| entries.next_back())
             }
