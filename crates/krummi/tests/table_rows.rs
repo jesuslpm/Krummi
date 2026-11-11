@@ -2220,7 +2220,7 @@ fn many_tables_read_in_turns_keep_their_own_schemas() {
     // Table `t{i}` has `i + 1` columns `c0`.. of `i32`, keyed by `c0`, and the row `c_j = j`.
     let schema = |i: usize| {
         let columns = (0..=i)
-            .map(|j| Column::new(&format!("c{j}"), ColumnType::I32).not_null())
+            .map(|j| Column::new(format!("c{j}"), ColumnType::I32).not_null())
             .collect();
         Schema::new(columns, &["c0"])
     };
