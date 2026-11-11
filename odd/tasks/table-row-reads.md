@@ -155,3 +155,8 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   directamente en la memoria.» (right: a `ulid` key element is the type code and its 16 bytes, read as they are);
   to the malformed row question, «Pánico del proceso (Recomendado)». PRD drafted:
   `docs/prd/krummi/tables-row-reads.prd.md` (L1–L3, AC-L1–AC-L5).
+- **L17** (2026-11-11): PRD reviewer (two rounds, no blocker in the second); the user's answers, verbatim: to writes,
+  «Solo lecturas (Recomendado)». Codex PRD round 1 ([report](../../docs/reviews/tables-row-reads/2026-11-11-prd.md),
+  [resolutions](../../docs/reviews/tables-row-reads/2026-11-11-prd-resolutions.md)): `findings`, R1 and R2 (major,
+  product questions), R3 and R4 (minor, fixed). The user's answers, verbatim: R1 «Pánico normal del hilo
+  (Recomendado)»; R2 «Sigue intacta (Recomendado)».
