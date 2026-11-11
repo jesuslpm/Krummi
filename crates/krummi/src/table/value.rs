@@ -580,17 +580,15 @@ pub fn vector_norm(vector: &VectorType, bytes: &[u8]) -> f64 {
     }
 }
 
+/// Lane `j` accumulates elements `j, j + LANES, ...`; the lanes are reduced with a fixed tree, then each tail
+/// square is added on its own, in order (document 5).
 fn fixed_order_norm(elements: impl ExactSizeIterator<Item = f64>) -> f64 {
     let len = elements.len();
     let full = len - len % LANES;
+    let mut elements = elements.map(|x| x * x);
     let mut lanes = [0f64; LANES];
-    let mut tail = 0f64;
-    for (i, x) in elements.enumerate() {
-        if i < full {
-            lanes[i % LANES] += x * x;
-        } else {
-            tail += x * x;
-        }
+    for (i, square) in elements.by_ref().take(full).enumerate() {
+        lanes[i % LANES] += square;
     }
     let mut width = LANES / 2;
     while width > 0 {
@@ -599,7 +597,7 @@ fn fixed_order_norm(elements: impl ExactSizeIterator<Item = f64>) -> f64 {
         }
         width /= 2;
     }
-    (lanes[0] + tail).sqrt()
+    elements.fold(lanes[0], |sum, square| sum + square).sqrt()
 }
 
 /// An IEEE binary16 as a `f64`, exactly.

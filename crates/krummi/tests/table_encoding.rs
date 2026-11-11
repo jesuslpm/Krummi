@@ -507,6 +507,39 @@ fn vector_norms() {
     assert_eq!(vector_norm(&ty, &i8s), 2.5);
 }
 
+/// The fixed-order kernel reduces the 16 lanes first and then adds each tail square on its own, in order
+/// (document 5): `2^54 + 1` rounds back to `2^54` seven times, while a tail summed apart (`+ 7`) would not.
+#[test]
+fn vector_norm_adds_the_tail_after_the_lanes_in_order() {
+    let mut f32s = 2f32.powi(27).to_le_bytes().to_vec();
+    f32s.extend(
+        [0f32; 15]
+            .iter()
+            .chain(&[1f32; 7])
+            .flat_map(|v| v.to_le_bytes()),
+    );
+    let ty = VectorType {
+        element: VectorElement::F32,
+        dimension: 23,
+        cosine: true,
+    };
+    assert_eq!(vector_norm(&ty, &f32s).to_bits(), 0x41a0_0000_0000_0000);
+    // The same shape in f16: 2^15, fifteen zeros and seven 2^-12 (each square under half an ulp of 2^30).
+    let mut f16s = 0x7800u16.to_le_bytes().to_vec();
+    f16s.extend(
+        [0u16; 15]
+            .iter()
+            .chain(&[0x0C00u16; 7])
+            .flat_map(|v| v.to_le_bytes()),
+    );
+    let ty = VectorType {
+        element: VectorElement::F16,
+        dimension: 23,
+        cosine: true,
+    };
+    assert_eq!(vector_norm(&ty, &f16s).to_bits(), 32768f64.to_bits());
+}
+
 #[test]
 fn type_limits_of_a_schema() {
     for (element, dimension) in [
