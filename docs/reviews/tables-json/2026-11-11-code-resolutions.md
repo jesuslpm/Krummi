@@ -44,3 +44,15 @@ none is new, and none is answered here.
 Checks for the follow-up: `git diff --check 62df5d5..e36a9b7`, no output. The range changes two Markdown documents
 only; `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`
 do not apply to it, as in the original review.
+
+## 2026-11-11 (verification)
+
+Follow-up report: [2026-11-11-code-02.md](2026-11-11-code-02.md), wrapper status `approved`, `threadId`
+`01a1ca00-4b08-7b03-9e4f-0ee3bea97d3b`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Fix range `62df5d5..7f3bd04`. Verdict, quoted: "Approved — R1 and
+R2 verified resolved; no findings remain open in the requested follow-up scope."
+
+- R1: "Verified resolved"; the reviewer reran the model ("scan [1, 2] old [1] corrected [1, 2]").
+- R2: "Verified resolved".
+
+No product question was added; the eight deferred questions of document 14 stay open until the indexes are planned.
