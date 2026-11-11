@@ -61,3 +61,9 @@ Artifact versions: fix in commit `6167d9e`.
 - Checks: `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean (with
   `pipefail`); `many_tables_read_in_turns_keep_their_own_schemas` passes.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-11 (verification)
+
+Follow-up report: [2026-11-11-code-05.md](2026-11-11-code-05.md), fix range `8b87414..9ea1b59`, thread
+`01a1cc83-a15b-71d3-b953-f4e8e9985c37`, wrapper status `approved`, verdict "Approved for the requested follow-up
+scope: R4 verified resolved; no open findings." Review record: telemetry as in the first round.
