@@ -139,3 +139,19 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   shares inside the load: typed reads (bench `checksum`, `checked_bytes`, `id_of`) about 31 %, the tree step 24 %,
   `ReadRows::next` and `decode` 21 %, the leaf memory 4.5 %, the bench's own sums about 6 %. The hottest instruction
   is the pointer chain row → kept reader → `Arc` → `Reader` that each typed read walks.
+- **L15** (2026-11-11, the user's answer, verbatim): «Seguir optimizando» (flatten the typed reads with direct
+  references and a compact per-column plan, slim the row and the scan step, measuring each step). Wait ends.
+- **L16** (2026-11-11): more steps, pinned and under the plan (W27 median op/s): compact per-column record and a
+  direct reader reference (`ed61733`) +3.5 %; `#[inline]` scan step (`7852933`) 6.25 M; `next_row`, which lends the
+  row instead of moving a 120-byte `Result<TableRow>` (the size of `Error`) several times per row (`e7dd8d2`): 8.15 M,
+  0.77. The check now costs about 7 %: without it, 8.72 M, 0.83 (experiment, reverted). W26 0.89–0.96 (passes); W28
+  about 96,000, 0.76, with or without checks: its cost is the write path. The user's messages, verbatim: «Y además
+  ecribe un PRD que anote K7 para las cargas de tablas: Voron no comprueba sus filas y Krummi sí (E19). Deja de
+  comprobar las filas.»; «Como dije antes, las páginas ya se comprueban con xxhash, así que ¿por qué más
+  comprobaciones?»; «Y qué otras optimizaciones tenemos? debe de haber alguna manera de cumplir el umbral, tienes el
+  código de Voron y herramientas de perfilado.»; «Y qué tal sería hacer un árbol especializado con clave de tamaño
+  fijo para claves de una sóla columna de tipo i64, u64, ulid y uuid?» (answered: about 3–6 % for days of work and a
+  format change; not now); «No entiendo qué hay que decodificar cuando tienes un ulid como clave, los bytes ya están
+  directamente en la memoria.» (right: a `ulid` key element is the type code and its 16 bytes, read as they are);
+  to the malformed row question, «Pánico del proceso (Recomendado)». PRD drafted:
+  `docs/prd/krummi/tables-row-reads.prd.md` (L1–L3, AC-L1–AC-L5).
