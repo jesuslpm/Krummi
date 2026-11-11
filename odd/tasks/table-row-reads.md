@@ -79,3 +79,8 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 - **L7** (2026-11-11): Codex round 2 ([report](../../docs/reviews/table-row-reads/2026-11-11-code-02.md)): `approved`,
   "Approved: R1 verified resolved; no open findings in the requested follow-up scope." Next: RDD of the last slice,
   then the complete runs (T3).
+- **L8** (2026-11-11): RDD of the slice `e036803..ae39594` (forced: medium, `under_budget`, 462 lines), lenses
+  readability and reliability, lineage `review-22562fd92a7cefd8`, **approved** and acknowledged. Advisories, all
+  SUGGESTION and fixed in the next commit: R2-001 (the `key_value` contract was unclear), R2-002 (the key test's name
+  covered only `is_key`), R3-key-starts-u16-panic (`key_starts` panicked past `u16::MAX` instead of returning `None`).
+  Checks: fmt, clippy clean, 787 passed.
