@@ -247,3 +247,9 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   renaming); Q1 «Se acepta» (only the value rounded to the microsecond counts). Wait for the user ends. Fix `6e4a04a`
   (`SchemaRule::SchemaTooLarge`, checked last in every path) and PRD annotations `461bccc` (E5 and E8, Spanish and
   English).
+- **L17** (2026-11-11): RDD: slice `ba8b5d2..b60d83c` assessed passive (log and records only), no review needed;
+  `6e4a04a` (escalated item 3: new public rule and limit) lineage `review-b92e1a87e7a74c7a` (readability,
+  reliability) **approved**; advisories R2-stale-check-fits-doc fixed in `ed4a2bc`; R2-alter-overrides-check-fits-name
+  and R3-002 (a change names its own column, and reports the version first, as the last rule of E5 requires) are the
+  decided behaviour, now documented; R3-001 dismissed: only creation and `add_column` take defaults, and `modify` only
+  allows nulls.
