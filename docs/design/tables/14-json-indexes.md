@@ -28,7 +28,12 @@ source tree, with the path); **[K]** Krummi's own documents; **[S]** simulated h
      quantifiers exactly, such as the orders with a line of product P and a quantity over C.
    - An **inverted index** indexes every path and value of the document, in the style of PostgreSQL's GIN: a
      dictionary of terms, each with the list of rows that contain it. It answers containment and existence over paths
-     nobody chose in advance, such as an AI agent exploring documents, but neither ranges nor order.
+     nobody chose in advance, such as an AI agent exploring documents. Its dictionary is ordered by term, so the
+     values of one path are contiguous: prefixes, ranges and order over them are possible, strings as the terms are
+     designed and numbers once their terms keep numeric order, an open point of the detailed design (*Prefixes and
+     ranges over the dictionary*); until then rule 1 of *Queries* does not use them. Corrected 2026-11-11: the first
+     version said it answered "neither ranges nor order"; the user: "Esto está mal sí que se pueden los rangos y los
+     ódenes de los valores".
 2. **The rows of an inverted index are named by their primary key**, as every secondary index of Krummi does
    (document 2). No row identifiers of the index's own: they were considered and dropped in the discussion, because
    the application's schema solves what they solve (*Row identifiers, considered and dropped*).
@@ -365,7 +370,7 @@ the sequential `uuid` share the structure; `uuid` v4 does not compress.
 | Bytes per entry | Value + primary key + 6 of cell | Same | 1 to 13 by key type (above); inline lists add the term once |
 | Write | 1 extraction, at most 1 entry changed | Element set difference | Term set difference |
 | Read | Descent and range, as 7.2 | Same | List intersection, then a recheck per candidate when needed |
-| Ranges and order | Yes | Per element | No |
+| Ranges and order | Yes | Per element | Over one path's values, by term order: strings as designed, numbers with an ordered encoding (open; not used by rule 1 yet) |
 | Unique | Yes | No (to decide with 7.2) | No |
 
 ## Risks
