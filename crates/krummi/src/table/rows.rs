@@ -139,7 +139,7 @@ use krummi_tree::PageSource;
 use super::catalog::{ReadTable, WriteTable};
 use super::key::{KeyError, KeyRange, MAX_KEY, decode_key, encode_key, key_range};
 use super::row::{MAX_ROW, RowLayout, row_version};
-use super::schema::{Different, TableSchema, decode_version, version_key};
+use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, Value, key_text, normalize};
 use crate::{Folder, ReadTransaction, WriteTransaction};
 
@@ -420,29 +420,31 @@ impl Reader {
         })
     }
 
-    /// The row stored under `key` as `bytes` in the rows tree at `rows_root`, with every live column (E11): a column
-    /// of the row's version by its place in that version, which the history tree at `history` gives for an older
-    /// one, resolved once into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the
-    /// key; a column added after the row was written, its default or null. Bytes that are not such a row are damage
-    /// of the page that holds them (G6).
+    /// The row stored under `key` as `bytes` in the rows tree of `table`, with every live column (E11): a column of
+    /// the row's version by its place in that version, which the history tree gives for an older one, resolved once
+    /// into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the key; a column added
+    /// after the row was written, null or its default, a text, bytes or vector default borrowed from the table's
+    /// catalog entry (D11). Bytes that are not such a row are damage of the page that holds them (G6).
     pub(super) fn decode<'t, S: PageSource + ?Sized>(
         self: &Arc<Self>,
         tx: &'t S,
-        rows_root: u64,
-        history: u64,
-        versions: &mut Versions,
+        table: At<'_>,
+        versions: &mut Versions<'t>,
         key: &[u8],
         bytes: &'t [u8],
     ) -> Result<TableRow<'t>> {
-        let damaged = || row_damage(tx, rows_root, key);
+        let damaged = || row_damage(tx, table.rows_root, key);
         let version = row_version(bytes).map_err(|_| damaged())?;
         let current = self.layout.version();
+        let Versions { old, defaults } = versions;
         let (layout, places) = if version == current {
             (&self.layout, None)
         } else if (1..current).contains(&version) {
-            let old = match versions.0.entry(version) {
+            let old = match old.entry(version) {
                 Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => entry.insert(self.version_layout(tx, history, version)?),
+                Entry::Vacant(entry) => {
+                    entry.insert(self.version_layout(tx, table.history, version)?)
+                }
             };
             (&old.layout, Some(&old.places))
         } else {
@@ -460,7 +462,16 @@ impl Reader {
                         .value(place)
                         .map_err(|_| damaged())?
                         .ok_or_else(damaged)?,
-                    None => column.default.clone(),
+                    None => match &column.default {
+                        Value::String(_) | Value::Bytes(_) | Value::Vector(_) => {
+                            let stored = match defaults {
+                                Some(stored) => stored,
+                                None => defaults.insert(self.stored_defaults(tx, table.name)?),
+                            };
+                            stored[i].clone()
+                        }
+                        default => default.clone(),
+                    },
                 },
             };
             values.push(value);
@@ -469,6 +480,37 @@ impl Reader {
             reader: Arc::clone(self),
             values,
         })
+    }
+
+    /// The default of each live column, [`Value::Null`] for one without, borrowed from the catalog entry `name` of
+    /// the table, whose schema is this reader's (D11, AC20). An entry that is not there or does not hold this schema is
+    /// damage of the catalog page that should hold it (G6).
+    fn stored_defaults<'t, S: PageSource + ?Sized>(
+        &self,
+        tx: &'t S,
+        name: &str,
+    ) -> Result<Vec<Value<'t>>> {
+        let Some(located) = krummi_tree::catalog::lookup_with_extra(tx, name)? else {
+            let leaf = tx
+                .slot(krummi_tree::catalog::ROOT_SLOT)
+                .and_then(|root| krummi_tree::leaf_of(tx, root, name.as_bytes()));
+            return Err(match leaf {
+                Ok(page) => tx.damaged(page),
+                Err(error) => error,
+            });
+        };
+        let stored = decode_defaults(located.extra)
+            .filter(|stored| {
+                stored.len() == self.columns.len()
+                    && stored.iter().zip(&self.columns).all(|((id, default), c)| {
+                        *id == c.id && default.is_some() != matches!(c.default, Value::Null)
+                    })
+            })
+            .ok_or_else(|| tx.damaged(located.page))?;
+        Ok(stored
+            .into_iter()
+            .map(|(_, default)| default.unwrap_or(Value::Null))
+            .collect())
     }
 
     /// The layout of the rows of `version`, an older one, from the history tree at `history`, and the place in it of
@@ -503,10 +545,24 @@ impl Reader {
     }
 }
 
-/// The layouts of the older row versions that a read has met, each read from the history tree once: a scan keeps one
-/// for all its rows (document 1, *Cost of mixed versions*).
+/// What a read of rows resolves once for all its rows (document 1, *Cost of mixed versions*): the layouts of the older
+/// row versions it has met, each read from the history tree once, and the defaults of the live columns borrowed from
+/// the table's catalog entry, read when the first older row needs a text, bytes or vector default. A scan keeps one
+/// for all its rows.
 #[derive(Default)]
-pub(super) struct Versions(HashMap<u16, OldVersion>);
+pub(super) struct Versions<'t> {
+    old: HashMap<u16, OldVersion>,
+    defaults: Option<Vec<Value<'t>>>,
+}
+
+/// Where the rows of a table are: the name of its catalog entry, which holds its current schema, and the roots of its
+/// rows tree and its history tree.
+#[derive(Clone, Copy)]
+pub(super) struct At<'a> {
+    pub(super) name: &'a str,
+    pub(super) rows_root: u64,
+    pub(super) history: u64,
+}
 
 /// The layout of an older row version, and the place in it of each live column (`None` for one added after it).
 struct OldVersion {
@@ -649,8 +705,7 @@ impl ReadTransaction<'_> {
                 .reader
                 .decode(
                     &self.inner,
-                    table.rows_root,
-                    table.history,
+                    table.at(),
                     &mut Versions::default(),
                     &key,
                     bytes,
@@ -711,16 +766,17 @@ impl WriteTransaction<'_> {
         table: &WriteTable<'_>,
         key: &[Value<'_>],
     ) -> Result<Option<TableRow<'_>>> {
-        let (rows_root, history, reader) = self.live_rows(table)?;
-        let key = reader
+        let state = self.live_table(table)?;
+        let key = state
+            .reader
             .lookup_key(key)
-            .map_err(|fault| fault.error(self.folder, &self.table_name(table)))?;
-        match krummi_tree::get(&self.inner, rows_root, &key)? {
-            Some(bytes) => reader
+            .map_err(|fault| fault.error(self.folder, &state.name))?;
+        match krummi_tree::get(&self.inner, state.rows_root, &key)? {
+            Some(bytes) => state
+                .reader
                 .decode(
                     &self.inner,
-                    rows_root,
-                    history,
+                    state.at(),
                     &mut Versions::default(),
                     &key,
                     bytes,
@@ -733,7 +789,7 @@ impl WriteTransaction<'_> {
     /// Deletes the row of `table` whose primary key is `key`, and returns whether it was there (E11), with the
     /// failures of the key of [`get_row`](Self::get_row).
     pub fn delete_row(&mut self, table: &WriteTable<'_>, key: &[Value<'_>]) -> Result<bool> {
-        let (rows_root, _, reader) = self.live_rows(table)?;
+        let (rows_root, reader) = self.live_rows(table)?;
         let key = reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &self.table_name(table)))?;
@@ -756,7 +812,7 @@ impl WriteTransaction<'_> {
         for (name, _) in row {
             self.folder.check_column_name(name)?;
         }
-        let (rows_root, history, reader) = self.live_rows(table)?;
+        let (rows_root, reader) = self.live_rows(table)?;
         let fail = |tx: &Self, fault: Fault| fault.error(tx.folder, &tx.table_name(table));
         let Checked { values, key } = reader
             .check(row, op == Op::Insert)
@@ -785,8 +841,7 @@ impl WriteTransaction<'_> {
         };
         let old = reader.decode(
             &self.inner,
-            rows_root,
-            history,
+            self.live_table(table)?.at(),
             &mut Versions::default(),
             &key,
             bytes,
@@ -809,11 +864,11 @@ impl WriteTransaction<'_> {
         Ok(Written::Updated)
     }
 
-    /// The rows tree, the history tree and the reader of the table of `table`, with the failures of a handle (misuse
-    /// for one of another transaction, not found once the table was deleted), without reading anything.
-    pub(super) fn live_rows(&self, table: &WriteTable<'_>) -> Result<(u64, u64, Arc<Reader>)> {
+    /// The rows tree and the reader of the table of `table`, with the failures of a handle (misuse for one of another
+    /// transaction, not found once the table was deleted), without reading anything.
+    pub(super) fn live_rows(&self, table: &WriteTable<'_>) -> Result<(u64, Arc<Reader>)> {
         let state = self.live_table(table)?;
-        Ok((state.rows_root, state.history, Arc::clone(&state.reader)))
+        Ok((state.rows_root, Arc::clone(&state.reader)))
     }
 
     /// The name of the table of `table`, for the data of an error.

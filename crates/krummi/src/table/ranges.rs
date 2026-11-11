@@ -63,7 +63,7 @@ use krummi_tree::{Interval, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
 use super::key::KeyRange;
-use super::rows::{Reader, RowCount, TableRow, Versions};
+use super::rows::{At, Reader, RowCount, TableRow, Versions};
 use super::value::Value;
 use crate::{ReadTransaction, WriteTransaction};
 
@@ -72,27 +72,24 @@ struct Scan<'t, S: PageSource + ?Sized> {
     tx: &'t S,
     entries: krummi_tree::Range<'t, S>,
     reader: Arc<Reader>,
+    /// The name of the table's catalog entry and the roots of its trees.
+    name: String,
     rows_root: u64,
     history: u64,
-    /// The layouts of the older row versions met so far.
-    versions: Versions,
+    /// What the scan resolves once for all its rows.
+    versions: Versions<'t>,
     failed: bool,
 }
 
 impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
-    fn new(
-        tx: &'t S,
-        reader: Arc<Reader>,
-        rows_root: u64,
-        history: u64,
-        range: &KeyRange,
-    ) -> Result<Self> {
+    fn new(tx: &'t S, reader: Arc<Reader>, table: At<'_>, range: &KeyRange) -> Result<Self> {
         Ok(Scan {
             tx,
-            entries: krummi_tree::Range::new(tx, rows_root, interval(range))?,
+            entries: krummi_tree::Range::new(tx, table.rows_root, interval(range))?,
             reader,
-            rows_root,
-            history,
+            name: krummi_tree::copy_str(tx, table.name)?,
+            rows_root: table.rows_root,
+            history: table.history,
             versions: Versions::default(),
             failed: false,
         })
@@ -108,14 +105,13 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
             return None;
         }
         let row = step(&mut self.entries)?.and_then(|(key, bytes)| {
-            self.reader.decode(
-                self.tx,
-                self.rows_root,
-                self.history,
-                &mut self.versions,
-                key,
-                bytes,
-            )
+            let table = At {
+                name: &self.name,
+                rows_root: self.rows_root,
+                history: self.history,
+            };
+            self.reader
+                .decode(self.tx, table, &mut self.versions, key, bytes)
         });
         self.failed = row.is_err();
         Some(row)
@@ -190,8 +186,7 @@ impl ReadTransaction<'_> {
         Ok(ReadRows(Scan::new(
             &self.inner,
             Arc::clone(&table.reader),
-            table.rows_root,
-            table.history,
+            table.at(),
             &range,
         )?))
     }
@@ -208,19 +203,18 @@ impl WriteTransaction<'_> {
         prefix: &[Value<'v>],
         bounds: impl RangeBounds<Value<'v>>,
     ) -> Result<WriteRows<'_>> {
-        let (rows_root, history, reader) = self.live_rows(table)?;
-        let range = reader.key_range(
+        let state = self.live_table(table)?;
+        let range = state.reader.key_range(
             self.folder,
-            &self.table_name(table),
+            &state.name,
             prefix,
             bounds.start_bound(),
             bounds.end_bound(),
         )?;
         Ok(WriteRows(Scan::new(
             &self.inner,
-            reader,
-            rows_root,
-            history,
+            Arc::clone(&state.reader),
+            state.at(),
             &range,
         )?))
     }
@@ -234,7 +228,7 @@ impl WriteTransaction<'_> {
         prefix: &[Value<'v>],
         bounds: impl RangeBounds<Value<'v>>,
     ) -> Result<u64> {
-        let (rows_root, _, reader) = self.live_rows(table)?;
+        let (rows_root, reader) = self.live_rows(table)?;
         let range = reader.key_range(
             self.folder,
             &self.table_name(table),

@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 use krummi_pager::{SchemaDifference, SchemaRule};
+use krummi_tree::catalog::MAX_EXTRA;
 
 use super::row::{RowColumn, RowLayout};
 #[cfg(test)]
@@ -260,7 +261,7 @@ fn check_general(
     if let Some((rule, name)) = broken_type {
         return invalid(rule, Some(name));
     }
-    columns
+    let defaults = columns
         .iter()
         .map(|c| match c.default {
             None => Ok(None),
@@ -268,7 +269,33 @@ fn check_general(
                 .map(|v| Some(v.into_owned()))
                 .or_else(|_| invalid(SchemaRule::InvalidDefault, Some(c.name))),
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    let stored = columns.iter().zip(&defaults);
+    check_fits(stored.map(|(c, d)| (c.name, c.ty, d.as_ref())), key.len())?;
+    Ok(defaults)
+}
+
+/// Fails with an invalid default unless a schema with `columns` (name, type and normalized default, in schema order)
+/// and `key_len` primary key columns fits in a table's catalog entry, whose bytes after the fixed part are at most
+/// [`MAX_EXTRA`]: a default may make a valid row of up to 256 MiB (E18) and still not fit with the rest of the schema.
+/// The error names the last column with a default up to the one where the schema passes the maximum (provisional,
+/// R1 of the code review of 2026-11-11).
+fn check_fits<'a>(
+    columns: impl IntoIterator<Item = (&'a str, ColumnType, Option<&'a Value<'a>>)>,
+    key_len: usize,
+) -> Result<(), Invalid> {
+    let mut len = FIXED_LEN + 8 * key_len;
+    let mut named = None;
+    for (name, ty, default) in columns {
+        len += encoded_column_len(name, ty, default);
+        if default.is_some() {
+            named = Some(name);
+        }
+        if len > MAX_EXTRA {
+            return invalid(SchemaRule::InvalidDefault, named);
+        }
+    }
+    Ok(())
 }
 
 /// Checks a schema given to create a table (E5) and returns each column's default normalized for it.
@@ -377,6 +404,15 @@ impl TableSchema {
             .collect()
     }
 
+    /// Fails with an invalid default unless the schema fits in its table's catalog entry (see [`check_fits`]).
+    fn check_fits(&self) -> Result<(), Invalid> {
+        let columns = self.columns.iter();
+        check_fits(
+            columns.map(|c| (c.name.as_str(), c.ty, c.default.as_ref())),
+            self.key.len(),
+        )
+    }
+
     /// The layout of the rows written with the current version.
     pub fn layout(&self) -> RowLayout {
         RowLayout::new(self.version, self.row_columns())
@@ -444,6 +480,8 @@ impl TableSchema {
                     return invalid(SchemaRule::DuplicateColumnName, Some(to));
                 }
                 next.columns[at].name = to.to_owned();
+                // A longer name may make the schema pass the most bytes of its catalog entry.
+                next.check_fits()?;
                 from
             }
             Change::Modify { name, ty, nullable } => {
@@ -739,9 +777,68 @@ impl<'b> Reader<'b> {
         check_type(&ty).ok().map(|()| ty)
     }
 
+    /// The number of live columns of a schema in the catalog: 1 to [`MAX_COLUMNS`].
+    fn column_count(&mut self) -> Option<usize> {
+        let count = usize::from(self.u16()?);
+        (1..=MAX_COLUMNS).contains(&count).then_some(count)
+    }
+
+    /// A live column of a schema in the catalog (see [`TableSchema::encode`]), its name and default borrowing the
+    /// bytes.
+    fn column(&mut self) -> Option<StoredColumn<'b>> {
+        let id = self.u64()?;
+        let name = std::str::from_utf8(self.bytes()?).ok()?;
+        if !(1..=MAX_COLUMN_NAME).contains(&name.len()) {
+            return None;
+        }
+        let ty = self.ty()?;
+        let flags = self.u8()?;
+        if flags & !(NULLABLE | DEFAULT) != 0 {
+            return None;
+        }
+        let default = if flags & DEFAULT != 0 {
+            let stored = self.bytes()?;
+            Some(default_layout(ty).row(stored).ok()?.value(0).ok()??)
+        } else {
+            None
+        };
+        Some(StoredColumn {
+            id,
+            name,
+            ty,
+            nullable: flags & NULLABLE != 0,
+            default,
+        })
+    }
+
     fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+}
+
+/// A live column as a table's catalog entry stores it, borrowing the entry's bytes.
+struct StoredColumn<'b> {
+    id: u64,
+    name: &'b str,
+    ty: ColumnType,
+    nullable: bool,
+    default: Option<Value<'b>>,
+}
+
+/// The identity and the default of each live column, in schema order, of a schema in a table's catalog entry
+/// (`bytes`, what [`TableSchema::encode`] writes), the defaults borrowing the entry's bytes (D11); `None` when the bytes
+/// are not such a schema: the caller reports damage of the catalog page (G6). A row written before a column with a
+/// default was added reads it from here, without a copy made for that read (AC20).
+pub(crate) fn decode_defaults(bytes: &[u8]) -> Option<Vec<(u64, Option<Value<'_>>)>> {
+    let mut r = Reader(bytes);
+    r.take(8 + 2 + 8)?; // the history tree's root, the version and the schema state
+    let count = r.column_count()?;
+    let mut defaults = Vec::with_capacity(count);
+    for _ in 0..count {
+        let column = r.column()?;
+        defaults.push((column.id, column.default));
+    }
+    Some(defaults)
 }
 
 /// The flag of a column that allows nulls.
@@ -750,6 +847,20 @@ const NULLABLE: u8 = 1;
 const KEY: u8 = 2;
 /// The flag of a column with a default value, in the catalog.
 const DEFAULT: u8 = 4;
+
+/// The bytes of a schema in its catalog entry ([`TableSchema::encode`]) besides its columns and its primary key
+/// columns' identities: the history tree's root, the version, the schema state and the two counts.
+const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2;
+
+/// The bytes that [`TableSchema::encode`] writes for a column named `name` of type `ty` with `default`.
+fn encoded_column_len(name: &str, ty: ColumnType, default: Option<&Value<'_>>) -> usize {
+    let mut w = Writer(Vec::new());
+    w.ty(&ty);
+    let default = default.map_or(0, |default| {
+        4 + default_layout(ty).encoded_len(std::slice::from_ref(default))
+    });
+    8 + 4 + name.len() + w.0.len() + 1 + default
+}
 
 /// The single-column layout that stores a default value of type `ty`: the row format of document 1, so that a
 /// default is stored as a row stores its value.
@@ -790,6 +901,15 @@ impl TableSchema {
         for id in &self.key {
             w.u64(*id);
         }
+        debug_assert_eq!(
+            w.0.len(),
+            FIXED_LEN
+                + 8 * self.key.len()
+                + (self.columns.iter())
+                    .map(|c| encoded_column_len(&c.name, c.ty, c.default.as_ref()))
+                    .sum::<usize>(),
+            "check_fits counts what encode writes"
+        );
         w.0
     }
 
@@ -800,36 +920,16 @@ impl TableSchema {
         let history = r.u64()?;
         let version = r.u16()?;
         let schema_state = r.u64()?;
-        let count = usize::from(r.u16()?);
-        if count == 0 || count > MAX_COLUMNS {
-            return None;
-        }
+        let count = r.column_count()?;
         let mut columns = Vec::with_capacity(count);
         for _ in 0..count {
-            let id = r.u64()?;
-            let name = std::str::from_utf8(r.bytes()?).ok()?;
-            if !(1..=MAX_COLUMN_NAME).contains(&name.len()) {
-                return None;
-            }
-            let ty = r.ty()?;
-            let flags = r.u8()?;
-            if flags & !(NULLABLE | DEFAULT) != 0 {
-                return None;
-            }
-            let default = if flags & DEFAULT != 0 {
-                let stored = r.bytes()?;
-                let layout = default_layout(ty);
-                let value = layout.row(stored).ok()?.value(0).ok()??;
-                Some(value.into_owned())
-            } else {
-                None
-            };
+            let column = r.column()?;
             columns.push(SchemaColumn {
-                id,
-                name: name.to_owned(),
-                ty,
-                nullable: flags & NULLABLE != 0,
-                default,
+                id: column.id,
+                name: column.name.to_owned(),
+                ty: column.ty,
+                nullable: column.nullable,
+                default: column.default.map(Value::into_owned),
             });
         }
         let key_count = usize::from(r.u16()?);

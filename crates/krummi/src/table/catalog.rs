@@ -20,7 +20,7 @@ use krummi_tree::PageSource;
 use krummi_tree::catalog::{self, Entry};
 
 use super::identity;
-use super::rows::Reader;
+use super::rows::{At, Reader};
 use super::schema::{
     Change, Column, Different, Invalid, MAX_COLUMN_NAME, Schema, TableSchema, check_new,
     identity_key, schema_names, version_key,
@@ -87,6 +87,17 @@ impl<'a> TableMode<'a> {
     }
 }
 
+impl ReadTable<'_> {
+    /// Where its rows are.
+    pub(super) fn at(&self) -> At<'_> {
+        At {
+            name: &self.name,
+            rows_root: self.rows_root,
+            history: self.history,
+        }
+    }
+}
+
 /// The roots of a table's internal trees, which no catalog name reaches (a test hook, AC13).
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +146,15 @@ pub(crate) struct TableState {
 }
 
 impl TableState {
+    /// Where its rows are.
+    pub(super) fn at(&self) -> At<'_> {
+        At {
+            name: &self.name,
+            rows_root: self.rows_root,
+            history: self.history,
+        }
+    }
+
     fn entry(&self) -> Entry {
         Entry {
             id: self.id,

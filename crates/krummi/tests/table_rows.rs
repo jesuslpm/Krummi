@@ -20,9 +20,10 @@ use krummi::table::value::{
     Value, VectorElement, VectorType,
 };
 use krummi::{
-    Column, Error, ErrorKind, ReadTransaction, Schema, SchemaDifference, SizeSubject, TableMode,
-    TableRow, Upserted, ValueRule, WriteTable, WriteTransaction,
+    Column, Error, ErrorKind, ReadTransaction, Schema, SchemaDifference, SchemaRule, SizeSubject,
+    TableMode, TableRow, Upserted, ValueRule, WriteTable, WriteTransaction,
 };
+use krummi_tree::catalog::MAX_EXTRA;
 use support::*;
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1055,6 +1056,128 @@ fn ac15_a_row_of_256_mib() {
     });
 }
 
+/// The table, column and rule of an invalid-schema error, after checking its folder.
+#[track_caller]
+fn invalid_schema(error: Error, folder: Option<&Path>) -> (String, Option<String>, SchemaRule) {
+    match error {
+        Error::InvalidSchema {
+            folder: f,
+            table,
+            column,
+            rule,
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (table, column, rule)
+        }
+        other => panic!("expected an invalid schema, got {other}"),
+    }
+}
+
+/// `id i64 not null`, primary key `id`.
+fn only_id() -> Schema {
+    Schema::new(vec![Column::new("id", ColumnType::I64).not_null()], &["id"])
+}
+
+/// A column `name bytes not null` whose default has `len` bytes.
+fn bytes_default(name: &str, len: usize) -> Column {
+    Column::new(name, ColumnType::Bytes)
+        .not_null()
+        .with_default(Value::Bytes(Cow::Owned(vec![42; len])))
+}
+
+/// E5, E17, E18 (provisional, R1 of the code review of 2026-11-11): a default that makes a valid row of 256 MiB, but
+/// whose schema does not fit in the table's catalog entry, fails with an invalid default naming its column, after the
+/// catalog and in every mode that may create the table, and when a column with it is added: without effect, and the
+/// write commits its other changes.
+#[test]
+fn ac15_a_default_too_large_for_the_catalog_fails() {
+    let _large = one_large_test_at_a_time();
+    stores(|store, folder| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                bytes_default("b", MAX_VALUE - 3),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        for mode in [
+            TableMode::CreateNew(&schema),
+            TableMode::OpenOrCreate(&schema),
+            TableMode::CreateOrEmpty(&schema),
+        ] {
+            let error = write.open_table_with("t", mode).err().unwrap();
+            assert_eq!(
+                invalid_schema(error, folder),
+                ("t".to_owned(), some("b"), SchemaRule::InvalidDefault),
+                "{mode:?}"
+            );
+            assert!(!write.tree_exists("t").unwrap(), "{mode:?}: no table");
+        }
+        drop(schema);
+        let table = create(&mut write, "u", &only_id());
+        let before = write.table_schema(&table).unwrap();
+        let error = write
+            .add_column(&table, &bytes_default("b", MAX_VALUE - 3))
+            .unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            ("u".to_owned(), some("b"), SchemaRule::InvalidDefault)
+        );
+        assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+        write.insert_row(&table, &[("id", Value::I64(1))]).unwrap();
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        assert!(!read.tree_exists("t").unwrap());
+        assert_eq!(read.describe_table("u").unwrap(), before);
+        assert_eq!(
+            read_r(&read, "u", &[Value::I64(1)]).unwrap(),
+            named(vec![("id", Value::I64(1))])
+        );
+    });
+}
+
+/// E4, E5 (provisional, R1 of the code review of 2026-11-11): a schema whose catalog entry has exactly the most bytes
+/// of a value is created, and renaming its column to a longer name, which would pass them, fails with an invalid
+/// default naming the column, without effect.
+#[test]
+fn ac15_a_schema_that_fills_the_catalog_entry() {
+    let _large = one_large_test_at_a_time();
+    stores(|store, folder| {
+        let mut write = store.write().unwrap();
+        // The size of the entry grows by one byte with each byte of the default.
+        let probe = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                bytes_default("c", 1),
+            ],
+            &["id"],
+        );
+        let probe = create(&mut write, "probe", &probe);
+        let small = write.table_schema(&probe).unwrap().encode(0).len();
+        write.delete_table("probe").unwrap();
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                bytes_default("c", 1 + MAX_EXTRA - small),
+            ],
+            &["id"],
+        );
+        let table = create(&mut write, "t", &schema);
+        drop(schema);
+        let before = write.table_schema(&table).unwrap();
+        assert_eq!(before.encode(0).len(), MAX_EXTRA, "the entry is full");
+        let error = write.rename_column(&table, "c", "cc").unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            ("t".to_owned(), some("cc"), SchemaRule::InvalidDefault)
+        );
+        assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+        write.commit().unwrap();
+        assert_eq!(store.read().unwrap().describe_table("t").unwrap(), before);
+    });
+}
+
 fn pattern(len: usize) -> Vec<u8> {
     (0..len).map(pattern_byte).collect()
 }
@@ -1805,6 +1928,88 @@ fn ac_n6_old_rows_read_with_the_new_schema() {
                 ("score", Value::Null),
             ])
         );
+    });
+}
+
+/// The address of the text, bytes or vector of the column `name` of `row`, which must borrow it.
+#[track_caller]
+fn borrowed_at(row: &TableRow<'_>, name: &str) -> *const u8 {
+    match row.get(name) {
+        Some(Value::String(Cow::Borrowed(text))) => text.as_ptr(),
+        Some(Value::Bytes(Cow::Borrowed(bytes)) | Value::Vector(Cow::Borrowed(bytes))) => {
+            bytes.as_ptr()
+        }
+        Some(_) => panic!("the column {name} does not borrow its value"),
+        None => panic!("the row has no column {name}"),
+    }
+}
+
+/// D11, AC20 (E11, AC-N6): rows written before a column with a default was added read that default as a reference
+/// into the store's memory, not as a copy made for each read: two old rows, read by their key and in a scan, in the
+/// write that added the columns and in a read, borrow the same bytes of a text, a 1 MiB bytes and a vector default.
+#[test]
+fn e11_old_rows_borrow_the_defaults_of_added_columns() {
+    stores(|store, _| {
+        let big = vec![42u8; 1 << 20];
+        let elements: Vec<u8> = [1f32, 2.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let check = |rows: &[TableRow<'_>]| {
+            for row in rows {
+                assert_eq!(row.get("b"), Some(&b(&big)));
+                assert_eq!(row.get("s"), Some(&s("text")));
+                assert_eq!(row.get("v"), Some(&Value::Vector(Cow::Borrowed(&elements))));
+            }
+            for name in ["b", "s", "v"] {
+                let first = borrowed_at(&rows[0], name);
+                assert!(
+                    rows.iter().all(|row| borrowed_at(row, name) == first),
+                    "{name}"
+                );
+            }
+        };
+        let keys = [[Value::I64(1)], [Value::I64(2)]];
+        let mut write = store.write().unwrap();
+        let only_id = Schema::new(vec![Column::new("id", ColumnType::I64).not_null()], &["id"]);
+        let table = create(&mut write, "t", &only_id);
+        for key in &keys {
+            write.insert_row(&table, &[("id", key[0].clone())]).unwrap();
+        }
+        let added = [
+            Column::new("b", ColumnType::Bytes).with_default(b(&big).into_owned()),
+            Column::new("s", ColumnType::String).with_default(s("text").into_owned()),
+            Column::new("v", vector(VectorElement::F32, 2, false))
+                .with_default(Value::Vector(Cow::Owned(elements.clone()))),
+        ];
+        for column in &added {
+            write.add_column(&table, column).unwrap();
+        }
+        {
+            let mut rows: Vec<TableRow<'_>> = keys
+                .iter()
+                .map(|key| write.get_row(&table, key).unwrap().unwrap())
+                .collect();
+            rows.extend(
+                write
+                    .range_rows(&table, &[], ..)
+                    .unwrap()
+                    .map(Result::unwrap),
+            );
+            assert_eq!(rows.len(), 4);
+            check(&rows);
+        }
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let mut rows: Vec<TableRow<'_>> = keys
+            .iter()
+            .map(|key| read.get_row(&table, key).unwrap().unwrap())
+            .collect();
+        rows.extend(
+            read.range_rows(&table, &[], ..)
+                .unwrap()
+                .map(Result::unwrap),
+        );
+        assert_eq!(rows.len(), 4);
+        check(&rows);
     });
 }
 

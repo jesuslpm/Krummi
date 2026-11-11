@@ -26,6 +26,9 @@ pub const IDENTITIES_SLOT: usize = 1;
 
 /// Bytes of an encoded entry: identity, kind, root and count.
 const ENTRY_SIZE: usize = 8 + 1 + 8 + 8;
+/// The most bytes after a table's entry's fixed part ([`put_with_extra`]): what remains of a value of
+/// [`MAX_VALUE`](crate::MAX_VALUE) bytes.
+pub const MAX_EXTRA: usize = crate::MAX_VALUE - ENTRY_SIZE;
 /// Bytes of an encoded entry of a fixed-size tree: those of [`ENTRY_SIZE`] and the length of its values, little
 /// endian (D5 of the fixed-size trees execution).
 const FIXED_ENTRY_SIZE: usize = ENTRY_SIZE + 2;
@@ -209,7 +212,8 @@ pub fn put(tx: &mut WriteTransaction<'_>, name: &str, entry: &Entry) -> Result<(
 ///
 /// # Panics
 ///
-/// If `entry` is not a table's, or `extra` is empty: either would be damage of the catalog page.
+/// If `entry` is not a table's, or `extra` is empty: either would be damage of the catalog page; or if `extra` has more
+/// than [`MAX_EXTRA`] bytes, which no value holds.
 pub fn put_with_extra(
     tx: &mut WriteTransaction<'_>,
     name: &str,
