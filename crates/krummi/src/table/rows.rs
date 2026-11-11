@@ -723,8 +723,9 @@ pub(crate) struct Readers {
 
 /// The children of each kept reader in [`Readers`], one per digit of a key's hash, of [`DIGIT`] bits.
 const FANOUT: usize = 16;
+/// The bits of a digit of a key's hash: between 1 and 63, so that a hash has several digits.
 const DIGIT: u32 = FANOUT.trailing_zeros();
-const _: () = assert!(FANOUT.is_power_of_two());
+const _: () = assert!(FANOUT.is_power_of_two() && DIGIT > 0 && DIGIT < u64::BITS);
 
 /// A reader of [`Readers`], with its key and its children.
 pub(crate) struct Kept {
