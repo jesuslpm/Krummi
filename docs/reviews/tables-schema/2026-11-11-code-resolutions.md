@@ -77,3 +77,25 @@ public error should it use?").
 
 Review record: telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review-critical` `gpt-6-astra` /
 `xhigh`.
+
+## 2026-11-11 (product decisions)
+
+The user answered both open questions after round 2 (asked one at a time):
+
+- **Q2 (R1):** «Aceptar el límite». A schema whose stored form, with its column names and defaults, passes 256 MiB
+  fails without effect with invalid schema and a new last rule of E5, `SchemaRule::SchemaTooLarge` ("esquema demasiado
+  grande"), naming the column where it passes the maximum, or the column of the change when adding or renaming a
+  column. PRD annotation: `tables-schema.prd.md` and its translation, block of 2026-11-11 before *Cargas del banco*.
+- **Q1:** «Se acepta». The temporal domain is checked on the value rounded to the microsecond (the stored one), which
+  is the current behaviour; E8 is annotated to say so. No code change.
+
+### R1 — major: valid large defaults rejected by an undeclared catalog limit
+
+- Disposition: fixed per the user's decision.
+- Fix (code `6e4a04a`, PRD `461bccc`): `check_fits` reports `SchemaTooLarge` with the column where the
+  stored schema passes `MAX_EXTRA`; at creation it runs after every other E5 rule; for `add_column` and column renames
+  it runs after the version check (P19), so the new rule is the last of E5 in every path, naming the added or renamed
+  column. `ac15_a_default_too_large_for_the_catalog_fails` and `ac15_a_schema_that_fills_the_catalog_entry` assert the
+  new rule (they failed against the provisional `InvalidDefault`, then passed). This also answers the RDD advisory
+  R2-001 of `review-1b1106545ae7a5fc` (the provisional error named the last column with a default).
+- Status: claimed fixed, unverified until a follow-up review.

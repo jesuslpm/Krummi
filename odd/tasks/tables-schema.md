@@ -242,3 +242,8 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   (SUGGESTION) accepted as is. Codex round 2 ([report](../../docs/reviews/tables-schema/2026-11-11-code-02.md)):
   R2 and R3 verified resolved; R1 open pending the product decision Q2; Q1 carried forward. Wait for the user's
   answers starts.
+- **L16** (2026-11-11, the user's answers, verbatim): Q2 «Aceptar el límite» (the option: a schema whose stored form
+  passes 256 MiB fails with invalid schema, a new last rule of E5, naming the column that makes it pass, also when
+  renaming); Q1 «Se acepta» (only the value rounded to the microsecond counts). Wait for the user ends. Fix `6e4a04a`
+  (`SchemaRule::SchemaTooLarge`, checked last in every path) and PRD annotations `461bccc` (E5 and E8, Spanish and
+  English).
