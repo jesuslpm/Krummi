@@ -105,7 +105,7 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
 | T9 | S11, S23 (sequence half); sequence parts of S2, S13, S14, S19 | D4; README sequences | delegated: parallel with T7 and T8 | done (code before tests: 5 mutants caught, 1 survived on an unreachable root move) | `0a698e5` |
 | T10 | S19, S13 (hooks); review test gaps | D3, D4 | delegated: parallel with T11 | done (RED/GREEN only for the bulk load message; the other tests pin existing behaviour) | `21d1502` |
 | T11 | S16, S26 (Krummi side, report) | benchmark PRD | delegated: parallel with T10 | done (RED/GREEN: workload tests did not compile, report tests failed at 22 loads; the reduced run failed on the removed W23 store before the plan fix) | `12dd86b`, `18e83d1` |
-| T12 | S16, S26, S27 (runs, measurements), docs | — | to decide | pending | |
+| T12 | S16, S26, S27 (runs, measurements), docs | — | inline (background runs) | done (AC16: 29 thresholds shown, W26/W27 checksums equal in both engines; Krummi meets 26 of 29 on Windows, 28 of 29 on Linux; AC-N10 rotations with no regression; L19) | the reports commit |
 
 ## Log
 
@@ -255,3 +255,21 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   allows nulls.
 - **L18** (2026-11-11): Codex round 3 ([report](../../docs/reviews/tables-schema/2026-11-11-code-03.md)): `approved`,
   "Approved."; R1 verified with the user's decision; no open finding or question. Next: T12 measurements.
+- **L19** (2026-11-11): T12 measurements, `work/t12/all.sh` on `d0d4ef6` under the bench power plan, 06:10–11:38
+  (phase log). Single-load rotations (AC-N10), two alternating rounds, head / main for W1–W22: Windows 0.88–1.06,
+  WSL 2 0.65–1.52; no load is below 0.95 in both rounds on either system, so the noise does not hide a regression
+  (W16 0.65 then 1.52 and W21 0.75 then 1.20 in WSL). The rotations' `FAILED W13` lines are the script's: W13 runs
+  inside W12's process (K3) and its value comes from W12's run. W23–W29 on head (op/s, two rounds): Windows W23
+  378,932 / 379,545, W24 95,685 / 96,953, W25 365,188 / 365,073, W26 554,317 / 563,965, W27 1,693,464 / 1,651,835,
+  W28 96,609 / 95,773, W29 121,300 / 119,682; WSL W23 123,795 / 128,987, W24 58,592 / 58,404, W25 411,004 / 389,713,
+  W26 562,625 / 543,601, W27 1,975,145 / 1,985,901, W28 62,331 / 62,331, W29 68,396 / 69,497. Complete runs (AC16):
+  [Windows](../../docs/benchmark/2026-11-11-windows-tables.md), 5,981 s, Krummi meets 26 of 29 thresholds, failing
+  `tabla-lecturas` 0.75, `tabla-intervalos` 0.15 and `tabla-actualizacion` 0.73;
+  [Linux](../../docs/benchmark/2026-11-11-linux-tables.md), 7,468 s, 28 of 29, failing `tabla-intervalos` 0.19
+  (`tabla-lecturas` 0.88, `tabla-actualizacion` 0.87). Both show 29 thresholds, `no aplica` for the other engines and
+  the four table loads in the size table; the W26 and W27 checksums matched the expected sums in both engines (the
+  workers fail otherwise). Per K13 of the benchmark PRD, a failed threshold becomes a separate change, so this run
+  closes with them. Diagnosis of W27 (samply on Windows, `work/prof/w27.json.gz`): `Reader::decode` takes 70% of the
+  load, the tree's range 8%; per row, `decode_key` collects a `Vec` and the row its `Vec<Value>` (allocation and
+  free, about 22%), and the moves of 48-byte `Value`s through `Result<Option<Value>>` stall store forwarding (about
+  25% self time in `decode`). Voron returns a pointer to the row. Next: the closing report.
