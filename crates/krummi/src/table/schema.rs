@@ -273,11 +273,11 @@ fn check_general(
     Ok(defaults)
 }
 
-/// Fails with an invalid default unless a schema with `columns` (name, type and normalized default, in schema order)
+/// Fails with a schema too large unless a schema with `columns` (name, type and normalized default, in schema order)
 /// and `key_len` primary key columns fits in a table's catalog entry, whose bytes after the fixed part are at most
 /// [`MAX_EXTRA`]: a default may make a valid row of up to 256 MiB (E18) and still not fit with the rest of the schema.
-/// The error is the last rule of E5, a schema too large (decided by the user on 2026-11-11, R1 of the code review),
-/// and names the column where the schema passes the maximum.
+/// The error is the last rule of E5 (decided by the user on 2026-11-11, R1 of the code review) and names the column
+/// where the schema passes the maximum; a schema change names the column of the change instead (`plan`).
 fn check_fits<'a>(
     columns: impl IntoIterator<Item = (&'a str, ColumnType, Option<&'a Value<'a>>)>,
     key_len: usize,
