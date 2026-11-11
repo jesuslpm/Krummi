@@ -2174,3 +2174,65 @@ fn d11_values_outlive_their_row() {
         );
     });
 }
+
+/// S3 of the row reads run: every column that the read of a row checked can be read, a null and a variable-length
+/// column of an older version included, by key and in a scan, after a column is added and another dropped.
+#[test]
+fn e19_every_column_of_a_checked_older_row_reads() {
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("s", ColumnType::String),
+                Column::new("b", ColumnType::Bytes),
+                Column::new("gone", ColumnType::I32),
+                Column::new("flag", ColumnType::Bool),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = create(&mut write, "t", &schema);
+        write
+            .insert_row(
+                &table,
+                &[
+                    ("id", Value::I64(1)),
+                    ("s", s("one")),
+                    ("b", b(&[1])),
+                    ("flag", Value::Bool(true)),
+                ],
+            )
+            .unwrap();
+        write.insert_row(&table, &[("id", Value::I64(2))]).unwrap();
+        write
+            .add_column(&table, &Column::new("added", ColumnType::String))
+            .unwrap();
+        write.drop_column(&table, "gone").unwrap();
+        let expected = [
+            vec![
+                Value::I64(1),
+                s("one"),
+                b(&[1]),
+                Value::Bool(true),
+                Value::Null,
+            ],
+            vec![
+                Value::I64(2),
+                Value::Null,
+                Value::Null,
+                Value::Null,
+                Value::Null,
+            ],
+        ];
+        for (id, want) in [1, 2].into_iter().zip(&expected) {
+            let row = write.get_row(&table, &[Value::I64(id)]).unwrap().unwrap();
+            assert_eq!(row.values().collect::<Vec<_>>(), *want);
+        }
+        let scanned: Vec<Vec<Value<'_>>> = write
+            .range_rows(&table, &[], ..)
+            .unwrap()
+            .map(|row| row.unwrap().values().collect())
+            .collect();
+        assert_eq!(scanned, expected);
+    });
+}

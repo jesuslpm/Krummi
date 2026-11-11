@@ -177,6 +177,9 @@ pub(super) fn run(cx: &Context) -> Result<()> {
     }
 }
 
+/// The number of columns of [`schema`].
+const COLUMNS: usize = 6;
+
 /// The schema of the table of every table load, with its key of `kind`.
 fn schema(kind: KeyKind) -> Schema {
     let id = match kind {
@@ -198,7 +201,7 @@ fn schema(kind: KeyKind) -> Schema {
 }
 
 /// Every column of `row`, with its key of `kind`; `ts` goes from microseconds to the nanoseconds of [`Value`].
-fn values(row: &Row, kind: KeyKind) -> [(&'static str, Value<'_>); 6] {
+fn values(row: &Row, kind: KeyKind) -> [(&'static str, Value<'_>); COLUMNS] {
     let id = match kind {
         KeyKind::Ulid => Value::Ulid(Ulid(row.id)),
         KeyKind::Uuid => Value::Uuid(Uuid(row.id)),
@@ -237,7 +240,7 @@ fn id_of(row: &TableRow<'_>) -> Option<[u8; ID_LEN]> {
 fn checksum(row: &TableRow<'_>) -> Result<u64> {
     let unexpected = || format!("la fila leída no tiene las columnas de la tabla: {row:?}");
     let (
-        6,
+        COLUMNS,
         Some(id),
         Some(Value::I64(n)),
         Some(Value::F64(x)),

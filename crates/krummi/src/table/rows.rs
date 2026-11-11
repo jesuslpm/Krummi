@@ -662,7 +662,9 @@ impl<'t> TableRow<'t> {
         self.reader.columns.is_empty()
     }
 
-    /// The value of the live column at `position`, in schema order.
+    /// The value of the live column at `position`, in schema order. A row read decodes it from the stored bytes, so a
+    /// text, bytes or vector value borrows the page; a row made by [`into_owned`](Self::into_owned) gives a copy of
+    /// the value it owns.
     #[inline]
     pub fn value(&self, position: usize) -> Option<Value<'t>> {
         if position >= self.len() {
@@ -711,8 +713,8 @@ impl<'t> TableRow<'t> {
 
     /// The row with its borrowed values copied, so that it outlives its transaction's next change.
     pub fn into_owned(self) -> TableRow<'static> {
-        let values = match &self.stored {
-            Stored::Owned(values) => values.clone(),
+        let values = match self.stored {
+            Stored::Owned(values) => values,
             Stored::Row { .. } => self.values().map(Value::into_owned).collect(),
         };
         TableRow {

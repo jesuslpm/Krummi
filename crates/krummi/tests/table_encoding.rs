@@ -7,7 +7,9 @@ use std::cmp::Ordering;
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
 use krummi::ids::{Ulid, Uuid};
-use krummi::table::key::{KeyError, KeyRange, MAX_KEY, decode_key, encode_key, key_len, key_range};
+use krummi::table::key::{
+    KeyError, KeyRange, MAX_KEY, decode_key, encode_key, is_key, key_len, key_range, key_value,
+};
 use krummi::table::row::{MAX_ROW, RowColumn, RowDamaged, RowLayout, row_version};
 use krummi::table::value::{
     ColumnType, DATE_MAX, DATE_MIN, DURATION_MAX, Decimal, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN,
@@ -1969,4 +1971,65 @@ fn key_len_refuses_fewer_values_than_columns() {
 #[should_panic(expected = "one value per primary key column")]
 fn encode_key_refuses_more_values_than_columns() {
     let _ = encode_key(&[ColumnType::I64], &[Value::I64(1), Value::I64(2)]);
+}
+
+/// `is_key`, which checks the key of a row read without decoding its text and bytes, accepts exactly the keys that
+/// `decode_key` decodes, and `key_value` gives the fixed-width columns as `decode_key` does: over good keys with
+/// escaped zeros and multi-byte characters, each truncation, each byte changed to an edge value and each byte inserted.
+#[test]
+fn is_key_accepts_the_keys_that_decode_key_decodes() {
+    let cases: [(&[ColumnType], Vec<Value<'_>>); 4] = [
+        (
+            &[ColumnType::I32, ColumnType::String],
+            vec![Value::I32(300), s("é\0é")],
+        ),
+        (
+            &[ColumnType::String, ColumnType::I64],
+            vec![s("a\0\0b"), Value::I64(-7)],
+        ),
+        (
+            &[ColumnType::Bytes, ColumnType::Ulid],
+            vec![b(&[0, 0xFF, 0, 1]), Value::Ulid(Ulid([9; 16]))],
+        ),
+        (
+            &[ColumnType::Uuid(UuidOrder::SqlServer), ColumnType::Bool],
+            vec![Value::Uuid(Uuid([3; 16])), Value::Bool(true)],
+        ),
+    ];
+    for (types, values) in &cases {
+        let good = encode_key(types, values).unwrap();
+        let mut keys = vec![good.clone()];
+        for end in 0..good.len() {
+            keys.push(good[..end].to_vec());
+        }
+        for at in 0..good.len() {
+            for byte in [0x00, 0x01, 0x02, 0x80, 0xC3, 0xFE, 0xFF, good[at] ^ 1] {
+                let mut changed = good.clone();
+                changed[at] = byte;
+                keys.push(changed);
+            }
+            for byte in [0x00, 0xFF, 0xC3] {
+                let mut longer = good.clone();
+                longer.insert(at, byte);
+                keys.push(longer);
+            }
+        }
+        keys.push([good.as_slice(), &[0]].concat());
+        for key in &keys {
+            let decoded = decode_key(types, key);
+            assert_eq!(
+                is_key(types, key),
+                decoded.is_some(),
+                "{types:?} {key:02x?}"
+            );
+            for (k, ty) in types.iter().enumerate() {
+                if let (Some(decoded), Some(_)) = (&decoded, ty.fixed_width()) {
+                    assert!(
+                        same(&[key_value(types, key, k)], &decoded[k..=k]),
+                        "{key:02x?}"
+                    );
+                }
+            }
+        }
+    }
 }
