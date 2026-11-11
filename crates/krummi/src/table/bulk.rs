@@ -62,7 +62,7 @@ impl<E: error::Error + 'static> error::Error for BulkLoadError<E> {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             BulkLoadError::Store(error) => error.source(),
-            BulkLoadError::Source(error) => Some(error),
+            BulkLoadError::Source(error) => error.source(),
         }
     }
 }

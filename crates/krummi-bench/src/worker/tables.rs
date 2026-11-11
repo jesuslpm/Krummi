@@ -133,6 +133,17 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                         }
                     })
                 })?;
+                // After the measured time: every row holds its new `n`.
+                let tx = store.inner().read().map_err(cause)?;
+                let table = tx.open_table(TABLE).map_err(cause)?;
+                for (key, &n) in keys.iter().zip(&new_n) {
+                    let row = tx.get_row(&table, &[ulid(key)]).map_err(cause)?;
+                    let row = row.ok_or_else(|| missing(key))?;
+                    if row.get("n") != Some(&Value::I64(n)) {
+                        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+                        return Err(format!("la fila {hex} no tiene su n nuevo"));
+                    }
+                }
                 Ok(vec![(load, n, time)])
             })
         }
@@ -154,7 +165,13 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                         },
                     )
                 })?;
-                Ok(vec![(load, n, time)])
+                // After the measured time: the table is empty.
+                let tx = store.inner().read().map_err(cause)?;
+                let table = tx.open_table(TABLE).map_err(cause)?;
+                match tx.row_count(&table).map_err(cause)? {
+                    0 => Ok(vec![(load, n, time)]),
+                    left => Err(format!("la tabla conserva {left} filas")),
+                }
             })
         }
         _ => unreachable!("{load:?} is not a table load"),

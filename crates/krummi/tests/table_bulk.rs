@@ -412,8 +412,9 @@ fn the_message_of_a_failing_source_includes_its_error() {
             error.to_string(),
             "the source of the bulk load failed: the file is gone"
         );
-        let source = std::error::Error::source(&error).expect("the source's error");
-        assert_eq!(source.to_string(), "the file is gone");
+        // The message already holds the source's error, so the chain goes on with that error's own source and
+        // reporters that print every source show it once.
+        assert!(std::error::Error::source(&error).is_none());
         assert_eq!(read_rows(store, "t", KEYS).0, 3);
     });
 }

@@ -256,7 +256,10 @@ impl Load {
 
     /// The table loads W23–W29 (E21): only Krummi and Voron run them.
     pub fn is_table(self) -> bool {
-        self >= Load::W23
+        matches!(
+            self,
+            Load::W23 | Load::W24 | Load::W25 | Load::W26 | Load::W27 | Load::W28 | Load::W29
+        )
     }
 
     /// Whether a worker process runs this load. W13 is measured in the same process as W12 (K3).
