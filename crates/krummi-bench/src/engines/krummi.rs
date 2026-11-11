@@ -39,6 +39,14 @@ pub struct Writer<'t> {
     tree: WriteHandle<'t>,
 }
 
+impl Store {
+    /// The Krummi store itself, for the table loads W23–W29, which only Krummi and Voron run (E21) and so do not go
+    /// through [`super::Store`].
+    pub fn inner(&self) -> &krummi::Store {
+        &self.store
+    }
+}
+
 impl super::Store for Store {
     type Reader<'t> = Reader<'t>;
     type Writer<'t> = Writer<'t>;

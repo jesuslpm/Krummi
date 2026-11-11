@@ -14,7 +14,7 @@ use crate::measure::{Repetition, load_metric, whole};
 use crate::protocol::Line;
 use crate::size::folder_size;
 use crate::worker::ROLE_VARIABLE;
-use crate::workload::{Engine, Load, Scale, Start, expected_operations, runs};
+use crate::workload::{Engine, Load, Scale, Start, expected_operations, released, runs};
 
 /// How the orchestrator starts each worker.
 pub struct Workers {
@@ -110,7 +110,7 @@ fn run_engine(
     )?;
     eprintln!("{}: almacén base preparado", engine.name());
 
-    for &load in &loads {
+    for (i, &load) in loads.iter().enumerate() {
         let store = dir.join(load.id());
         let mut args: Vec<OsString> = vec![
             "run".into(),
@@ -145,12 +145,9 @@ fn run_engine(
             let size = folder_size(&last_store(&store)).map_err(|e| fail(&e.to_string()))?;
             measured.sizes.insert((load, engine), size);
         }
-        // A store that another load starts from (W17, W19 and W21) stays until that load has run.
-        if !Load::ALL.iter().any(|l| l.start() == Start::After(load)) {
-            remove(&store).map_err(|c| fail(&c))?;
-        }
-        if let Start::After(previous) = load.start() {
-            remove(&dir.join(previous.id())).map_err(|c| fail(&c))?;
+        // A store that other loads start from (W17, W19, W21 and W23) stays until the last of them has run.
+        for released in released(&loads, i) {
+            remove(&dir.join(released.id())).map_err(|c| fail(&c))?;
         }
         eprintln!("{} {}", engine.name(), progress.join("; "));
     }

@@ -153,7 +153,8 @@ fn a_reduced_run_writes_its_report_and_leaves_no_store() {
     assert_eq!(names(bench.cwd.path()), [name]);
     assert_eq!(names(bench.work.path()), Vec::<String>::new(), "work");
 
-    // AC-K1's structure: the 22 loads and the 8 sizes, `no aplica` only for canopydb and fjall in W19–W22.
+    // AC-K1's structure: the 29 loads and the 12 sizes, `no aplica` only for canopydb and fjall in W19–W22 and for
+    // every engine but Krummi and Voron in the table loads W23–W29 (AC16).
     let report = fs::read_to_string(bench.cwd.path().join(name)).unwrap();
     assert!(report.starts_with("# Banco comparativo de Krummi\n"));
     assert!(report.contains("\n- Ejecución: reducida\n"));
@@ -185,7 +186,10 @@ fn a_reduced_run_writes_its_report_and_leaves_no_store() {
     }
     let sizes = table(&report, "Tamaño del almacén (bytes)");
     check_engine_cells(&sizes, &Load::SIZED);
-    assert_eq!(report.matches("no aplica").count(), 4 * 2 + 2 * 2);
+    assert_eq!(
+        report.matches("no aplica").count(),
+        4 * 2 + 2 * 2 + 7 * 4 + 4 * 4
+    );
 
     // AC-K11: one progress line per process, engines in the order of K3 and loads in table order.
     let processes: Vec<(String, String)> = stderr

@@ -3,7 +3,8 @@
 //!
 //! Checks: exit code `0`; the operations of every repetition are those of the *Reducida* column (AC-K5); every engine
 //! receives the same data as Krummi, load by load (AC-K7); canopydb and fjall are never asked to run W19–W22 and
-//! refuse them (K6); and every simulated failure ends the worker with its code (AC-K10).
+//! refuse them (K6), and only Krummi runs the table loads W23–W29 (E21), with the data and the checksums of
+//! `table_data`; and every simulated failure ends the worker with its code (AC-K10).
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -13,6 +14,7 @@ use std::sync::OnceLock;
 
 use krummi_bench::measure::Repetition;
 use krummi_bench::protocol::Line;
+use krummi_bench::table_data;
 use krummi_bench::workload::{self, Engine, Load, Scale, Start};
 
 const RUST_ENGINES: [Engine; 5] = [
@@ -83,10 +85,11 @@ fn run_engine(engine: Engine) -> Results {
     assert!(lines.is_empty(), "prepare prints nothing: {lines:?}");
 
     let mut results = Results::default();
-    for load in Load::ALL {
-        if !load.has_process() || !workload::runs(engine, load) {
-            continue;
-        }
+    let loads: Vec<Load> = Load::ALL
+        .into_iter()
+        .filter(|&l| l.has_process() && workload::runs(engine, l))
+        .collect();
+    for (i, &load) in loads.iter().enumerate() {
         let store = dir.path().join(load.id());
         // The reduced run has one repetition, index 0.
         let source = match load.start() {
@@ -121,13 +124,10 @@ fn run_engine(engine: Engine) -> Results {
                 Line::Version { .. } => panic!("{engine:?} {load:?}: a versions line"),
             }
         }
-        // The store of the last repetition stays, closed; the loads that start from it need it.
+        // The store of the last repetition stays, closed, until the last load that starts from it has run.
         assert!(store.join("rep-0").is_dir(), "{engine:?} {load:?}");
-        if !matches!(load, Load::W17 | Load::W19 | Load::W21) {
-            remove(&store);
-        }
-        if let Start::After(previous) = load.start() {
-            remove(&dir.path().join(previous.id()));
+        for released in workload::released(&loads, i) {
+            remove(&dir.path().join(released.id()));
         }
     }
     results
@@ -189,6 +189,12 @@ fn check_engine(engine: Engine) {
                 reps[0].operations, reference.repetitions[&load][0].operations,
                 "{engine:?} {load:?}"
             ),
+            // W27 reads the rows its ranges reach, fewer at the end of the table.
+            None if load == Load::W27 => {
+                let p = workload::params(load, Scale::Reduced);
+                let (rows, _) = table_data::expected_ranges(p.entries, p.ranges, p.range_len);
+                assert_eq!(reps[0].operations, rows, "{engine:?} {load:?}");
+            }
             None => {}
         }
     }
@@ -201,6 +207,40 @@ fn krummi_runs_every_load() {
     let digests = &krummi().digests;
     assert_eq!(digests[&Load::W1], 0x815d_0f5b_abf1_acd0);
     assert_eq!(digests[&Load::W22], 0xec13_19b2_5c52_8055);
+    // AC16: the table loads receive the data of `table_data`, whose reduced digests the Voron program's selftest
+    // prints too; the digests of W26 and W27 carry the checksums both engines check.
+    for load in &Load::ALL[22..] {
+        let p = workload::params(*load, Scale::Reduced);
+        let expected = table_data::digest(load.number(), p.entries, p.ranges, p.range_len);
+        assert_eq!(digests[load], expected.value(), "{load:?}");
+    }
+}
+
+// E21: of the Rust engines only Krummi runs the table loads; the others are never asked, and refuse them.
+#[test]
+fn only_krummi_runs_the_table_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    for engine in [Engine::Lmdb, Engine::Redb, Engine::Canopydb, Engine::Fjall] {
+        for load in &Load::ALL[22..] {
+            assert!(!workload::runs(engine, *load));
+            let store = dir.path().join(format!("{}-{}", engine.id(), load.id()));
+            let id = load.id();
+            let mut args: Vec<&OsStr> = vec![
+                "run".as_ref(),
+                engine.id().as_ref(),
+                id.as_ref(),
+                "reduced".as_ref(),
+                store.as_os_str(),
+            ];
+            if load.start() != Start::Empty {
+                args.push(dir.path().as_os_str());
+            }
+            let (code, stderr) = fails(&args, None);
+            assert_eq!(code, Some(1), "{engine:?} {load:?}");
+            assert_eq!(stderr.len(), 1, "{engine:?} {load:?}: {stderr:?}");
+            assert!(!store.exists(), "{engine:?} {load:?}");
+        }
+    }
 }
 
 #[test]

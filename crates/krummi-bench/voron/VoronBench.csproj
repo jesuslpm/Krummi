@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
     The Voron worker of the benchmark (K2, design D1 of odd/tasks/benchmark.md). RavenDbRoot is the folder with the
-    RavenDB 7.2.7 source, passed on the command line:
+    RavenDB 7.2.7 source, passed on the command line (each option is written here with one dash, because an XML
+    comment cannot hold two in a row; the command line takes two, as build_voron in src/orchestrator.rs passes them):
 
-      dotnet restore VoronBench.csproj --configfile <RavenDbRoot>/NuGet.Config --artifacts-path <dir> -p:RavenDbRoot=<RavenDbRoot>
-      dotnet build VoronBench.csproj -c Release --no-restore --artifacts-path <dir> -p:RavenDbRoot=<RavenDbRoot>
+      dotnet restore VoronBench.csproj -configfile <RavenDbRoot>/NuGet.Config -artifacts-path <dir> -p:RavenDbRoot=<RavenDbRoot>
+      dotnet build VoronBench.csproj -c Release -no-restore -artifacts-path <dir> -p:RavenDbRoot=<RavenDbRoot>
 
     Garbage collection and tiered compilation keep the .NET defaults (K3).
   -->

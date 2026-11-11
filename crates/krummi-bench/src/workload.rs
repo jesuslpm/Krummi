@@ -1,4 +1,5 @@
-//! The engines and the 22 loads of the benchmark (decisions K1, K5, K6 and K11 and the workload table of the PRD).
+//! The engines and the 29 loads of the benchmark (decisions K1, K5, K6 and K11 and the workload table of the PRD; the
+//! table loads W23–W29 come from E21 and *Cargas del banco* of tables-schema.prd.md).
 
 /// The six engines, in the order of K3: the order of the runs, of the report's columns and of the options list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -68,7 +69,7 @@ impl Engine {
     }
 }
 
-/// The 22 loads, in the order of the workload table.
+/// The 29 loads, in the order of the workload table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Load {
     W1,
@@ -93,6 +94,13 @@ pub enum Load {
     W20,
     W21,
     W22,
+    W23,
+    W24,
+    W25,
+    W26,
+    W27,
+    W28,
+    W29,
 }
 
 /// Where the store of a load starts (column *Empieza en*).
@@ -107,7 +115,7 @@ pub enum Start {
 }
 
 impl Load {
-    pub const ALL: [Load; 22] = [
+    pub const ALL: [Load; 29] = [
         Load::W1,
         Load::W2,
         Load::W3,
@@ -130,10 +138,17 @@ impl Load {
         Load::W20,
         Load::W21,
         Load::W22,
+        Load::W23,
+        Load::W24,
+        Load::W25,
+        Load::W26,
+        Load::W27,
+        Load::W28,
+        Load::W29,
     ];
 
-    /// The loads of K9, whose store size the report gives.
-    pub const SIZED: [Load; 8] = [
+    /// The loads of K9, whose store size the report gives (W23, W24, W25 and W29 by E21).
+    pub const SIZED: [Load; 12] = [
         Load::W1,
         Load::W2,
         Load::W3,
@@ -142,6 +157,10 @@ impl Load {
         Load::W17,
         Load::W19,
         Load::W21,
+        Load::W23,
+        Load::W24,
+        Load::W25,
+        Load::W29,
     ];
 
     /// The number of the load: `1` for W1.
@@ -183,15 +202,32 @@ impl Load {
             Load::W20 => "multivalor-lectura",
             Load::W21 => "tamano-fijo-carga",
             Load::W22 => "tamano-fijo-lectura",
+            Load::W23 => "tabla-insercion-en-orden",
+            Load::W24 => "tabla-insercion-al-azar",
+            Load::W25 => "tabla-carga-masiva",
+            Load::W26 => "tabla-lecturas",
+            Load::W27 => "tabla-intervalos",
+            Load::W28 => "tabla-actualizacion",
+            Load::W29 => "tabla-borrado",
         }
     }
 
     pub fn start(self) -> Start {
         match self {
-            Load::W1 | Load::W2 | Load::W3 | Load::W17 | Load::W19 | Load::W21 => Start::Empty,
+            Load::W1
+            | Load::W2
+            | Load::W3
+            | Load::W17
+            | Load::W19
+            | Load::W21
+            | Load::W23
+            | Load::W24
+            | Load::W25 => Start::Empty,
             Load::W18 => Start::After(Load::W17),
             Load::W20 => Start::After(Load::W19),
             Load::W22 => Start::After(Load::W21),
+            // Each in its own copy of W23's store (K4 as annotated on 2026-11-10).
+            Load::W26 | Load::W27 | Load::W28 | Load::W29 => Start::After(Load::W23),
             _ => Start::Base,
         }
     }
@@ -208,6 +244,8 @@ impl Load {
                 | Load::W18
                 | Load::W20
                 | Load::W22
+                | Load::W26
+                | Load::W27
         )
     }
 
@@ -216,15 +254,46 @@ impl Load {
         matches!(self, Load::W19 | Load::W20 | Load::W21 | Load::W22)
     }
 
+    /// The table loads W23–W29 (E21): only Krummi and Voron run them.
+    pub fn is_table(self) -> bool {
+        self >= Load::W23
+    }
+
     /// Whether a worker process runs this load. W13 is measured in the same process as W12 (K3).
     pub fn has_process(self) -> bool {
         self != Load::W13
     }
 }
 
-/// Whether `engine` runs `load` (K6): canopydb and fjall have no multi-value trees or integer keys.
+/// Whether `engine` runs `load` (K6): canopydb and fjall have no multi-value trees or integer keys, and the table
+/// loads compare Krummi only with Voron's tables (E21).
 pub fn runs(engine: Engine, load: Load) -> bool {
+    if load.is_table() {
+        return matches!(engine, Engine::Krummi | Engine::Voron);
+    }
     !(load.native_only() && matches!(engine, Engine::Canopydb | Engine::Fjall))
+}
+
+/// The stores nothing needs once `loads[i]` has run, `loads` being an engine's loads in the order it runs them: the
+/// load's own store unless a later load starts from it, then the store it started from (K4) unless a later load starts
+/// from that one too. So W23's store stays until the last of W26–W29.
+pub fn released(loads: &[Load], i: usize) -> Vec<Load> {
+    let needed = |store: Load| {
+        loads[i + 1..]
+            .iter()
+            .any(|l| l.start() == Start::After(store))
+    };
+    let load = loads[i];
+    let mut released = Vec::new();
+    if !needed(load) {
+        released.push(load);
+    }
+    if let Start::After(previous) = load.start()
+        && !needed(previous)
+    {
+        released.push(previous);
+    }
+    released
 }
 
 /// A complete run or the reduced one (K11).
@@ -286,7 +355,7 @@ pub struct Params {
     pub threads: u64,
     /// Bytes of every value the load writes.
     pub value_len: usize,
-    /// Scans of W11, and their length.
+    /// Scans of W11 and W27, and their length.
     pub ranges: u64,
     pub range_len: u64,
     /// W12: writes of the writer and reads per read transaction of each reader.
@@ -383,16 +452,35 @@ pub fn params(load: Load, scale: Scale) -> Params {
             value_len: 8,
             ..NONE
         },
+        // The table loads (E21): `entries` rows, in writes of 1,000 (W25: one load with every row); W26 reads them
+        // and W27 scans them.
+        Load::W23 | Load::W24 | Load::W28 | Load::W29 => Params {
+            entries: n,
+            batch: BATCH,
+            ..NONE
+        },
+        Load::W25 => Params {
+            entries: n,
+            batch: n,
+            ..NONE
+        },
+        Load::W26 => Params { entries: n, ..NONE },
+        Load::W27 => Params {
+            entries: n,
+            ranges: pick(100_000, 1_000),
+            range_len: 100,
+            ..NONE
+        },
     }
 }
 
 /// The operations a repetition of `load` counts (column *Operaciones*), or `None` when they depend on the run (W11
-/// counts the entries read, W12 the reads finished while the writer runs). The orchestrator checks every worker's
+/// and W27 count the entries read, W12 the reads finished while the writer runs). The orchestrator checks every worker's
 /// count against it (AC-K5).
 pub fn expected_operations(load: Load, scale: Scale) -> Option<u64> {
     let p = params(load, scale);
     match load {
-        Load::W11 | Load::W12 => None,
+        Load::W11 | Load::W12 | Load::W27 => None,
         Load::W8 | Load::W9 => Some(p.entries * p.threads),
         Load::W13 => Some(p.writes * p.batch),
         Load::W16 => Some(p.opens),
@@ -404,10 +492,11 @@ pub fn expected_operations(load: Load, scale: Scale) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::table_data;
 
     #[test]
     fn names_and_ids_follow_the_workload_table() {
-        assert_eq!(Load::ALL.len(), 22);
+        assert_eq!(Load::ALL.len(), 29);
         assert_eq!(Load::W1.id(), "W1");
         assert_eq!(Load::W22.id(), "W22");
         assert_eq!(Load::from_id("W13"), Some(Load::W13));
@@ -425,6 +514,9 @@ mod tests {
     fn only_canopydb_and_fjall_skip_the_native_loads() {
         for load in Load::ALL {
             for engine in Engine::ALL {
+                if load.is_table() {
+                    continue;
+                }
                 let skipped = !runs(engine, load);
                 let expected =
                     load.native_only() && matches!(engine, Engine::Canopydb | Engine::Fjall);
@@ -465,6 +557,13 @@ mod tests {
                 Some(4_096),
                 m,
                 m,
+                m,
+                m,
+                m,
+                m,
+                m,
+                m,
+                None,
                 m,
                 m
             ]
@@ -507,11 +606,141 @@ mod tests {
                 (f.threads, f.value_len, f.range_len),
                 (red.threads, red.value_len, red.range_len)
             );
-            if !matches!(l, Load::W3) {
+            if !matches!(l, Load::W3 | Load::W25) {
                 assert_eq!(f.batch, red.batch, "{l:?}");
             }
         }
         assert_eq!(Scale::Reduced.repetitions(), (0, 1));
         assert_eq!(Scale::Full.repetitions(), (1, 3));
+    }
+
+    // E21 and *Cargas del banco* of tables-schema.prd.md; K4, K6, K7, K9 and K11 of the benchmark PRD as annotated on
+    // 2026-11-10.
+    #[test]
+    fn table_loads_follow_the_tables_prd() {
+        let tables = [
+            Load::W23,
+            Load::W24,
+            Load::W25,
+            Load::W26,
+            Load::W27,
+            Load::W28,
+            Load::W29,
+        ];
+        assert_eq!(Load::ALL.len(), 29);
+        assert_eq!(Load::ALL[22..], tables);
+        let ids: Vec<_> = tables.iter().map(|l| l.id()).collect();
+        assert_eq!(ids, ["W23", "W24", "W25", "W26", "W27", "W28", "W29"]);
+        assert_eq!(Load::from_id("W29"), Some(Load::W29));
+        assert_eq!(Load::from_id("W30"), None);
+        let names: Vec<_> = tables.iter().map(|l| l.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "tabla-insercion-en-orden",
+                "tabla-insercion-al-azar",
+                "tabla-carga-masiva",
+                "tabla-lecturas",
+                "tabla-intervalos",
+                "tabla-actualizacion",
+                "tabla-borrado",
+            ]
+        );
+        assert_eq!(table_data::W23, Load::W23.number());
+        assert_eq!(table_data::W29, Load::W29.number());
+        let starts: Vec<_> = tables.iter().map(|l| l.start()).collect();
+        let after = Start::After(Load::W23);
+        assert_eq!(
+            starts,
+            [
+                Start::Empty,
+                Start::Empty,
+                Start::Empty,
+                after,
+                after,
+                after,
+                after
+            ]
+        );
+        let read_only: Vec<_> = tables.iter().filter(|l| l.read_only()).collect();
+        assert_eq!(read_only, [&Load::W26, &Load::W27]);
+        assert!(tables.iter().all(|l| l.has_process() && !l.native_only()));
+        // Only Krummi and Voron run them; the other engines say `no aplica` (E21, K6).
+        for load in tables {
+            for engine in Engine::ALL {
+                assert_eq!(
+                    runs(engine, load),
+                    matches!(engine, Engine::Krummi | Engine::Voron),
+                    "{engine:?} {load:?}"
+                );
+            }
+        }
+        // K9: the sizes after W23, W24, W25 and W29, after the 8 of the tree loads.
+        assert_eq!(Load::SIZED.len(), 12);
+        assert_eq!(
+            Load::SIZED[8..],
+            [Load::W23, Load::W24, Load::W25, Load::W29]
+        );
+    }
+
+    #[test]
+    fn table_quantities_are_those_of_the_table_loads() {
+        for (scale, rows, ranges) in [
+            (Scale::Full, 1_000_000, 100_000),
+            (Scale::Reduced, 10_000, 1_000),
+        ] {
+            for load in [Load::W23, Load::W24, Load::W28, Load::W29] {
+                let p = params(load, scale);
+                assert_eq!((p.entries, p.batch), (rows, BATCH), "{load:?} {scale:?}");
+                assert_eq!(expected_operations(load, scale), Some(rows));
+            }
+            // W25: one load with every row.
+            let p = params(Load::W25, scale);
+            assert_eq!((p.entries, p.batch), (rows, rows));
+            assert_eq!(expected_operations(Load::W25, scale), Some(rows));
+            // W26 reads every row of W23's table.
+            assert_eq!(params(Load::W26, scale).entries, rows);
+            assert_eq!(expected_operations(Load::W26, scale), Some(rows));
+            // W27: ranges of up to 100 rows over W23's table; it counts the rows read, as W11.
+            let p = params(Load::W27, scale);
+            assert_eq!((p.entries, p.ranges, p.range_len), (rows, ranges, 100));
+            assert_eq!(expected_operations(Load::W27, scale), None);
+        }
+    }
+
+    // K4: W26–W29 all start in W23's store, so it stays until the last of them has run; W18, W20 and W22 release
+    // the store they start from at once.
+    #[test]
+    fn a_store_stays_until_the_last_load_that_starts_from_it() {
+        let krummi: Vec<Load> = Load::ALL
+            .into_iter()
+            .filter(|&l| l.has_process() && runs(Engine::Krummi, l))
+            .collect();
+        let after = |load: Load| {
+            let i = krummi.iter().position(|&l| l == load).unwrap();
+            released(&krummi, i)
+        };
+        assert_eq!(after(Load::W1), [Load::W1]);
+        assert_eq!(after(Load::W17), []);
+        assert_eq!(after(Load::W18), [Load::W18, Load::W17]);
+        assert_eq!(after(Load::W22), [Load::W22, Load::W21]);
+        assert_eq!(after(Load::W23), []);
+        for load in [Load::W26, Load::W27, Load::W28] {
+            assert_eq!(after(load), [load], "{load:?}");
+        }
+        assert_eq!(after(Load::W29), [Load::W29, Load::W23]);
+        assert_eq!(after(Load::W24), [Load::W24]);
+        // Every store is released exactly once.
+        let mut all: Vec<Load> = (0..krummi.len())
+            .flat_map(|i| released(&krummi, i))
+            .collect();
+        all.sort();
+        assert_eq!(all, krummi);
+        // An engine without W23 (LMDB) never waits for it.
+        let lmdb: Vec<Load> = Load::ALL
+            .into_iter()
+            .filter(|&l| l.has_process() && runs(Engine::Lmdb, l))
+            .collect();
+        assert_eq!(released(&lmdb, lmdb.len() - 1), [Load::W22, Load::W21]);
     }
 }

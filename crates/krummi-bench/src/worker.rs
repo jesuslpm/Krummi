@@ -1,6 +1,7 @@
 //! The Rust worker (task T2): runs one load of one Rust engine and prints the protocol lines of
 //! [`crate::protocol`]. The loads follow design D10 of the execution document; they are generic over
-//! [`engines::Store`], so the five engines run the same code.
+//! [`engines::Store`], so the five engines run the same code. The table loads W23–W29, which of the Rust engines only
+//! Krummi runs (E21), are in [`tables`].
 //!
 //! Every load generates its data, its random orders, its expected sums and its digest before the first repetition,
 //! so no timer covers them (K8). A timer covers the operations of a repetition, from the first to the last commit or
@@ -112,6 +113,8 @@ fn command(args: Vec<OsString>) -> Result<()> {
     }
 }
 
+mod tables;
+
 fn rust_engine(id: &str) -> Result<Engine> {
     match Engine::from_id(id) {
         Some(Engine::Voron) | None => Err(format!("motor no válido: {id}")),
@@ -141,7 +144,10 @@ enum Job {
 
 fn dispatch(engine: Engine, job: Job) -> Result<()> {
     match engine {
-        Engine::Krummi => execute::<engines::krummi::Store>(job),
+        Engine::Krummi => match job {
+            Job::Run(context) if context.load.is_table() => tables::run(&context),
+            job => execute::<engines::krummi::Store>(job),
+        },
         Engine::Lmdb => execute::<engines::lmdb::Store>(job),
         Engine::Redb => execute::<engines::redb::Store>(job),
         Engine::Canopydb => execute::<engines::canopydb::Store>(job),
@@ -649,6 +655,9 @@ fn run<E: Store>(cx: &Context) -> Result<()> {
         }
         Load::W12 => readers_with_writer::<E>(cx),
         Load::W13 => unreachable!("W13 runs in W12's process"),
+        Load::W23 | Load::W24 | Load::W25 | Load::W26 | Load::W27 | Load::W28 | Load::W29 => {
+            unreachable!("the table loads run in tables::run")
+        }
         Load::W14 => {
             let removed = keys(0..n);
             feed_keys(&mut digest, &removed);

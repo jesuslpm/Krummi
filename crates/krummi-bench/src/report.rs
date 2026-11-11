@@ -342,7 +342,7 @@ mod tests {
         let text = r.render();
         assert!(text.starts_with(HEADER), "{text}");
         let rest = &text[HEADER.len()..];
-        let expected_start = "Krummi cumple 22 de 22 umbrales.
+        let expected_start = "Krummi cumple 29 de 29 umbrales.
 
 ## Operaciones por segundo
 
@@ -355,6 +355,24 @@ mod tests {
             row(&text, Load::W21),
             "| tamano-fijo-carga | 21.420 | 21.000 | 21.002 | 21.003 | no aplica | no aplica | 1,02 | cumple |"
         );
+        // E21: the table loads, after W22, with a threshold and `no aplica` in the engines that are not Voron.
+        assert_eq!(
+            row(&text, Load::W23),
+            "| tabla-insercion-en-orden | 23.460 | 23.000 | no aplica | no aplica | no aplica | no aplica | 1,02 | cumple |"
+        );
+        assert_eq!(
+            row(&text, Load::W29),
+            "| tabla-borrado | 29.580 | 29.000 | no aplica | no aplica | no aplica | no aplica | 1,02 | cumple |"
+        );
+        let rates: Vec<&str> = text
+            .lines()
+            .skip_while(|l| !l.starts_with("| Carga | Krummi"))
+            .skip(2)
+            .take_while(|l| l.starts_with("| "))
+            .map(|l| l.split(" | ").next().unwrap().trim_start_matches("| "))
+            .collect();
+        let names: Vec<&str> = Load::ALL.iter().map(|l| l.name()).collect();
+        assert_eq!(rates, names);
         let tail = "
 ## Tamaño del almacén (bytes)
 
@@ -368,6 +386,10 @@ mod tests {
 | valores-grandes-carga | 17.000 | 17.001 | 17.002 | 17.003 | 17.004 | 17.005 |
 | multivalor-carga | 19.000 | 19.001 | 19.002 | 19.003 | no aplica | no aplica |
 | tamano-fijo-carga | 21.000 | 21.001 | 21.002 | 21.003 | no aplica | no aplica |
+| tabla-insercion-en-orden | 23.000 | 23.001 | no aplica | no aplica | no aplica | no aplica |
+| tabla-insercion-al-azar | 24.000 | 24.001 | no aplica | no aplica | no aplica | no aplica |
+| tabla-carga-masiva | 25.000 | 25.001 | no aplica | no aplica | no aplica | no aplica |
+| tabla-borrado | 29.000 | 29.001 | no aplica | no aplica | no aplica | no aplica |
 
 ## Opciones cambiadas
 
@@ -378,12 +400,12 @@ mod tests {
         assert!(text.ends_with(tail), "{text}");
         assert_eq!(
             text.lines().filter(|l| l.starts_with("| ")).count(),
-            1 + 22 + 1 + 8
+            1 + 29 + 1 + 12
         );
         assert_eq!(r.exit_code(), 0);
         assert_eq!(
             r.summary_line("banco-20261103-101500.md"),
-            "Krummi cumple 22 de 22 umbrales. Informe: banco-20261103-101500.md"
+            "Krummi cumple 29 de 29 umbrales. Informe: banco-20261103-101500.md"
         );
     }
 
@@ -393,7 +415,7 @@ mod tests {
         let one = run(Scale::Full, |l| if l == Load::W6 { 0.7996 } else { 0.8 });
         let text = one.render();
         assert!(text.contains(
-            "\n## Resultado\n\nKrummi cumple 21 de 22 umbrales. Incumple: `escrituras-concurrentes-16`.\n"
+            "\n## Resultado\n\nKrummi cumple 28 de 29 umbrales. Incumple: `escrituras-concurrentes-16`.\n"
         ));
         assert!(
             row(&text, Load::W6).ends_with("| 0,79 | incumple |"),
@@ -408,7 +430,7 @@ mod tests {
         assert_eq!(one.exit_code(), 1);
         assert_eq!(
             one.summary_line("x.md"),
-            "Krummi cumple 21 de 22 umbrales. Informe: x.md"
+            "Krummi cumple 28 de 29 umbrales. Informe: x.md"
         );
 
         let several = run(Scale::Full, |l| match l {
@@ -416,9 +438,21 @@ mod tests {
             _ => 1.0,
         });
         assert!(several.render().contains(
-            "Krummi cumple 19 de 22 umbrales. Incumple: `carga-en-orden`, `escritor-con-lectores`, `tamano-fijo-lectura`.\n"
+            "Krummi cumple 26 de 29 umbrales. Incumple: `carga-en-orden`, `escritor-con-lectores`, `tamano-fijo-lectura`.\n"
         ));
         assert_eq!(several.missed(), [Load::W1, Load::W13, Load::W22]);
+
+        // A table load's threshold counts as any other (E21, K7).
+        let table = run(Scale::Full, |l| if l == Load::W28 { 0.79 } else { 1.0 });
+        let text = table.render();
+        assert!(text.contains(
+            "\n## Resultado\n\nKrummi cumple 28 de 29 umbrales. Incumple: `tabla-actualizacion`.\n"
+        ));
+        assert_eq!(
+            row(&text, Load::W28),
+            "| tabla-actualizacion | 22.120 | 28.000 | no aplica | no aplica | no aplica | no aplica | 0,79 | incumple |"
+        );
+        assert_eq!(table.exit_code(), 1);
     }
 
     // AC-K2 and AC-K3: a Voron metric of 0 (W12 with no Voron read finished) shows `∞` when Krummi's is positive
@@ -440,11 +474,11 @@ mod tests {
             r.metrics.insert((Load::W12, Engine::Krummi), krummi);
             let text = r.render();
             assert_eq!(row(&text, Load::W12), expected_row);
-            assert!(text.contains("\n## Resultado\n\nKrummi cumple 22 de 22 umbrales.\n"));
+            assert!(text.contains("\n## Resultado\n\nKrummi cumple 29 de 29 umbrales.\n"));
             assert_eq!(r.exit_code(), 0);
             assert_eq!(
                 r.summary_line("x.md"),
-                "Krummi cumple 22 de 22 umbrales. Informe: x.md"
+                "Krummi cumple 29 de 29 umbrales. Informe: x.md"
             );
         }
     }
@@ -491,7 +525,7 @@ mod tests {
         assert!(text.starts_with(HEADER), "{text}");
         assert_eq!(
             r.summary_line("x.md"),
-            "Krummi cumple 21 de 22 umbrales. Informe: x.md"
+            "Krummi cumple 28 de 29 umbrales. Informe: x.md"
         );
     }
 
