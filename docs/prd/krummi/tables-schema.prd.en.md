@@ -57,6 +57,11 @@ annotation (*Annotations to other PRDs*):
 | E20 | **Format**: the change is incompatible (B12), so the format version becomes 11. The format of the rows reserves what dictionary compression will need (N9); the design review checks it. The information of the store (P12) does not change shape: the pages of tables and sequences already count in its totals. |
 | E21 | **Benchmark loads** (N11, K7): the seven loads of *Benchmark loads* (below), against the tables of Voron, with their threshold of K7; the other engines say `no aplica`. The report counts 29 thresholds. |
 
+*Annotations of 2026-11-11, after Codex's code review (decisions of the user):*
+
+- *E5: a case is added at the end of its list: a schema whose stored form, with the names and default values of its columns, passes 256 MiB, the maximum of a catalog entry, fails without effect with invalid schema and the rule "schema too large", naming the column with which it passes it, also when adding a column or renaming one to a longer name (the column of the change). The user, about a default of almost 256 MiB that fitted in a row but not in the catalog: «Aceptar el límite» (accept the limit).*
+- *E8: the domain is checked on the value already rounded to the microsecond, which is the stored one: a value given outside its domain that rounding brings inside is accepted (a time of −500 ns is stored as 00:00:00), and one that rounding takes outside fails with invalid value. The user: «Se acepta» (it is accepted).*
+
 #### Benchmark loads
 
 All of them use a table with primary key `id` and the columns `n` (`i64`), `x` (`f64`), `ts` (`timestamp`), `flag`

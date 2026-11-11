@@ -55,6 +55,11 @@ ascendientes, que llevan su anotación (*Anotaciones a otros PRD*):
 | E20 | **Formato**: el cambio es incompatible (B12), así que la versión del formato pasa a 11. El formato de las filas reserva lo que necesitará la compresión por diccionario (N9); lo comprueba la revisión del diseño. La información del almacén (P12) no cambia de forma: las páginas de las tablas y de las secuencias ya cuentan en sus totales. |
 | E21 | **Cargas del banco** (N11, K7): las siete cargas de *Cargas del banco* (abajo), frente a las tablas de Voron, con su umbral de K7; los demás motores dicen `no aplica`. El informe cuenta 29 umbrales. |
 
+*Anotaciones del 2026-11-11, tras la revisión del código de Codex (decisiones del usuario):*
+
+- *E5: se añade un caso al final de su lista: un esquema que, guardado con los nombres y los valores por defecto de sus columnas, pasa de 256 MiB, el máximo de una entrada del catálogo, falla sin efecto con esquema no válido y la regla «esquema demasiado grande», nombrando la columna con la que lo pasa, también al añadir una columna o al renombrarla a un nombre más largo (la columna del cambio). Usuario, ante un valor por defecto de casi 256 MiB que cabía en una fila pero no en el catálogo: «Aceptar el límite».*
+- *E8: el dominio se comprueba sobre el valor ya redondeado al microsegundo, que es el que se guarda: un valor dado fuera de su dominio que el redondeo mete dentro se acepta (una hora de −500 ns se guarda como 00:00:00), y uno que el redondeo saca falla con valor no válido. Usuario: «Se acepta».*
+
 #### Cargas del banco
 
 Todas usan una tabla con clave primaria `id` y las columnas `n` (`i64`), `x` (`f64`), `ts` (`timestamp`), `flag`
