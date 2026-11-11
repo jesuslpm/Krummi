@@ -111,7 +111,7 @@ The physical choice depends on these guarantees, so they are fixed first. Each r
 | Whitespace | PG `json` and DK keep it; the rest drop it | **Dropped** | Space; a single stored form. An application that needs the exact bytes stores them in a `string` column |
 | Escapes | — | **Normalized**: raw UTF-8 except `"`, `\` and U+0000-U+001F, which use `\"`, `\\`, `\b \f \n \r \t` or `\u00xx` | One spelling per string, so equality of representation is byte equality and most strings are zero-copy `&str` |
 | Unicode | I-JSON: UTF-8, no surrogate or noncharacter code points | Valid UTF-8; an escaped surrogate pair becomes its character; a lone surrogate is invalid; noncharacters and U+0000 are accepted | The domain of Krummi's `string` (PRD 7.1, E7: "cualquier texto UTF-8 válido, incluido el carácter U+0000"); a lone surrogate has no UTF-8 form |
-| Numbers | PG: `numeric` (prints `1.230e-5` as `0.00001230`), no NaN or infinities; MY, RB: integers as integers, others as double (RB keeps the double's text, `LazyNumber`); SL JSONB keeps the text (`INT5`, `FLOAT5`); I-JSON: integers outside ±(2^53−1) are not interoperable | **Kept as written** (validated RFC 8259 grammar); read on request as `i64`, `u64` or `decimal(p, s)`, each exact or refused, or as `f64`, correctly rounded and refused only outside its finite range; compared by exact mathematical value | No loss ever (J1); 64-bit identifiers and money survive; the lexeme is the cheapest exact model |
+| Numbers | PG: `numeric` (prints `1.230e-5` as `0.00001230`), no NaN or infinities; MY, RB: integers as integers, others as double (RB keeps the double's text, `LazyNumber`); SL JSONB keeps the text (`INT5`, `FLOAT5`); I-JSON: integers outside ±(2^53−1) are not interoperable | **Kept as written** (validated RFC 8259 grammar); read on request as `i64` or `u64`, exact or refused, as `decimal(p, s)`, rounded to its scale as E8 rounds and refused only beyond its precision, or as `f64`, correctly rounded and refused only outside its finite range; compared by exact mathematical value | No loss ever (J1); 64-bit identifiers and money survive; the lexeme is the cheapest exact model |
 | Equality | PG: structural, numbers by value; DK: textual (`{"a":1,"b":2}` and `{"b":2,"a":1}` differ) | Two notions. **Representational**: the normalized bytes are equal (used by E10's identical update). **Structural**: same kinds, objects with the same names and equal values in any order, arrays element by element, numbers by exact value, strings by bytes (offered when module 17 compares documents) | The first is free and exact; the second is what a query means by `=` |
 | Ordering | PG defines a cross-type order (`Object > Array > Boolean > Number > String > null`) | **None.** JSON is not a primary key or index column (7.5 annotation); ordering applies to typed values extracted from paths | No consumer needs a total order of documents; extracted scalars use Krummi's typed order (N5) |
 | Depth | PG: stack only; SL: 1,000; MongoDB: 100; .NET `JsonDocument`: 64 by default; `serde_json`: 128 | **128** levels of containers, a ceiling | Matches the query documents' ceiling (doc 11, §2.5); recursion stays bounded. The C# binding must raise .NET's default of 64 (product question 5) |
@@ -289,31 +289,48 @@ scope.
 **Extraction rules** (to fix in module 17, recommended now so 7.5's accessors agree): extracting a path gives a JSON
 value, *missing*, or a typed scalar on request. Typed extraction (`as i64`, `as f64`, `as string`, `as decimal(p, s)`,
 `as bool`) of missing, `null` or the wrong kind gives SQL `NULL`, so a filter is unknown for that row (doc 8's
-three-valued logic). An integer or `decimal` type gives `NULL` for a number it cannot hold exactly, never a rounded
-value; `f64` gives the correctly rounded nearest value, and `NULL` only outside its finite range (`1e400`). So
-`0.1` and `0.10000000000000001`, two different texts, both read as the same `f64` (corrected 2026-11-11, Codex review
-R1, which found the two rules stated as one).
-Integers are read only from integer text (`1`, not `1.0` or `1e0`), as PostgreSQL's `'1.0'::int` refuses [L].
+three-valued logic). An integer type gives `NULL` for a number it cannot hold exactly. A `decimal(p, s)` rounds the
+number to its scale as E8 of PRD 7.1 rounds a `decimal` given to Krummi, the tie away from zero (`1.235` reads as
+`1.24` in a `decimal(10, 2)`), and gives `NULL` only when the rounded value has more than `p` digits (`99.995` in a
+`decimal(4, 2)`). `f64` gives the correctly rounded nearest value, and `NULL` only outside its finite range
+(`1e400`). So `0.1` and `0.10000000000000001`, two different texts, both read as the same `f64` (corrected
+2026-11-11, Codex review R1, which found the two rules stated as one). The `decimal` rounding was decided the same
+day; the first rule refused a number with more digits than the scale. User: "Redondear no es inventar, yo
+redondearía.\"
+An integer type (`i64`, `u64`) reads a number whose exact value is an integer in its range, in any notation: `100`,
+`100.0`, `1e2` and `1.00e2` all read as 100; `100.6` gives `NULL`, never rounded, because a fraction in an integer
+field (an identifier, a count) is a wrong value rather than one to round; so does a value out of range. Decided
+2026-11-11; the first rule read only integer text (`1`, not `1.0` or `1e0`), as PostgreSQL's `'1.0'::int` refuses
+[L]. User, between rounding, any notation of an exact integer and integer text only: "valor entero exacto".
 
 **Dates and instants** (requirement for module 17, decided 2026-11-11). JSON has no date type: a date is a string.
 Asked how Krummi would answer "the orders created on a given day" when the date lives only in the document, the
 answer showed that the typed extraction above has no temporal type; the user asked to add it ("Las dos cosas").
 
-- `JsonAs(date, ...)` reads a string of exactly the form `YYYY-MM-DD`, and `JsonAs(timestamp, ...)` one of exactly the
-  form `YYYY-MM-DDTHH:MM:SS` with an optional fraction of 1 to 6 digits and the suffix `Z`, an instant in UTC (RFC
-  3339 restricted to UTC, upper-case `T` and `Z`). One text form for each, as E9 of PRD 7.1 fixes one text form for
-  `ulid` and `uuid`.
-- Anything else gives `NULL`, as typed extraction does for the wrong kind: another offset (`+01:00`), another layout
-  (`11/11/2026`), more than 6 fractional digits (never rounded, as the integer and `decimal` types), a value outside
-  the domains of E8 (`date` from 0001-01-01 to 9999-12-31, `timestamp` to 9999-12-31T23:59:59.999999Z), or a date
-  that does not exist (`2026-02-30`).
+- `JsonAs(date, ...)` reads a string of exactly the form `YYYY-MM-DD`. `JsonAs(timestamp, ...)` reads an RFC 3339
+  date-time with an offset: `YYYY-MM-DDTHH:MM:SS`, an optional fraction of any number of digits, and `Z` or
+  `+HH:MM`/`-HH:MM`, upper-case `T` and `Z`. An instant with an offset is unambiguous, so it is converted to UTC; the
+  fraction is rounded to the microsecond as E8 of PRD 7.1 rounds instants given to Krummi (to the nearest, the tie
+  to the greater), and the domain is checked after rounding, as E8's annotation of 2026-11-11 says.
+- Anything else gives `NULL`, as typed extraction does for the wrong kind: a date-time without an offset
+  (`2019-07-26T00:00:00`, a local time whose instant is unknown), another layout (`11/11/2026`, a space instead of
+  `T`), a value outside the domains of E8 (`date` from 0001-01-01 to 9999-12-31, `timestamp` from
+  0001-01-01T00:00:00Z to 9999-12-31T23:59:59.999999Z, also when rounding takes it out), a date that does not exist
+  (`2026-02-30`), a leap second, or a value that is not a string (a number of seconds or milliseconds since 1970 has
+  no unit in the document; the application reads it with `JsonAs(i64, ...)`).
+- Why this form (corrected 2026-11-11 before any review; the first version accepted only `Z` and at most 6 fractional
+  digits): `System.Text.Json`, the C# binding's serializer, writes up to seven fractional digits without trailing
+  zeros (`DateTime.UtcNow` as `"2026-11-11T10:23:00.1234567Z"`), a `DateTimeOffset` in UTC as `+00:00`, and a
+  `DateTime` of unspecified kind without an offset [V]; the first rule turned most dates written from C# into `NULL`.
+  User, to accepting offsets and rounding: "Sí". The query parameters of document 11 keep their stricter single form
+  (exactly six digits and `Z`): Krummi or its binding writes them, so they need no tolerance.
 - The values are Krummi's `date` and `timestamp`, so comparisons, ranges, order and expression indexes over them use
   the typed order of N5. "A given day" is then the range `[day 00:00Z, next day 00:00Z)`; Krummi stores instants in
   UTC without a time zone (PRD 7.1), so the application turns its local day into that range.
 - Why not compare the text: a prefix `"2026-11-11"` on `JsonAs(string, ...)` equals "that day in UTC" only while every
   document writes its dates in the same form in UTC; `"2026-11-11T00:30:00+01:00"`, an instant of 10 November in UTC,
   has the prefix of the 11th, and `"11/11/2026"` misses it, both without an error. With `JsonAs(timestamp, ...)`, the
-  same documents give `NULL`, which the application can find and fix.
+  first is read as the instant it is, and the second gives `NULL`, which the application can find and fix.
 - `time` and `duration` are not extracted from JSON in this requirement; they can be added the same way if needed.
 
 **Quantifiers over arrays** (requirement for module 17, decided 2026-11-11). The user: "Una cosa que me gustaría hacer
@@ -952,7 +969,8 @@ External, fetched 2026-11-11:
 - .NET `JsonDocumentOptions` (`MaxDepth` 64 by default; `AllowDuplicateProperties`, .NET 10):
   https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsondocumentoptions; `System.Text.Json` escaping
   ("By default, the serializer escapes all non-ASCII characters"; `UnsafeRelaxedJsonEscaping`):
-  https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/character-encoding ; Python
+  https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/character-encoding ; `System.Text.Json`
+  dates (up to seven fractional digits, offsets): https://learn.microsoft.com/en-us/dotnet/standard/datetime/system-text-json-support ; Python
   `json` (`ensure_ascii`, default `True`): https://docs.python.org/3/library/json.html
 
 From knowledge, not fetched: Ottaviano and Grossi, "Semi-indexing semi-structured data in tiny space" (CIKM 2011);
