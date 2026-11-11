@@ -348,4 +348,7 @@ Consequences already known:
 | 8 | [08-execution-plans.md](08-execution-plans.md) | Physical plans, their representation and execution, spools and the executor's temporary structures |
 | 9 | [09-query-serialization-format.md](09-query-serialization-format.md) | Evaluation of the interchange format of query trees and plans: typed JSON against CBOR, MessagePack, Protocol Buffers and the binary envelope |
 | 10 | [10-agent-tooling.md](10-agent-tooling.md) | Evaluation of the tools for AI agents: one capability layer, a CLI, a skill, JSON Schemas and an MCP server |
+| 11 | [11-query-contract-reconciliation.md](11-query-contract-reconciliation.md) | The query contract of modules 17 and 18: one typed-JSON contract for query documents, plans and prepared statements, reconciling documents 4, 6, 8 and 9; product decisions P1-P20 |
 | 12 | [12-vector-indexes.md](12-vector-indexes.md) | Approximate (ANN) vector indexes: IVF-SQ8 maintained asynchronously, HNSW as fallback; a proposal with six decisions open |
+| 13 | [13-json-column-storage.md](13-json-column-storage.md) | JSON columns (PRD 7.5): normalized text behind a value header, with a navigation index reserved for module 17's measurement; semantics, typed extraction, quantifiers over arrays; decided with the user |
+| 14 | [14-json-indexes.md](14-json-indexes.md) | Indexes over JSON: expression, multi-valued and inverted (GIN-style, posting lists of primary keys); architecture approved, eight product questions deferred until they are planned |
