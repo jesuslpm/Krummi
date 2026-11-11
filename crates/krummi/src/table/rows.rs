@@ -142,7 +142,7 @@ use super::catalog::{ReadTable, WriteTable};
 use super::key::{
     KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
 };
-use super::row::{MAX_ROW, Row, RowLayout, Slot, row_version};
+use super::row::{MAX_ROW, Row, RowLayout, Slot, row_version, slot_array};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, NANOS_PER_MICRO, Value, key_text, normalize};
 use crate::ids::{Ulid, Uuid};
@@ -449,9 +449,9 @@ impl Reader {
         })
     }
 
-    /// As [`Reader::decode`] of the entry `key`, `bytes` without `check`, into `slot`: a row of the current version
-    /// with a key of one column, when `slot` holds such a row of this reader, only takes the place of its key and
-    /// bytes, without building another row.
+    /// As [`Reader::decode`] of the entry `key`, `bytes` without `check`, into `current`, the scan's last row: a row
+    /// of the current version with a key of one column, when `current` holds such a row of this reader, only takes
+    /// the place of its key and bytes, without building another row.
     #[inline]
     pub(super) fn decode_into<'t, S: PageSource + ?Sized>(
         self: &'t Arc<Self>,
@@ -459,7 +459,7 @@ impl Reader {
         table: At<'_>,
         versions: &mut Versions<'t>,
         (key, bytes): (&'t [u8], &'t [u8]),
-        slot: &mut Option<TableRow<'t>>,
+        current: &mut Option<TableRow<'t>>,
     ) -> Result<()> {
         if let Some(TableRow {
             stored:
@@ -471,7 +471,7 @@ impl Reader {
                     defaults: None,
                 },
             ..
-        }) = slot
+        }) = current
             && self.key_types.len() == 1
             && self.layout.row(bytes).is_ok()
         {
@@ -479,7 +479,7 @@ impl Reader {
             *row_bytes = bytes;
             return Ok(());
         }
-        *slot = Some(self.decode(tx, table, versions, Cow::Borrowed(key), bytes, false)?);
+        *current = Some(self.decode(tx, table, versions, Cow::Borrowed(key), bytes, false)?);
         Ok(())
     }
 
@@ -964,13 +964,13 @@ impl<'t> TableRow<'t> {
             let start = starts.as_ref().map_or(0, |starts| {
                 usize::from(starts[reader.columns[position].in_key.expect("a key column")])
             });
-            return Some(Ulid(array(&key[start + 1..start + 17])));
+            return Some(Ulid(slot_array(&key[start + 1..start + 17])));
         }
         self.typed(
             position,
             "ulid",
             |ty| matches!(ty, ColumnType::Ulid),
-            |b: &[u8]| Ulid(array(b)),
+            |b: &[u8]| Ulid(slot_array(b)),
             |value| match value {
                 Value::Ulid(v) => v,
                 _ => unreachable!("a value of its column's type"),
@@ -994,11 +994,6 @@ impl<'t> TableRow<'t> {
             },
         )
     }
-}
-
-/// The bytes of a stored fixed-width column as an array of its width.
-fn array<const N: usize>(bytes: &[u8]) -> [u8; N] {
-    bytes.try_into().expect("the slot's width")
 }
 
 /// Typed accessors of [`TableRow`]: `$method` reads a column of `$ty`, stored as `$stored` decodes it, as the
@@ -1025,27 +1020,27 @@ macro_rules! typed_accessors {
 
 typed_accessors! {
     bool, "bool", ColumnType::Bool, Bool, bool, |b: &[u8]| b == [1];
-    i8, "i8", ColumnType::I8, I8, i8, |b: &[u8]| i8::from_le_bytes(array(b));
-    i16, "i16", ColumnType::I16, I16, i16, |b: &[u8]| i16::from_le_bytes(array(b));
-    i32, "i32", ColumnType::I32, I32, i32, |b: &[u8]| i32::from_le_bytes(array(b));
-    i64, "i64", ColumnType::I64, I64, i64, |b: &[u8]| i64::from_le_bytes(array(b));
-    u8, "u8", ColumnType::U8, U8, u8, |b: &[u8]| u8::from_le_bytes(array(b));
-    u16, "u16", ColumnType::U16, U16, u16, |b: &[u8]| u16::from_le_bytes(array(b));
-    u32, "u32", ColumnType::U32, U32, u32, |b: &[u8]| u32::from_le_bytes(array(b));
-    u64, "u64", ColumnType::U64, U64, u64, |b: &[u8]| u64::from_le_bytes(array(b));
-    f32, "f32", ColumnType::F32, F32, f32, |b: &[u8]| f32::from_le_bytes(array(b));
-    f64, "f64", ColumnType::F64, F64, f64, |b: &[u8]| f64::from_le_bytes(array(b));
-    date, "date", ColumnType::Date, Date, i32, |b: &[u8]| i32::from_le_bytes(array(b));
+    i8, "i8", ColumnType::I8, I8, i8, |b: &[u8]| i8::from_le_bytes(slot_array(b));
+    i16, "i16", ColumnType::I16, I16, i16, |b: &[u8]| i16::from_le_bytes(slot_array(b));
+    i32, "i32", ColumnType::I32, I32, i32, |b: &[u8]| i32::from_le_bytes(slot_array(b));
+    i64, "i64", ColumnType::I64, I64, i64, |b: &[u8]| i64::from_le_bytes(slot_array(b));
+    u8, "u8", ColumnType::U8, U8, u8, |b: &[u8]| u8::from_le_bytes(slot_array(b));
+    u16, "u16", ColumnType::U16, U16, u16, |b: &[u8]| u16::from_le_bytes(slot_array(b));
+    u32, "u32", ColumnType::U32, U32, u32, |b: &[u8]| u32::from_le_bytes(slot_array(b));
+    u64, "u64", ColumnType::U64, U64, u64, |b: &[u8]| u64::from_le_bytes(slot_array(b));
+    f32, "f32", ColumnType::F32, F32, f32, |b: &[u8]| f32::from_le_bytes(slot_array(b));
+    f64, "f64", ColumnType::F64, F64, f64, |b: &[u8]| f64::from_le_bytes(slot_array(b));
+    date, "date", ColumnType::Date, Date, i32, |b: &[u8]| i32::from_le_bytes(slot_array(b));
     time, "time", ColumnType::Time, Time, i64, |b: &[u8]| {
-        i64::from_le_bytes(array(b)) * i64::try_from(NANOS_PER_MICRO).expect("1,000")
+        i64::from_le_bytes(slot_array(b)) * i64::try_from(NANOS_PER_MICRO).expect("1,000")
     };
     timestamp, "timestamp", ColumnType::Timestamp, Timestamp, i128, |b: &[u8]| {
-        i128::from(i64::from_le_bytes(array(b))) * NANOS_PER_MICRO
+        i128::from(i64::from_le_bytes(slot_array(b))) * NANOS_PER_MICRO
     };
     duration, "duration", ColumnType::Duration, Duration, i128, |b: &[u8]| {
-        i128::from(i64::from_le_bytes(array(b))) * NANOS_PER_MICRO
+        i128::from(i64::from_le_bytes(slot_array(b))) * NANOS_PER_MICRO
     };
-    uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |b: &[u8]| Uuid(array(b));
+    uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |b: &[u8]| Uuid(slot_array(b));
     text, "string", ColumnType::String, String, Cow<'t, str>, |b: &'t [u8]| {
         Cow::Borrowed(std::str::from_utf8(b).expect("a malformed row: a text that is not UTF-8"))
     };

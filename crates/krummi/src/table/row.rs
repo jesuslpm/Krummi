@@ -564,7 +564,7 @@ impl<'r> Row<'_, 'r> {
 }
 
 /// The bytes of a fixed-width slot as an array of its width.
-fn slot_array<const N: usize>(bytes: &[u8]) -> [u8; N] {
+pub(crate) fn slot_array<const N: usize>(bytes: &[u8]) -> [u8; N] {
     bytes.try_into().expect("the slot's width")
 }
 
@@ -624,13 +624,10 @@ fn decode_with<'r, E>(
     bytes: &'r [u8],
     damaged: impl Fn() -> E,
 ) -> Result<Value<'r>, E> {
-    fn array<const N: usize>(bytes: &[u8]) -> [u8; N] {
-        bytes.try_into().expect("the slot's width")
-    }
     let stored = match ty {
-        ColumnType::Date => Some(i128::from(i32::from_le_bytes(array(bytes)))),
+        ColumnType::Date => Some(i128::from(i32::from_le_bytes(slot_array(bytes)))),
         ColumnType::Time | ColumnType::Timestamp | ColumnType::Duration => {
-            Some(i128::from(i64::from_le_bytes(array(bytes))))
+            Some(i128::from(i64::from_le_bytes(slot_array(bytes))))
         }
         _ => None,
     };
@@ -644,18 +641,18 @@ fn decode_with<'r, E>(
             [1] => Value::Bool(true),
             _ => return Err(damaged()),
         },
-        ColumnType::I8 => Value::I8(i8::from_le_bytes(array(bytes))),
-        ColumnType::I16 => Value::I16(i16::from_le_bytes(array(bytes))),
-        ColumnType::I32 => Value::I32(i32::from_le_bytes(array(bytes))),
-        ColumnType::I64 => Value::I64(i64::from_le_bytes(array(bytes))),
-        ColumnType::U8 => Value::U8(u8::from_le_bytes(array(bytes))),
-        ColumnType::U16 => Value::U16(u16::from_le_bytes(array(bytes))),
-        ColumnType::U32 => Value::U32(u32::from_le_bytes(array(bytes))),
-        ColumnType::U64 => Value::U64(u64::from_le_bytes(array(bytes))),
-        ColumnType::F32 => Value::F32(f32::from_le_bytes(array(bytes))),
-        ColumnType::F64 => Value::F64(f64::from_le_bytes(array(bytes))),
+        ColumnType::I8 => Value::I8(i8::from_le_bytes(slot_array(bytes))),
+        ColumnType::I16 => Value::I16(i16::from_le_bytes(slot_array(bytes))),
+        ColumnType::I32 => Value::I32(i32::from_le_bytes(slot_array(bytes))),
+        ColumnType::I64 => Value::I64(i64::from_le_bytes(slot_array(bytes))),
+        ColumnType::U8 => Value::U8(u8::from_le_bytes(slot_array(bytes))),
+        ColumnType::U16 => Value::U16(u16::from_le_bytes(slot_array(bytes))),
+        ColumnType::U32 => Value::U32(u32::from_le_bytes(slot_array(bytes))),
+        ColumnType::U64 => Value::U64(u64::from_le_bytes(slot_array(bytes))),
+        ColumnType::F32 => Value::F32(f32::from_le_bytes(slot_array(bytes))),
+        ColumnType::F64 => Value::F64(f64::from_le_bytes(slot_array(bytes))),
         ColumnType::Decimal { precision, scale } => {
-            let mantissa = i128::from_le_bytes(array(bytes));
+            let mantissa = i128::from_le_bytes(slot_array(bytes));
             if !fits_precision(mantissa, *precision) {
                 return Err(damaged());
             }
@@ -664,12 +661,14 @@ fn decode_with<'r, E>(
                 scale: *scale,
             })
         }
-        ColumnType::Date => Value::Date(i32::from_le_bytes(array(bytes))),
-        ColumnType::Time => Value::Time(i64::try_from(nanos(array(bytes))).map_err(|_| damaged())?),
-        ColumnType::Timestamp => Value::Timestamp(nanos(array(bytes))),
-        ColumnType::Duration => Value::Duration(nanos(array(bytes))),
-        ColumnType::Uuid(_) => Value::Uuid(Uuid(array(bytes))),
-        ColumnType::Ulid => Value::Ulid(Ulid(array(bytes))),
+        ColumnType::Date => Value::Date(i32::from_le_bytes(slot_array(bytes))),
+        ColumnType::Time => {
+            Value::Time(i64::try_from(nanos(slot_array(bytes))).map_err(|_| damaged())?)
+        }
+        ColumnType::Timestamp => Value::Timestamp(nanos(slot_array(bytes))),
+        ColumnType::Duration => Value::Duration(nanos(slot_array(bytes))),
+        ColumnType::Uuid(_) => Value::Uuid(Uuid(slot_array(bytes))),
+        ColumnType::Ulid => Value::Ulid(Ulid(slot_array(bytes))),
         ColumnType::String => Value::String(Cow::Borrowed(
             std::str::from_utf8(bytes).map_err(|_| damaged())?,
         )),

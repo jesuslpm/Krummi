@@ -177,6 +177,30 @@ macro_rules! reads_and_scans {
     }};
 }
 
+/// A lent scan (`next_row`) of every row of [`texts`] in `$tx` that must fail at `BAD` with damage of `$page`: the
+/// rows before it, the failure once, then nothing. The rows before it are of the current version, so the scan meets
+/// `BAD` with the last of them lent.
+macro_rules! lent_scan_fails {
+    ($tx:expr, $table:expr, $page:expr, $what:expr) => {{
+        let mut scan = $tx.range_rows(&$table, &[], ..).unwrap();
+        for id in 0..BAD {
+            let row = scan.next_row().unwrap().unwrap();
+            assert_eq!(row.i64(0), Some(id), "{}, lent", $what);
+        }
+        assert_eq!(
+            damaged_page(scan.next_row().map(drop)),
+            $page,
+            "{}, lent",
+            $what
+        );
+        assert!(
+            scan.next_row().unwrap().is_none(),
+            "{}: the lent scan ends",
+            $what
+        );
+    }};
+}
+
 /// AC-L1: a row whose text is not UTF-8, in a page whose integrity holds, is returned by a read by its key and by
 /// scans from both ends, in a read and in a write transaction; its other columns read their values, its text read as
 /// text panics and read as its bytes gives them as they are.
@@ -377,6 +401,7 @@ fn ac_l3_an_unknown_version_header_or_fixed_part_is_damage_of_the_row_page() {
         for front in [true, false] {
             scan_fails(read.range_rows(&table, &[], ..).unwrap(), front, page, what);
         }
+        lent_scan_fails!(read, table, page, what);
         drop(read);
         let write = store.write().unwrap();
         let table = write.open_table("t").unwrap();
@@ -386,6 +411,7 @@ fn ac_l3_an_unknown_version_header_or_fixed_part_is_damage_of_the_row_page() {
             "{what}"
         );
         scan_fails(write.range_rows(&table, &[], ..).unwrap(), true, page, what);
+        lent_scan_fails!(write, table, page, what);
     }
 }
 
@@ -434,6 +460,43 @@ fn ac_l3_a_version_missing_from_the_history_is_damage_of_the_history_page() {
             "missing version",
         );
     }
+    lent_scan_fails!(read, table, page, "missing version");
+}
+
+/// A lent scan reads a row of an older version that comes after rows of the current version with the older version's
+/// layout, as the iterator does (R3-lent-fast-path-version-transition-untested of the RDD review of the row reads run).
+#[test]
+fn a_lent_scan_reads_an_older_row_after_current_ones() {
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&texts()))
+        .unwrap();
+    // `BAD` at version 1, the others at version 2, with a value in the added column.
+    write.insert_row(&table, &text_row(BAD)).unwrap();
+    write
+        .add_column(&table, &Column::new("extra", ColumnType::I32))
+        .unwrap();
+    for id in (0..ROWS).filter(|&id| id != BAD) {
+        let mut row = text_row(id);
+        row.push(("extra", Value::I32(-1)));
+        write.insert_row(&table, &row).unwrap();
+    }
+    write.commit().unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let iterated: Vec<Vec<Value<'_>>> = read
+        .range_rows(&table, &[], ..)
+        .unwrap()
+        .map(|row| row.unwrap().values().collect())
+        .collect();
+    assert_eq!(iterated[usize::try_from(BAD).unwrap()][3], Value::Null);
+    let mut scan = read.range_rows(&table, &[], ..).unwrap();
+    let mut lent = Vec::new();
+    while let Some(row) = scan.next_row().unwrap() {
+        lent.push(row.values().collect::<Vec<_>>());
+    }
+    assert_eq!(lent, iterated);
 }
 
 /// A scan of every row of [`texts`] from one end that must fail at `BAD` with damage of `page`: the rows before it

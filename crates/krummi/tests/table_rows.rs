@@ -2175,6 +2175,42 @@ fn d11_values_outlive_their_row() {
     });
 }
 
+/// A read transaction keeps one reader per table, under the root of its history tree, which each table has its own of:
+/// two tables that never changed their schema, read in turns in one read transaction, each read with its own schema
+/// (R1-001 of the RDD review of the row reads run).
+#[test]
+fn tables_read_in_one_read_transaction_keep_their_own_schemas() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let a = create(&mut write, "a", &people());
+        let b = create(&mut write, "b", &texts());
+        for id in 0..3 {
+            write.insert_row(&a, &person(id, "ann", 1, 0.5)).unwrap();
+            let k = format!("k{id}");
+            write
+                .insert_row(&b, &[("k", s(&k)), ("v", Value::I32(10))])
+                .unwrap();
+        }
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let a = read.open_table("a").unwrap();
+        let b = read.open_table("b").unwrap();
+        for _ in 0..2 {
+            let row = read.get_row(&a, &[Value::I64(1)]).unwrap().unwrap();
+            assert_eq!(owned(&row), pairs(&person(1, "ann", 1, 0.5)));
+            let row = read.get_row(&b, &[s("k1")]).unwrap().unwrap();
+            assert_eq!(owned(&row), pairs(&[("k", s("k1")), ("v", Value::I32(10))]));
+            assert_eq!(read.range_rows(&a, &[], ..).unwrap().count(), 3);
+            let ks: Vec<String> = read
+                .range_rows(&b, &[], ..)
+                .unwrap()
+                .map(|row| row.unwrap().text(0).unwrap().into_owned())
+                .collect();
+            assert_eq!(ks, ["k0", "k1", "k2"]);
+        }
+    });
+}
+
 /// S3 of the row reads run: every column that the read of a row checked can be read, a null and a variable-length
 /// column of an older version included, by key and in a scan, after a column is added and another dropped.
 #[test]
