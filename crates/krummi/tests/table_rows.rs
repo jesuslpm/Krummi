@@ -13,6 +13,7 @@ mod support;
 
 use std::borrow::Cow;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use krummi::table::value::{
     ColumnType, DATE_MAX, DATE_MIN, DURATION_MAX, Decimal, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN,
@@ -199,6 +200,14 @@ fn named(row: Vec<(&str, Value<'static>)>) -> Vec<(String, Value<'static>)> {
     row.into_iter().map(|(n, v)| (n.to_owned(), v)).collect()
 }
 
+/// Taken by each test that builds a value of 256 MiB, so that those tests run one at a time and the test threads do
+/// not hold several such buffers, and the stores' copies of them, at once. A test that failed while holding it does
+/// not fail the others.
+fn one_large_test_at_a_time() -> MutexGuard<'static, ()> {
+    static LARGE: Mutex<()> = Mutex::new(());
+    LARGE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // AC5 and E10: storing rows
 
@@ -345,6 +354,57 @@ fn ac5_update_changes_only_the_given_columns() {
                 ("extra", Value::I32(9)),
             ])
         );
+    });
+}
+
+/// AC5 (E10): an insert or update of a row that does not exist inserts it, so a column without nulls and without a
+/// default left without a value fails with an invalid value naming it and changes nothing, and the write can commit
+/// its other changes; of a row that exists, it updates, and the column keeps its value.
+#[test]
+fn ac5_upsert_that_inserts_needs_the_columns_without_nulls() {
+    stores(|store, folder| {
+        let mut write = store.write().unwrap();
+        let strict = create(
+            &mut write,
+            "strict",
+            &Schema::new(
+                vec![
+                    Column::new("id", ColumnType::I64).not_null(),
+                    Column::new("x", ColumnType::I32).not_null(),
+                    Column::new("y", ColumnType::I32),
+                ],
+                &["id"],
+            ),
+        );
+        write
+            .insert_row(&strict, &[("id", Value::I64(1)), ("x", Value::I32(10))])
+            .unwrap();
+        let error = write
+            .upsert_row(&strict, &[("id", Value::I64(2)), ("y", Value::I32(5))])
+            .unwrap_err();
+        assert_eq!(
+            invalid_value(error, folder),
+            (some("strict"), some("x"), ValueRule::NullNotAllowed)
+        );
+        assert_eq!(read_w(&write, &strict, &[Value::I64(2)]), None, "no effect");
+        assert_eq!(write.row_count(&strict).unwrap(), 1, "no effect");
+        assert_eq!(
+            write
+                .upsert_row(&strict, &[("id", Value::I64(1)), ("y", Value::I32(5))])
+                .unwrap(),
+            Upserted::Updated
+        );
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        assert_eq!(
+            read_r(&read, "strict", &[Value::I64(1)]).unwrap(),
+            named(vec![
+                ("id", Value::I64(1)),
+                ("x", Value::I32(10)),
+                ("y", Value::I32(5)),
+            ])
+        );
+        assert_eq!(read_r(&read, "strict", &[Value::I64(2)]), None);
     });
 }
 
@@ -740,6 +800,7 @@ fn ac14_a_row_that_breaks_several_rules() {
 /// (`tests/tables.rs`).
 #[test]
 fn ac14_precedence_of_row_failures() {
+    let _large = one_large_test_at_a_time();
     stores(|store, folder| {
         let mut write = store.write().unwrap();
         let table = create(&mut write, "t", &texts());
@@ -829,6 +890,7 @@ fn ac14_precedence_of_row_failures() {
 /// the damage wins. In a write, damage is the transaction's failure (T11, E19).
 #[test]
 fn ac14_precedence_with_damaged_pages() {
+    let _large = one_large_test_at_a_time();
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
@@ -883,6 +945,7 @@ fn ac14_precedence_with_damaged_pages() {
 /// checked after reading it, with the invalid size of a row and no effect; the write stays usable (B7).
 #[test]
 fn ac14_the_size_of_an_updated_row() {
+    let _large = one_large_test_at_a_time();
     stores(|store, folder| {
         let mut write = store.write().unwrap();
         let table = create(&mut write, "blob", &blobs());
@@ -954,19 +1017,24 @@ fn ac15_a_primary_key_of_2048_bytes() {
 
 /// AC15 (E18): a row of exactly 268,435,456 bytes in its stored form works and one of a byte more fails without
 /// effect with the invalid size of a row. The row of `blobs` is the header (3 bytes), the null bitmap of its one
-/// nullable column (1 byte) and the `bytes` value; the `i64` key is only in the tree's key (document 1).
+/// nullable column (1 byte) and the `bytes` value; the `i64` key is only in the tree's key (document 1). The value
+/// that fits is dropped before the one that does not is built, and read back against its pattern, so that the test
+/// holds one buffer of 256 MiB at a time besides the store's copy.
 #[test]
 fn ac15_a_row_of_256_mib() {
+    let _large = one_large_test_at_a_time();
     stores(|store, folder| {
         let mut write = store.write().unwrap();
         let table = create(&mut write, "blob", &blobs());
         let header = 3 + 1;
-        let fits = pattern(MAX_VALUE - header);
-        let row = [("id", Value::I64(1)), ("b", b(&fits))];
-        let layout = write.table_schema(&table).unwrap().layout();
-        let values: Vec<Value<'_>> = row.iter().map(|(_, v)| v.reborrow()).collect();
-        assert_eq!(layout.encoded_len(&values), MAX_VALUE, "the stored form");
-        write.insert_row(&table, &row).unwrap();
+        {
+            let fits = pattern(MAX_VALUE - header);
+            let row = [("id", Value::I64(1)), ("b", b(&fits))];
+            let layout = write.table_schema(&table).unwrap().layout();
+            let values: Vec<Value<'_>> = row.iter().map(|(_, v)| v.reborrow()).collect();
+            assert_eq!(layout.encoded_len(&values), MAX_VALUE, "the stored form");
+            write.insert_row(&table, &row).unwrap();
+        }
         let over = vec![0u8; MAX_VALUE - header + 1];
         let error = write
             .insert_row(&table, &[("id", Value::I64(2)), ("b", b(&over))])
@@ -982,13 +1050,26 @@ fn ac15_a_row_of_256_mib() {
         let table = read.open_table("blob").unwrap();
         let row = read.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
         assert!(
-            matches!(row.get("b"), Some(Value::Bytes(Cow::Borrowed(bytes))) if bytes[..] == fits[..])
+            matches!(row.get("b"), Some(Value::Bytes(Cow::Borrowed(bytes))) if is_pattern(bytes, MAX_VALUE - header))
         );
     });
 }
 
 fn pattern(len: usize) -> Vec<u8> {
-    (0..len).map(|i| (i % 251) as u8).collect()
+    (0..len).map(pattern_byte).collect()
+}
+
+fn pattern_byte(i: usize) -> u8 {
+    (i % 251) as u8
+}
+
+/// Whether `bytes` are the [`pattern`] of `len` bytes, without building it.
+fn is_pattern(bytes: &[u8], len: usize) -> bool {
+    bytes.len() == len
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, &byte)| byte == pattern_byte(i))
 }
 
 /// AC15 (E4, E18): column names of 1 and 1,024 bytes work in a row; of 0 and 1,025 bytes fail without effect with

@@ -1580,8 +1580,49 @@ fn ac_n5_trees_and_tables_never_touch_each_other() {
     });
 }
 
-/// AC13 and AC-N5 (the catalog part; N1, D3): listing the catalog shows a table and none of its internal trees, and
-/// no name of the catalog reaches them as a tree, through the test hook that gives their roots.
+/// A raw entry of the catalog, as its bytes give it: its name, kind byte and root, and the root of the schema
+/// history tree that a table's bytes after the fixed part give.
+#[derive(Debug)]
+struct RawEntry {
+    name: String,
+    kind: u8,
+    root: u64,
+    history: Option<u64>,
+}
+
+/// The kind byte of a table in the catalog (D2).
+const TABLE_KIND: u8 = 4;
+
+/// Every entry of the catalog of the closed store, read from the catalog tree's leaves: what any name of the catalog
+/// reaches, listed or not.
+fn raw_entries(folder: &Path) -> Vec<RawEntry> {
+    inspect(folder, |read| {
+        let root = read.slot(catalog::ROOT_SLOT).unwrap();
+        let mut entries = Vec::new();
+        krummi_tree::for_each(read, root, &mut |key, value| {
+            let field = |at: usize| u64::from_le_bytes(value[at..at + 8].try_into().unwrap());
+            let (id, kind, root) = (field(0), value[8], field(9));
+            let history = (kind == TABLE_KIND).then(|| {
+                TableSchema::decode(id, &value[25..])
+                    .expect("a table's schema")
+                    .1
+            });
+            entries.push(RawEntry {
+                name: String::from_utf8(key.to_vec()).unwrap(),
+                kind,
+                root,
+                history,
+            });
+        })
+        .unwrap();
+        entries
+    })
+}
+
+/// AC13 and AC-N5 (the catalog part; N1, D3): listing the catalog shows the tables and none of their internal trees,
+/// and no entry of the catalog, listed or not, reaches them as a tree: through the test hook that gives their roots,
+/// every raw entry is either a table's, whose kind is a table and whose rows and history roots are the hook's, or
+/// one whose root is no table's internal tree.
 #[test]
 fn ac13_no_name_reaches_the_internal_trees_of_a_table() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1590,29 +1631,65 @@ fn ac13_no_name_reaches_the_internal_trees_of_a_table() {
     let mut write = store.write().unwrap();
     let table = create_table(&mut write, "table", &people());
     write.rename_column(&table, "name", "label").unwrap();
+    let other = create_table(&mut write, "other", &single());
+    write.insert_row(&other, &[("k", Value::I64(1))]).unwrap();
+    write
+        .open_multi_tree_with("multi", OpenMode::CreateNew)
+        .unwrap();
+    write
+        .open_sequence_with("seq", krummi::SequenceMode::CreateNew(None))
+        .unwrap();
     write.commit().unwrap();
     let read = store.read().unwrap();
-    let table = read.open_table("table").unwrap();
-    let trees = read.table_trees(&table).unwrap();
-    assert_ne!(trees.rows, trees.history);
+    let mut internal: Vec<(String, TableTrees)> = Vec::new();
+    for name in ["other", "table"] {
+        let trees = read.table_trees(&read.open_table(name).unwrap()).unwrap();
+        assert_ne!(trees.rows, trees.history);
+        internal.push((name.to_owned(), trees));
+    }
     let listed = list(&read);
-    assert_eq!(listed.len(), 2);
     drop(read);
     store.close().unwrap();
-    inspect(tmp.path(), |read| {
-        let mut roots = Vec::new();
-        for (name, _) in &listed {
-            roots.push(catalog::lookup(read, name).unwrap().unwrap().root);
+
+    let raw = raw_entries(tmp.path());
+    let names: Vec<(String, TreeKind)> = raw
+        .iter()
+        .map(|entry| {
+            let kind = match entry.kind {
+                1 => TreeKind::Normal,
+                2 => TreeKind::MultiValue,
+                TABLE_KIND => TreeKind::Table,
+                5 => TreeKind::Sequence,
+                other => panic!("kind byte {other} of {:?}", entry.name),
+            };
+            (entry.name.clone(), kind)
+        })
+        .collect();
+    assert_eq!(names, listed, "every entry is listed");
+    let roots: Vec<u64> = internal
+        .iter()
+        .flat_map(|(_, trees)| [trees.rows, trees.history])
+        .collect();
+    for entry in &raw {
+        match internal.iter().find(|(name, _)| *name == entry.name) {
+            Some((_, trees)) => {
+                assert_eq!(entry.kind, TABLE_KIND, "{}", entry.name);
+                assert_eq!(
+                    (entry.root, entry.history),
+                    (trees.rows, Some(trees.history)),
+                    "only through the table's entry"
+                );
+            }
+            None => {
+                assert_ne!(entry.kind, TABLE_KIND, "{}", entry.name);
+                assert!(
+                    !roots.contains(&entry.root),
+                    "{} reaches a table's tree",
+                    entry.name
+                );
+            }
         }
-        let table_entry = catalog::lookup(read, "table").unwrap().unwrap();
-        assert_eq!(
-            table_entry.root, trees.rows,
-            "only through the table's entry"
-        );
-        let tree_root = catalog::lookup(read, "tree").unwrap().unwrap().root;
-        assert!(![trees.rows, trees.history].contains(&tree_root));
-        assert!(!roots.contains(&trees.history));
-    });
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1664,7 +1741,6 @@ fn g6_a_malformed_table_entry_is_damage_of_its_catalog_page() {
     let store = open(tmp.path());
     commit_table(&store, "t", &people());
     store.close().unwrap();
-    let page = leaf_page(tmp.path(), None, b"t");
     // Rewrite the entry with a truncated schema through the engine, which seals the page with a valid checksum.
     {
         let engine = krummi_tx::Engine::open(tmp.path(), &Default::default()).unwrap();
@@ -1675,6 +1751,8 @@ fn g6_a_malformed_table_entry_is_damage_of_its_catalog_page() {
         write.commit().unwrap();
         engine.close().unwrap();
     }
+    // The catalog leaf as the rewrite left it: copy on write may have moved the entry to another page.
+    let page = leaf_page(tmp.path(), None, b"t");
     let store = open(tmp.path());
     let read = store.read().unwrap();
     assert_eq!(damaged_page(read.open_table("t").err().unwrap()), page);
@@ -1692,7 +1770,6 @@ fn g6_garbage_after_a_table_entry_is_damage_of_its_catalog_page() {
     let store = open(tmp.path());
     commit_table(&store, "t", &people());
     store.close().unwrap();
-    let page = leaf_page(tmp.path(), None, b"t");
     let valid = inspect(tmp.path(), |read| {
         catalog::lookup_with_extra(read, "t")
             .unwrap()
@@ -1722,6 +1799,8 @@ fn g6_garbage_after_a_table_entry_is_damage_of_its_catalog_page() {
             write.commit().unwrap();
             engine.close().unwrap();
         }
+        // The catalog leaf as this rewrite left it: copy on write may have moved the entry to another page.
+        let page = leaf_page(tmp.path(), None, b"t");
         let store = open(tmp.path());
         let read = store.read().unwrap();
         assert_eq!(

@@ -298,6 +298,30 @@ fn e14_rename_and_delete_a_sequence() {
     });
 }
 
+/// E14 (E2): a sequence renamed in a write that commits keeps its next value for the later writes, whether that write
+/// asked for a value before renaming it or not.
+#[test]
+fn e14_a_committed_rename_keeps_the_next_value() {
+    stores(|store, _| {
+        commit_sequence(store, "a", Some(5));
+        assert_eq!(take(store, "a", 2, true), [5, 6]);
+        let mut write = store.write().unwrap();
+        let a = write.open_sequence("a").unwrap();
+        assert_eq!(write.next_value(&a).unwrap(), 7);
+        write.rename_sequence("a", "b", false).unwrap();
+        write.commit().unwrap();
+        assert_eq!(take(store, "b", 1, true), [8]);
+
+        let mut write = store.write().unwrap();
+        write.rename_sequence("b", "c", false).unwrap();
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        assert_eq!(read.list_trees().unwrap(), [("c".to_owned(), SEQ)]);
+        drop(read);
+        assert_eq!(take(store, "c", 2, true), [9, 10]);
+    });
+}
+
 /// AC11, AC2 and AC-N5 (E14, N1, B3): sequence operations on a tree or a table, and tree or table operations on a
 /// sequence, fail with a different type without effect, also renaming with overwrite onto another class; renaming
 /// without overwrite onto another class fails with already exists; Exists says the three names exist; and List shows

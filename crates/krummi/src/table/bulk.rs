@@ -46,11 +46,14 @@ impl<E> From<Error> for BulkLoadError<E> {
     }
 }
 
-impl<E> fmt::Display for BulkLoadError<E> {
+/// The engine's error as it shows itself, or the source's error after saying that the source failed.
+impl<E: fmt::Display> fmt::Display for BulkLoadError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BulkLoadError::Store(error) => fmt::Display::fmt(error, f),
-            BulkLoadError::Source(_) => f.write_str("the source of the bulk load failed"),
+            BulkLoadError::Source(error) => {
+                write!(f, "the source of the bulk load failed: {error}")
+            }
         }
     }
 }

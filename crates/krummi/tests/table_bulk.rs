@@ -354,6 +354,70 @@ fn a_panic_in_the_source_aborts_the_load() {
     });
 }
 
+/// A row of a load whose slice the load takes through `AsRef`: a panic there is a panic of the load itself, not of
+/// its source.
+enum LoadRow {
+    Good(Row),
+    Panics,
+}
+
+impl AsRef<[(&'static str, Value<'static>)]> for LoadRow {
+    fn as_ref(&self) -> &[(&'static str, Value<'static>)] {
+        match self {
+            LoadRow::Good(row) => row,
+            LoadRow::Panics => panic!("the row panicked"),
+        }
+    }
+}
+
+/// AC10: a panic in the load itself, here when it takes a row's columns, aborts the whole load; the table, its row
+/// count and a sequence are as before and another write gets its turn.
+#[test]
+fn a_panic_in_the_load_aborts_it() {
+    stores(|store, _| {
+        let before = with_rows_and_sequence(store);
+        let source = (10..=20)
+            .map(|id| LoadRow::Good(row(id)))
+            .chain([LoadRow::Panics, LoadRow::Good(row(21))])
+            .map(Ok::<_, Infallible>);
+        let outcome = catch_unwind(AssertUnwindSafe(|| store.bulk_load("t", source)));
+        assert!(outcome.is_err());
+        assert_eq!(state(store), before);
+        turn_is_free(store);
+    });
+}
+
+/// The error of a source that fails, with a message.
+#[derive(Debug)]
+struct SourceFailed;
+
+impl std::fmt::Display for SourceFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the file is gone")
+    }
+}
+
+impl std::error::Error for SourceFailed {}
+
+/// E13: the message of a load that its source failed names the source's error, which is also its `source`.
+#[test]
+fn the_message_of_a_failing_source_includes_its_error() {
+    stores(|store, _| {
+        create_with(store, "t", 1..=3);
+        let source = rows(10..=12)
+            .map(|row| row.map_err(|never| match never {}))
+            .chain([Err(SourceFailed)]);
+        let error = store.bulk_load("t", source).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "the source of the bulk load failed: the file is gone"
+        );
+        let source = std::error::Error::source(&error).expect("the source's error");
+        assert_eq!(source.to_string(), "the file is gone");
+        assert_eq!(read_rows(store, "t", KEYS).0, 3);
+    });
+}
+
 /// AC10: an empty load changes nothing: it reports 0 rows and the store's files stay as they were.
 #[test]
 fn an_empty_load_changes_nothing() {
@@ -465,6 +529,32 @@ fn a_load_that_does_not_get_its_turn_in_time_times_out() {
             }
             other => panic!("expected a timeout, got {other}"),
         }
+        turn_is_free(store);
+    });
+}
+
+/// E13 and T4: a load that gets its turn within its limit, after another write held it for a while, loads its rows,
+/// commits them and reports how many.
+#[test]
+fn a_load_that_gets_its_turn_in_time_commits() {
+    stores(|store, _| {
+        create_with(store, "t", 1..=3);
+        let (held, wait_held) = mpsc::channel();
+        let loaded = thread::scope(|scope| {
+            scope.spawn(move || {
+                let write = store.write().unwrap();
+                held.send(()).unwrap();
+                thread::sleep(Duration::from_millis(50));
+                write.abort();
+            });
+            wait_held.recv().unwrap();
+            store.bulk_load_with_timeout("t", rows(10..=14), Duration::from_secs(60))
+        });
+        assert_eq!(loaded.unwrap(), 5);
+        let (count, found) = read_rows(store, "t", KEYS);
+        assert_eq!(count, 8);
+        let ids: Vec<i64> = found.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, [1, 2, 3, 10, 11, 12, 13, 14]);
         turn_is_free(store);
     });
 }
