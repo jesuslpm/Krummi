@@ -8,7 +8,8 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
 use krummi::ids::{Ulid, Uuid};
 use krummi::table::key::{
-    KeyError, KeyRange, MAX_KEY, decode_key, encode_key, is_key, key_len, key_range, key_value,
+    KeyError, KeyRange, MAX_KEY, decode_key, encode_key, is_key, key_len, key_range, key_starts,
+    key_value,
 };
 use krummi::table::row::{MAX_ROW, RowColumn, RowDamaged, RowLayout, row_version};
 use krummi::table::value::{
@@ -1973,8 +1974,8 @@ fn encode_key_refuses_more_values_than_columns() {
     let _ = encode_key(&[ColumnType::I64], &[Value::I64(1), Value::I64(2)]);
 }
 
-/// `is_key`, which checks the key of a row read without decoding its text and bytes, accepts exactly the keys that
-/// `decode_key` decodes, and `key_value` gives the fixed-width columns as `decode_key` does: over good keys with
+/// `is_key` and `key_starts`, which check the key of a row read without decoding its text and bytes, accept exactly the
+/// keys that `decode_key` decodes, and `key_value` at each start gives the fixed-width columns as `decode_key` does: over good keys with
 /// escaped zeros and multi-byte characters, each truncation, each byte changed to an edge value and each byte inserted.
 #[test]
 fn is_key_accepts_the_keys_that_decode_key_decodes() {
@@ -2022,12 +2023,15 @@ fn is_key_accepts_the_keys_that_decode_key_decodes() {
                 decoded.is_some(),
                 "{types:?} {key:02x?}"
             );
+            let starts = key_starts(types, key);
+            assert_eq!(starts.is_some(), decoded.is_some(), "{key:02x?}");
+            let (Some(decoded), Some(starts)) = (decoded, starts) else {
+                continue;
+            };
             for (k, ty) in types.iter().enumerate() {
-                if let (Some(decoded), Some(_)) = (&decoded, ty.fixed_width()) {
-                    assert!(
-                        same(&[key_value(types, key, k)], &decoded[k..=k]),
-                        "{key:02x?}"
-                    );
+                if ty.fixed_width().is_some() {
+                    let value = key_value(ty, &key[usize::from(starts[k])..]);
+                    assert!(same(&[value], &decoded[k..=k]), "{key:02x?}");
                 }
             }
         }

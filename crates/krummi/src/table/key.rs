@@ -109,19 +109,32 @@ pub fn decode_key(types: &[ColumnType], key: &[u8]) -> Option<Vec<Value<'static>
 /// Whether `key` is a key of the primary key columns `types`, with the checks of [`decode_key`], without decoding its
 /// text and byte elements.
 pub fn is_key(types: &[ColumnType], key: &[u8]) -> bool {
-    let mut rest = key;
-    types.iter().all(|ty| skip_element(ty, &mut rest).is_some()) && rest.is_empty()
+    walk_key(types, key, |_| {})
 }
 
-/// The value of the fixed-width column `k` of a key of the primary key columns `types` that [`is_key`] accepts.
-/// Panics on another key, or when column `k` is a `string` or `bytes` one, which the row keeps instead.
-pub fn key_value(types: &[ColumnType], key: &[u8], k: usize) -> Value<'static> {
+/// Where each element of `key` starts, when [`is_key`] accepts it, so that each column can be read with
+/// [`key_value`] without walking the elements before it.
+pub fn key_starts(types: &[ColumnType], key: &[u8]) -> Option<Vec<u16>> {
+    let mut starts = Vec::with_capacity(types.len());
+    let start = |at: usize| starts.push(u16::try_from(at).expect("a key of at most 2,048 bytes"));
+    walk_key(types, key, start).then_some(starts)
+}
+
+/// Takes every element of `key` with the checks of [`skip_element`], calling `start` with the offset of each, and
+/// says whether they make the whole key.
+fn walk_key(types: &[ColumnType], key: &[u8], mut start: impl FnMut(usize)) -> bool {
     let mut rest = key;
-    for ty in &types[..k] {
-        skip_element(ty, &mut rest).expect("a checked key");
-    }
-    assert!(types[k].fixed_width().is_some(), "a fixed-width key column");
-    decode_element(&types[k], &mut rest).expect("a checked key")
+    types.iter().all(|ty| {
+        start(key.len() - rest.len());
+        skip_element(ty, &mut rest).is_some()
+    }) && rest.is_empty()
+}
+
+/// The value of a fixed-width column of type `ty` whose element starts `element`, in a key that [`is_key`] accepts.
+/// Panics on another element, or for a `string` or `bytes` column, which the row keeps instead.
+pub fn key_value(ty: &ColumnType, element: &[u8]) -> Value<'static> {
+    assert!(ty.fixed_width().is_some(), "a fixed-width key column");
+    decode_element(ty, &mut &element[..]).expect("a checked key")
 }
 
 /// Takes the element of a value of type `ty` from the front of `rest` with the checks of [`decode_element`]; a text or

@@ -138,7 +138,9 @@ use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
 
 use super::catalog::{ReadTable, WriteTable};
-use super::key::{KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_value};
+use super::key::{
+    KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
+};
 use super::row::{MAX_ROW, RowLayout, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, Value, key_text, normalize};
@@ -453,9 +455,16 @@ impl Reader {
             };
         let layout = old.as_ref().map_or(&self.layout, |old| &old.layout);
         let row = layout.row(bytes).map_err(|_| damaged())?;
-        if !is_key(&self.key_types, &key) {
-            return Err(damaged());
-        }
+        // A key of one column starts at 0; a longer one keeps where each column starts, so that reading every column
+        // walks it once.
+        let starts = if self.key_types.len() == 1 {
+            if !is_key(&self.key_types, &key) {
+                return Err(damaged());
+            }
+            None
+        } else {
+            Some(key_starts(&self.key_types, &key).ok_or_else(damaged)?)
+        };
         let mut defaults = None;
         for (i, column) in self.columns.iter().enumerate() {
             if column.in_key.is_some() {
@@ -480,6 +489,7 @@ impl Reader {
             reader: Arc::clone(self),
             stored: Stored::Row {
                 key,
+                starts,
                 bytes,
                 old,
                 defaults,
@@ -492,6 +502,7 @@ impl Reader {
     fn stored_value<'t>(
         &self,
         key: &[u8],
+        starts: Option<&[u16]>,
         bytes: &'t [u8],
         old: Option<&OldVersion>,
         defaults: Option<&[Value<'t>]>,
@@ -499,7 +510,8 @@ impl Reader {
     ) -> Value<'t> {
         let column = &self.columns[i];
         if let Some(k) = column.in_key {
-            return key_value(&self.key_types, key, k);
+            let start = starts.map_or(0, |starts| usize::from(starts[k]));
+            return key_value(&self.key_types[k], &key[start..]);
         }
         let (layout, place) = match old {
             None => (&self.layout, Some(i)),
@@ -643,6 +655,8 @@ enum Stored<'t> {
     /// the defaults borrowed from the catalog when it needs them.
     Row {
         key: Cow<'t, [u8]>,
+        /// Where each column of a key of several columns starts ([`key_starts`]); `None` for one column.
+        starts: Option<Vec<u16>>,
         bytes: &'t [u8],
         old: Option<Arc<OldVersion>>,
         defaults: Option<Arc<Vec<Value<'t>>>>,
@@ -673,11 +687,13 @@ impl<'t> TableRow<'t> {
         Some(match &self.stored {
             Stored::Row {
                 key,
+                starts,
                 bytes,
                 old,
                 defaults,
             } => self.reader.stored_value(
                 key,
+                starts.as_deref(),
                 bytes,
                 old.as_deref(),
                 defaults.as_ref().map(|d| d.as_slice()),
@@ -926,16 +942,14 @@ impl WriteTransaction<'_> {
             Cow::Borrowed(&key),
             bytes,
         )?;
+        // Decoded once: the merge and the comparison both read every old value.
+        let old: Vec<Value<'_>> = old.values().collect();
         let merged: Vec<Value<'_>> = values
             .into_iter()
-            .zip(old.values())
-            .map(|(new, old)| new.unwrap_or(old))
+            .zip(&old)
+            .map(|(new, old)| new.unwrap_or_else(|| old.reborrow()))
             .collect();
-        if merged
-            .iter()
-            .zip(old.values())
-            .all(|(new, old)| new.same(&old))
-        {
+        if merged.iter().zip(&old).all(|(new, old)| new.same(old)) {
             return Ok(Written::Updated);
         }
         let encoded = reader.encode(&merged).map_err(|fault| fail(self, fault))?;
