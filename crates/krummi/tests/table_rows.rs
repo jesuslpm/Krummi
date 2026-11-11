@@ -2236,3 +2236,121 @@ fn e19_every_column_of_a_checked_older_row_reads() {
         assert_eq!(scanned, expected);
     });
 }
+
+/// The typed reads of a row (T4 of the row reads run) give what `value` gives, for a column of every type they read,
+/// in a row read, a row made owned and an older row read through the history; `None` for a null; and a key column.
+#[test]
+fn typed_reads_give_the_values_of_their_columns() {
+    use krummi::ids::{Ulid, Uuid};
+    use krummi::table::value::UuidOrder;
+    stores(|store, _| {
+        let types = [
+            ("bool", ColumnType::Bool, Value::Bool(true)),
+            ("i8", ColumnType::I8, Value::I8(-8)),
+            ("i16", ColumnType::I16, Value::I16(-16)),
+            ("i32", ColumnType::I32, Value::I32(-32)),
+            ("i64", ColumnType::I64, Value::I64(-64)),
+            ("u8", ColumnType::U8, Value::U8(8)),
+            ("u16", ColumnType::U16, Value::U16(16)),
+            ("u32", ColumnType::U32, Value::U32(32)),
+            ("u64", ColumnType::U64, Value::U64(64)),
+            ("f32", ColumnType::F32, Value::F32(3.5)),
+            ("f64", ColumnType::F64, Value::F64(-6.25)),
+            ("date", ColumnType::Date, Value::Date(20_000)),
+            ("time", ColumnType::Time, Value::Time(3_600_000_000_000)),
+            (
+                "timestamp",
+                ColumnType::Timestamp,
+                Value::Timestamp(1_700_000_000_000_000_000),
+            ),
+            ("duration", ColumnType::Duration, Value::Duration(-5_000)),
+            (
+                "uuid",
+                ColumnType::Uuid(UuidOrder::SqlServer),
+                Value::Uuid(Uuid([7; 16])),
+            ),
+            ("ulid", ColumnType::Ulid, Value::Ulid(Ulid([9; 16]))),
+            ("text", ColumnType::String, s("text")),
+            ("bytes", ColumnType::Bytes, b(&[1, 0, 2])),
+        ];
+        let mut columns = vec![Column::new("id", ColumnType::I64).not_null()];
+        columns.extend(types.iter().map(|(name, ty, _)| Column::new(*name, *ty)));
+        let schema = Schema::new(columns, &["id"]);
+        let mut write = store.write().unwrap();
+        let table = create(&mut write, "t", &schema);
+        let mut full: Vec<(&str, Value<'_>)> = vec![("id", Value::I64(1))];
+        full.extend(types.iter().map(|(name, _, value)| (*name, value.clone())));
+        write.insert_row(&table, &full).unwrap();
+        write.insert_row(&table, &[("id", Value::I64(2))]).unwrap();
+        let typed = |row: &TableRow<'_>| -> Vec<Option<Value<'static>>> {
+            vec![
+                row.bool(1).map(Value::Bool),
+                row.i8(2).map(Value::I8),
+                row.i16(3).map(Value::I16),
+                row.i32(4).map(Value::I32),
+                row.i64(5).map(Value::I64),
+                row.u8(6).map(Value::U8),
+                row.u16(7).map(Value::U16),
+                row.u32(8).map(Value::U32),
+                row.u64(9).map(Value::U64),
+                row.f32(10).map(Value::F32),
+                row.f64(11).map(Value::F64),
+                row.date(12).map(Value::Date),
+                row.time(13).map(Value::Time),
+                row.timestamp(14).map(Value::Timestamp),
+                row.duration(15).map(Value::Duration),
+                row.uuid(16).map(Value::Uuid),
+                row.ulid(17).map(Value::Ulid),
+                row.text(18).map(|t| Value::String(t.into_owned().into())),
+                row.bytes(19).map(|b| Value::Bytes(b.into_owned().into())),
+            ]
+        };
+        let check = |row: &TableRow<'_>, null: bool| {
+            let want: Vec<Option<Value<'static>>> = types
+                .iter()
+                .map(|(_, _, value)| (!null).then(|| value.clone().into_owned()))
+                .collect();
+            assert_eq!(typed(row), want);
+            for i in 1..=types.len() {
+                let value = row.value(i).unwrap();
+                assert_eq!(typed(row)[i - 1].clone().unwrap_or(Value::Null), value);
+            }
+            assert_eq!(row.i64(0), Some(if null { 2 } else { 1 }), "the key column");
+            assert_eq!(row.i64(row.len()), None, "past the live columns");
+        };
+        let row = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
+        check(&row, false);
+        check(&row.into_owned(), false);
+        check(
+            &write.get_row(&table, &[Value::I64(2)]).unwrap().unwrap(),
+            true,
+        );
+        write
+            .add_column(&table, &Column::new("added", ColumnType::I32))
+            .unwrap();
+        let old = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
+        check(&old, false);
+        assert_eq!(old.i32(20), None, "an added column without a default");
+    });
+}
+
+/// A typed read of a column of another type is a misuse of the row, which panics naming the column.
+#[test]
+#[should_panic(expected = "the column n is a i64, not a string")]
+fn a_typed_read_of_another_type_panics() {
+    let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I64),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = create(&mut write, "t", &schema);
+    write
+        .insert_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(2))])
+        .unwrap();
+    let row = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
+    let _ = row.text(1);
+}

@@ -236,27 +236,19 @@ fn id_of(row: &TableRow<'_>) -> Option<[u8; ID_LEN]> {
     }
 }
 
-/// The checksum of a row read, every column ([`table_data::checksum`]); `ts` back in microseconds.
+/// The checksum of a row read, every column ([`table_data::checksum`]), each read with its typed accessor (the table
+/// has the columns of [`schema`], or the accessor panics); `ts` back in microseconds.
 fn checksum(row: &TableRow<'_>) -> Result<u64> {
     let unexpected = || format!("la fila leída no tiene las columnas de la tabla: {row:?}");
-    let (
-        COLUMNS,
-        Some(id),
-        Some(Value::I64(n)),
-        Some(Value::F64(x)),
-        Some(Value::Timestamp(ts)),
-        Some(Value::Bool(flag)),
-        Some(Value::String(name)),
-    ) = (
+    let (COLUMNS, Some(id), Some(n), Some(x), Some(ts), Some(flag), Some(name)) = (
         row.len(),
         id_of(row),
-        row.value(1),
-        row.value(2),
-        row.value(3),
-        row.value(4),
-        row.value(5),
-    )
-    else {
+        row.i64(1),
+        row.f64(2),
+        row.timestamp(3),
+        row.bool(4),
+        row.text(5),
+    ) else {
         return Err(unexpected());
     };
     // A 64-bit division when the nanoseconds fit, as they do in the loads' data; the 128-bit one costs several times more.

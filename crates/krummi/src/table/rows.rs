@@ -143,7 +143,8 @@ use super::key::{
 };
 use super::row::{MAX_ROW, RowLayout, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
-use super::value::{ColumnType, Value, key_text, normalize};
+use super::value::{ColumnType, NANOS_PER_MICRO, Value, key_text, normalize};
+use crate::ids::{Ulid, Uuid};
 use crate::{Folder, ReadTransaction, WriteTransaction};
 
 /// A live column of a table, as its rows need it.
@@ -738,6 +739,101 @@ impl<'t> TableRow<'t> {
             stored: Stored::Owned(values),
         }
     }
+}
+
+impl<'t> TableRow<'t> {
+    /// The live column at `position` read as `T` without building a [`Value`]: the column's stored bytes, through
+    /// `stored`, for a column of the current version outside the key; otherwise its value, through `value`. `None`
+    /// for a null or a position past the live columns. Panics when `matches` rejects the column's type.
+    #[inline]
+    fn typed<T>(
+        &self,
+        position: usize,
+        type_name: &str,
+        matches: impl Fn(&ColumnType) -> bool,
+        stored: impl Fn(&'t [u8]) -> T,
+        value: impl Fn(Value<'t>) -> T,
+    ) -> Option<T> {
+        let column = self.reader.columns.get(position)?;
+        assert!(
+            matches(&column.ty),
+            "the column {} is a {}, not a {type_name}",
+            column.name,
+            column.ty
+        );
+        if let Stored::Row {
+            bytes, old: None, ..
+        } = &self.stored
+            && column.in_key.is_none()
+        {
+            let row = self.reader.layout.row(bytes).expect("a checked row");
+            return row
+                .column_bytes(position)
+                .expect("a checked row")
+                .map(stored);
+        }
+        match self.value(position)? {
+            Value::Null => None,
+            other => Some(value(other)),
+        }
+    }
+}
+
+/// The bytes of a stored fixed-width column as an array of its width.
+fn array<const N: usize>(bytes: &[u8]) -> [u8; N] {
+    bytes.try_into().expect("the slot's width")
+}
+
+/// Typed accessors of [`TableRow`]: `$method` reads a column of `$ty`, stored as `$stored` decodes it, as the
+/// `Value::$variant` that [`TableRow::value`] would give.
+macro_rules! typed_accessors {
+    ($($method:ident, $name:literal, $ty:pat, $variant:ident, $out:ty, $stored:expr;)*) => {
+        /// Typed reads of a column: each returns the column's value as its Rust type, without building a [`Value`],
+        /// which costs less in a scan that reads every column; `None` for a null or a position past the live
+        /// columns. Each panics on a column of another type; [`TableRow::value`] reads any column.
+        impl<'t> TableRow<'t> {
+            $(
+                #[doc = concat!("The value of the `", $name, "` column at `position` (see the typed reads).")]
+                #[inline]
+                pub fn $method(&self, position: usize) -> Option<$out> {
+                    self.typed(position, $name, |ty| matches!(ty, $ty), $stored, |value| match value {
+                        Value::$variant(v) => v,
+                        _ => unreachable!("a value of its column's type"),
+                    })
+                }
+            )*
+        }
+    };
+}
+
+typed_accessors! {
+    bool, "bool", ColumnType::Bool, Bool, bool, |b: &[u8]| b == [1];
+    i8, "i8", ColumnType::I8, I8, i8, |b: &[u8]| i8::from_le_bytes(array(b));
+    i16, "i16", ColumnType::I16, I16, i16, |b: &[u8]| i16::from_le_bytes(array(b));
+    i32, "i32", ColumnType::I32, I32, i32, |b: &[u8]| i32::from_le_bytes(array(b));
+    i64, "i64", ColumnType::I64, I64, i64, |b: &[u8]| i64::from_le_bytes(array(b));
+    u8, "u8", ColumnType::U8, U8, u8, |b: &[u8]| u8::from_le_bytes(array(b));
+    u16, "u16", ColumnType::U16, U16, u16, |b: &[u8]| u16::from_le_bytes(array(b));
+    u32, "u32", ColumnType::U32, U32, u32, |b: &[u8]| u32::from_le_bytes(array(b));
+    u64, "u64", ColumnType::U64, U64, u64, |b: &[u8]| u64::from_le_bytes(array(b));
+    f32, "f32", ColumnType::F32, F32, f32, |b: &[u8]| f32::from_le_bytes(array(b));
+    f64, "f64", ColumnType::F64, F64, f64, |b: &[u8]| f64::from_le_bytes(array(b));
+    date, "date", ColumnType::Date, Date, i32, |b: &[u8]| i32::from_le_bytes(array(b));
+    time, "time", ColumnType::Time, Time, i64, |b: &[u8]| {
+        i64::from_le_bytes(array(b)) * i64::try_from(NANOS_PER_MICRO).expect("1,000")
+    };
+    timestamp, "timestamp", ColumnType::Timestamp, Timestamp, i128, |b: &[u8]| {
+        i128::from(i64::from_le_bytes(array(b))) * NANOS_PER_MICRO
+    };
+    duration, "duration", ColumnType::Duration, Duration, i128, |b: &[u8]| {
+        i128::from(i64::from_le_bytes(array(b))) * NANOS_PER_MICRO
+    };
+    uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |b: &[u8]| Uuid(array(b));
+    ulid, "ulid", ColumnType::Ulid, Ulid, Ulid, |b: &[u8]| Ulid(array(b));
+    text, "string", ColumnType::String, String, Cow<'t, str>, |b: &'t [u8]| {
+        Cow::Borrowed(std::str::from_utf8(b).expect("a checked row"))
+    };
+    bytes, "bytes", ColumnType::Bytes, Bytes, Cow<'t, [u8]>, |b: &'t [u8]| Cow::Borrowed(b);
 }
 
 impl fmt::Debug for TableRow<'_> {
