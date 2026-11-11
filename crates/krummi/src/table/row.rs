@@ -58,6 +58,14 @@ enum Place {
     Variable(usize),
 }
 
+/// Where a column of a row of one layout is, for [`RowLayout::checked_bytes`]: its place and, when it may be null, the
+/// byte and mask of its bit in the null bitmap. Computed once per column ([`RowLayout::slot`]).
+#[derive(Debug, Clone, Copy)]
+pub struct Slot {
+    place: Place,
+    null: Option<(usize, u8)>,
+}
+
 /// The layout of the rows of one schema version: computed from its columns, never stored (document 1).
 #[derive(Debug, Clone)]
 pub struct RowLayout {
@@ -121,6 +129,55 @@ impl RowLayout {
     /// The columns of the version, in version order.
     pub fn columns(&self) -> &[RowColumn] {
         &self.columns
+    }
+
+    /// Whether [`Row::check`] can reject the column at `position`: false for a key column and for a fixed-width one
+    /// whose every value decodes.
+    pub fn needs_check(&self, position: usize) -> bool {
+        match self.places.get(position) {
+            Some(Place::Fixed { .. }) => !always_decodes(&self.columns[position].ty),
+            Some(Place::Variable(_)) => true,
+            Some(Place::Key) | None => false,
+        }
+    }
+
+    /// Where the column at `position` is in the rows of this layout, if the version has it.
+    pub fn slot(&self, position: usize) -> Option<Slot> {
+        Some(Slot {
+            place: *self.places.get(position)?,
+            null: self.null_bits[position].map(|bit| (HEADER + bit / 8, 1 << (bit % 8))),
+        })
+    }
+
+    /// The stored bytes of the column at `slot` in `bytes`, a row of this layout that [`RowLayout::row`] accepted and
+    /// whose column [`Row::check`] accepted: as [`Row::column_bytes`], without reading the header again. `None` for a
+    /// null, or a key column. Panics, or gives other bytes, on a row that was not checked.
+    #[inline]
+    pub fn checked_bytes<'r>(&self, bytes: &'r [u8], slot: Slot) -> Option<&'r [u8]> {
+        if let Some((byte, mask)) = slot.null
+            && bytes[byte] & mask != 0
+        {
+            return None;
+        }
+        match slot.place {
+            Place::Key => None,
+            Place::Fixed { offset, width } => Some(&bytes[offset..offset + width]),
+            Place::Variable(j) => {
+                let width = 1usize << bytes[2];
+                let var_start = self.offsets_start + (self.variables - 1) * width;
+                let end_of = |j: usize| {
+                    let at = self.offsets_start + j * width;
+                    var_start + read_offset(&bytes[at..at + width])
+                };
+                let start = if j == 0 { var_start } else { end_of(j - 1) };
+                let end = if j + 1 == self.variables {
+                    bytes.len()
+                } else {
+                    end_of(j)
+                };
+                Some(&bytes[start..end])
+            }
+        }
     }
 
     /// The position of the column `id` in this version, if it has it. A scan computes it once per version and

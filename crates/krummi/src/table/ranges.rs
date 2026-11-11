@@ -63,7 +63,7 @@ use krummi_tree::{Interval, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
 use super::key::KeyRange;
-use super::rows::{At, Reader, RowCount, TableRow, Versions};
+use super::rows::{At, Reader, RowCount, TableRow, Versions, write_key};
 use super::value::Value;
 use crate::{ReadTransaction, WriteTransaction};
 
@@ -71,7 +71,7 @@ use crate::{ReadTransaction, WriteTransaction};
 struct Scan<'t, S: PageSource + ?Sized> {
     tx: &'t S,
     entries: krummi_tree::Range<'t, S>,
-    reader: Arc<Reader>,
+    reader: &'t Arc<Reader>,
     /// The name of the table's catalog entry and the roots of its trees.
     name: String,
     rows_root: u64,
@@ -82,7 +82,7 @@ struct Scan<'t, S: PageSource + ?Sized> {
 }
 
 impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
-    fn new(tx: &'t S, reader: Arc<Reader>, table: At<'_>, range: &KeyRange) -> Result<Self> {
+    fn new(tx: &'t S, reader: &'t Arc<Reader>, table: At<'_>, range: &KeyRange) -> Result<Self> {
         Ok(Scan {
             tx,
             entries: krummi_tree::Range::new(tx, table.rows_root, interval(range))?,
@@ -190,7 +190,8 @@ impl ReadTransaction<'_> {
         )?;
         Ok(ReadRows(Scan::new(
             &self.inner,
-            Arc::clone(&table.reader),
+            self.readers
+                .keep(table.history, || Arc::clone(&table.reader)),
             table.at(),
             &range,
         )?))
@@ -218,7 +219,8 @@ impl WriteTransaction<'_> {
         )?;
         Ok(WriteRows(Scan::new(
             &self.inner,
-            Arc::clone(&state.reader),
+            self.readers
+                .keep(write_key(&state.reader), || Arc::clone(&state.reader)),
             state.at(),
             &range,
         )?))

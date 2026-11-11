@@ -227,13 +227,9 @@ fn ulid_keys(rows: Vec<u32>) -> Vec<[u8; ID_LEN]> {
         .collect()
 }
 
-/// The key of a row read.
+/// The key of a row read from W23's table, a `ulid` (W26, W27).
 fn id_of(row: &TableRow<'_>) -> Option<[u8; ID_LEN]> {
-    match row.value(0) {
-        Some(Value::Ulid(id)) => Some(id.0),
-        Some(Value::Uuid(id)) => Some(id.0),
-        _ => None,
-    }
+    row.ulid(0).map(|id| id.0)
 }
 
 /// The checksum of a row read, every column ([`table_data::checksum`]), each read with its typed accessor (the table
@@ -247,7 +243,7 @@ fn checksum(row: &TableRow<'_>) -> Result<u64> {
         row.f64(2),
         row.timestamp(3),
         row.bool(4),
-        row.text(5),
+        row.text_bytes(5),
     ) else {
         return Err(unexpected());
     };
@@ -256,7 +252,7 @@ fn checksum(row: &TableRow<'_>) -> Result<u64> {
         Ok(ts) => ts / 1_000,
         Err(_) => i64::try_from(ts / 1_000).map_err(|_| unexpected())?,
     };
-    Ok(table_data::checksum(&id, n, x, ts, flag, name.as_bytes()))
+    Ok(table_data::checksum(&id, n, x, ts, flag, &name))
 }
 
 /// Creates the empty table with `schema` in a write of its own.

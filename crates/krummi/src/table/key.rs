@@ -149,6 +149,12 @@ fn skip_element(ty: &ColumnType, rest: &mut &[u8]) -> Option<()> {
     let code = match ty {
         ColumnType::String => STRING,
         ColumnType::Bytes => BYTES,
+        // Every 16 bytes are a value of its type: its code and its length are the whole check.
+        ColumnType::Uuid(_) | ColumnType::Ulid => {
+            return (take(rest, 1)?[0] == UUID)
+                .then_some(())
+                .and(take(rest, 16).map(drop));
+        }
         _ => return decode_element(ty, rest).map(drop),
     };
     if take(rest, 1)?[0] != code {

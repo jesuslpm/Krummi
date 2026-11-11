@@ -132,7 +132,8 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
 use std::ops::Bound;
-use std::sync::Arc;
+use std::ops::Deref;
+use std::sync::{Arc, OnceLock};
 
 use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
@@ -141,7 +142,7 @@ use super::catalog::{ReadTable, WriteTable};
 use super::key::{
     KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
 };
-use super::row::{MAX_ROW, RowLayout, row_version};
+use super::row::{MAX_ROW, RowLayout, Slot, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, NANOS_PER_MICRO, Value, key_text, normalize};
 use crate::ids::{Ulid, Uuid};
@@ -189,6 +190,10 @@ pub(crate) struct Reader {
     key_types: Vec<ColumnType>,
     /// The layout of the rows of the current version, whose columns are `columns`, in the same order.
     layout: RowLayout,
+    /// Where each live column is in the rows of the current version, for the typed reads.
+    slots: Vec<Slot>,
+    /// The live columns that the check of a row of the current version reads: those it can reject.
+    checks: Vec<usize>,
 }
 
 /// A failure of public validation of a row or a key, before it knows the table's name and the store's folder.
@@ -283,12 +288,21 @@ impl Reader {
             })
             .collect();
         let key_types = key_columns.iter().map(|&i| columns[i].ty).collect();
+        let layout = schema.layout();
+        let slots = (0..columns.len())
+            .map(|i| layout.slot(i).expect("a column of the current version"))
+            .collect();
+        let checks = (0..columns.len())
+            .filter(|&i| layout.needs_check(i))
+            .collect();
         Reader {
             columns,
             names,
             key_columns,
             key_types,
-            layout: schema.layout(),
+            layout,
+            slots,
+            checks,
         }
     }
 
@@ -431,7 +445,7 @@ impl Reader {
     /// catalog entry (D11). The whole row is checked here, and its values are decoded when they are read: bytes that
     /// are not such a row are damage of the page that holds them (G6), and reading a column of the row cannot fail.
     pub(super) fn decode<'t, S: PageSource + ?Sized>(
-        self: &Arc<Self>,
+        self: &'t Arc<Self>,
         tx: &'t S,
         table: At<'_>,
         versions: &mut Versions<'t>,
@@ -467,11 +481,18 @@ impl Reader {
             Some(key_starts(&self.key_types, &key).ok_or_else(damaged)?)
         };
         let mut defaults = None;
+        let Some(old_version) = &old else {
+            // The current version: only the columns the check can reject, every live column being in its rows.
+            for &i in &self.checks {
+                row.check(i).map_err(|_| damaged())?;
+            }
+            return Ok(self.stored_row(key, starts, bytes, None, None));
+        };
         for (i, column) in self.columns.iter().enumerate() {
             if column.in_key.is_some() {
                 continue;
             }
-            match old.as_ref().map_or(Some(i), |old| old.places[i]) {
+            match old_version.places[i] {
                 Some(place) => row.check(place).map_err(|_| damaged())?,
                 None if needs_stored(&column.default) && defaults.is_none() => {
                     defaults = Some(match &versions.defaults {
@@ -486,8 +507,20 @@ impl Reader {
                 None => {}
             }
         }
-        Ok(TableRow {
-            reader: Arc::clone(self),
+        Ok(self.stored_row(key, starts, bytes, old, defaults))
+    }
+
+    /// A row that [`Reader::decode`] checked, borrowing this reader.
+    fn stored_row<'t>(
+        self: &'t Arc<Self>,
+        key: Cow<'t, [u8]>,
+        starts: Option<Vec<u16>>,
+        bytes: &'t [u8],
+        old: Option<Arc<OldVersion>>,
+        defaults: Option<Arc<Vec<Value<'t>>>>,
+    ) -> TableRow<'t> {
+        TableRow {
+            reader: RowReader::Kept(self),
             stored: Stored::Row {
                 key,
                 starts,
@@ -495,7 +528,7 @@ impl Reader {
                 old,
                 defaults,
             },
-        })
+        }
     }
 
     /// The value of the live column `i` of the row `key`, `bytes`, which [`Reader::decode`] checked.
@@ -612,6 +645,58 @@ fn needs_stored(default: &Value<'_>) -> bool {
     )
 }
 
+/// The readers of the tables whose rows a transaction reads, kept until it ends, so that its rows borrow their reader
+/// instead of counting a reference to it, which costs two atomic operations per row. An append-only list, each reader
+/// under a key: a read transaction keeps one per table, by the root of its history tree, since its snapshot does not
+/// change; a write transaction keeps one per schema a table had in it, by its reader's address. A kept reader never
+/// moves, so a reference to it lives as long as the transaction.
+#[derive(Default)]
+pub(crate) struct Readers {
+    head: OnceLock<Box<Kept>>,
+}
+
+/// A reader of [`Readers`], with its key, and the next one.
+struct Kept {
+    key: u64,
+    reader: Arc<Reader>,
+    next: OnceLock<Box<Kept>>,
+}
+
+impl Readers {
+    /// The reader kept under `key`, or `make()` kept under it.
+    pub(crate) fn keep(&self, key: u64, make: impl FnOnce() -> Arc<Reader>) -> &Arc<Reader> {
+        let mut make = Some(make);
+        let mut made = None;
+        let mut slot = &self.head;
+        loop {
+            match slot.get() {
+                Some(kept) if kept.key == key => return &kept.reader,
+                Some(kept) => slot = &kept.next,
+                None => {
+                    let reader = made
+                        .take()
+                        .unwrap_or_else(|| make.take().expect("made once")());
+                    // Another thread of a shared read transaction may have kept one first: the loop then reads it,
+                    // and keeps this one further on if it is under another key.
+                    if let Err(not_kept) = slot.set(Box::new(Kept {
+                        key,
+                        reader,
+                        next: OnceLock::new(),
+                    })) {
+                        made = Some(not_kept.reader);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The key of the reader of a table of a write transaction in its [`Readers`]: the reader's address, which no other
+/// reader has while it is kept.
+pub(crate) fn write_key(reader: &Arc<Reader>) -> u64 {
+    Arc::as_ptr(reader) as usize as u64
+}
+
 /// Where the rows of a table are: the name of its catalog entry, which holds its current schema, and the roots of its
 /// rows tree and its history tree.
 #[derive(Clone, Copy)]
@@ -646,8 +731,26 @@ fn row_damage<S: PageSource + ?Sized>(tx: &S, rows_root: u64, key: &[u8]) -> Err
 /// vectors borrow the transaction's pages without copying them (D11), so the row and its values live until the next
 /// operation that may modify the transaction.
 pub struct TableRow<'t> {
-    reader: Arc<Reader>,
+    reader: RowReader<'t>,
     stored: Stored<'t>,
+}
+
+/// The reader of a [`TableRow`]: the one its transaction keeps, or its own once the row is owned.
+enum RowReader<'t> {
+    Kept(&'t Arc<Reader>),
+    Owned(Arc<Reader>),
+}
+
+impl Deref for RowReader<'_> {
+    type Target = Reader;
+
+    #[inline]
+    fn deref(&self) -> &Reader {
+        match self {
+            RowReader::Kept(reader) => reader,
+            RowReader::Owned(reader) => reader,
+        }
+    }
 }
 
 /// What a [`TableRow`] holds.
@@ -735,7 +838,10 @@ impl<'t> TableRow<'t> {
             Stored::Row { .. } => self.values().map(Value::into_owned).collect(),
         };
         TableRow {
-            reader: self.reader,
+            reader: RowReader::Owned(match self.reader {
+                RowReader::Kept(reader) => Arc::clone(reader),
+                RowReader::Owned(reader) => reader,
+            }),
             stored: Stored::Owned(values),
         }
     }
@@ -766,16 +872,55 @@ impl<'t> TableRow<'t> {
         } = &self.stored
             && column.in_key.is_none()
         {
-            let row = self.reader.layout.row(bytes).expect("a checked row");
-            return row
-                .column_bytes(position)
-                .expect("a checked row")
-                .map(stored);
+            let slot = self.reader.slots[position];
+            return self.reader.layout.checked_bytes(bytes, slot).map(stored);
         }
         match self.value(position)? {
             Value::Null => None,
             other => Some(value(other)),
         }
+    }
+}
+
+impl<'t> TableRow<'t> {
+    /// The value of the `ulid` column at `position` (see the typed reads); a key column is read from its element in
+    /// the key, a type code and the 16 bytes.
+    #[inline]
+    pub fn ulid(&self, position: usize) -> Option<Ulid> {
+        if let Some(column) = self.reader.columns.get(position)
+            && let (Some(k), ColumnType::Ulid, Stored::Row { key, starts, .. }) =
+                (column.in_key, &column.ty, &self.stored)
+        {
+            let start = starts.as_ref().map_or(0, |starts| usize::from(starts[k]));
+            return Some(Ulid(array(&key[start + 1..start + 17])));
+        }
+        self.typed(
+            position,
+            "ulid",
+            |ty| matches!(ty, ColumnType::Ulid),
+            |b: &[u8]| Ulid(array(b)),
+            |value| match value {
+                Value::Ulid(v) => v,
+                _ => unreachable!("a value of its column's type"),
+            },
+        )
+    }
+
+    /// The stored bytes of the `string` column at `position`, the UTF-8 of its text (see the typed reads), checked
+    /// when the row was read: as [`text`](Self::text) without checking them again.
+    #[inline]
+    pub fn text_bytes(&self, position: usize) -> Option<Cow<'t, [u8]>> {
+        self.typed(
+            position,
+            "string",
+            |ty| matches!(ty, ColumnType::String),
+            |b: &'t [u8]| Cow::Borrowed(b),
+            |value| match value {
+                Value::String(Cow::Borrowed(text)) => Cow::Borrowed(text.as_bytes()),
+                Value::String(Cow::Owned(text)) => Cow::Owned(text.into_bytes()),
+                _ => unreachable!("a value of its column's type"),
+            },
+        )
     }
 }
 
@@ -829,7 +974,6 @@ typed_accessors! {
         i128::from(i64::from_le_bytes(array(b))) * NANOS_PER_MICRO
     };
     uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |b: &[u8]| Uuid(array(b));
-    ulid, "ulid", ColumnType::Ulid, Ulid, Ulid, |b: &[u8]| Ulid(array(b));
     text, "string", ColumnType::String, String, Cow<'t, str>, |b: &'t [u8]| {
         Cow::Borrowed(std::str::from_utf8(b).expect("a checked row"))
     };
@@ -892,9 +1036,11 @@ impl ReadTransaction<'_> {
             .reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &table.name))?;
+        let reader = self
+            .readers
+            .keep(table.history, || Arc::clone(&table.reader));
         match krummi_tree::get(&self.inner, table.rows_root, &key)? {
-            Some(bytes) => table
-                .reader
+            Some(bytes) => reader
                 .decode(
                     &self.inner,
                     table.at(),
@@ -963,9 +1109,11 @@ impl WriteTransaction<'_> {
             .reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &state.name))?;
+        let reader = self
+            .readers
+            .keep(write_key(&state.reader), || Arc::clone(&state.reader));
         match krummi_tree::get(&self.inner, state.rows_root, &key)? {
-            Some(bytes) => state
-                .reader
+            Some(bytes) => reader
                 .decode(
                     &self.inner,
                     state.at(),

@@ -152,6 +152,7 @@ impl Store {
             inner: self.engine.read()?,
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
+            readers: table::Readers::default(),
         })
     }
 
@@ -194,6 +195,7 @@ impl Store {
             trees: RefCell::default(),
             tables: RefCell::default(),
             sequences: RefCell::default(),
+            readers: table::Readers::default(),
         })
     }
 }
@@ -204,6 +206,8 @@ pub struct ReadTransaction<'s> {
     inner: krummi_tx::ReadTransaction<'s>,
     folder: Folder<'s>,
     serial: u64,
+    /// The readers of the tables it reads rows from, which its rows borrow.
+    readers: table::Readers,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing
@@ -218,6 +222,8 @@ pub struct WriteTransaction<'s> {
     tables: RefCell<table::catalog::Tables>,
     /// The state of every sequence this transaction opened, shared by all the sequence's handles (E14, B9).
     sequences: RefCell<table::Sequences>,
+    /// The readers of the tables it reads rows from, which its rows borrow.
+    readers: table::Readers,
 }
 
 /// How [`WriteTransaction::open_tree_with`], [`WriteTransaction::open_multi_tree_with`] and

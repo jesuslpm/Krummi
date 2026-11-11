@@ -254,7 +254,10 @@ impl<'s> ReadTransaction<'s> {
             rows_root: found.entry.root,
             count: found.entry.count,
             history: found.history,
-            reader: Arc::new(Reader::new(&found.schema)),
+            reader: Arc::clone(
+                self.readers
+                    .keep(found.history, || Arc::new(Reader::new(&found.schema))),
+            ),
             schema: found.schema,
             _store: PhantomData,
         })
