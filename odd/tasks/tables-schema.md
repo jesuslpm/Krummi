@@ -219,3 +219,11 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   Fixed inline in `18e83d1`: the source error's `source()` skips to its own source, so chain reporters show it once;
   `is_table` lists its loads; W28 and W29 check their end state after the measured time. README (`9dcceaa`) describes
   the tables, with an example compiled once as a scratch example.
+- **L13** (2026-11-11): RDD of the last slice (`12dd86b..9dcceaa` with the log, forced) `review-cc56ac99ac96c65f`
+  (readability, reliability) **approved**; advisories R2-inline-hex-key-format and R3-source-chain-forwarding-unproved
+  fixed in `93bfa4d` (one key formatter in the bench worker; a test of a source error with its own cause);
+  R3-source-api-observable-change and R3-readme-example-uncompiled (SUGGESTION) accepted as is. Final checks: fmt and
+  clippy clean; `cargo test --workspace` once failed `krummi-tx` `recovery::ac_j9_a_failed_transfer_refuses_writes_and_recovery_brings_everything_back`
+  (the committer's durable commit saw the transfer thread's injected failure first, `recovery.rs:25`), then passed
+  6 times alone, 8 times with its file and in a full rerun (779 passed, 31 ignored): a timing race of an existing test
+  under load, in code this run does not change (`krummi-tx` only gained the `pages_read` test hook). Not fixed here.
