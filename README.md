@@ -22,13 +22,20 @@ from both ends, by interval and by prefix, and removes whole intervals. It also 
 key holds a sorted set of values of up to 2,048 bytes, the empty value included, with their own operations and scans,
 and fixed-size trees, whose keys are unsigned 64-bit integers in numeric order and whose values all have the length,
 0 to 2,048 bytes, given when the tree is created; asking for a tree's kind by its name gives that length too.
+Module 7 has its first part, **tables with schema** ([module PRD](docs/prd/krummi/tables.prd.en.md),
+[PRD](docs/prd/krummi/tables-schema.prd.en.md)): named tables of typed columns (integers, floats, `decimal`, text,
+bytes, dates and times, `uuid`, `ulid` and vectors) with a primary key, created, opened, described, renamed, emptied
+and deleted like trees; rows inserted, updated (only the columns given), read, deleted and scanned from both ends by
+ranges of the primary key; schema changes that never rewrite rows; an atomic bulk load; named sequences; and
+generators of `ulid`, version 7 `uuid` and SQL Server sequential `uuid` values.
 The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
 
 ```rust
 use std::time::Duration;
-use krummi::{OpenMode, Store, StoreOptions};
+use krummi::table::value::{ColumnType, Value};
+use krummi::{Column, OpenMode, Schema, Store, StoreOptions, TableMode};
 
 let store = Store::open("data/orders", &StoreOptions::default())?;
 println!("{:?}", store.info()); // format version, page size, size, pages, maximum size, temporary, free pages
@@ -53,6 +60,16 @@ assert!(write.add(&tags, b"order-1", b"urgent")?); // whether it added; contains
 for value in write.values(&tags, b"order-1", ..)? { // a key's values in order; keys(..) scans keys with their counts
     println!("{:?}", value?);
 }
+let schema = Schema::new(
+    vec![Column::new("id", ColumnType::Ulid).not_null(), Column::new("name", ColumnType::String)],
+    &["id"],
+);
+let people = write.open_table_with("people", TableMode::OpenOrCreate(&schema))?; // a table, with its schema
+let id = Value::Ulid(krummi::ids::ulid()?); // increasing in the process, also within one millisecond
+write.insert_row(&people, &[("id", id.clone()), ("name", Value::String("Huginn".into()))])?;
+let row = write.get_row(&people, &[id])?.unwrap(); // the text borrowed from the engine, not copied
+println!("{:?}", row.get("name")); // Some(String("Huginn"))
+drop(row); // a borrowed row ends before the commit
 write.commit()?;
 drop(read);
 store.close()?; // moves everything into krummi.data and removes the journal
