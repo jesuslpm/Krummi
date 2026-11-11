@@ -285,6 +285,15 @@ cosas".
   `V ‖ cabecera/creado ‖ string ‖ "2026-11-11"` up to the prefix of the next day. The result is right only when every
   document writes the value in one form (dates in UTC with `Z`); document 13's `JsonAs(date)` and `JsonAs(timestamp)`
   are the typed alternative.
+- **Hashed terms are outside the scan.** A term too long for a key is stored as `H ‖ xxh3-64` (*Terms*), without
+  its `V ‖ path ‖ kind` prefix, so a scan of that prefix misses it: with `{"a":"A…A"}` (3,000 `A`) and
+  `{"a":"Ab"}`, a prefix `A` on `a` would find only the second, and no recheck brings back a row that was never a
+  candidate (Codex review of 2026-11-11, report `2026-11-11-code-03.md`, R1). The scans above are therefore complete
+  only over unhashed terms, and enabling them needs one of two things, to choose with the detailed design: hashed
+  terms that keep their path and the first bytes of their value before the hash (`H ‖ path ‖ kind ‖ value prefix ‖
+  hash`), so that a scan also visits them and rechecks them, with any prefix longer than the kept bytes rechecked;
+  or no list, and a full scan, for any path that may hold hashed values. A path whose own encoding is too long is
+  always hashed and always falls back.
 - **Numbers** are not: the normalized decimal form of *Terms* (sign, digits, exponent) does not sort by value. Numeric
   ranges over the dictionary need an order-preserving decimal encoding in the term (sign, then exponent, then
   digits, as order-preserving key encodings of arbitrary decimals do), to choose when the inverted index is designed.
