@@ -76,3 +76,6 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   update read the old values twice) → fixed in `9941b62` (the row keeps where each column of a compound key starts;
   the update decodes the old values once). Reproduction after the fix: linear, near the base. Single loads after it:
   W26 997,950, W27 5,043,318, W28 116,014. Checks: fmt, clippy clean, 787 passed.
+- **L7** (2026-11-11): Codex round 2 ([report](../../docs/reviews/table-row-reads/2026-11-11-code-02.md)): `approved`,
+  "Approved: R1 verified resolved; no open findings in the requested follow-up scope." Next: RDD of the last slice,
+  then the complete runs (T3).
