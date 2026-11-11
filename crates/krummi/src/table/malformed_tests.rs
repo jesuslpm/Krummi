@@ -224,6 +224,31 @@ fn ac_l1_a_text_that_is_not_utf8_is_returned_and_panics_only_when_read_as_text()
     reads_and_scans!(write, table, (0..ROWS).collect(), id, check);
 }
 
+/// AC-L1 on a row of an older schema version (R2 of the third Codex code review): renaming a column makes the row
+/// with the text that is not UTF-8 an older one, which still reads its other columns, panics when its text is read as
+/// text and gives its bytes as they are, by key and in scans.
+#[test]
+fn ac_l1_an_older_row_with_a_text_that_is_not_utf8_reads_it_as_bytes() {
+    let store = bad_text_store();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write.rename_column(&table, "n", "number").unwrap();
+    write.commit().unwrap();
+    let reads = |row: &TableRow<'_>| {
+        if row.i64(0) == Some(BAD) {
+            assert_eq!(row.i32(1), Some(50));
+            assert_eq!(row.text_bytes(2).as_deref(), Some(&b"row\xFF"[..]));
+            assert!(panics(|| row.text(2)), "text");
+            assert!(panics(|| row.value(2)), "value");
+        }
+    };
+    let id = |row: &TableRow<'_>| row.i64(0).unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    reads(&read.get_row(&table, &[Value::I64(BAD)]).unwrap().unwrap());
+    reads_and_scans!(read, table, (0..ROWS).collect(), id, reads);
+}
+
 /// AC-L2: a `bool` that is neither 0 nor 1, and a variable value whose offset is past the row, are returned by a read
 /// by key and by scans, in a read and in a write transaction.
 #[test]

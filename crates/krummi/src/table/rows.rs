@@ -142,7 +142,7 @@ use super::catalog::{ReadTable, WriteTable};
 use super::key::{
     KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
 };
-use super::row::{MAX_ROW, Row, RowLayout, Slot, row_version, slot_array};
+use super::row::{MAX_ROW, Row, RowDamaged, RowLayout, Slot, row_version, slot_array};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, NANOS_PER_MICRO, Value, key_text, normalize};
 use crate::ids::{Ulid, Uuid};
@@ -936,12 +936,27 @@ impl<'t> TableRow<'t> {
                 column.name, column.ty
             );
         }
-        if let Stored::Row {
-            bytes, old: None, ..
-        } = &self.stored
+        if let Stored::Row { bytes, old, .. } = &self.stored
             && !column.in_key
         {
-            return reader.layout.slot_bytes(bytes, column.slot).map(stored);
+            match old {
+                None => return reader.layout.slot_bytes(bytes, column.slot).map(stored),
+                // An older row reads the column's bytes with its version's layout, without decoding them, as a row
+                // of the current version does; a column added after it reads its default as a value.
+                Some(old) => {
+                    if let Some(place) = old.places[position] {
+                        return old
+                            .layout
+                            .row(bytes)
+                            .expect("a row that its layout read")
+                            .column_bytes(place)
+                            .unwrap_or_else(|RowDamaged| {
+                                panic!("a malformed row: a column outside it")
+                            })
+                            .map(stored);
+                    }
+                }
+            }
         }
         match self.value(position)? {
             Value::Null => None,
