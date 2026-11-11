@@ -44,3 +44,19 @@ table row reads PRD"; fixes in the next commit on branch `feat/table-row-reads`.
 Review record: [2026-11-11-prd.md](2026-11-11-prd.md), wrapper status `findings`, thread
 `01a1cbe4-6bba-7181-8ee3-28cf90acc3fc`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-11 (verification)
+
+Follow-up report: [2026-11-11-prd-02.md](2026-11-11-prd-02.md), fix range `HEAD~1..HEAD` at `bf8f6d8`, thread
+`01a1cbf3-8e84-78c1-967a-a9a5b8b117c4`, wrapper status `findings`. R1, R2 and R4 verified; R3 reopened as major: L1
+still required the row's page for a version missing from the history while AC-L3 required the history page.
+
+### R3 — major, follow-up: L1 and AC-L3 name different pages for the same error
+
+- Disposition: fixed.
+- Fix: L1 now splits the failures as AC-L3 does: the row's page for an unknown version, a header Krummi does not write
+  and a short fixed part; the page of the history that should hold it for a version missing from the history.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Review record: telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review-critical` `gpt-6-astra` /
+`xhigh`.
