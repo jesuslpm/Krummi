@@ -162,6 +162,8 @@ pub enum SchemaRule {
     DropKeyColumn,
     /// A schema version past 65,535 (P19).
     VersionExhausted,
+    /// A schema whose stored form, with its column names and default values, passes 256 MiB (decided 2026-11-11).
+    SchemaTooLarge,
 }
 
 /// What differs in an [`Error::DifferentSchema`] (E6).
@@ -687,6 +689,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
         SchemaRule::ColumnNotFound => "the column does not exist",
         SchemaRule::DropKeyColumn => "a primary key column cannot be dropped",
         SchemaRule::VersionExhausted => "the schema version would pass 65,535",
+        SchemaRule::SchemaTooLarge => "the schema with its names and defaults would pass 256 MiB",
     }
 }
 

@@ -1085,10 +1085,10 @@ fn bytes_default(name: &str, len: usize) -> Column {
         .with_default(Value::Bytes(Cow::Owned(vec![42; len])))
 }
 
-/// E5, E17, E18 (provisional, R1 of the code review of 2026-11-11): a default that makes a valid row of 256 MiB, but
-/// whose schema does not fit in the table's catalog entry, fails with an invalid default naming its column, after the
-/// catalog and in every mode that may create the table, and when a column with it is added: without effect, and the
-/// write commits its other changes.
+/// E5, E17, E18 (E5's schema too large, decided on 2026-11-11 after R1 of the code review): a default that makes a
+/// valid row of 256 MiB, but whose schema does not fit in the table's catalog entry, fails with a schema too large
+/// naming its column, after the catalog and in every mode that may create the table, and when a column with it is
+/// added: without effect, and the write commits its other changes.
 #[test]
 fn ac15_a_default_too_large_for_the_catalog_fails() {
     let _large = one_large_test_at_a_time();
@@ -1109,7 +1109,7 @@ fn ac15_a_default_too_large_for_the_catalog_fails() {
             let error = write.open_table_with("t", mode).err().unwrap();
             assert_eq!(
                 invalid_schema(error, folder),
-                ("t".to_owned(), some("b"), SchemaRule::InvalidDefault),
+                ("t".to_owned(), some("b"), SchemaRule::SchemaTooLarge),
                 "{mode:?}"
             );
             assert!(!write.tree_exists("t").unwrap(), "{mode:?}: no table");
@@ -1122,7 +1122,7 @@ fn ac15_a_default_too_large_for_the_catalog_fails() {
             .unwrap_err();
         assert_eq!(
             invalid_schema(error, folder),
-            ("u".to_owned(), some("b"), SchemaRule::InvalidDefault)
+            ("u".to_owned(), some("b"), SchemaRule::SchemaTooLarge)
         );
         assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
         write.insert_row(&table, &[("id", Value::I64(1))]).unwrap();
@@ -1137,9 +1137,9 @@ fn ac15_a_default_too_large_for_the_catalog_fails() {
     });
 }
 
-/// E4, E5 (provisional, R1 of the code review of 2026-11-11): a schema whose catalog entry has exactly the most bytes
-/// of a value is created, and renaming its column to a longer name, which would pass them, fails with an invalid
-/// default naming the column, without effect.
+/// E4, E5 (E5's schema too large, decided on 2026-11-11): a schema whose catalog entry has exactly the most bytes of
+/// a value is created, and renaming its column to a longer name, which would pass them, fails with a schema too large
+/// naming the renamed column, without effect.
 #[test]
 fn ac15_a_schema_that_fills_the_catalog_entry() {
     let _large = one_large_test_at_a_time();
@@ -1170,7 +1170,7 @@ fn ac15_a_schema_that_fills_the_catalog_entry() {
         let error = write.rename_column(&table, "c", "cc").unwrap_err();
         assert_eq!(
             invalid_schema(error, folder),
-            ("t".to_owned(), some("cc"), SchemaRule::InvalidDefault)
+            ("t".to_owned(), some("cc"), SchemaRule::SchemaTooLarge)
         );
         assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
         write.commit().unwrap();

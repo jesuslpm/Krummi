@@ -270,29 +270,23 @@ fn check_general(
                 .or_else(|_| invalid(SchemaRule::InvalidDefault, Some(c.name))),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let stored = columns.iter().zip(&defaults);
-    check_fits(stored.map(|(c, d)| (c.name, c.ty, d.as_ref())), key.len())?;
     Ok(defaults)
 }
 
 /// Fails with an invalid default unless a schema with `columns` (name, type and normalized default, in schema order)
 /// and `key_len` primary key columns fits in a table's catalog entry, whose bytes after the fixed part are at most
 /// [`MAX_EXTRA`]: a default may make a valid row of up to 256 MiB (E18) and still not fit with the rest of the schema.
-/// The error names the last column with a default up to the one where the schema passes the maximum (provisional,
-/// R1 of the code review of 2026-11-11).
+/// The error is the last rule of E5, a schema too large (decided by the user on 2026-11-11, R1 of the code review),
+/// and names the column where the schema passes the maximum.
 fn check_fits<'a>(
     columns: impl IntoIterator<Item = (&'a str, ColumnType, Option<&'a Value<'a>>)>,
     key_len: usize,
 ) -> Result<(), Invalid> {
     let mut len = FIXED_LEN + 8 * key_len;
-    let mut named = None;
     for (name, ty, default) in columns {
         len += encoded_column_len(name, ty, default);
-        if default.is_some() {
-            named = Some(name);
-        }
         if len > MAX_EXTRA {
-            return invalid(SchemaRule::InvalidDefault, named);
+            return invalid(SchemaRule::SchemaTooLarge, Some(name));
         }
     }
     Ok(())
@@ -302,7 +296,10 @@ fn check_fits<'a>(
 pub(crate) fn check_new(schema: &Schema) -> Result<Vec<Option<Value<'static>>>, Invalid> {
     let drafts: Vec<Draft<'_>> = schema.columns.iter().map(Draft::of_column).collect();
     let key: Vec<&str> = schema.primary_key.iter().map(String::as_str).collect();
-    check_general(&drafts, &key)
+    let defaults = check_general(&drafts, &key)?;
+    let stored = drafts.iter().zip(&defaults);
+    check_fits(stored.map(|(c, d)| (c.name, c.ty, d.as_ref())), key.len())?;
+    Ok(defaults)
 }
 
 /// The column names a schema gives, whose sizes are checked before anything else (E18): its columns in schema order,
@@ -404,7 +401,7 @@ impl TableSchema {
             .collect()
     }
 
-    /// Fails with an invalid default unless the schema fits in its table's catalog entry (see [`check_fits`]).
+    /// Fails with a schema too large unless the schema fits in its table's catalog entry (see [`check_fits`]).
     fn check_fits(&self) -> Result<(), Invalid> {
         let columns = self.columns.iter();
         check_fits(
@@ -480,8 +477,6 @@ impl TableSchema {
                     return invalid(SchemaRule::DuplicateColumnName, Some(to));
                 }
                 next.columns[at].name = to.to_owned();
-                // A longer name may make the schema pass the most bytes of its catalog entry.
-                next.check_fits()?;
                 from
             }
             Change::Modify { name, ty, nullable } => {
@@ -512,6 +507,16 @@ impl TableSchema {
             return invalid(SchemaRule::VersionExhausted, Some(column));
         };
         next.version = version;
+        // Adding a column or lengthening a name may make the schema pass the most bytes of its catalog entry: the
+        // last rule of E5, which names the column of the change.
+        if let Change::Add(_) | Change::Rename { .. } = change {
+            let named = match *change {
+                Change::Rename { to, .. } => to,
+                _ => column,
+            };
+            next.check_fits()
+                .or_else(|_| invalid(SchemaRule::SchemaTooLarge, Some(named)))?;
+        }
         Ok(Some(Next {
             schema: next,
             added,
