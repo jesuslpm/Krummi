@@ -273,3 +273,14 @@ Decisions within *Dejado a la implementación*; workers follow them and log any 
   load, the tree's range 8%; per row, `decode_key` collects a `Vec` and the row its `Vec<Value>` (allocation and
   free, about 22%), and the moves of 48-byte `Value`s through `Result<Option<Value>>` stall store forwarding (about
   25% self time in `decode`). Voron returns a pointer to the row. Next: the closing report.
+- **L20** (2026-11-11): RDD of the last slice `6e4a04a..269916e` (assessed medium, `under_budget`, 2,402 lines),
+  forced with lens readability: **stopped** before starting, `lens_context_budget_exceeded` (lineage
+  `review-ef2991fba0da2669`, no authority created). Almost all of the slice is the JSON design and review documents
+  (`docs/design/tables/13-*`, `14-*`, `docs/reviews/tables-json/`) committed on this branch from another session
+  between `d0d4ef6` and `269916e`, not part of this run. This run's only code change in it, `ed4a2bc` (6 lines of
+  doc comment in `table/schema.rs`), was not reviewed alone: isolating it needs a detached checkout of the main copy,
+  which would move HEAD under the other session. Default taken: leave it pending; Codex round 3 reviewed and approved
+  it. Final checks: fmt and clippy clean.
+- **L21** (2026-11-11): final checks: fmt and clippy clean, `cargo test --workspace` 783 passed, 0 failed, 31
+  ignored. Phase log ended. Closing report: [tables-schema-report.md](tables-schema-report.md). The branch stays
+  unmerged and unpushed.
