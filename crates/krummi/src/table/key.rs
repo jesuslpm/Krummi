@@ -112,17 +112,17 @@ pub fn is_key(types: &[ColumnType], key: &[u8]) -> bool {
     walk_key(types, key, |_| {})
 }
 
-/// Where each element of `key` starts, when [`is_key`] accepts it, so that each column can be read with
-/// [`key_value`] without walking the elements before it; `None` also for an element that starts past `u16::MAX`,
-/// which no key of at most [`MAX_KEY`] bytes has.
-pub fn key_starts(types: &[ColumnType], key: &[u8]) -> Option<Vec<u16>> {
+/// Where each element of `key` starts, so that each column can be read with [`key_value`] without walking the
+/// elements before it: one start per column of `types`. Of a key that [`is_key`] rejects, the elements after a
+/// malformed one start at its end, and a start past `u16::MAX`, which no key of at most [`MAX_KEY`] bytes has, is
+/// `u16::MAX`: reading them panics, or gives a value that is not the written one (a malformed key, L2 of the row
+/// reads PRD).
+pub fn key_starts(types: &[ColumnType], key: &[u8]) -> Vec<u16> {
+    let narrow = |at: usize| u16::try_from(at).unwrap_or(u16::MAX);
     let mut starts = Vec::with_capacity(types.len());
-    let mut fits = true;
-    let start = |at: usize| match u16::try_from(at) {
-        Ok(at) => starts.push(at),
-        Err(_) => fits = false,
-    };
-    (walk_key(types, key, start) && fits).then_some(starts)
+    walk_key(types, key, |at| starts.push(narrow(at)));
+    starts.resize(types.len(), narrow(key.len()));
+    starts
 }
 
 /// Takes every element of `key` with the checks of [`skip_element`], calling `start` with the offset of each, and
@@ -135,12 +135,12 @@ fn walk_key(types: &[ColumnType], key: &[u8], mut start: impl FnMut(usize)) -> b
     }) && rest.is_empty()
 }
 
-/// The value of a fixed-width key column of type `ty`, where `element` is the rest of a key that [`is_key`] accepts
-/// from that column's start (its [`key_starts`] entry, or 0 for a key of one column). Panics on another slice, or for
-/// a `string` or `bytes` column, which the row keeps instead.
+/// The value of a fixed-width key column of type `ty`, where `element` is the rest of a key from that column's start
+/// (its [`key_starts`] entry, or 0 for a key of one column). Panics on an element that is not such a value (a
+/// malformed key), or for a `string` or `bytes` column, which the row keeps instead.
 pub fn key_value(ty: &ColumnType, element: &[u8]) -> Value<'static> {
     assert!(ty.fixed_width().is_some(), "a fixed-width key column");
-    decode_element(ty, &mut &element[..]).expect("a checked key")
+    decode_element(ty, &mut &element[..]).expect("a malformed key: an element that does not decode")
 }
 
 /// Takes the element of a value of type `ty` from the front of `rest` with the checks of [`decode_element`]; a text or

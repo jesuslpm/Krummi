@@ -5,6 +5,8 @@ mod bulk;
 pub mod catalog;
 mod identity;
 pub mod key;
+#[cfg(test)]
+mod malformed_tests;
 mod ranges;
 pub mod row;
 #[cfg(test)]

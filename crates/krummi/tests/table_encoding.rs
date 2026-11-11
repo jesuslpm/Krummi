@@ -2023,9 +2023,15 @@ fn key_checks_and_starts_agree_with_decode_key() {
                 decoded.is_some(),
                 "{types:?} {key:02x?}"
             );
+            // One start per column, in order and within the key, also for a malformed key (L2 of the row reads PRD).
             let starts = key_starts(types, key);
-            assert_eq!(starts.is_some(), decoded.is_some(), "{key:02x?}");
-            let (Some(decoded), Some(starts)) = (decoded, starts) else {
+            assert_eq!(starts.len(), types.len(), "{key:02x?}");
+            assert!(starts.is_sorted(), "{key:02x?}");
+            assert!(
+                starts.iter().all(|&at| usize::from(at) <= key.len()),
+                "{key:02x?}"
+            );
+            let Some(decoded) = decoded else {
                 continue;
             };
             for (k, ty) in types.iter().enumerate() {

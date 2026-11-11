@@ -206,7 +206,7 @@ pub struct ReadTransaction<'s> {
     inner: krummi_tx::ReadTransaction<'s>,
     folder: Folder<'s>,
     serial: u64,
-    /// The readers of the tables it reads rows from, which its rows borrow, with the leaves its scans found valid.
+    /// The readers of the tables it reads rows from, which its rows borrow.
     readers: table::Readers,
 }
 

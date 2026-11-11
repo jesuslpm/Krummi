@@ -58,7 +58,7 @@ enum Place {
     Variable(usize),
 }
 
-/// Where a column of a row of one layout is, for [`RowLayout::checked_bytes`]: its place and, when it may be null, the
+/// Where a column of a row of one layout is, for [`RowLayout::slot_bytes`]: its place and, when it may be null, the
 /// byte and mask of its bit in the null bitmap. Computed once per column ([`RowLayout::slot`]).
 #[derive(Debug, Clone, Copy)]
 pub struct Slot {
@@ -179,11 +179,11 @@ impl RowLayout {
         })
     }
 
-    /// The stored bytes of the column at `slot` in `bytes`, a row of this layout that [`RowLayout::row`] accepted and
-    /// whose column [`Row::check`] accepted: as [`Row::column_bytes`], without reading the header again. `None` for a
-    /// null, or a key column. Panics, or gives other bytes, on a row that was not checked.
+    /// The stored bytes of the column at `slot` in `bytes`, a row of this layout that [`RowLayout::row`] accepted: as
+    /// [`Row::column_bytes`], without reading the header again and without its checks. `None` for a null, or a key
+    /// column. Panics, or gives other bytes, on a column that [`Row::check`] rejects.
     #[inline]
-    pub fn checked_bytes<'r>(&self, bytes: &'r [u8], slot: Slot) -> Option<&'r [u8]> {
+    pub fn slot_bytes<'r>(&self, bytes: &'r [u8], slot: Slot) -> Option<&'r [u8]> {
         if slot.is_null(bytes) {
             return None;
         }
@@ -510,19 +510,21 @@ impl<'r> Row<'_, 'r> {
         check_stored(ty, stored)
     }
 
-    /// The value of the column at `position`, which [`Row::check`] accepted. Panics on a column it rejects.
+    /// The value of the column at `position` without a [`Result`]: [`Row::value`] for a column that [`Row::check`]
+    /// accepts, and a panic for one it rejects, for a row whose content was not checked (L2 of the row reads PRD).
     #[inline]
-    pub fn checked_value(&self, position: usize) -> Value<'r> {
+    pub fn read(&self, position: usize) -> Value<'r> {
+        const MALFORMED: &str = "a malformed row: a column that does not decode";
+        let malformed = || -> Infallible { panic!("{MALFORMED}") };
         match self.column_bytes(position) {
             Ok(Some(bytes)) => {
-                let checked = || -> Infallible { panic!("a checked column") };
-                match decode_with(&self.layout.columns[position].ty, bytes, checked) {
+                match decode_with(&self.layout.columns[position].ty, bytes, malformed) {
                     Ok(value) => value,
                     Err(never) => match never {},
                 }
             }
             Ok(None) => Value::Null,
-            Err(RowDamaged) => panic!("a checked column"),
+            Err(RowDamaged) => panic!("{MALFORMED}"),
         }
     }
 
@@ -614,7 +616,7 @@ fn decode<'r>(ty: &ColumnType, bytes: &'r [u8]) -> Result<Value<'r>, RowDamaged>
     decode_with(ty, bytes, || RowDamaged)
 }
 
-/// [`decode`], with `damaged()` as the error of bytes that are not such a value: a column already checked
+/// [`decode`], with `damaged()` as the error of bytes that are not such a value: a read that panics instead
 /// passes an error that cannot exist, so that the result has the value's own layout.
 #[inline]
 fn decode_with<'r, E>(

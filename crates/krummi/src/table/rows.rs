@@ -128,13 +128,12 @@
 //! ```
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Bound;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, OnceLock};
 
 use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
@@ -143,7 +142,7 @@ use super::catalog::{ReadTable, WriteTable};
 use super::key::{
     KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
 };
-use super::row::{MAX_ROW, RowLayout, Slot, row_version};
+use super::row::{MAX_ROW, Row, RowLayout, Slot, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, NANOS_PER_MICRO, Value, key_text, normalize};
 use crate::ids::{Ulid, Uuid};
@@ -193,7 +192,8 @@ pub(crate) struct Reader {
     layout: RowLayout,
     /// Each live column as the typed reads need it in rows of the current version.
     fast: Vec<FastColumn>,
-    /// The live columns that the check of a row of the current version reads, those it can reject, with their types.
+    /// The live columns that checking a row of the current version reads, those it can reject, with their types: the
+    /// check of the row that an update replaces (L3 of the row reads PRD).
     checks: Vec<(Slot, ColumnType)>,
 }
 
@@ -449,15 +449,9 @@ impl Reader {
         })
     }
 
-    /// The row stored under `key` as `bytes` in the rows tree of `table`, with every live column (E11): a column of
-    /// the row's version by its place in that version, which the history tree gives for an older one, resolved once
-    /// into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the key; a column added
-    /// after the row was written, null or its default, a text, bytes or vector default borrowed from the table's
-    /// catalog entry (D11). The whole row is checked here, and its values are decoded when they are read: bytes that
-    /// are not such a row are damage of the page that holds them (G6), and reading a column of the row cannot fail.
-    /// As [`Reader::decode`] of the entry `key`, `bytes`, into `slot`: a row of the current version with a key of one
-    /// column, when `slot` holds such a row of this reader, only takes the place of its key and bytes, without
-    /// building another row.
+    /// As [`Reader::decode`] of the entry `key`, `bytes` without `check`, into `slot`: a row of the current version
+    /// with a key of one column, when `slot` holds such a row of this reader, only takes the place of its key and
+    /// bytes, without building another row.
     #[inline]
     pub(super) fn decode_into<'t, S: PageSource + ?Sized>(
         self: &'t Arc<Self>,
@@ -465,7 +459,6 @@ impl Reader {
         table: At<'_>,
         versions: &mut Versions<'t>,
         (key, bytes): (&'t [u8], &'t [u8]),
-        leaf_passed: bool,
         slot: &mut Option<TableRow<'t>>,
     ) -> Result<()> {
         if let Some(TableRow {
@@ -480,34 +473,28 @@ impl Reader {
             ..
         }) = slot
             && self.key_types.len() == 1
-            && row_version(bytes) == Ok(self.layout.version())
+            && self.layout.row(bytes).is_ok()
         {
-            if !self.current_row_passes(key, bytes, leaf_passed) {
-                return Err(row_damage(tx, table.rows_root, key));
-            }
             *row_key = key;
             *row_bytes = bytes;
             return Ok(());
         }
-        *slot = Some(self.decode(tx, table, versions, Cow::Borrowed(key), bytes, leaf_passed)?);
+        *slot = Some(self.decode(tx, table, versions, Cow::Borrowed(key), bytes, false)?);
         Ok(())
     }
 
-    /// Whether `key` and `bytes`, a row of the current version under a key of one column, pass the check of
-    /// [`Reader::decode`]: its header, and its key and the columns it can reject unless its leaf passed already.
-    #[inline]
-    fn current_row_passes(&self, key: &[u8], bytes: &[u8], leaf_passed: bool) -> bool {
-        let Ok(row) = self.layout.row(bytes) else {
-            return false;
-        };
-        leaf_passed
-            || (is_key(&self.key_types, key)
-                && self
-                    .checks
-                    .iter()
-                    .all(|(slot, ty)| row.check_slot(*slot, ty).is_ok()))
-    }
-
+    /// The row stored under `key` as `bytes` in the rows tree of `table`, with every live column (E11): a column of
+    /// the row's version by its place in that version, which the history tree gives for an older one, resolved once
+    /// into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the key; a column added
+    /// after the row was written, null or its default, a text, bytes or vector default borrowed from the table's
+    /// catalog entry (D11). Its values are decoded when they are read.
+    ///
+    /// Reading by key and scanning do not check the row's content (L1 of the row reads PRD): a version the table never
+    /// had, a header that Krummi does not write and a row short of its fixed part are damage of the page that holds
+    /// the row, and a version missing from the history damage of the history's page (G6); a column of a row whose
+    /// content is malformed reads a value that is not the written one, or panics (L2). With `check`, for the row that
+    /// an update replaces (L3), its key and each column it stores are checked too, and their failure is damage of the
+    /// row's page.
     pub(super) fn decode<'t, S: PageSource + ?Sized>(
         self: &'t Arc<Self>,
         tx: &'t S,
@@ -515,7 +502,7 @@ impl Reader {
         versions: &mut Versions<'t>,
         key: Cow<'t, [u8]>,
         bytes: &'t [u8],
-        leaf_passed: bool,
+        check: bool,
     ) -> Result<TableRow<'t>> {
         let damaged = || row_damage(tx, table.rows_root, &key);
         let version = row_version(bytes).map_err(|_| damaged())?;
@@ -535,49 +522,49 @@ impl Reader {
             };
         let layout = old.as_ref().map_or(&self.layout, |old| &old.layout);
         let row = layout.row(bytes).map_err(|_| damaged())?;
+        if check && !self.content_passes(&key, row, old.as_deref()) {
+            return Err(damaged());
+        }
         // A key of one column starts at 0; a longer one keeps where each column starts, so that reading every column
         // walks it once.
-        let starts = if self.key_types.len() == 1 {
-            if !(leaf_passed && old.is_none()) && !is_key(&self.key_types, &key) {
-                return Err(damaged());
-            }
-            None
-        } else {
-            Some(key_starts(&self.key_types, &key).ok_or_else(damaged)?)
+        let starts = (self.key_types.len() > 1).then(|| key_starts(&self.key_types, &key));
+        let added_stored = |old: &OldVersion| {
+            self.columns
+                .iter()
+                .zip(&old.places)
+                .any(|(column, place)| place.is_none() && needs_stored(&column.default))
         };
-        let mut defaults = None;
-        let Some(old_version) = &old else {
-            // The current version: only the columns the check can reject, every live column being in its rows.
-            if !leaf_passed {
-                for (slot, ty) in &self.checks {
-                    row.check_slot(*slot, ty).map_err(|_| damaged())?;
-                }
-            }
-            return Ok(self.stored_row(key, starts, bytes, None, None));
+        let defaults = match &old {
+            Some(old) if added_stored(old) => Some(match &versions.defaults {
+                Some(stored) => Arc::clone(stored),
+                None => Arc::clone(
+                    versions
+                        .defaults
+                        .insert(Arc::new(self.stored_defaults(tx, table.name)?)),
+                ),
+            }),
+            _ => None,
         };
-        for (i, column) in self.columns.iter().enumerate() {
-            if column.in_key.is_some() {
-                continue;
-            }
-            match old_version.places[i] {
-                Some(place) => row.check(place).map_err(|_| damaged())?,
-                None if needs_stored(&column.default) && defaults.is_none() => {
-                    defaults = Some(match &versions.defaults {
-                        Some(stored) => Arc::clone(stored),
-                        None => Arc::clone(
-                            versions
-                                .defaults
-                                .insert(Arc::new(self.stored_defaults(tx, table.name)?)),
-                        ),
-                    });
-                }
-                None => {}
-            }
-        }
         Ok(self.stored_row(key, starts, bytes, old, defaults))
     }
 
-    /// A row that [`Reader::decode`] checked, borrowing this reader.
+    /// Whether `key` and `row`, of the current version or of `old`, hold what Krummi writes: a key of the primary key
+    /// columns, and each live column the row stores decodes (the checks of the row an update replaces, L3).
+    fn content_passes(&self, key: &[u8], row: Row<'_, '_>, old: Option<&OldVersion>) -> bool {
+        is_key(&self.key_types, key)
+            && match old {
+                // Only the columns the check can reject, every live column being in the rows of the current version.
+                None => self
+                    .checks
+                    .iter()
+                    .all(|(slot, ty)| row.check_slot(*slot, ty).is_ok()),
+                Some(old) => self.columns.iter().zip(&old.places).all(|(column, place)| {
+                    column.in_key.is_some() || place.is_none_or(|place| row.check(place).is_ok())
+                }),
+            }
+    }
+
+    /// A row that [`Reader::decode`] read, borrowing this reader.
     fn stored_row<'t>(
         self: &'t Arc<Self>,
         key: Cow<'t, [u8]>,
@@ -598,28 +585,8 @@ impl Reader {
         }
     }
 
-    /// Whether `key` and `bytes` are a row of the current version that [`Reader::decode`] accepts.
-    fn check_current(&self, key: &[u8], bytes: &[u8]) -> bool {
-        let Ok(version) = row_version(bytes) else {
-            return false;
-        };
-        let Ok(row) = self.layout.row(bytes) else {
-            return false;
-        };
-        let key_valid = if self.key_types.len() == 1 {
-            is_key(&self.key_types, key)
-        } else {
-            key_starts(&self.key_types, key).is_some()
-        };
-        version == self.layout.version()
-            && key_valid
-            && self
-                .checks
-                .iter()
-                .all(|(slot, ty)| row.check_slot(*slot, ty).is_ok())
-    }
-
-    /// The value of the live column `i` of the row `key`, `bytes`, which [`Reader::decode`] checked.
+    /// The value of the live column `i` of the row `key`, `bytes`, which [`Reader::decode`] read: one that is not the
+    /// written value, or a panic, for a malformed row (L2 of the row reads PRD).
     #[inline]
     fn stored_value<'t>(
         &self,
@@ -642,10 +609,10 @@ impl Reader {
         match place {
             Some(place) => layout
                 .row(bytes)
-                .expect("a checked row")
-                .checked_value(place),
+                .expect("a row that its layout read")
+                .read(place),
             None if needs_stored(&column.default) => {
-                defaults.expect("the stored defaults of a checked row")[i].clone()
+                defaults.expect("the stored defaults of an older row")[i].clone()
             }
             None => column.default.clone(),
         }
@@ -752,34 +719,11 @@ pub(crate) struct Readers {
     head: OnceLock<Box<Kept>>,
 }
 
-/// A reader of [`Readers`], with its key, the leaves its table's scans found valid, and the next one.
+/// A reader of [`Readers`], with its key and the next one.
 pub(crate) struct Kept {
     key: u64,
     pub(super) reader: Arc<Reader>,
-    leaves: CheckedLeaves,
     next: OnceLock<Box<Kept>>,
-}
-
-impl Kept {
-    /// Whether every row of `leaf`, a leaf of this table's rows tree in a read transaction, passes the check of the
-    /// current schema: remembered, or checked now and remembered when they do. A leaf with a row of an older
-    /// version, kept off the leaf or invalid is not remembered, and its rows are checked one by one.
-    pub(super) fn leaf_passes(&self, leaf: &[u8]) -> bool {
-        let address = leaf.as_ptr() as usize;
-        let mut leaves = self.leaves.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if leaves.contains(&address) {
-            return true;
-        }
-        let passes = krummi_tree::leaf_entries(leaf)
-            .all(|(key, bytes)| bytes.is_some_and(|bytes| self.reader.check_current(key, bytes)));
-        if passes {
-            if leaves.len() >= CHECKED_LEAVES {
-                leaves.clear();
-            }
-            leaves.insert(address);
-        }
-        passes
-    }
 }
 
 impl Readers {
@@ -801,7 +745,6 @@ impl Readers {
                     if let Err(not_kept) = slot.set(Box::new(Kept {
                         key,
                         reader,
-                        leaves: CheckedLeaves::default(),
                         next: OnceLock::new(),
                     })) {
                         made = Some(not_kept.reader);
@@ -809,41 +752,6 @@ impl Readers {
                 }
             }
         }
-    }
-}
-
-/// The leaves of a table's rows tree whose every row a read transaction found valid for the table's current schema,
-/// so that its scans do not check those rows again (E19 holds: a row of such a leaf passed the same check). Kept with
-/// the table's reader in the transaction, so a leaf passes for one table only. A leaf is told apart by its address,
-/// which no other page has while the transaction lives. It holds at most [`CHECKED_LEAVES`] leaves, and forgets them
-/// all when full.
-#[derive(Default)]
-struct CheckedLeaves(Mutex<HashSet<usize, BuildHasherDefault<AddressHasher>>>);
-
-/// Leaves of one table that a read transaction remembers at most: about 1 MiB.
-const CHECKED_LEAVES: usize = 1 << 16;
-
-/// A hasher of addresses, which are distinct by construction: a multiplication spreads them over the table without the
-/// cost of a keyed hash.
-#[derive(Default)]
-struct AddressHasher(u64);
-
-impl Hasher for AddressHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.0 = (self.0.rotate_left(8) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        }
-    }
-
-    fn write_usize(&mut self, address: usize) {
-        // A folded 128-bit product: leaves are aligned to their pages, so a plain product would leave its low bits,
-        // which pick the bucket, the same for every leaf.
-        let product = u128::from(address as u64) * 0x9E37_79B9_7F4A_7C15;
-        self.0 = (product as u64) ^ ((product >> 64) as u64);
     }
 }
 
@@ -883,7 +791,9 @@ fn row_damage<S: PageSource + ?Sized>(tx: &S, rows_root: u64, key: &[u8]) -> Err
 
 /// A row read from a table (E11): every live column in schema order, each by its name or by its position among the
 /// live columns, with null or its default in a column added after the row was written; a dropped column never
-/// appears. The row was checked when it was read, and each value is decoded when it is asked for. Text, bytes and
+/// appears. Each value is decoded when it is asked for; reading and scanning do not check a row's content, so a
+/// column of a malformed row, in a page whose integrity holds, reads a value that is not the written one or panics
+/// (L2 of the row reads PRD). Text, bytes and
 /// vectors borrow the transaction's pages without copying them (D11), so the row and its values live until the next
 /// operation that may modify the transaction.
 pub struct TableRow<'t> {
@@ -1031,7 +941,7 @@ impl<'t> TableRow<'t> {
         } = &self.stored
             && !column.in_key
         {
-            return reader.layout.checked_bytes(bytes, column.slot).map(stored);
+            return reader.layout.slot_bytes(bytes, column.slot).map(stored);
         }
         match self.value(position)? {
             Value::Null => None,
@@ -1068,8 +978,8 @@ impl<'t> TableRow<'t> {
         )
     }
 
-    /// The stored bytes of the `string` column at `position`, the UTF-8 of its text (see the typed reads), checked
-    /// when the row was read: as [`text`](Self::text) without checking them again.
+    /// The stored bytes of the `string` column at `position`, the UTF-8 of its text (see the typed reads): as
+    /// [`text`](Self::text) without checking them, so a malformed text is returned as it is stored.
     #[inline]
     pub fn text_bytes(&self, position: usize) -> Option<Cow<'t, [u8]>> {
         self.typed(
@@ -1137,7 +1047,7 @@ typed_accessors! {
     };
     uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |b: &[u8]| Uuid(array(b));
     text, "string", ColumnType::String, String, Cow<'t, str>, |b: &'t [u8]| {
-        Cow::Borrowed(std::str::from_utf8(b).expect("a checked row"))
+        Cow::Borrowed(std::str::from_utf8(b).expect("a malformed row: a text that is not UTF-8"))
     };
     bytes, "bytes", ColumnType::Bytes, Bytes, Cow<'t, [u8]>, |b: &'t [u8]| Cow::Borrowed(b);
 }
@@ -1187,7 +1097,7 @@ impl ReadTransaction<'_> {
     /// another transaction; with [`ErrorKind::InvalidValue`](crate::ErrorKind::InvalidValue) for a key that misses
     /// a column, has more values than the key, or a value that breaks its column's rules (a null among them); with
     /// [`ErrorKind::InvalidSize`](crate::ErrorKind::InvalidSize) for a key of more than 2,048 bytes in its stored
-    /// form; and with damage of a page it needs (E19).
+    /// form; and with damage of a page it needs (E19). The row's content is not checked (see [`TableRow`]).
     pub fn get_row(
         &self,
         table: &ReadTable<'_>,
@@ -1345,13 +1255,14 @@ impl WriteTransaction<'_> {
             self.apply_rows(table, update.root, RowCount::Added)?;
             return Ok(Written::Inserted);
         };
+        // The row it replaces is checked (L3 of the row reads PRD).
         let old = reader.decode(
             &self.inner,
             self.live_table(table)?.at(),
             &mut Versions::default(),
             Cow::Borrowed(&key),
             bytes,
-            false,
+            true,
         )?;
         // Decoded once: the merge and the comparison both read every old value.
         let old: Vec<Value<'_>> = old.values().collect();
