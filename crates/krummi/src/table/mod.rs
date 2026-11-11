@@ -17,7 +17,7 @@ pub mod value;
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
 pub use ranges::{ReadRows, WriteRows};
-pub(crate) use rows::{CheckedLeaves, Readers};
+pub(crate) use rows::Readers;
 pub use rows::{TableRow, Upserted};
 pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 pub(crate) use sequence::Sequences;

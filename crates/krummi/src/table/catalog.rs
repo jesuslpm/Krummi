@@ -255,8 +255,10 @@ impl<'s> ReadTransaction<'s> {
             count: found.entry.count,
             history: found.history,
             reader: Arc::clone(
-                self.readers
-                    .keep(found.history, || Arc::new(Reader::new(&found.schema))),
+                &self
+                    .readers
+                    .keep(found.history, || Arc::new(Reader::new(&found.schema)))
+                    .reader,
             ),
             schema: found.schema,
             _store: PhantomData,

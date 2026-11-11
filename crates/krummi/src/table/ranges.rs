@@ -63,7 +63,7 @@ use krummi_tree::{Interval, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
 use super::key::KeyRange;
-use super::rows::{At, CheckedLeaves, Reader, RowCount, TableRow, Versions, write_key};
+use super::rows::{At, Kept, Reader, RowCount, TableRow, Versions, write_key};
 use super::value::Value;
 use crate::{ReadTransaction, WriteTransaction};
 
@@ -72,8 +72,9 @@ struct Scan<'t, S: PageSource + ?Sized> {
     tx: &'t S,
     entries: krummi_tree::Range<'t, S>,
     reader: &'t Arc<Reader>,
-    /// The leaves a read transaction found valid, `None` in a write transaction, whose pages may change in place.
-    leaves: Option<&'t CheckedLeaves>,
+    /// The table's reader with the leaves a read transaction found valid, `None` in a write transaction, whose pages
+    /// may change in place.
+    leaves: Option<&'t Kept>,
     /// The last leaf a row came from, by its address, and whether its rows passed.
     leaf: (usize, bool),
     /// The name of the table's catalog entry and the roots of its trees.
@@ -89,7 +90,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
     fn new(
         tx: &'t S,
         reader: &'t Arc<Reader>,
-        leaves: Option<&'t CheckedLeaves>,
+        leaves: Option<&'t Kept>,
         table: At<'_>,
         range: &KeyRange,
     ) -> Result<Self> {
@@ -121,7 +122,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
         if let (Ok(_), Some(leaves), Some(leaf)) = (&entry, self.leaves, self.entries.leaf(front))
             && leaf.as_ptr() as usize != self.leaf.0
         {
-            self.leaf = (leaf.as_ptr() as usize, leaves.passes(leaf, self.reader));
+            self.leaf = (leaf.as_ptr() as usize, leaves.leaf_passes(leaf));
         }
         let leaf_passed = self.leaf.1;
         let row = entry.and_then(|(key, bytes)| {
@@ -209,11 +210,13 @@ impl ReadTransaction<'_> {
             bounds.start_bound(),
             bounds.end_bound(),
         )?;
+        let kept = self
+            .readers
+            .keep(table.history, || Arc::clone(&table.reader));
         Ok(ReadRows(Scan::new(
             &self.inner,
-            self.readers
-                .keep(table.history, || Arc::clone(&table.reader)),
-            Some(&self.checked_leaves),
+            &kept.reader,
+            Some(kept),
             table.at(),
             &range,
         )?))
@@ -241,8 +244,10 @@ impl WriteTransaction<'_> {
         )?;
         Ok(WriteRows(Scan::new(
             &self.inner,
-            self.readers
-                .keep(write_key(&state.reader), || Arc::clone(&state.reader)),
+            &self
+                .readers
+                .keep(write_key(&state.reader), || Arc::clone(&state.reader))
+                .reader,
             None,
             state.at(),
             &range,

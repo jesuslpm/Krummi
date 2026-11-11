@@ -131,6 +131,7 @@ use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Bound;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -680,22 +681,45 @@ pub(crate) struct Readers {
     head: OnceLock<Box<Kept>>,
 }
 
-/// A reader of [`Readers`], with its key, and the next one.
-struct Kept {
+/// A reader of [`Readers`], with its key, the leaves its table's scans found valid, and the next one.
+pub(crate) struct Kept {
     key: u64,
-    reader: Arc<Reader>,
+    pub(super) reader: Arc<Reader>,
+    leaves: CheckedLeaves,
     next: OnceLock<Box<Kept>>,
+}
+
+impl Kept {
+    /// Whether every row of `leaf`, a leaf of this table's rows tree in a read transaction, passes the check of the
+    /// current schema: remembered, or checked now and remembered when they do. A leaf with a row of an older
+    /// version, kept off the leaf or invalid is not remembered, and its rows are checked one by one.
+    pub(super) fn leaf_passes(&self, leaf: &[u8]) -> bool {
+        let address = leaf.as_ptr() as usize;
+        let mut leaves = self.leaves.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if leaves.contains(&address) {
+            return true;
+        }
+        let passes = krummi_tree::leaf_entries(leaf)
+            .all(|(key, bytes)| bytes.is_some_and(|bytes| self.reader.check_current(key, bytes)));
+        if passes {
+            if leaves.len() >= CHECKED_LEAVES {
+                leaves.clear();
+            }
+            leaves.insert(address);
+        }
+        passes
+    }
 }
 
 impl Readers {
     /// The reader kept under `key`, or `make()` kept under it.
-    pub(crate) fn keep(&self, key: u64, make: impl FnOnce() -> Arc<Reader>) -> &Arc<Reader> {
+    pub(crate) fn keep(&self, key: u64, make: impl FnOnce() -> Arc<Reader>) -> &Kept {
         let mut make = Some(make);
         let mut made = None;
         let mut slot = &self.head;
         loop {
             match slot.get() {
-                Some(kept) if kept.key == key => return &kept.reader,
+                Some(kept) if kept.key == key => return kept,
                 Some(kept) => slot = &kept.next,
                 None => {
                     let reader = made
@@ -706,6 +730,7 @@ impl Readers {
                     if let Err(not_kept) = slot.set(Box::new(Kept {
                         key,
                         reader,
+                        leaves: CheckedLeaves::default(),
                         next: OnceLock::new(),
                     })) {
                         made = Some(not_kept.reader);
@@ -716,34 +741,38 @@ impl Readers {
     }
 }
 
-/// The leaves of rows trees whose every row a read transaction found valid for a table's current schema, so that its
-/// scans do not check those rows again (E19 holds: a row of such a leaf passed the same check). A leaf is told apart
-/// by its address, which no other page has while the transaction lives, and a table by its reader's: one leaf passes
-/// for one table only. It holds at most [`CHECKED_LEAVES`] leaves, and forgets them all when full.
+/// The leaves of a table's rows tree whose every row a read transaction found valid for the table's current schema,
+/// so that its scans do not check those rows again (E19 holds: a row of such a leaf passed the same check). Kept with
+/// the table's reader in the transaction, so a leaf passes for one table only. A leaf is told apart by its address,
+/// which no other page has while the transaction lives. It holds at most [`CHECKED_LEAVES`] leaves, and forgets them
+/// all when full.
 #[derive(Default)]
-pub(crate) struct CheckedLeaves(Mutex<HashSet<(usize, usize)>>);
+struct CheckedLeaves(Mutex<HashSet<usize, BuildHasherDefault<AddressHasher>>>);
 
-/// Leaves a read transaction remembers at most: 1 MiB or so of addresses.
+/// Leaves of one table that a read transaction remembers at most: about 1 MiB.
 const CHECKED_LEAVES: usize = 1 << 16;
 
-impl CheckedLeaves {
-    /// Whether the rows of `leaf` passed the check of `reader`, or, if not yet known, checks them all and remembers
-    /// it when they do: rows of an older version or kept off the leaf make a leaf whose rows are checked one by one.
-    pub(super) fn passes(&self, leaf: &[u8], reader: &Reader) -> bool {
-        let key = (leaf.as_ptr() as usize, std::ptr::from_ref(reader) as usize);
-        let mut leaves = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if leaves.contains(&key) {
-            return true;
+/// A hasher of addresses, which are distinct by construction: a multiplication spreads them over the table without the
+/// cost of a keyed hash.
+#[derive(Default)]
+struct AddressHasher(u64);
+
+impl Hasher for AddressHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         }
-        let passes = krummi_tree::leaf_entries(leaf)
-            .all(|(key, bytes)| bytes.is_some_and(|bytes| reader.check_current(key, bytes)));
-        if passes {
-            if leaves.len() >= CHECKED_LEAVES {
-                leaves.clear();
-            }
-            leaves.insert(key);
-        }
-        passes
+    }
+
+    fn write_usize(&mut self, address: usize) {
+        // A folded 128-bit product: leaves are aligned to their pages, so a plain product would leave its low bits,
+        // which pick the bucket, the same for every leaf.
+        let product = u128::from(address as u64) * 0x9E37_79B9_7F4A_7C15;
+        self.0 = (product as u64) ^ ((product >> 64) as u64);
     }
 }
 
@@ -1092,9 +1121,10 @@ impl ReadTransaction<'_> {
             .reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &table.name))?;
-        let reader = self
+        let reader = &self
             .readers
-            .keep(table.history, || Arc::clone(&table.reader));
+            .keep(table.history, || Arc::clone(&table.reader))
+            .reader;
         match krummi_tree::get(&self.inner, table.rows_root, &key)? {
             Some(bytes) => reader
                 .decode(
@@ -1166,9 +1196,10 @@ impl WriteTransaction<'_> {
             .reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &state.name))?;
-        let reader = self
+        let reader = &self
             .readers
-            .keep(write_key(&state.reader), || Arc::clone(&state.reader));
+            .keep(write_key(&state.reader), || Arc::clone(&state.reader))
+            .reader;
         match krummi_tree::get(&self.inner, state.rows_root, &key)? {
             Some(bytes) => reader
                 .decode(
