@@ -107,3 +107,9 @@ Left to the implementation (PRD): how the classes are found and how a process is
   process ran before its assignment to the job) and R2 (minor, the run test rejected `Núcleos: desconocido`), both
   fixed in `a65a111`: D2 is replaced by the launcher of the resolutions
   ([resolutions](../../docs/reviews/benchmark-krummi-voron/2026-11-12-code-resolutions.md)).
+- **L10** (2026-11-12) — RDD of the R1/R2 fixes `93ba937..440f8ac` (escalated, item 4), lenses risk, resilience and
+  reliability: approved, lineage `review-57046d6b0ba0caf5`, acknowledged. Warnings R1-001 (orphan engine process
+  when the launcher has no job), R3-launcher-spawn-error-no-fallback and R3-no-windows-pin-spawn-coverage: fixed in
+  `b02b34b` (the launcher runs nothing without its job; the benchmark starts the process itself; the Windows chain test).
+  R4-launcher-ctrlc-kills-engine: kept (AC-K9 removes the stores). R3-run-accepts-desconocido-unconditionally: kept
+  (B5 allows it; the chain test checks the limit). Details in the resolutions.

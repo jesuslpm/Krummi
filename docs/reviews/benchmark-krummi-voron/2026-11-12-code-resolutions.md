@@ -44,3 +44,23 @@ is Windows-only).
 Review record: [2026-11-12-code.md](2026-11-12-code.md), wrapper status `findings`, thread
 `01a1d142-f546-7f10-8f1f-40d0f4a219ab`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-12 (after the RDD review of the fixes)
+
+Artifact versions: commit `b02b34b`. The RDD review of `93ba937..440f8ac` (lenses risk, resilience and reliability,
+lineage `review-57046d6b0ba0caf5`, approved) left warnings on R1's fix, applied here:
+
+- A launcher that cannot join its job no longer starts the engine process: it writes `limit 0` and ends. The
+  benchmark reads the launcher's first line when it starts it; unless it is `limit 1`, or when the launcher cannot
+  start, it starts the engine process itself without the limit and records it (`Núcleos: desconocido`). No engine
+  process is left outside the benchmark's control, and B4's fallback holds when the launcher fails.
+- The Windows chain is tested through the run's own code: `a_limited_process_and_the_ones_it_starts_run_on_its_cores`
+  (`Pin` with the real launcher built next to the tests; a mutation that starts the process outside the launcher
+  fails it with `["4294967295", "4294967295"]` against `["1", "1"]`) and
+  `a_process_whose_launcher_cannot_start_runs_without_the_limit`; `a_launcher_without_its_limit_runs_nothing`.
+- Kept: Ctrl+C now ends the engine process through the job instead of the console signal; the run removes its work
+  subfolder on an interruption anyway (AC-K9), so no store survives it. The run test keeps accepting
+  `Núcleos: desconocido` (R2), since the chain test above checks the limit itself.
+
+Checks: `cargo fmt --all --check`; clippy clean and `cargo test -p krummi-bench` passing on Windows and WSL 2 Ubuntu; the
+ignored `a_krummi_and_voron_only_run_measures_only_those_two` passes on Windows (217 s).
