@@ -68,3 +68,13 @@ Left to the implementation (PRD): how the classes are found and how a process is
   and `cargo test --workspace` (816 passed, 0 failed) on Windows; on WSL 2 Ubuntu, clippy and the `krummi-bench`
   tests pass. The ignored runs `a_krummi_and_voron_only_run_measures_only_those_two` and
   `a_krummi_and_voron_only_run_stops_on_a_failure` pass on Windows (440 s) and Linux (131 s).
+- **L5** (2026-11-12) — RDD review of `cac715b..e95287d` (escalated: item 5, new `win32job` and `nix` dependencies),
+  lenses risk, resilience, readability and reliability: approved, lineage `review-4db0f4a645af578f`, acknowledged
+  (`authority: burned`). Advisory findings: R2-001 (SUGGESTION, the `pinned` flag means «no failure»), R2-002
+  (SUGGESTION, `spawn_limited` returned `true` for a failed spawn), R2-003 (SUGGESTION, the group numbering of the
+  core ids): fixed in the next commit (`limit_held`, `io::Result<(Child, bool)>`, comment). R3-core0-assumption
+  (WARNING, the test assumed core 0 and read the main thread on Linux): fixed (the first allowed core,
+  `/proc/thread-self/status`). R3-exact-capacity-class and R4-linux-capacity-singleton (WARNING: on a Linux kernel that
+  gives slightly different `cpu_capacity` values to cores of one tier, the fastest class may hold one or two cores):
+  kept as written, because B4 fixes that every distinct capacity is a class («Nada más cuenta como clase: ni la
+  frecuencia de cada núcleo ni los núcleos que el sistema prefiere»); a product question for the closing report.

@@ -168,20 +168,19 @@ fn execute(
 
     let placement = cores::placement(workers.classes()?.as_deref());
     let mut workers = workers;
-    let mut pinned = true;
     if let cores::Placement::Performance { cores, .. } = &placement {
         workers.pin = cores::Pin::new(cores);
-        pinned = workers.pin.is_some();
     }
 
     let measured = plan::run(&workers, sub, scale, engines)?;
-    let pinned = pinned && workers.pin.as_ref().is_none_or(|p| !p.failed());
+    // Only read with performance cores: the limit was set up and held for every engine process.
+    let limit_held = workers.pin.as_ref().is_some_and(|p| !p.failed());
 
     let run = Run {
         started,
         scale,
         only_krummi_voron: options.only_krummi_voron,
-        cores: placement.line(pinned),
+        cores: placement.line(limit_held),
         machine,
         versions,
         metrics: measured.metrics,

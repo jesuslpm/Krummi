@@ -83,7 +83,8 @@ fn own_affinity() -> String {
     }
     #[cfg(not(windows))]
     {
-        std::fs::read_to_string("/proc/self/status")
+        // The thread that runs the test, whose affinity the threads that start the processes inherit.
+        std::fs::read_to_string("/proc/thread-self/status")
             .unwrap()
             .lines()
             .find(|l| l.starts_with("Cpus_allowed_list"))
@@ -92,24 +93,45 @@ fn own_affinity() -> String {
     }
 }
 
+/// The lowest logical core this test may run on, so that the test does not assume core 0 is allowed.
+#[cfg(any(windows, target_os = "linux"))]
+fn first_allowed_core() -> usize {
+    #[cfg(windows)]
+    {
+        let current = win32job::utils::get_current_process();
+        let mask = win32job::utils::get_process_affinity_mask(current)
+            .unwrap()
+            .0;
+        mask.trailing_zeros() as usize
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let set = nix::sched::sched_getaffinity(nix::unistd::Pid::from_raw(0)).unwrap();
+        (0..nix::sched::CpuSet::count())
+            .find(|&c| set.is_set(c).unwrap_or(false))
+            .unwrap()
+    }
+}
+
 // AC-B3: a limited process and the process it starts run on the limit's cores; the benchmark's own affinity does not
-// change. It limits to logical core 0, which every system has, so it runs on any machine.
+// change. It limits to one core this test may use, so it runs on any machine.
 #[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn a_limited_process_and_the_ones_it_starts_run_on_its_cores() {
     let before = own_affinity();
-    let pin = Pin::new(&[0]).expect("a limit");
+    let core = first_allowed_core();
+    let pin = Pin::new(&[core]).expect("a limit");
     let Ended::Finished(f) = child::run_with(&mut affinities(), Some(&pin)) else {
         panic!("the command runs");
     };
     assert_eq!(f.code, Some(0), "{}", f.stderr);
     let expected = if cfg!(windows) {
-        "1"
+        (1u64 << core).to_string()
     } else {
-        "Cpus_allowed_list:\t0"
+        format!("Cpus_allowed_list:\t{core}")
     };
     let lines: Vec<&str> = f.stdout.lines().map(str::trim_end).collect();
-    assert_eq!(lines, [expected, expected], "{}", f.stdout);
+    assert_eq!(lines, [&*expected, &*expected], "{}", f.stdout);
     assert!(!pin.failed());
     assert_eq!(own_affinity(), before);
 

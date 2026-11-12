@@ -65,10 +65,11 @@ pub fn parse_classes(stdout: &str) -> Option<Vec<(usize, u32)>> {
 }
 
 impl Placement {
-    /// The report's *Núcleos* line once every engine process ran: `pinned` says whether the limit reached all of them.
-    pub fn line(&self, pinned: bool) -> Cores {
+    /// The report's *Núcleos* line once every engine process ran: `limit_held` says whether the limit to the
+    /// performance cores was set up and reached all of them (it does not matter for the other placements).
+    pub fn line(&self, limit_held: bool) -> Cores {
         match self {
-            Placement::Performance { cores, total } if pinned => Cores::Performance {
+            Placement::Performance { cores, total } if limit_held => Cores::Performance {
                 performance: cores.len(),
                 total: *total,
             },
@@ -105,13 +106,13 @@ impl Pin {
     /// Starts `command` limited to the cores; if the limit fails, the process runs without it.
     pub fn spawn(&self, command: &mut Command) -> io::Result<Child> {
         let (child, limited) = match &self.limit {
-            Some(limit) => spawn_limited(limit, command),
-            None => (command.spawn(), false),
+            Some(limit) => spawn_limited(limit, command)?,
+            None => (command.spawn()?, false),
         };
-        if child.is_ok() && !limited {
+        if !limited {
             self.failed.store(true, Ordering::SeqCst);
         }
-        child
+        Ok(child)
     }
 
     /// Whether a process ran without the limit.
@@ -122,7 +123,9 @@ impl Pin {
 
 #[cfg(windows)]
 fn limit(cores: &[usize]) -> Option<Limit> {
-    // A job's affinity is a mask of the first processor group, as the benchmark's own processes use.
+    // A job's affinity is a mask of the first processor group, as the benchmark's own processes use. The `cores`
+    // command numbers a core as `group * 64 + index` (voron/Cores.cs), so a core of another group has no bit here:
+    // the limit cannot be set up, and the run measures without it (`Núcleos: desconocido`).
     let mut mask = 0usize;
     for &core in cores {
         mask |= 1usize.checked_shl(u32::try_from(core).ok()?)?;
@@ -133,15 +136,11 @@ fn limit(cores: &[usize]) -> Option<Limit> {
 }
 
 #[cfg(windows)]
-fn spawn_limited(job: &Limit, command: &mut Command) -> (io::Result<Child>, bool) {
+fn spawn_limited(job: &Limit, command: &mut Command) -> io::Result<(Child, bool)> {
     use std::os::windows::io::AsRawHandle as _;
-    match command.spawn() {
-        Ok(child) => {
-            let limited = job.assign_process(child.as_raw_handle() as isize).is_ok();
-            (Ok(child), limited)
-        }
-        Err(e) => (Err(e), true),
-    }
+    let child = command.spawn()?;
+    let limited = job.assign_process(child.as_raw_handle() as isize).is_ok();
+    Ok((child, limited))
 }
 
 #[cfg(target_os = "linux")]
@@ -154,7 +153,7 @@ fn limit(cores: &[usize]) -> Option<Limit> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_limited(set: &Limit, command: &mut Command) -> (io::Result<Child>, bool) {
+fn spawn_limited(set: &Limit, command: &mut Command) -> io::Result<(Child, bool)> {
     use nix::sched::sched_setaffinity;
     use nix::unistd::Pid;
     // The child inherits the affinity of the thread that starts it; this thread ends with the start, so no other
@@ -163,7 +162,7 @@ fn spawn_limited(set: &Limit, command: &mut Command) -> (io::Result<Child>, bool
         scope
             .spawn(|| {
                 let limited = sched_setaffinity(Pid::from_raw(0), set).is_ok();
-                (command.spawn(), limited)
+                command.spawn().map(|child| (child, limited))
             })
             .join()
             .expect("the thread that starts a process does not panic")
@@ -176,8 +175,8 @@ fn limit(_: &[usize]) -> Option<Limit> {
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-fn spawn_limited(_: &Limit, command: &mut Command) -> (io::Result<Child>, bool) {
-    (command.spawn(), false)
+fn spawn_limited(_: &Limit, command: &mut Command) -> io::Result<(Child, bool)> {
+    command.spawn().map(|child| (child, false))
 }
 
 #[cfg(test)]
