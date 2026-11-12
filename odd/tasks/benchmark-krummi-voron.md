@@ -47,9 +47,9 @@ Left to the implementation (PRD): how the classes are found and how a process is
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1–S3, AC-B2, AC-B4 | inline | done | `e05d783` |
-| T2 | S4–S5, AC-B2, AC-B3 | inline | done | (this commit) |
-| T3 | S6 (AC-B1), docs | inline | done | (reports commit) |
-| T4 | K10 (relative `--carpeta`), fix | inline | done | (fix commit) |
+| T2 | S4–S5, AC-B2, AC-B3 | inline | done | `e95287d`, `eb24cdf` |
+| T3 | S6 (AC-B1), docs | inline | done | `93ba937` |
+| T4 | K10 (relative `--carpeta`), fix | inline | done | `47f3e8d` |
 
 ## Log
 
@@ -94,3 +94,9 @@ Left to the implementation (PRD): how the classes are found and how a process is
   processes, then Voron's. Reports: `docs/benchmark/2026-11-12-windows-krummi-voron.md` and
   `docs/benchmark/2026-11-12-linux-krummi-voron.md`. Table loads on Windows: W23 1.18, W24 0.91, W25 0.86, W26 0.96,
   W27 0.82, W28 0.86, W29 2.17.
+- **L8** (2026-11-12) — RDD review of the last slice `e95287d..93ba937`, lenses readability and reliability:
+  approved, lineage `review-2bf473a71af1ed9a`, acknowledged (`authority: burned`). R2-abs-fallback (WARNING, the
+  silent fallback of `std::path::absolute`): commented (it fails only without a readable current folder, which the
+  Voron build already needed). R2-limit-held-comment and R2-placeholder-commit-refs (SUGGESTION): fixed. R3-001
+  (SUGGESTION, the relative-folder test is ignored): dismissed, CI runs the ignored benchmark tests with RavenDB
+  (`.github/workflows/ci.yml:152`, `cargo test --release -p krummi-bench -- --include-ignored`).
