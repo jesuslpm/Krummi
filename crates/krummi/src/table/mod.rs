@@ -14,6 +14,8 @@ mod row_tests;
 mod rows;
 pub mod schema;
 mod sequence;
+#[cfg(test)]
+mod update_tests;
 pub mod value;
 
 pub use bulk::BulkLoadError;

@@ -906,3 +906,41 @@ fn trees_with_holes_have_the_pages_of_trees_without_them() {
     assert!(holes.2 > 0, "some node used its holes");
     assert!(compacted.2 > holes.2, "fewer moves of the cells with holes");
 }
+
+/// The located overwrite that row updates use (T7 of the row reads run): `get_located` gives a key's value and, for a
+/// value on its leaf, where it is; `overwrite` replaces it there when the new value has the same length and the entry
+/// is still the key's, and otherwise changes nothing and says so. A read opened before keeps the old value.
+#[test]
+fn a_located_value_of_the_same_length_is_overwritten_in_place() {
+    let engine = temporary();
+    let root = committed_tree(&engine, 200);
+    let before = engine.read().unwrap();
+    let mut tx = engine.write(None).unwrap();
+    let (value, at) = get_located(&tx, root, &long_key(7)).unwrap().unwrap();
+    assert_eq!(value, b"value");
+    let at = at.expect("a value on its leaf");
+    assert!(overwrite(&mut tx, at, &long_key(7), b"VALUE").unwrap());
+    assert_eq!(get(&tx, root, &long_key(7)).unwrap(), Some(&b"VALUE"[..]));
+    // Another length, or another key at that place, change nothing.
+    assert!(!overwrite(&mut tx, at, &long_key(7), b"longer").unwrap());
+    assert!(!overwrite(&mut tx, at, &long_key(8), b"OTHER").unwrap());
+    assert_eq!(get(&tx, root, &long_key(7)).unwrap(), Some(&b"VALUE"[..]));
+    assert_eq!(get(&tx, root, &long_key(8)).unwrap(), Some(&b"value"[..]));
+    // A missing key has no value, and a value off its leaf no place.
+    assert!(get_located(&tx, root, &long_key(500)).unwrap().is_none());
+    let big = vec![9u8; 3 * 8192];
+    let root = set(&mut tx, root, &long_key(500), &big).unwrap().root;
+    let (value, at) = get_located(&tx, root, &long_key(500)).unwrap().unwrap();
+    assert_eq!((value, at), (&big[..], None));
+    tx.commit().unwrap();
+    assert_eq!(
+        get(&before, root, &long_key(7)).unwrap(),
+        Some(&b"value"[..])
+    );
+    let after = engine.read().unwrap();
+    assert_eq!(
+        get(&after, root, &long_key(7)).unwrap(),
+        Some(&b"VALUE"[..])
+    );
+    validate(&after, root, None, None, true);
+}

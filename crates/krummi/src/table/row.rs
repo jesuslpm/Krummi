@@ -82,6 +82,35 @@ impl Slot {
     fn is_null(self, bytes: &[u8]) -> bool {
         self.null_mask != 0 && bytes[self.null_byte as usize] & self.null_mask != 0
     }
+
+    /// Whether the column is in the fixed section of its rows.
+    #[inline]
+    pub fn is_fixed(self) -> bool {
+        matches!(self.place, SlotPlace::Fixed { .. })
+    }
+
+    /// Writes `value`, normalized for this fixed-width column, into `row`, a row of its layout, as
+    /// [`RowLayout::encode`] writes it: its bytes and a clear null bit, or for a null, zeros and a set null bit.
+    /// Panics for a column outside the fixed section, or a null where the column takes none.
+    pub fn write(self, row: &mut [u8], value: &Value<'_>) {
+        let SlotPlace::Fixed { offset, width } = self.place else {
+            panic!("a fixed-width column");
+        };
+        let null = matches!(value, Value::Null);
+        if self.null_mask != 0 {
+            let bits = &mut row[self.null_byte as usize];
+            *bits = if null {
+                *bits | self.null_mask
+            } else {
+                *bits & !self.null_mask
+            };
+        } else {
+            assert!(!null, "a null in a column that does not allow nulls");
+        }
+        let bytes = if null { [0; 16] } else { fixed_bytes(value) };
+        let (offset, width) = (offset as usize, width as usize);
+        row[offset..offset + width].copy_from_slice(&bytes[..width]);
+    }
 }
 
 /// The layout of the rows of one schema version: computed from its columns, never stored (document 1).

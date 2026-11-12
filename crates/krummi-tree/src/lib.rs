@@ -404,16 +404,58 @@ pub fn create(tx: &mut WriteTransaction<'_>) -> Result<u64> {
 }
 
 /// The value of `key` in the tree at `root`, borrowed from the transaction without copying it (D11).
+#[inline]
 pub fn get<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     root: u64,
     key: &[u8],
 ) -> Result<Option<&'t [u8]>> {
-    let (_, node) = descend(tx, root, key)?;
-    match node::search(node, key) {
-        Ok(index) => resolve(tx, node::value(node, index)).map(Some),
-        Err(_) => Ok(None),
+    Ok(get_located(tx, root, key)?.map(|(value, _)| value))
+}
+
+/// Where a value of a tree is on its leaf, as [`get_located`] found it: the leaf's page and the entry's place in it.
+/// It stays right in the write transaction that found it until that transaction changes the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Located {
+    leaf: u64,
+    index: usize,
+}
+
+/// As [`get`], with where the value is when it is on its leaf, so that [`overwrite`] can replace it without walking the
+/// tree again; a value off its leaf has no place.
+#[inline]
+pub fn get_located<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    root: u64,
+    key: &[u8],
+) -> Result<Option<(&'t [u8], Option<Located>)>> {
+    let (leaf, node) = descend(tx, root, key)?;
+    let Ok(index) = node::search(node, key) else {
+        return Ok(None);
+    };
+    let value = node::value(node, index);
+    let at = matches!(value, Value::Inline(_)).then_some(Located { leaf, index });
+    Ok(Some((resolve(tx, value)?, at)))
+}
+
+/// Replaces the value of `key` at `at`, where [`get_located`] found it in this transaction, with `value` of the same
+/// length, as [`set`] does in that case, without walking the tree again: the tree's root and its number of entries do
+/// not change. Returns false, changing nothing, when the entry at `at` is not `key`'s or `value` has another length;
+/// the caller then uses [`set`].
+pub fn overwrite(
+    tx: &mut WriteTransaction<'_>,
+    at: Located,
+    key: &[u8],
+    value: &[u8],
+) -> Result<bool> {
+    let node = tx.page(at.leaf)?;
+    let same_entry = at.index < node::count(node)
+        && node::key(node, at.index) == key
+        && matches!(node::value(node, at.index), Value::Inline(old) if old.len() == value.len());
+    if same_entry {
+        node::value_mut(tx.page_mut(at.leaf)?, at.index).copy_from_slice(value);
     }
+    Ok(same_entry)
 }
 
 /// The page of the leaf of the tree at `root` where `key` is or would be (tests use it to damage a known page).

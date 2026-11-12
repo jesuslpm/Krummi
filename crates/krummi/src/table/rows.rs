@@ -483,6 +483,47 @@ impl Reader {
         Ok(())
     }
 
+    /// The row that an update of `old` with `values` (one per live column, `None` for one it does not give) writes,
+    /// when the update gives, besides the primary key, only fixed-width columns of a row of the current version: the
+    /// stored bytes with those columns rewritten, which are the bytes [`Reader::encode`] gives for the merged row, or
+    /// [`Patch::Identical`] when each of them already holds its value. `None` for any other update, which merges and
+    /// encodes the whole row.
+    fn patch(&self, old: &TableRow<'_>, values: &[Option<Value<'_>>]) -> Option<Patch> {
+        let Stored::Row {
+            bytes, old: None, ..
+        } = &old.stored
+        else {
+            return None;
+        };
+        // A row over the maximum size fails in the encoding (E18), as before.
+        if bytes.len() > MAX_ROW {
+            return None;
+        }
+        // The key's columns give the key the row is under, so they hold their values already.
+        let given = || {
+            values
+                .iter()
+                .enumerate()
+                .filter_map(|(i, value)| Some((i, value.as_ref()?)))
+                .filter(|(i, _)| !self.key_columns.contains(i))
+        };
+        let mut identical = true;
+        for (i, value) in given() {
+            if !self.fast[i].slot.is_fixed() {
+                return None;
+            }
+            identical &= value.same(&old.value(i).expect("a live column"));
+        }
+        if identical {
+            return Some(Patch::Identical);
+        }
+        let mut row = bytes.to_vec();
+        for (i, value) in given() {
+            self.fast[i].slot.write(&mut row, value);
+        }
+        Some(Patch::Row(row))
+    }
+
     /// The row stored under `key` as `bytes` in the rows tree of `table`, with every live column (E11): a column of
     /// the row's version by its place in that version, which the history tree gives for an older one, resolved once
     /// into `versions` (document 1, *Cost of mixed versions*); a fixed-width key column from the key; a column added
@@ -1082,6 +1123,14 @@ impl fmt::Debug for TableRow<'_> {
     }
 }
 
+/// What [`Reader::patch`] gives for an update.
+enum Patch {
+    /// Every column the update gives already holds its value: nothing to write (E10).
+    Identical,
+    /// The row to write.
+    Row(Vec<u8>),
+}
+
 /// What [`WriteTransaction::upsert_row`] did (E10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Upserted {
@@ -1260,9 +1309,9 @@ impl WriteTransaction<'_> {
         let stored = match op {
             // The insert learns whether the key is there from the tree's own addition.
             Op::Insert => None,
-            Op::Update | Op::Upsert => krummi_tree::get(&self.inner, rows_root, &key)?,
+            Op::Update | Op::Upsert => krummi_tree::get_located(&self.inner, rows_root, &key)?,
         };
-        let Some(bytes) = stored else {
+        let Some((bytes, at)) = stored else {
             if op == Op::Update {
                 return Ok(Written::NotFound);
             }
@@ -1288,17 +1337,30 @@ impl WriteTransaction<'_> {
             bytes,
             true,
         )?;
-        // Decoded once: the merge and the comparison both read every old value.
-        let old: Vec<Value<'_>> = old.values().collect();
-        let merged: Vec<Value<'_>> = values
-            .into_iter()
-            .zip(&old)
-            .map(|(new, old)| new.unwrap_or_else(|| old.reborrow()))
-            .collect();
-        if merged.iter().zip(&old).all(|(new, old)| new.same(old)) {
+        let encoded = match reader.patch(&old, &values) {
+            Some(Patch::Identical) => return Ok(Written::Updated),
+            Some(Patch::Row(row)) => row,
+            None => {
+                // Decoded once: the merge and the comparison both read every old value.
+                let old: Vec<Value<'_>> = old.values().collect();
+                let merged: Vec<Value<'_>> = values
+                    .into_iter()
+                    .zip(&old)
+                    .map(|(new, old)| new.unwrap_or_else(|| old.reborrow()))
+                    .collect();
+                if merged.iter().zip(&old).all(|(new, old)| new.same(old)) {
+                    return Ok(Written::Updated);
+                }
+                reader.encode(&merged).map_err(|fault| fail(self, fault))?
+            }
+        };
+        // A row of the same length goes where the read found it, without walking the tree again; the tree's root
+        // and its number of entries stay.
+        if let Some(at) = at
+            && krummi_tree::overwrite(&mut self.inner, at, &key, &encoded)?
+        {
             return Ok(Written::Updated);
         }
-        let encoded = reader.encode(&merged).map_err(|fault| fail(self, fault))?;
         let update = krummi_tree::set(&mut self.inner, rows_root, &key, &encoded)?;
         self.apply_rows(table, update.root, RowCount::Kept)?;
         Ok(Written::Updated)
