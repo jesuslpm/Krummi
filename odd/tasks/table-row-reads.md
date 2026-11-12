@@ -22,6 +22,44 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 - **S4** — *Salida* of the root (D11) and of the tables PRD unchanged: `string`, `bytes` and vector values are returned
   without copying, and they stay valid while the transaction is open (not only while the row lives); the other values
   are decoded copies.
+- **S5** — Since L20, the PRD `docs/prd/krummi/tables-row-reads.prd.md` (decisions L1–L4; it replaces S3 for reads by
+  key and scans, and S1's acceptance of W26 and W27 with AC-L9), its acceptance criteria verbatim:
+
+  1. **AC-L1** — Dada una fila guardada con un texto que no es UTF-8 en una página con la integridad correcta, cuando se
+     lee por su clave y cuando se recorre hacia delante y hacia atrás un intervalo que la incluye, en una transacción de
+     lectura y en una de escritura, entonces la lectura y el paso del recorrido no fallan, sus demás columnas se leen con
+     sus valores, leer ese texto como texto termina con un pánico y leerlo como bytes los devuelve tal cual; las pruebas
+     pasan igual compiladas en depuración y en optimizado.
+  2. **AC-L2** — Dadas una fila con un `bool` que no es 0 ni 1, una con un elemento de la clave mal formado y una con un
+     desplazamiento de un valor variable fuera de la fila, en páginas con la integridad correcta, cuando se leen por su
+     clave o se recorren, entonces la lectura y el paso del recorrido no fallan, y el recorrido devuelve las filas del
+     intervalo en el orden de los bytes de sus claves (lo que da leer la columna mal formada queda a la implementación,
+     L2).
+  3. **AC-L3** — Dadas una fila de una versión de esquema que la tabla no tuvo, una con una cabecera que Krummi no
+     escribe y una que no llega al final de su parte fija, en páginas con la integridad correcta, cuando se leen por su
+     clave o se recorren, entonces fallan con la clase de daño y el número de la página de la fila; y una fila de una
+     versión que falta en el historial de la tabla falla con la clase de daño y el número de la página del historial
+     que debería tenerla. Todo como hoy.
+  4. **AC-L4** — Dada una fila existente mal formada en una página con la integridad correcta, cuando se actualiza o se
+     inserta o actualiza, también después de leerla en la misma transacción, entonces falla con daño de su página, sin
+     cambiar la fila, y la transacción sigue T11, como hoy (L3).
+  5. **AC-L5** — Dado el pánico de leer un texto que no es UTF-8: cuando la aplicación lo captura alrededor de esa
+     lectura, entonces la transacción sigue intacta (en una de lectura, las demás lecturas funcionan; en una de
+     escritura, puede seguir escribiendo y confirmarse, y se aplica lo que hizo); y cuando lo captura fuera de la
+     transacción, que el pánico atraviesa, entonces una de lectura termina, una de escritura se descarta sin aplicar
+     nada y su turno queda libre (T10), y en los dos casos otras lecturas, la siguiente escritura y el cierre del almacén
+     funcionan.
+  6. **AC-L6** — Dada una página de filas alterada con el almacén cerrado, cuando se lee o se recorre una fila suya,
+     entonces falla con daño (AC19 de 7.1 y AC10 de la raíz siguen valiendo).
+  7. **AC-L7** — Dado un almacén escrito por 7.1, cuando se abre y se leen sus tablas, entonces se leen las mismas filas
+     con los mismos valores, sin migrar nada.
+  8. **AC-L8** — Dados E19 de 7.1, G6 de la raíz y K7 del banco, en el original y en su traducción, cuando se leen,
+     entonces llevan la anotación de este PRD.
+  9. **AC-L9** — Dadas las ejecuciones completas del banco en Windows y en Linux, cuando se comparan con las del cierre de
+     7.1, entonces W26 y W27 cumplen su umbral de K7 en las dos, y ninguna otra carga baja más de 0,05 su razón con
+     Voron, salvo que la mediana de una medición de una sola carga, con sus repeticiones, la iguale a la del cierre de
+     7.1 dentro de ese margen. Un umbral de W26 o W27 que siga incumplido no es un fallo de este PRD: sigue K13 y se
+     informa en el cierre.
 
 ## Execution design
 
@@ -40,7 +78,8 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T1 | S2, S3, S4 | inline | done (RED: `d11_values_outlive_their_row` does not compile against the reference accessors; `always_decodes_names_the_types_whose_every_value_decodes` pins the skipped checks; suite 785 passed) | `a840f02` |
 | T2 | S1 (single-load measurements of W26–W28 and fixes) | inline | done (L3, L4: W26 and W28 over their threshold in single loads; W27 0.43, left by the user's decision) | `a840f02` |
 | T4 | S1 (W27): typed accessors that read a checked column without a `Value`; an access plan if needed; a remembered row check if still short | inline | typed reads done (L11); the rest waits for the user | `5409362` |
-| T3 | S1 (complete runs on Windows and Linux) | inline (background runs) | pending (the first attempt was stopped, L10) | |
+| T5 | S5 (AC-L1–AC-L7): reads by key and scans without row content checks, update and upsert still checking | inline | done (RED: 6 of the 8 new tests in `table::malformed_tests` failed with damage; GREEN: 8 passed in debug and in release; suite 799 passed) | `5dcfa29` |
+| T3 | S1, S5 (AC-L9: complete runs on Windows and Linux) | inline (background runs) | done for the table loads only (L30, L31); W1–W22 not run by the user's decision | `d6a88b7` |
 
 ## Log
 
@@ -168,3 +207,98 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   headings, decision and criterion IDs). The elaboration time is left out: `prd_time.py` measures a whole session and
   this one holds several features since 2026-11-03 (it gave 94 h 36 min active), so it cannot isolate this PRD. The PRD
   waits for the user's authorization to implement it.
+- **L20** (2026-11-11, the user's answer, verbatim): to implementing the PRD with an estimate of 1–2 h plus about 4 h of
+  complete runs, «Sí». Wait ends; T5 starts 2026-11-11 20:23:30 +0000. Route: inline (one understood change; no
+  writer trigger). Design: `Reader::decode` takes `check`, false for reads by key and scans (version, header and fixed
+  part only), true for the row an update or upsert replaces (key and every stored column); `key_starts` gives one
+  start per column also for a malformed key; the checked leaves (`2802e07`, `82b2918`) and the tree's leaf access
+  added for them are removed, so `krummi-tree` is back to the base. AC-L3 passed before the change (as today); AC-L6
+  holds through the AC19 tests of `table_damage.rs`, unchanged and passing; AC-L7: no line of the row or key encoding
+  changed since `bb8acca` (`git diff bb8acca -- crates/krummi/src/table/{row,key}.rs` touches only reading), so a
+  store written by 7.1 reads the same. Checks: fmt, clippy clean, 799 passed; the new tests also pass with
+  `--release`.
+- **L21** (2026-11-11): RDD of the slice `a02838b..5dcfa29` (assessed medium, `under_budget`, 2,366 lines; requested as
+  the last code slice), lenses risk, resilience, readability and reliability, lineage `review-9378929f5e8f62c8`,
+  **approved** and acknowledged. Advisories: R1-001 and R4-reader-cache-history-key (WARNING: a read transaction keys
+  its kept readers by the table's history root, assumed unique) dismissed: every table gets its own history tree,
+  created by `krummi_tree::create` when the table is created (`catalog.rs:566`), so two tables of one snapshot never
+  share a root; the new test `tables_read_in_one_read_transaction_keep_their_own_schemas` pins it.
+  R4-next-row-fast-path-version and R3-lent-fast-path-version-transition-untested (WARNING: the lent fast path might
+  read another version with the current layout) dismissed for the behaviour, since `RowLayout::row` rejects a row of
+  another version (`row.rs:287`), and their missing tests added: the AC-L3 tests also scan with `next_row`, and
+  `a_lent_scan_reads_an_older_row_after_current_ones` reads an older row after current ones; removing the fast path's
+  `layout.row` check fails three tests (mutation run, reverted). R2-annotation-merged-into-list (WARNING: the E19
+  annotation continued the E8 list item) fixed with a blank line in `tables-schema.prd.md` and its translation.
+  R2-duplicated-array-helper (SUGGESTION) fixed: one `slot_array` in `row.rs` for the decoder, the check and the typed
+  reads. R2-slot-name-collision (SUGGESTION) fixed: `decode_into` takes `current`, as `Scan::current`.
+  R3-readers-linear-growth (SUGGESTION) accepted as is: the list holds one reader per table a read transaction reads,
+  or per schema a table had in a write transaction.
+- **L22** (2026-11-11): RDD fixes committed in `3ecc294`; checks: fmt, clippy clean, 801 passed. Single loads of
+  `3ecc294` against `e7dd8d2`, alternating, pinned to the performance cores and under the bench power plan (median
+  op/s, two rounds; `work/rr/nochk-single.log`): W27 `e7dd8d2` 8,440,716 / 8,303,025, `3ecc294` 9,196,898 / 9,102,685
+  (Voron 10,531,831–10,653,665: 0.86); W26 `e7dd8d2` 713,113 / 709,047, `3ecc294` 741,938 / 743,036 (Voron 739,806:
+  1.00). Both meet K7's 0.80 in single loads; AC-L9 is decided by the complete runs (T3).
+- **L23** (2026-11-11): Codex code review of the whole run, round 1
+  ([report](../../docs/reviews/table-row-reads/2026-11-11-code-03.md),
+  [resolutions](../../docs/reviews/table-row-reads/2026-11-11-code-03-resolutions.md)): `findings`, R2 (major: a typed
+  read of an older row decoded its text, so `text_bytes` panicked) fixed in `2bc4fe4`; R3 (major: `Readers::keep`
+  walked a list, linear in the tables read) fixed in `bb496a1` with a hash trie (`get_row` on the last of 1,000 tables
+  196 ns, was 4,066). Checks: fmt, clippy clean, 803 passed; the malformed-row tests pass in release.
+- **L24** (2026-11-11): Codex follow-up, round 2 ([report](../../docs/reviews/table-row-reads/2026-11-11-code-04.md)):
+  R2 and R3 verified resolved; R4 (minor: the R3 test failed Clippy's `needless_borrows_for_generic_args`) fixed in
+  `6167d9e`. The L23 claim of a clean Clippy was wrong: the check command piped Clippy into `tail`, which hid its exit
+  code; the checks now run with `pipefail`.
+- **L25** (2026-11-11): Codex follow-up, round 3 ([report](../../docs/reviews/table-row-reads/2026-11-11-code-05.md)):
+  `approved`, "Approved for the requested follow-up scope: R4 verified resolved; no open findings."
+- **L26** (2026-11-11): RDD of the last code slice `5dcfa29..9ea1b59` (lenses risk, readability and reliability),
+  lineage `review-cb691290c004b232`, **approved** and acknowledged. Advisories, all SUGGESTION and fixed in the next
+  commit: R2-001 (the trie's digit width was not tied to `FANOUT`: now derived from it, with a const assertion),
+  R2-002 (an unnamed column index in the lent-scan test: now found from the schema), R2-003 (two resolutions
+  headings `## 2026-11-11`: the R4 one now says so), R3-older-text-bytes-write-tx-uncovered (the older-row text test
+  now also reads in a write transaction), R3-trie-concurrent-publication-uncommitted (new test
+  `threads_of_one_read_transaction_read_each_table_with_its_own_schema`: 8 threads of one read transaction open and read 64
+  tables in different orders).
+- **L27** (2026-11-11): RDD of the slice `9ea1b59..5174433` (lenses reliability and readability), lineage
+  `review-056aee61ef36b0bd`, **approved** and acknowledged. Advisories: R2-test-name-overclaims and
+  R3-concurrent-test-does-not-observe-once (WARNING: the concurrency test's name promised one kept reader per table,
+  which it does not observe) fixed by renaming it to what it checks; R2-digit-guard-incomplete and
+  R3-digit-guard-incomplete (SUGGESTION) fixed: the const assertion also bounds `DIGIT`; R2-repeated-magic-modulus
+  (SUGGESTION) fixed with a named constant and a comment on the visit order; R2-missing-resolution-context (WARNING:
+  the test names an RDD finding that no review document records) dismissed: RDD findings are recorded in this log
+  (L26), not in the Codex resolutions.
+- **L28** (2026-11-11): advisories of L27 fixed in `d6a88b7`; checks: fmt, clippy clean (with `pipefail`),
+  `table_rows` 33 passed, the crate's unit tests 75 passed. RDD of the slice `5174433..d6a88b7` (lenses readability
+  and reliability), lineage `review-389fd4a1315c29ca`, **approved** and acknowledged. Advisory R2-001 (SUGGESTION: a
+  `names` vector shadows the `names` closure in the concurrency test) accepted as is: test-only naming. Every code
+  commit of the run has been through RDD; the code is final for the complete runs (T3).
+- **L29** (2026-11-12): T3's complete runs of `d6a88b7` started 2026-11-11 21:44:25 +0000 and stopped when Windows
+  restarted during the night without asking: the last output, `work/rr/windows.err`, is from 22:28:52 (redb's loads of
+  the Windows run); no report was written and the WSL run never started. The phase log closes the background run and
+  starts a wait at that time. The bench power plan stayed active through the restart and was restored on 2026-11-12
+  06:31.
+- **L30** (2026-11-12, the user's answer, verbatim): to relaunching the complete runs, «Lanza sólo las ejecuciones de
+  las tablas». Wait ends. The orchestrator has no option to pick loads, so `work/rr/tables.py` runs W23–W29 for Krummi
+  and Voron as it does (Krummi first; W23–W25 from an empty store, W26–W29 from W23's last store; 1 warm-up and 3
+  measured repetitions, the median; Voron's data digests checked against Krummi's), with `head.exe` and the
+  `VoronBench.dll` built from `d6a88b7` by the interrupted run, under the bench power plan, not pinned, as the
+  orchestrator runs; `work/rr/wsl-tables.sh` does the same on WSL 2. AC-L9's other condition (no other load drops more
+  than 0.05) is not measured by this decision: the change touches only the table code, and the closing report says so.
+- **L31** (2026-11-12): T3, table loads of `d6a88b7` (`work/rr/tables.py`, under the bench power plan):
+  - Windows, unpinned (06:35–06:42): Voron came out at half its usual figures (W27 5,360,405, W26 466,998, W28 65,061;
+    7.1's close and the single loads gave about 10.5 M, 740k and 127k) while Krummi matched its single loads (W27
+    9,270,580, W26 756,592): Voron's process ran on the efficiency cores (L13), so this run is discarded.
+  - Windows, both engines pinned to the performance cores (06:53–06:59, `work/rr/windows-tables-pinned.tsv`; 7.1's
+    close in brackets): W23 367,219 / 332,339 = 1.10 (1.17); W24 96,620 / 105,388 = 0.92 (0.91); W25 362,140 /
+    429,253 = 0.84 (0.88); W26 728,545 / 760,213 = **0.96** (0.75); W27 9,221,262 / 10,387,076 = **0.89** (0.15);
+    W28 96,793 / 129,084 = 0.75 (0.73); W29 118,826 / 52,987 = 2.24 (2.20). Data digests match in every load.
+  - WSL 2, unpinned (06:42–06:51, `work/rr/linux-tables.tsv`): W23 1.11 (1.09); W24 1.03 (1.01); W25 1.18 (1.06);
+    W26 **1.13** (0.88); W27 **0.97** (0.19); W28 0.91 (0.87); W29 1.80 (1.91). Data digests match.
+  - AC-L9's drops over 0.05, checked with single loads: W29 on WSL 2, two more runs of W23 and W29 for both engines,
+    1.89 and 1.93 against 7.1's 1.91 (`work/rr/w29-1.tsv`, `w29-2.tsv`). W23 on Windows (−0.07): Krummi alone, pinned,
+    alternating `bb8acca` and `d6a88b7` (`work/rr/w23-single.log`): 359,784 / 360,341 against 351,154 / 344,787, about
+    −3 %, about −0.03 of ratio against Voron's 332k; the rest of the drop is Voron measuring higher pinned (332k
+    against 317k at 7.1's close). W25 the same in both (353,866 / 363,423 against 357,648 / 358,824).
+  - W26 and W27 meet K7 on both systems. W28 still misses it on Windows (0.75, 0.73 at 7.1's close): out of this PRD's
+    scope, K13. The loads W1–W22 were not run (L30).
+- **L32** (2026-11-12): closing report: [table-row-reads-report.md](table-row-reads-report.md). The branch stays
+  unmerged and unpushed for the user's review.
