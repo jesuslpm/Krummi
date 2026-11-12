@@ -575,7 +575,9 @@ enum Beside {
     Root,
     /// The leaf's left sibling under the same parent, the leaf a merge would join.
     Left(u64),
-    /// A parent without cells, which the tree never leaves: the leaf is not appended to while under a quarter full.
+    /// A parent with one child and no separator, a valid state after a removal drops a child and the parent cannot
+    /// merge with its sibling: `merge_child` then passes an underfull leaf up to the parent's ancestors, which may
+    /// change, so the leaf is not appended to while under a quarter full and the regular walk handles it.
     Unknown,
 }
 
