@@ -297,13 +297,19 @@ impl Reader {
             .filter(|&i| layout.needs_check(i))
             .map(|i| (slots[i], columns[i].ty))
             .collect();
+        let mut key = vec![false; columns.len()];
+        for &i in &key_columns {
+            key[i] = true;
+        }
         let fast = columns
             .iter()
             .zip(&slots)
-            .map(|(column, &slot)| FastColumn {
+            .zip(key)
+            .map(|((column, &slot), key)| FastColumn {
                 slot,
                 ty: column.ty,
                 in_key: column.in_key.is_some(),
+                key,
             })
             .collect();
         Reader {
@@ -506,7 +512,7 @@ impl Reader {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, value)| Some((i, value.as_ref()?)))
-                .filter(|(i, _)| !self.key_columns.contains(i))
+                .filter(|(i, _)| !self.fast[*i].key)
         };
         let mut identical = true;
         for (i, value) in given() {
@@ -733,13 +739,14 @@ pub(super) struct Versions<'t> {
     defaults: Option<Arc<Vec<Value<'t>>>>,
 }
 
-/// A live column as the typed reads need it: where it is in rows of the current version, its type, and whether the
-/// key holds it, together so that a read touches one small record.
+/// A live column as the typed reads need it: where it is in rows of the current version, its type, whether the key
+/// holds it, together so that a read touches one small record, and whether it is a primary key column at all.
 #[derive(Clone, Copy)]
 struct FastColumn {
     slot: Slot,
     ty: ColumnType,
     in_key: bool,
+    key: bool,
 }
 
 /// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes or
