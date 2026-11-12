@@ -1,10 +1,10 @@
 //! Internal tests of how an update writes its row (T6 and T7 of the row reads run): whatever path it takes, the row it
-//! stores has the bytes that encoding the whole merged row gives, an identical update writes nothing, and the rows
-//! tree keeps its root.
+//! stores has the bytes that encoding the whole merged row gives, an identical update keeps the row as it was, the rows
+//! tree keeps its root, and an invalid value fails before any of it.
 
 use crate::table::key::encode_key;
 use crate::table::value::{ColumnType, Decimal, Value};
-use crate::{Column, Schema, Store, StoreOptions, TableMode};
+use crate::{Column, ErrorKind, Schema, Store, StoreOptions, TableMode, Upserted, ValueRule};
 
 type Row = Vec<(&'static str, Value<'static>)>;
 
@@ -84,23 +84,36 @@ fn update_writes_the_merged_row(
         .to_vec();
     let mut given: Vec<(&str, Value<'_>)> = vec![("id", Value::I64(id))];
     given.extend(change.iter().map(|(n, v)| (*n, v.clone())));
-    assert!(write.update_row(&table, &given).unwrap());
+    // Even rows are updated, odd ones inserted or updated: both take the same paths.
+    if id % 2 == 0 {
+        assert!(write.update_row(&table, &given).unwrap());
+    } else {
+        assert_eq!(write.upsert_row(&table, &given).unwrap(), Upserted::Updated);
+    }
     let (after_root, _) = write.live_rows(&table).unwrap();
     assert_eq!(after_root, root, "{change:?}: the root");
     let stored = krummi_tree::get(&write.inner, root, &key)
         .unwrap()
         .unwrap()
         .to_vec();
-    let expected = write.describe_table("t").unwrap().layout().encode(&merged);
-    if identical {
-        assert_eq!(
-            stored, before,
-            "{change:?}: an identical update writes nothing"
-        );
+    let expected = if identical {
+        before
     } else {
-        assert_eq!(stored, expected, "{change:?}: the merged row");
-    }
+        write.describe_table("t").unwrap().layout().encode(&merged)
+    };
+    assert_eq!(stored, expected, "{change:?}: the stored row");
     write.commit().unwrap();
+    // A new read finds the row the commit stored.
+    let read = store.read().unwrap();
+    let rows = read
+        .table_trees(&read.open_table("t").unwrap())
+        .unwrap()
+        .rows;
+    assert_eq!(
+        krummi_tree::get(&read.inner, rows, &key).unwrap().unwrap(),
+        &expected[..],
+        "{change:?}: after the commit"
+    );
 }
 
 #[test]
@@ -174,4 +187,47 @@ fn an_update_stores_the_bytes_of_the_whole_merged_row() {
         &[("extra", Value::I32(6)), ("n", Value::I64(92))],
         false,
     );
+}
+
+/// A value that breaks its column's rules fails the update before the row is read, as before the patch of fixed-width
+/// columns: a null in a column without nulls and a value of another type fail with invalid value and their rule, the
+/// row stays, and the transaction goes on and commits (B7).
+#[test]
+fn an_update_with_an_invalid_fixed_width_value_fails_before_the_patch() {
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema()))
+        .unwrap();
+    write.insert_row(&table, &row(1)).unwrap();
+    write.commit().unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for (value, rule) in [
+        (Value::Null, ValueRule::NullNotAllowed),
+        (Value::I32(5), ValueRule::WrongType),
+    ] {
+        let given = [("id", Value::I64(1)), ("n", value.clone())];
+        for upsert in [false, true] {
+            let error = if upsert {
+                write.upsert_row(&table, &given).map(drop).unwrap_err()
+            } else {
+                write.update_row(&table, &given).map(drop).unwrap_err()
+            };
+            assert_eq!(
+                error.kind(),
+                ErrorKind::InvalidValue,
+                "{value:?}, upsert {upsert}"
+            );
+            assert!(
+                matches!(error, crate::Error::InvalidValue { rule: r, .. } if r == rule),
+                "{error:?}"
+            );
+        }
+    }
+    let kept = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
+    assert_eq!(kept.i64(1), Some(10));
+    drop(kept);
+    write.insert_row(&table, &row(2)).unwrap();
+    write.commit().unwrap();
 }

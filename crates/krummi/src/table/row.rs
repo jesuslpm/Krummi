@@ -107,7 +107,11 @@ impl Slot {
         } else {
             assert!(!null, "a null in a column that does not allow nulls");
         }
-        let bytes = if null { [0; 16] } else { fixed_bytes(value) };
+        let bytes = if null {
+            [0; FIXED_BYTES]
+        } else {
+            fixed_bytes(value)
+        };
         let (offset, width) = (offset as usize, width as usize);
         row[offset..offset + width].copy_from_slice(&bytes[..width]);
     }
@@ -399,10 +403,13 @@ fn write_variable(ty: &ColumnType, value: &Value<'_>, row: &mut Vec<u8>) {
     }
 }
 
+/// The bytes of the widest fixed-width value, a `decimal`, `uuid` or `ulid`.
+const FIXED_BYTES: usize = 16;
+
 /// The little-endian bytes of a fixed-width value (document 1, *Column types*): temporal values in microseconds,
 /// a `decimal` as its scaled 128-bit integer, `uuid` and `ulid` as their 16 bytes.
-fn fixed_bytes(value: &Value<'_>) -> [u8; 16] {
-    let mut out = [0u8; 16];
+fn fixed_bytes(value: &Value<'_>) -> [u8; FIXED_BYTES] {
+    let mut out = [0u8; FIXED_BYTES];
     let micros = |nanos: i128| {
         i64::try_from(nanos / NANOS_PER_MICRO).expect("a temporal value within its domain")
     };

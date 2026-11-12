@@ -60,6 +60,12 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
      Voron, salvo que la mediana de una medición de una sola carga, con sus repeticiones, la iguale a la del cierre de
      7.1 dentro de ese margen. Un umbral de W26 o W27 que siga incumplido no es un fallo de este PRD: sigue K13 y se
      informa en el cierre.
+- **S6** — Since L33, W28 on Windows (0.75, the only load under K7): the user's words, verbatim, to proposals 1 and 2
+  of Codex's investigation (`work/codex/table-perf.md`: patch the validated fixed-width columns of an update instead of
+  rebuilding the row; keep the located entry across the update's validation and write): «Sí». An optimization with no
+  observable change (S1's annotation to K13): the stored rows, E10's identical updates, E17's error order and L3's
+  check of the replaced row stay as they are; acceptance is W28 meeting its threshold without worsening the other
+  table loads.
 
 ## Execution design
 
@@ -80,6 +86,9 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T4 | S1 (W27): typed accessors that read a checked column without a `Value`; an access plan if needed; a remembered row check if still short | inline | typed reads done (L11); the rest waits for the user | `5409362` |
 | T5 | S5 (AC-L1–AC-L7): reads by key and scans without row content checks, update and upsert still checking | inline | done (RED: 6 of the 8 new tests in `table::malformed_tests` failed with damage; GREEN: 8 passed in debug and in release; suite 799 passed) | `5dcfa29` |
 | T3 | S1, S5 (AC-L9: complete runs on Windows and Linux) | inline (background runs) | done for the table loads only (L30, L31); W1–W22 not run by the user's decision | `d6a88b7` |
+| T6 | S6: an update that gives only fixed-width columns of a current-version row rewrites their slots in the stored row (`Reader::patch`, `Slot::write`) | inline | done (L35) (guard test `an_update_stores_the_bytes_of_the_whole_merged_row` passes before and after; fails with `Slot::write` emptied, mutation run) | |
+| T7 | S6: the update writes a row of the same length where `get_located` found it (`krummi_tree::overwrite`), without a second descent | inline | done (L35; RED: `a_located_value_of_the_same_length_is_overwritten_in_place` did not compile) | |
+| T8 | S6: the journal entry of a page skips unchanged 64-byte blocks before comparing word by word (`journal::encode_page`), the same entry byte for byte | inline | reverted (L35) (equivalence test `entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word` against the word-by-word encoder; fails when a changed block is skipped, mutation run) | |
 
 ## Log
 
@@ -302,3 +311,41 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
     scope, K13. The loads W1–W22 were not run (L30).
 - **L32** (2026-11-12): closing report: [table-row-reads-report.md](table-row-reads-report.md). The branch stays
   unmerged and unpushed for the user's review.
+- **L33** (2026-11-12, the user's messages, verbatim): on Codex's report, to starting proposals 1 and 2 in a new
+  branch, «¿Para que necesitamos otra rama? esta no está mergeada con main y aún no hemos terminado 7.1»; to the
+  estimate of 3 h – 5 h, «Sí». Start 2026-11-12 08:24:26 +0000, on this branch. Route: inline (one understood change
+  in `write_row` and one tree operation; no writer trigger).
+- **L34** (2026-11-12): T6 and T7 committed together in `7b645e5` (both change the same lines of `write_row`); checks:
+  fmt, clippy clean, 806 passed. The user's message, verbatim, to proposal 4 (the journal diff by blocks) after the
+  answer on vector instructions: «Inclúyelo en esta ronda, al fin y al cabo las mediciones es lo que más tiempo se
+  lleva.» T8 added: blocks of 64 bytes compared as arrays, which the compiler vectorizes with SSE2, without `unsafe`;
+  AVX2 by runtime detection only if a measurement shows it is worth it (the i9-13980HX has no AVX-512).
+- **L35** (2026-11-12): T8 committed in `c76626e`; checks: fmt, clippy clean, 807 passed; `page_diffs`'s ignored
+  acceptance test passed in release (184 s). The ignored `recovery` sweep of every byte (about 73 min, from its
+  1-in-997 sample's 4.4 s) was stopped to measure, by the user's answer, verbatim, «Sí»; it runs again during the
+  reviews. Single loads, Krummi, pinned, under the plan (median op/s; `work/rr/t678-single.log`, `t8-w28.log`):
+  W28 `d6a88b7` 97,788 / 95,300, T6–T7 `7b645e5` 112,696 / 110,430 / 109,459 / 110,271 (+15 %; Voron pinned
+  129,084: 0.86), T6–T8 `c76626e` 108,195 / 109,565 / 107,878 / 108,752 (1–4 % under T6–T7 in each round); W23,
+  W24, W25 and W29, `d6a88b7` against T6–T8, within ±3 % (W23 367,181 / 365,012 against 371,539 / 369,760; W24
+  91,791 / 92,063 against 91,843 / 94,651; W25 361,188 / 353,152 against 356,363 / 355,840; W29 117,475 / 118,455
+  against 116,550 / 119,198). Voron's `DiffPages` (`Sparrow.Server/Utils/DiffPages.cs`) is a scalar loop over four
+  `long`s per step, without vector instructions, with 32-byte runs. The user's answer, verbatim, to reverting T8:
+  «Sí. ¿Y las otras optimizaciones que recomendó Codex?». Reverted in `5bd0f92`; the pager's tests pass (150).
+- **L36** (2026-11-12): the user's answer, verbatim, to closing this round (final table runs, RDD, Codex, the
+  recovery sweep and the report, leaving proposals 3 and 5 for a later change and not 6): «Sí». RDD of the slice
+  `d6a88b7..5bd0f92` (T6–T7, T8 and its revert; lenses risk, reliability and readability), lineage
+  `review-28c95d242b64ea75`, **approved** and acknowledged. Advisories:
+  - R1-patch-null-not-null-panic, R2-002, R3-patch-path-invalid-value-untested (WARNING: could a null in a column
+    without nulls reach `Slot::write`'s panic): dismissed for the behaviour, since `Reader::check` normalizes every
+    given value and fails a null there (`value.rs:380`) before the row is read; stated in `Reader::patch`'s
+    documentation and pinned by the new test `an_update_with_an_invalid_fixed_width_value_fails_before_the_patch`
+    (null and another type, through update and upsert).
+  - R3-overwrite-skips-apply-rows (WARNING) and R2-003: `apply_rows` only records the root and the count, which an
+    in-place write keeps; said in the comment, and the update test now reads every row back from a new read
+    transaction after its commit.
+  - R2-001 (WARNING: T6 and T7 missing from the committed execution document): fixed by committing the document.
+  - R1-overwrite-trusts-located, R2-006, R3-stale-located-untested (SUGGESTION): `overwrite` also checks that the page
+    is a leaf, and its documentation says what its checks guard.
+  - R2-004 (SUGGESTION): `FIXED_BYTES` names the width of `fixed_bytes`. R2-005, R3-identical-assertion-weak
+    (SUGGESTION): the message says what the assertion observes; the update test now also goes through `upsert_row`.
+    R3-tree-test-root-shadowed (SUGGESTION): the tree test keeps the first root and names the grown one.

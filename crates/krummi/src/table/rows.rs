@@ -487,7 +487,8 @@ impl Reader {
     /// when the update gives, besides the primary key, only fixed-width columns of a row of the current version: the
     /// stored bytes with those columns rewritten, which are the bytes [`Reader::encode`] gives for the merged row, or
     /// [`Patch::Identical`] when each of them already holds its value. `None` for any other update, which merges and
-    /// encodes the whole row.
+    /// encodes the whole row. `values` come from [`Reader::check`], normalized for their columns: a null in a column
+    /// without nulls or a value of another type failed there, before the row was read.
     fn patch(&self, old: &TableRow<'_>, values: &[Option<Value<'_>>]) -> Option<Patch> {
         let Stored::Row {
             bytes, old: None, ..
@@ -1355,7 +1356,7 @@ impl WriteTransaction<'_> {
             }
         };
         // A row of the same length goes where the read found it, without walking the tree again; the tree's root
-        // and its number of entries stay.
+        // and its number of entries stay, so `apply_rows` would change nothing: it only records those two.
         if let Some(at) = at
             && krummi_tree::overwrite(&mut self.inner, at, &key, &encoded)?
         {

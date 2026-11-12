@@ -929,8 +929,8 @@ fn a_located_value_of_the_same_length_is_overwritten_in_place() {
     // A missing key has no value, and a value off its leaf no place.
     assert!(get_located(&tx, root, &long_key(500)).unwrap().is_none());
     let big = vec![9u8; 3 * 8192];
-    let root = set(&mut tx, root, &long_key(500), &big).unwrap().root;
-    let (value, at) = get_located(&tx, root, &long_key(500)).unwrap().unwrap();
+    let grown = set(&mut tx, root, &long_key(500), &big).unwrap().root;
+    let (value, at) = get_located(&tx, grown, &long_key(500)).unwrap().unwrap();
     assert_eq!((value, at), (&big[..], None));
     tx.commit().unwrap();
     assert_eq!(
@@ -939,8 +939,8 @@ fn a_located_value_of_the_same_length_is_overwritten_in_place() {
     );
     let after = engine.read().unwrap();
     assert_eq!(
-        get(&after, root, &long_key(7)).unwrap(),
+        get(&after, grown, &long_key(7)).unwrap(),
         Some(&b"VALUE"[..])
     );
-    validate(&after, root, None, None, true);
+    validate(&after, grown, None, None, true);
 }

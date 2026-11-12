@@ -440,8 +440,10 @@ pub fn get_located<'t, S: PageSource + ?Sized>(
 
 /// Replaces the value of `key` at `at`, where [`get_located`] found it in this transaction, with `value` of the same
 /// length, as [`set`] does in that case, without walking the tree again: the tree's root and its number of entries do
-/// not change. Returns false, changing nothing, when the entry at `at` is not `key`'s or `value` has another length;
-/// the caller then uses [`set`].
+/// not change. Returns false, changing nothing, unless the page at `at` is a leaf whose entry there is `key`'s with an
+/// inline value of `value`'s length; the caller then uses [`set`]. Those checks keep a place from a tree that changed
+/// since from writing anything but `key`'s value; a place is only meant for the tree and the transaction that found
+/// it, as nothing else tells two trees' leaves apart.
 pub fn overwrite(
     tx: &mut WriteTransaction<'_>,
     at: Located,
@@ -449,7 +451,8 @@ pub fn overwrite(
     value: &[u8],
 ) -> Result<bool> {
     let node = tx.page(at.leaf)?;
-    let same_entry = at.index < node::count(node)
+    let same_entry = node::is_leaf(node)
+        && at.index < node::count(node)
         && node::key(node, at.index) == key
         && matches!(node::value(node, at.index), Value::Inline(old) if old.len() == value.len());
     if same_entry {
