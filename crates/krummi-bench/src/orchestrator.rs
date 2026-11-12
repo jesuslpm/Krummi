@@ -7,6 +7,8 @@ mod cores;
 mod machine;
 mod plan;
 
+pub use cores::{LAUNCHER_ROLE, launcher_main};
+
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
@@ -169,7 +171,7 @@ fn execute(
     let placement = cores::placement(workers.classes()?.as_deref());
     let mut workers = workers;
     if let cores::Placement::Performance { cores, .. } = &placement {
-        workers.pin = cores::Pin::new(cores);
+        workers.pin = cores::Pin::new(cores, &workers.rust);
     }
 
     // The workers get the stores' absolute paths: Voron resolves a relative path against its program's folder.

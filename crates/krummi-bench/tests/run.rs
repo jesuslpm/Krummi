@@ -378,11 +378,17 @@ fn a_krummi_and_voron_only_run_measures_only_those_two() {
         .position(|l| l.starts_with("- Procesador: "))
         .unwrap();
     let cores = lines[cpu + 1];
+    // B5: any of its three lines; `desconocido` when asking for the classes or limiting a process failed (R2 of the
+    // Codex code review).
+    let performance = cores
+        .strip_prefix("- Núcleos: ")
+        .and_then(|c| c.strip_suffix(" (los motores se miden en ellos)"))
+        .and_then(|c| c.split_once(" lógicos de rendimiento de "))
+        .is_some_and(|(n, total)| n.parse::<u32>().is_ok() && total.parse::<u32>().is_ok());
     assert!(
-        cores.starts_with("- Núcleos: ")
-            && (cores.ends_with(" (los motores se miden en ellos)")
-                || cores
-                    == "- Núcleos: sin fijar (el sistema no distingue núcleos de rendimiento)"),
+        performance
+            || cores == "- Núcleos: sin fijar (el sistema no distingue núcleos de rendimiento)"
+            || cores == "- Núcleos: desconocido",
         "{cores}"
     );
     let engines = lines.iter().find(|l| l.starts_with("- Motores: ")).unwrap();
