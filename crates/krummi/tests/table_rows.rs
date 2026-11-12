@@ -1947,24 +1947,26 @@ fn borrowed_at(row: &TableRow<'_>, name: &str) -> *const u8 {
 /// D11, AC20 (E11, AC-N6): rows written before a column with a default was added read that default as a reference
 /// into the store's memory, not as a copy made for each read: two old rows, read by their key and in a scan, in the
 /// write that added the columns and in a read, borrow the same bytes of a text, a 1 MiB bytes and a vector default.
+///
+/// A read may see the same bytes at two addresses: the store's background transfer can move the catalog page from
+/// its version in the scratch area to the data file between two reads of one read transaction. A copy made for each
+/// read never gives one address, so the read is repeated in a new transaction until no transfer cuts it.
 #[test]
 fn e11_old_rows_borrow_the_defaults_of_added_columns() {
     stores(|store, _| {
         let big = vec![42u8; 1 << 20];
         let elements: Vec<u8> = [1f32, 2.0].iter().flat_map(|v| v.to_le_bytes()).collect();
-        let check = |rows: &[TableRow<'_>]| {
+        // Whether every row borrows each default at one address, after checking its values.
+        let same_bytes = |rows: &[TableRow<'_>]| {
             for row in rows {
                 assert_eq!(row.get("b"), Some(b(&big)));
                 assert_eq!(row.get("s"), Some(s("text")));
                 assert_eq!(row.get("v"), Some(Value::Vector(Cow::Borrowed(&elements))));
             }
-            for name in ["b", "s", "v"] {
+            ["b", "s", "v"].iter().all(|name| {
                 let first = borrowed_at(&rows[0], name);
-                assert!(
-                    rows.iter().all(|row| borrowed_at(row, name) == first),
-                    "{name}"
-                );
-            }
+                rows.iter().all(|row| borrowed_at(row, name) == first)
+            })
         };
         let keys = [[Value::I64(1)], [Value::I64(2)]];
         let mut write = store.write().unwrap();
@@ -1994,22 +1996,30 @@ fn e11_old_rows_borrow_the_defaults_of_added_columns() {
                     .map(Result::unwrap),
             );
             assert_eq!(rows.len(), 4);
-            check(&rows);
+            // The write changed every page it reads here, and a write's own pages do not move while it is open.
+            assert!(
+                same_bytes(&rows),
+                "the write borrows each default at one address"
+            );
         }
         write.commit().unwrap();
-        let read = store.read().unwrap();
-        let table = read.open_table("t").unwrap();
-        let mut rows: Vec<TableRow<'_>> = keys
-            .iter()
-            .map(|key| read.get_row(&table, key).unwrap().unwrap())
-            .collect();
-        rows.extend(
-            read.range_rows(&table, &[], ..)
-                .unwrap()
-                .map(Result::unwrap),
-        );
-        assert_eq!(rows.len(), 4);
-        check(&rows);
+        // Each page moves once, so a few reads suffice; ten is a margin.
+        let borrowed_once = (0..10).any(|_| {
+            let read = store.read().unwrap();
+            let table = read.open_table("t").unwrap();
+            let mut rows: Vec<TableRow<'_>> = keys
+                .iter()
+                .map(|key| read.get_row(&table, key).unwrap().unwrap())
+                .collect();
+            rows.extend(
+                read.range_rows(&table, &[], ..)
+                    .unwrap()
+                    .map(Result::unwrap),
+            );
+            assert_eq!(rows.len(), 4);
+            same_bytes(&rows)
+        });
+        assert!(borrowed_once, "a read borrows each default at one address");
     });
 }
 
