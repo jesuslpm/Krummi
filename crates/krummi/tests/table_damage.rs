@@ -389,3 +389,29 @@ fn ac19_an_older_row_needs_the_schema_history() {
     });
     store.close().unwrap();
 }
+
+/// E19 with the inserts of increasing keys that add at the end of the rows tree's last leaf: with that leaf damaged,
+/// an insert that goes to another leaf, the first of a write or the first after a delete, does not read it and does
+/// not fail, and the write commits; an insert beyond the greatest key needs it and fails with its damage.
+#[test]
+fn an_insert_elsewhere_does_not_need_a_damaged_last_leaf() {
+    let tmp = tempfile::tempdir().unwrap();
+    table_and_sequence(tmp.path());
+    let leaves = leaves_of_rows(tmp.path());
+    let last = leaves[leaves.len() - 1];
+    assert_ne!(leaves[0], last);
+    damage(tmp.path(), last);
+    let store = open(tmp.path());
+
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write.insert_row(&table, &row(1)).unwrap();
+    assert!(write.delete_row(&table, &[Value::I64(0)]).unwrap());
+    write.insert_row(&table, &row(3)).unwrap();
+    write.commit().unwrap();
+
+    write_fails_at(&store, last, |write| {
+        let table = write.open_table("t").unwrap();
+        write.insert_row(&table, &row(2 * ROWS))
+    });
+}

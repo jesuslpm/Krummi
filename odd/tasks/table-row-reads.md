@@ -91,7 +91,7 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T8 | S6: the journal entry of a page skips unchanged 64-byte blocks before comparing word by word (`journal::encode_page`), the same entry byte for byte | inline | reverted (L35) (equivalence test `entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word` against the word-by-word encoder; fails when a changed block is skipped, mutation run) || `c76626e`, reverted in `5bd0f92` |
 | T9 | Investigate the W23 drop of L31 (about −3 % from `bb8acca` to `d6a88b7`) | inline (A/B measurements) | done (L42): no drop | — |
 | T10 | W25 (Codex proposal 3): a row that gives every column in schema order skips the name map and its staging; a one-column key is encoded without a staged vector | inline | done (L43) (equivalence test `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order`) | `9027c66` |
-| T11 | W25 (Codex proposal 5): an insert beyond the table's greatest key adds at the end of the rows tree's last leaf (`krummi_tree::append_last`) when the tree would change only there | inline | done (L44) (tree equivalence tests byte for byte, table model test, mutations) | (this commit) |
+| T11 | W25 (Codex proposal 5): an insert beyond the table's greatest key adds at the end of the rows tree's last leaf (`krummi_tree::append_last`) when the tree would change only there | inline | done (L44) (tree equivalence tests byte for byte, table model test, mutations) | `a71297b`, `2c7bb1d` |
 
 ## Log
 
@@ -418,3 +418,16 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   not show the fast path ran): unit test `ordered_inserts_add_at_the_end_of_the_last_leaf` (over 2,900 of 3,000
   ordered inserts add at the end, a test-only count; the same rows, root and count with the leaf dropped before each
   insert). R2-002 (SUGGESTION): `_folder`. Checks: clippy clean, `cargo test -p krummi -p krummi-tree` 428 passed.
+- **L46** (2026-11-12) — Independent verifier (Sonnet, high; item 1) of T10 and T11: T10 PASS (a differential probe of
+  18,000 randomized inserts, updates and upserts over three schemas, in and out of order, with unknown, repeated,
+  missing and upper-cased names, gave byte-identical outcomes on `18e38f7` and HEAD); T11's tree and state argument
+  holds (every write of the rows tree checked, a 20,000-step model probe with renames, drops, schema changes and
+  emptying passes), but one defect: `follow_last` walked the tree's right edge with `last_leaf` when the greatest key
+  was unknown, so a damaged rightmost leaf made an insert into another leaf fail and poisoned the write (E19: only the
+  pages an operation needs). Fixed: `krummi_tree::try_add_at_last` reports the last leaf from the insert's own path
+  (the right edge at every level, the entry at the end of the leaf, nothing above changed: a split, a merge or a
+  dropped child clears it), and `last_leaf` is test-only. Test `an_insert_elsewhere_does_not_need_a_damaged_last_leaf`
+  (`tests/table_damage.rs`): RED on `2c7bb1d` («Damaged { ..., page: Some(22) }» on the first insert), GREEN after.
+  The tree test checks that `try_add_at_last` reports the leaf `last_leaf` finds. A/B against `a71297b`, three rounds
+  (`work/bkv/e3.tsv`): W25 469,476 → 463,348 (−1.3 %), W23 458,611 → 459,776, W24 96,677 → 96,632, within the rounds'
+  spread. `cargo test -p krummi -p krummi-tree`: 429 passed.

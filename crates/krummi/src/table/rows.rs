@@ -1354,7 +1354,8 @@ impl WriteTransaction<'_> {
             if op == Op::Insert && self.append_row(table, &key, &encoded)? {
                 return Ok(Written::Inserted);
             }
-            let update = krummi_tree::try_add(&mut self.inner, rows_root, &key, &encoded)?;
+            let (update, last) =
+                krummi_tree::try_add_at_last(&mut self.inner, rows_root, &key, &encoded)?;
             if !update.count_changed {
                 return Err(Error::DuplicateKey {
                     folder: self.folder.owned(),
@@ -1363,7 +1364,7 @@ impl WriteTransaction<'_> {
                 });
             }
             self.apply_rows(table, update.root, RowCount::Added)?;
-            self.follow_last(table, update.root, &key)?;
+            self.follow_last(table, update.root, &key, last);
             return Ok(Written::Inserted);
         };
         // The row it replaces is checked (L3 of the row reads PRD).
@@ -1490,24 +1491,31 @@ impl WriteTransaction<'_> {
         Ok(true)
     }
 
-    /// After an insert of `key` in the rows tree at `root` that walked the tree: when `key` is beyond the greatest
-    /// key known, or none is, finds the tree's last leaf and greatest key again for the next ordered insert.
-    fn follow_last(&mut self, table: &WriteTable<'_>, root: u64, key: &[u8]) -> Result<()> {
+    /// After an insert of `key` that walked the rows tree, now at `root`: `last` is the tree's last leaf when the
+    /// insert added at its end (then `key` is the greatest key), and a key beyond the greatest known is the greatest
+    /// too. It reads nothing, so that an insert reads only the pages it needs (E19).
+    fn follow_last(
+        &mut self,
+        table: &WriteTable<'_>,
+        root: u64,
+        key: &[u8],
+        last: Option<krummi_tree::LastLeaf>,
+    ) {
         let state = self
             .tables
             .get_mut()
             .get_mut(table.id)
             .expect("a live handle");
-        if state
+        let beyond = state
             .greatest
             .as_deref()
-            .is_none_or(|greatest| key > greatest)
-        {
-            let (last, greatest) = krummi_tree::last_leaf(&self.inner, root)?;
-            state.last = Some((root, last));
-            state.greatest = greatest;
+            .is_some_and(|greatest| key > greatest);
+        if last.is_some() || beyond {
+            let greatest = state.greatest.get_or_insert_default();
+            greatest.clear();
+            greatest.extend_from_slice(key);
         }
-        Ok(())
+        state.last = last.map(|last| (root, last));
     }
 
     /// The damage of the catalog page that holds the entry of the table of `table`, as the transaction's failure.

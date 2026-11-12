@@ -530,7 +530,7 @@ pub(crate) fn leaves<'t, S: PageSource + ?Sized>(
 ///
 /// If `key` is empty or longer than [`MAX_KEY`], or `value` is longer than [`MAX_VALUE`].
 pub fn set(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], value: &[u8]) -> Result<Update> {
-    update(tx, root, key, Op::Set(value))
+    update(tx, root, key, Op::Set(value), &mut None)
 }
 
 /// Stores `value` under `key` only if the key is not there; otherwise changes nothing.
@@ -544,10 +544,23 @@ pub fn try_add(
     key: &[u8],
     value: &[u8],
 ) -> Result<Update> {
-    update(tx, root, key, Op::Add(value))
+    update(tx, root, key, Op::Add(value), &mut None)
 }
 
-/// The rightmost leaf of a tree, for [`append_last`], as [`last_leaf`] finds it.
+/// [`try_add`], and the tree's rightmost leaf, for [`append_last`], when the entry went to the end of that leaf and
+/// nothing above the leaf changed; then `key` is the tree's greatest key. It reads only what [`try_add`] reads.
+pub fn try_add_at_last(
+    tx: &mut WriteTransaction<'_>,
+    root: u64,
+    key: &[u8],
+    value: &[u8],
+) -> Result<(Update, Option<LastLeaf>)> {
+    let mut last = None;
+    let update = update(tx, root, key, Op::Add(value), &mut last)?;
+    Ok((update, last))
+}
+
+/// The rightmost leaf of a tree, for [`append_last`], as [`try_add_at_last`] finds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LastLeaf {
     /// The leaf's page.
@@ -566,9 +579,13 @@ enum Beside {
     Unknown,
 }
 
-/// The rightmost leaf of the tree at `root`, for [`append_last`], and the tree's greatest key, `None` when the tree
-/// is empty. It reads and checks the nodes of that path, as a lookup does.
-pub fn last_leaf(tx: &WriteTransaction<'_>, root: u64) -> Result<(LastLeaf, Option<Vec<u8>>)> {
+/// The rightmost leaf of the tree at `root` and the tree's greatest key, `None` when the tree is empty, for the tests:
+/// it reads the right edge, which an insert elsewhere does not need.
+#[cfg(test)]
+pub(crate) fn last_leaf(
+    tx: &WriteTransaction<'_>,
+    root: u64,
+) -> Result<(LastLeaf, Option<Vec<u8>>)> {
     let (mut page, mut level, mut beside) = (root, None, Beside::Root);
     loop {
         let node = node_at(tx, page, level)?;
@@ -592,7 +609,7 @@ pub fn last_leaf(tx: &WriteTransaction<'_>, root: u64) -> Result<(LastLeaf, Opti
 /// root or a merge with its left sibling would not fit (as `merge_child` decides). Returns whether it added them;
 /// otherwise it changes nothing and the caller uses [`try_add`]. The tree's root and the leaf's page stay.
 ///
-/// The caller vouches that `last` is the rightmost leaf of the tree: one that [`last_leaf`] returned and that no
+/// The caller vouches that `last` is the rightmost leaf of the tree: one that [`try_add_at_last`] returned and that no
 /// change of the tree but this function's has touched since. Appending to another leaf would break the tree's order.
 ///
 /// # Panics
@@ -652,7 +669,7 @@ pub fn append_last(
 ///
 /// If `key` is empty or longer than [`MAX_KEY`].
 pub fn remove(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8]) -> Result<Update> {
-    update(tx, root, key, Op::Remove)
+    update(tx, root, key, Op::Remove, &mut None)
 }
 
 /// Frees every page of the tree at `root` and the runs of its values, reading its nodes but never its runs (V7).
@@ -837,7 +854,15 @@ pub(crate) enum Outcome<K = Vec<u8>> {
     Empty,
 }
 
-fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> Result<Update> {
+/// Applies `op` to the tree at `root`. `last` receives the rightmost leaf when the entry was added at its end and
+/// nothing above it changed (see [`try_add_at_last`]).
+fn update(
+    tx: &mut WriteTransaction<'_>,
+    root: u64,
+    key: &[u8],
+    op: Op<'_>,
+    last: &mut Option<LastLeaf>,
+) -> Result<Update> {
     assert!(
         (1..=MAX_KEY).contains(&key.len()),
         "a key has 1 to {MAX_KEY} bytes"
@@ -850,7 +875,19 @@ fn update(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], op: Op<'_>) -> R
     }
     let mut count_changed = false;
     // `change` checked the root, which no other node points to.
-    let outcome = change(tx, root, None, key, op, &mut count_changed)?;
+    let outcome = change(
+        tx,
+        root,
+        None,
+        key,
+        op,
+        &mut count_changed,
+        Some(Beside::Root),
+        last,
+    )?;
+    if !matches!(outcome, Outcome::Done | Outcome::Underfull) {
+        *last = None;
+    }
     let root = fix_root(tx, root, outcome)?;
     Ok(Update {
         root,
@@ -898,6 +935,9 @@ fn fix_root(tx: &mut WriteTransaction<'_>, root: u64, outcome: Outcome) -> Resul
 
 /// Applies `op` to the subtree at `page`, a node of `level` when given; `count_changed` reports whether the number
 /// of entries changed. It checks `page`, which the functions it calls for it read again without checking.
+/// `edge` is what is beside `page` when it is on the tree's right edge, and `last` receives the rightmost leaf when
+/// an entry is added at its end and nothing above it changes (see [`try_add_at_last`]).
+#[allow(clippy::too_many_arguments)]
 fn change(
     tx: &mut WriteTransaction<'_>,
     page: u64,
@@ -905,22 +945,42 @@ fn change(
     key: &[u8],
     op: Op<'_>,
     count_changed: &mut bool,
+    edge: Option<Beside>,
+    last: &mut Option<LastLeaf>,
 ) -> Result<Outcome> {
     let node = node_at(&*tx, page, level)?;
     if node::is_leaf(node) {
-        return change_leaf(tx, page, key, op, count_changed);
+        return change_leaf(tx, page, key, op, count_changed, edge, last);
     }
     let index = node::child_index(node, key);
     let child = node::child(node, index);
-    match change(tx, child, child_level(node), key, op, count_changed)? {
+    let count = node::count(node);
+    let child_edge = match (edge, count) {
+        (Some(_), 0) => Some(Beside::Unknown),
+        (Some(_), _) if index == count => Some(Beside::Left(node::child(node, count - 1))),
+        _ => None,
+    };
+    let below = child_level(node);
+    match change(tx, child, below, key, op, count_changed, child_edge, last)? {
         Outcome::Done => Ok(Outcome::Done),
         Outcome::Split { key, right } => {
+            *last = None;
             let mut buf = [0; MAX_BRANCH_CELL];
             let len = node::encode_branch(&mut buf, &key, right);
             insert_cell(tx, page, index, &buf[..len])
         }
-        Outcome::Underfull => merge_child(tx, page, index),
-        Outcome::Empty => drop_child(tx, page, index),
+        Outcome::Underfull => {
+            // The rightmost leaf stays when the merge finds that the pair does not fit and changes nothing.
+            let merged = merge_child(tx, page, index)?;
+            if node::count(tx.page(page)?) != count {
+                *last = None;
+            }
+            Ok(merged)
+        }
+        Outcome::Empty => {
+            *last = None;
+            drop_child(tx, page, index)
+        }
     }
 }
 
@@ -930,6 +990,8 @@ fn change_leaf(
     key: &[u8],
     op: Op<'_>,
     count_changed: &mut bool,
+    edge: Option<Beside>,
+    last: &mut Option<LastLeaf>,
 ) -> Result<Outcome> {
     let node = tx.page(page)?;
     let found = node::search(node, key);
@@ -979,6 +1041,11 @@ fn change_leaf(
         node::remove(node, index);
     }
     node::insert(node, index, &buf[..cell_len]);
+    if let (Some(beside), Err(_)) = (edge, found)
+        && index + 1 == node::count(node)
+    {
+        *last = Some(LastLeaf { page, beside });
+    }
     Ok(underfull_or_done(node))
 }
 

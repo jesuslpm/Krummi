@@ -971,7 +971,7 @@ fn appending_to_the_last_leaf_changes_the_tree_as_adding_does() {
     let mut b = fast.write(None).unwrap();
     let (mut root_a, mut root_b) = (plain_root, fast_root);
     let mut leaf = last_leaf(&b, root_b).unwrap().0;
-    let (mut appended, mut added) = (0, 0);
+    let (mut appended, mut added, mut reported) = (0, 0, 0);
     let key_of = |i: usize| format!("{i:08}").into_bytes();
     for i in 0..4_000usize {
         let key = key_of(i);
@@ -985,15 +985,22 @@ fn appending_to_the_last_leaf_changes_the_tree_as_adding_does() {
         if append_last(&mut b, &leaf, &key, &value).unwrap() {
             appended += 1;
         } else {
-            let update = try_add(&mut b, root_b, &key, &value).unwrap();
+            let (update, found) = try_add_at_last(&mut b, root_b, &key, &value).unwrap();
             assert!(update.count_changed);
             root_b = update.root;
-            leaf = last_leaf(&b, root_b).unwrap().0;
+            // The insert's own path finds the last leaf when it added at its end and nothing above changed.
+            let (last, greatest) = last_leaf(&b, root_b).unwrap();
+            if let Some(found) = found {
+                assert_eq!((found, greatest.as_deref()), (last, Some(&key[..])), "{i}");
+                reported += 1;
+            }
+            leaf = last;
             added += 1;
         }
         assert_eq!(root_a, root_b, "{i}");
     }
     assert!(appended > 30 * added && added > 40, "{appended} {added}");
+    assert!(reported > added / 3, "{reported} of {added}");
     // A key that is not greater than the last one is never appended, and changes nothing.
     assert!(!append_last(&mut b, &leaf, &key_of(3_999), b"x").unwrap());
     assert!(!append_last(&mut b, &leaf, &key_of(10), b"x").unwrap());
