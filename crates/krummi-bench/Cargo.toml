@@ -18,6 +18,14 @@ krummi = { version = "0.1.0", path = "../krummi" }
 redb = "4.4.0"
 sysinfo = "0.38.4"
 
+# B4 of the Krummi and Voron only PRD: the engine processes run on the performance cores, limited through safe APIs
+# (K14): a job object with an affinity limit on Windows, the affinity of the thread that starts them on Linux.
+[target.'cfg(windows)'.dependencies]
+win32job = "2.1.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.31.3", default-features = false, features = ["sched"] }
+
 # K14: the benchmark is not part of the engine. It may use unsafe code only where another engine's public interface
 # requires it (opening an LMDB environment), so it denies unsafe code instead of inheriting the workspace's forbid.
 [lints.rust]

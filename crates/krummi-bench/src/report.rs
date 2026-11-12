@@ -21,6 +21,18 @@ pub struct Machine {
     pub file_system: Option<String>,
 }
 
+/// Where the engines were measured: the *Núcleos* line (B5 of the Krummi and Voron only PRD).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Cores {
+    /// Every engine process ran on the `performance` logical cores, out of the `total` the system gives.
+    Performance { performance: usize, total: usize },
+    /// The system gives all its cores one class, or none.
+    Unpinned,
+    /// The classes could not be asked for, or a process could not be limited.
+    #[default]
+    Unknown,
+}
+
 /// Versions found at run time. `None` is shown as `desconocido`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Versions {
@@ -44,6 +56,8 @@ pub struct Run {
     /// `--solo-krummi-voron`: the report has only the Krummi and Voron columns (B3).
     pub only_krummi_voron: bool,
     pub machine: Machine,
+    /// The *Núcleos* line (B5).
+    pub cores: Cores,
     pub versions: Versions,
     /// The metric of every load and engine that ran it (K8).
     pub metrics: BTreeMap<(Load, Engine), f64>,
@@ -175,6 +189,16 @@ impl Run {
         let _ = writeln!(out, "- Ejecución: {execution}");
         let _ = writeln!(out, "- Sistema: {}", or_unknown(&m.system));
         let _ = writeln!(out, "- Procesador: {cpu}");
+        let cores = match self.cores {
+            Cores::Performance { performance, total } => format!(
+                "{performance} lógicos de rendimiento de {total} (los motores se miden en ellos)"
+            ),
+            Cores::Unpinned => {
+                "sin fijar (el sistema no distingue núcleos de rendimiento)".to_string()
+            }
+            Cores::Unknown => UNKNOWN.to_string(),
+        };
+        let _ = writeln!(out, "- Núcleos: {cores}");
         let _ = writeln!(out, "- Memoria: {memory}");
         let _ = writeln!(out, "- Disco: {disk}");
         let _ = writeln!(out, "- Krummi: {krummi}");
@@ -304,6 +328,10 @@ mod tests {
                 .unwrap(),
             scale,
             only_krummi_voron: false,
+            cores: Cores::Performance {
+                performance: 16,
+                total: 32,
+            },
             machine: Machine {
                 system: Some("Windows 11 Pro 10.0.26200".into()),
                 cpu_model: Some("CPU X".into()),
@@ -338,6 +366,7 @@ mod tests {
 - Ejecución: completa
 - Sistema: Windows 11 Pro 10.0.26200
 - Procesador: CPU X, 32 núcleos lógicos
+- Núcleos: 16 lógicos de rendimiento de 32 (los motores se miden en ellos)
 - Memoria: 64 GiB
 - Disco: Disk Y, NTFS
 - Krummi: 0123456789ab
@@ -726,6 +755,84 @@ Ninguna.
         assert!(text.contains("- Disco: desconocido, ext4\n"));
         assert!(text.contains("- Procesador: desconocido, 8 núcleos lógicos\n"));
         assert!(text.contains("- Krummi: abcdefabcdef (con cambios sin confirmar)\n"));
+    }
+
+    // AC-B2 (B5): the three *Núcleos* lines, right after *Procesador*, also when it is `desconocido`, with and without
+    // `--solo-krummi-voron`, complete and reduced.
+    #[test]
+    fn the_cores_line_says_where_the_engines_were_measured() {
+        for only in [false, true] {
+            for scale in [Scale::Full, Scale::Reduced] {
+                let mut r = if only {
+                    only_krummi_voron(scale, |_| 1.0)
+                } else {
+                    run(scale, |_| 1.0)
+                };
+                for (cores, line) in [
+                    (
+                        Cores::Performance {
+                            performance: 16,
+                            total: 32,
+                        },
+                        "- Núcleos: 16 lógicos de rendimiento de 32 (los motores se miden en ellos)",
+                    ),
+                    (
+                        Cores::Unpinned,
+                        "- Núcleos: sin fijar (el sistema no distingue núcleos de rendimiento)",
+                    ),
+                    (Cores::Unknown, "- Núcleos: desconocido"),
+                ] {
+                    r.cores = cores;
+                    r.machine.cpu_model = Some("CPU X".into());
+                    r.machine.logical_cores = Some(32);
+                    let text = r.render();
+                    assert!(
+                        text.contains(&format!(
+                            "
+- Procesador: CPU X, 32 núcleos lógicos
+{line}
+- Memoria: "
+                        )),
+                        "{text}"
+                    );
+                    r.machine.cpu_model = None;
+                    r.machine.logical_cores = None;
+                    assert!(
+                        r.render().contains(&format!(
+                            "
+- Procesador: desconocido
+{line}
+- Memoria: "
+                        )),
+                        "{line}"
+                    );
+                }
+            }
+        }
+    }
+
+    // AC-B3: a failure to ask for the classes or to limit a process changes only the *Núcleos* line: the same results
+    // give the same report otherwise, the same summary line and the same exit code.
+    #[test]
+    fn a_failure_with_the_cores_changes_only_the_cores_line() {
+        for factor in [1.0, 0.5] {
+            let pinned = run(Scale::Full, |l| if l == Load::W3 { factor } else { 1.0 });
+            let mut failed = pinned.clone();
+            failed.cores = Cores::Unknown;
+            let (a, b) = (pinned.render(), failed.render());
+            let differ: Vec<(&str, &str)> =
+                a.lines().zip(b.lines()).filter(|(x, y)| x != y).collect();
+            assert_eq!(
+                differ,
+                [(
+                    "- Núcleos: 16 lógicos de rendimiento de 32 (los motores se miden en ellos)",
+                    "- Núcleos: desconocido"
+                )]
+            );
+            assert_eq!(a.lines().count(), b.lines().count());
+            assert_eq!(pinned.exit_code(), failed.exit_code());
+            assert_eq!(pinned.summary_line("x.md"), failed.summary_line("x.md"));
+        }
     }
 
     #[test]

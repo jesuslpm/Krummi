@@ -3,6 +3,7 @@
 //   run voron <load> <scale> <store> [<source>]   runs a load and prints `data` and `rep` lines
 //   prepare voron <scale> <store>                 builds the base store and closes it
 //   versions                                      prints `versions dotnet <x.y.z>`
+//   cores                                         prints `core <id> <class>` per logical core (Cores.cs)
 //   selftest                                      prints known answers of the data functions, to compare with Rust
 //
 // <load> is W1-W22 (W13 runs inside W12) or one of the table loads W23-W29 (Workload.cs lists their names and starts).
@@ -50,6 +51,9 @@ static class Program
         {
             case ["versions"]:
                 Console.Out.WriteLine($"versions dotnet {Environment.Version}");
+                break;
+            case ["cores"]:
+                Cores.Print();
                 break;
             case ["selftest"]:
                 SelfTest();

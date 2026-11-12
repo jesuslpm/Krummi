@@ -1,3 +1,6 @@
 2026-11-12T17:12:58+00:00	start	explore	
 2026-11-12T17:19:00+00:00	mark	plan	
 2026-11-12T17:19:22+00:00	mark	implement	T1
+2026-11-12T17:27:31+00:00	bg-start	acceptance	reduced solo run
+2026-11-12T17:35:00+00:00	bg-end	acceptance	reduced solo run
+2026-11-12T17:35:10+00:00	mark	checks	T2

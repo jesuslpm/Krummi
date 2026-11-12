@@ -46,11 +46,25 @@ Left to the implementation (PRD): how the classes are found and how a process is
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1–S3, AC-B2, AC-B4 | inline | pending | |
-| T2 | S4–S5, AC-B2, AC-B3 | inline | pending | |
+| T1 | S1–S3, AC-B2, AC-B4 | inline | done | `e05d783` |
+| T2 | S4–S5, AC-B2, AC-B3 | inline | done | (this commit) |
 | T3 | S6 (AC-B1), docs | inline | pending | |
 
 ## Log
 
 - **L1** (2026-11-12) — User requests, verbatim: «El banco tarda demasiado, hagamos opcional un banco que compare solo
   Krummi y Voron.», «Mételo», «Hazlo todo», and «Sí» to the estimate of 6 h – 10 h for the batch.
+- **L2** (2026-11-12) — T1: `--solo-krummi-voron` in `cli::parse` (shares the flag handling of `--reducido`),
+  `Engine::measured` for the plan and the report, two engine columns, *Ejecución* and *Motores* lines, *Opciones
+  cambiadas* of the measured engines only; LMDB's version is asked only when LMDB runs. Tests: unit (CLI, report byte
+  for byte, threshold missed, reduced), integration (`tests/cli.rs` AC-B4 rows; `tests/run.rs` two ignored runs).
+- **L3** (2026-11-12) — T2 design (D1, D2): `orchestrator::cores` (placement from the classes, `Pin` with a
+  `win32job` job on Windows and a pinned spawning thread with `nix` on Linux), `child::run_with`, the Voron program's
+  `cores` command (`Cores.cs`), `report::Cores` and the *Núcleos* line. The real-affinity test pins logical core 0 so
+  that it runs on any machine; a mutation that skips the job assignment makes it fail (`left: ["4294967295",
+  "4294967295"]`, `right: ["1", "1"]`), then reverted. WSL's default distribution is Docker's: WSL commands need
+  `-d Ubuntu`.
+- **L4** (2026-11-12) — T2 checks: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+  and `cargo test --workspace` (816 passed, 0 failed) on Windows; on WSL 2 Ubuntu, clippy and the `krummi-bench`
+  tests pass. The ignored runs `a_krummi_and_voron_only_run_measures_only_those_two` and
+  `a_krummi_and_voron_only_run_stops_on_a_failure` pass on Windows (440 s) and Linux (131 s).

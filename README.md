@@ -161,19 +161,23 @@ values, which its catalog entry keeps.
 ## Comparative benchmark
 
 The benchmark ([PRD](docs/prd/krummi/benchmark.prd.md)) measures Krummi against Voron, LMDB (through heed), redb,
-canopydb and fjall with the same 22 loads, every commit durable, and writes a Markdown report in Spanish. In each
+canopydb and fjall with the same 29 loads, every commit durable, and writes a Markdown report in Spanish. In each
 load Krummi must reach at least 80% of Voron's operations per second; the command ends with code `1` when it misses
 one. It needs the .NET 10 SDK and a folder with the RavenDB 7.2.7 source code, from which it builds Voron:
 
 ```powershell
 git clone --depth 1 --branch 7.2.7 https://github.com/ravendb/ravendb.git work/ravendb-7.2.7
-cargo run --release -p krummi-bench -- --ravendb work/ravendb-7.2.7 [--carpeta <carpeta>] [--informe <archivo>] [--reducido]
+cargo run --release -p krummi-bench -- --ravendb work/ravendb-7.2.7 [--carpeta <carpeta>] [--informe <archivo>] [--reducido] [--solo-krummi-voron]
 ```
 
 `--carpeta` is where it creates the stores (the system's temporary folder by default) and `--informe` the report's
 file (`banco-<fecha>-<hora>.md` in the current folder by default). `--reducido` divides the quantities by about 100,
 measures once and evaluates no threshold: it checks that the benchmark works, and CI runs it on both systems. A
 complete run is meant for the maintainer's machine before a release, with the machine otherwise idle.
+`--solo-krummi-voron` measures only Krummi and Voron, which is enough for the thresholds and takes about half an hour
+instead of about four hours ([PRD](docs/prd/krummi/benchmark-krummi-voron.prd.md)). On a processor whose system tells
+performance cores from efficiency cores (Windows on a hybrid Intel processor, for example), every run limits the
+engine processes to the performance cores, and the report's *Núcleos* line says where they were measured.
 
 ## Checks of the engine
 

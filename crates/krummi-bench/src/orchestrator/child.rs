@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use super::cores::Pin;
+
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 /// How often a running child is checked for its end and for Ctrl+C.
@@ -45,14 +47,22 @@ pub enum Ended {
 
 /// Runs `command` to its end, without input and with its standard output and error collected.
 pub fn run(command: &mut Command) -> Ended {
+    run_with(command, None)
+}
+
+/// `run`, with the process limited by `pin` when there is one (B4).
+pub fn run_with(command: &mut Command, pin: Option<&Pin>) -> Ended {
     if interrupted() {
         return Ended::Interrupted;
     }
-    let spawned = command
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+        .stderr(Stdio::piped());
+    let spawned = match pin {
+        Some(pin) => pin.spawn(command),
+        None => command.spawn(),
+    };
     let mut child = match spawned {
         Ok(child) => child,
         Err(e) => return Ended::NotStarted(e),

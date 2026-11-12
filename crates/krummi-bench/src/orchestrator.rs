@@ -3,6 +3,7 @@
 //! subfolder exists, also a failure or Ctrl+C, removes that subfolder.
 
 mod child;
+mod cores;
 mod machine;
 mod plan;
 
@@ -142,6 +143,7 @@ fn execute(
         // If its own path is unknown, the Rust worker fails to start, which is reported as Krummi's failure.
         rust: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("krummi-bench")),
         voron: build_voron(&options.ravendb, sub)?,
+        pin: None,
     };
     let engines = Engine::measured(options.only_krummi_voron);
     // LMDB's version only goes in a report that measures it (B3).
@@ -164,12 +166,22 @@ fn execute(
         return Err(Stop::Interrupted);
     }
 
+    let placement = cores::placement(workers.classes()?.as_deref());
+    let mut workers = workers;
+    let mut pinned = true;
+    if let cores::Placement::Performance { cores, .. } = &placement {
+        workers.pin = cores::Pin::new(cores);
+        pinned = workers.pin.is_some();
+    }
+
     let measured = plan::run(&workers, sub, scale, engines)?;
+    let pinned = pinned && workers.pin.as_ref().is_none_or(|p| !p.failed());
 
     let run = Run {
         started,
         scale,
         only_krummi_voron: options.only_krummi_voron,
+        cores: placement.line(pinned),
         machine,
         versions,
         metrics: measured.metrics,

@@ -14,6 +14,8 @@
 //! - `prepare <engine> <scale> <store>`: builds the base store (W2's data, not measured) and closes it.
 //! - `versions`: prints the `versions` lines of the components it knows (`lmdb` for the Rust worker, `dotnet` for
 //!   the Voron program).
+//! - `cores` (Voron program only): prints one `core <id> <class>` line per logical core, or none when the system gives
+//!   no class (`crate::orchestrator` limits the engine processes with them, B4 of the Krummi and Voron only PRD).
 //!
 //! On success it prints only protocol lines on standard output and exits with `0`. On failure it prints one line
 //! with the cause on standard error and exits with `1`; anything it printed before is ignored.

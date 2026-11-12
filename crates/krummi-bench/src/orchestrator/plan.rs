@@ -9,6 +9,7 @@ use std::process::Command;
 
 use super::Stop;
 use super::child::{self, Ended};
+use super::cores::{self, Pin};
 use crate::cli::Failure;
 use crate::measure::{Repetition, load_metric, whole};
 use crate::protocol::Line;
@@ -22,6 +23,8 @@ pub struct Workers {
     pub rust: PathBuf,
     /// The Voron program, run with `dotnet`.
     pub voron: PathBuf,
+    /// The limit of the engine processes to the performance cores (B4), when there is one.
+    pub pin: Option<Pin>,
 }
 
 impl Workers {
@@ -50,6 +53,15 @@ impl Workers {
                     _ => None,
                 }))
             }
+            _ => Ok(None),
+        }
+    }
+
+    /// The classes of the logical cores, from the Voron program's `cores` command; `None` if it cannot say (B4).
+    pub fn classes(&self) -> Result<Option<Vec<(usize, u32)>>, Stop> {
+        match child::run(self.command(Engine::Voron).arg("cores")) {
+            Ended::Interrupted => Err(Stop::Interrupted),
+            Ended::Finished(f) if f.code == Some(0) => Ok(cores::parse_classes(&f.stdout)),
             _ => Ok(None),
         }
     }
@@ -169,7 +181,7 @@ fn worker(
     args: &[OsString],
 ) -> Result<String, Stop> {
     let fail = |cause: &str| Stop::Failed(engine_failure(engine, load, cause));
-    match child::run(workers.command(engine).args(args)) {
+    match child::run_with(workers.command(engine).args(args), workers.pin.as_ref()) {
         Ended::Interrupted => Err(Stop::Interrupted),
         Ended::NotStarted(e) => Err(fail(&e.to_string())),
         Ended::Finished(f) if f.code == Some(0) => Ok(f.stdout),
