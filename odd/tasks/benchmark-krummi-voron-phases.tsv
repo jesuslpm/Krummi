@@ -4,3 +4,12 @@
 2026-11-12T17:27:31+00:00	bg-start	acceptance	reduced solo run
 2026-11-12T17:35:00+00:00	bg-end	acceptance	reduced solo run
 2026-11-12T17:35:10+00:00	mark	checks	T2
+2026-11-12T17:44:53+00:00	mark	review	
+2026-11-12T17:49:26+00:00	mark	acceptance	T3
+2026-11-12T17:51:19+00:00	bg-start	acceptance	full solo windows base
+2026-11-12T18:02:37+00:00	bg-end	acceptance	full solo windows base
+2026-11-12T18:02:37+00:00	bg-start	acceptance	full solo wsl base
+2026-11-12T18:48:11+00:00	bg-end	acceptance	full solo wsl base
+2026-11-12T18:48:58+00:00	bg-start	acceptance	full solo windows base2
+2026-11-12T19:00:40+00:00	bg-end	acceptance	full solo windows base2
+2026-11-12T19:01:53+00:00	mark	fix	T4

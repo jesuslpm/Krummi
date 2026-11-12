@@ -172,7 +172,9 @@ fn execute(
         workers.pin = cores::Pin::new(cores);
     }
 
-    let measured = plan::run(&workers, sub, scale, engines)?;
+    // The workers get the stores' absolute paths: Voron resolves a relative path against its program's folder.
+    let stores = std::path::absolute(sub).unwrap_or_else(|_| sub.to_path_buf());
+    let measured = plan::run(&workers, &stores, scale, engines)?;
     // Only read with performance cores: the limit was set up and held for every engine process.
     let limit_held = workers.pin.as_ref().is_some_and(|p| !p.failed());
 

@@ -48,7 +48,8 @@ Left to the implementation (PRD): how the classes are found and how a process is
 |---|---|---|---|---|
 | T1 | S1–S3, AC-B2, AC-B4 | inline | done | `e05d783` |
 | T2 | S4–S5, AC-B2, AC-B3 | inline | done | (this commit) |
-| T3 | S6 (AC-B1), docs | inline | pending | |
+| T3 | S6 (AC-B1), docs | inline | in progress | |
+| T4 | K10 (relative `--carpeta`), fix | inline | done | (fix commit) |
 
 ## Log
 
@@ -78,3 +79,11 @@ Left to the implementation (PRD): how the classes are found and how a process is
   gives slightly different `cpu_capacity` values to cores of one tier, the fastest class may hold one or two cores):
   kept as written, because B4 fixes that every distinct capacity is a class («Nada más cuenta como clase: ni la
   frecuencia de cada núcleo ni los núcleos que el sistema prefiere»); a product question for the closing report.
+- **L6** (2026-11-12) — AC-B1, first runs with `eb24cdf` under the bench power plan: WSL 2 passes, **29 of 29**
+  thresholds, `Núcleos: sin fijar (el sistema no distingue núcleos de rendimiento)`, 2,683 s. Windows fails twice
+  (678 s and 702 s): «El motor Voron falló en la carga lecturas-al-azar: el almacén no tiene el árbol bench.»
+  Reproduced by hand without the benchmark and without any limit: Voron resolves a relative store path against its
+  program's folder (the base store went to `voron-d6a/base`, and the relative one held only `Temp`). The runs used
+  `--carpeta work/bkv/runs`, relative; the earlier full runs used absolute folders. A defect of the benchmark since
+  module 6, not of B4. T4 (fix, no PRD): the orchestrator gives the workers the stores' absolute paths; test
+  `a_relative_work_folder_holds_every_store` RED (failed, 200 s) then GREEN (214 s).

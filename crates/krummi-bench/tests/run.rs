@@ -437,3 +437,34 @@ fn a_krummi_and_voron_only_run_stops_on_a_failure() {
         ),
     );
 }
+
+// K10: `--carpeta` may be relative to the current folder. Voron resolves a relative store path against its program's
+// folder, so the workers get the stores' absolute paths; with a relative one, Voron's base store went next to its
+// program and its first read-only load found it empty.
+#[test]
+#[ignore = "needs .NET 10 and KRUMMI_BENCH_RAVENDB"]
+fn a_relative_work_folder_holds_every_store() {
+    let ravendb = std::path::absolute(ravendb()).unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    fs::create_dir(cwd.path().join("w")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_krummi-bench"))
+        .args([
+            "--solo-krummi-voron",
+            "--reducido",
+            "--carpeta",
+            "w",
+            "--informe",
+            "r.md",
+        ])
+        .arg("--ravendb")
+        .arg(&ravendb)
+        .current_dir(cwd.path())
+        .env_remove("KRUMMI_BENCH_ROLE")
+        .env_remove("KRUMMI_BENCH_FAIL")
+        .output()
+        .expect("the command starts");
+    let stderr = text(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert_eq!(names(&cwd.path().join("w")), Vec::<String>::new(), "work");
+    assert!(cwd.path().join("r.md").is_file());
+}
