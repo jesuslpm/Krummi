@@ -48,7 +48,7 @@ Left to the implementation (PRD): how the classes are found and how a process is
 |---|---|---|---|---|
 | T1 | S1–S3, AC-B2, AC-B4 | inline | done | `e05d783` |
 | T2 | S4–S5, AC-B2, AC-B3 | inline | done | (this commit) |
-| T3 | S6 (AC-B1), docs | inline | in progress | |
+| T3 | S6 (AC-B1), docs | inline | done | (reports commit) |
 | T4 | K10 (relative `--carpeta`), fix | inline | done | (fix commit) |
 
 ## Log
@@ -87,3 +87,10 @@ Left to the implementation (PRD): how the classes are found and how a process is
   `--carpeta work/bkv/runs`, relative; the earlier full runs used absolute folders. A defect of the benchmark since
   module 6, not of B4. T4 (fix, no PRD): the orchestrator gives the workers the stores' absolute paths; test
   `a_relative_work_folder_holds_every_store` RED (failed, 200 s) then GREEN (214 s).
+- **L7** (2026-11-12) — AC-B1 met. Windows with `47f3e8d` (19:10, 1,404 s): **29 of 29** thresholds, `Núcleos: 16
+  lógicos de rendimiento de 32 (los motores se miden en ellos)`, two engine columns, 29 + 12 rows, no `no aplica`;
+  its *Krummi* line says «con cambios sin confirmar» because the run's phase log, a tracked file, was being written.
+  WSL 2 with `eb24cdf` (L6; T4 does not change a run with an absolute folder): 29 of 29. Progress lines: Krummi's 28
+  processes, then Voron's. Reports: `docs/benchmark/2026-11-12-windows-krummi-voron.md` and
+  `docs/benchmark/2026-11-12-linux-krummi-voron.md`. Table loads on Windows: W23 1.18, W24 0.91, W25 0.86, W26 0.96,
+  W27 0.82, W28 0.86, W29 2.17.
