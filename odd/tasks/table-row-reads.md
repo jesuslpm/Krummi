@@ -434,3 +434,7 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 - **L47** (2026-11-12) — RDD of `2c7bb1d..caa86c3` (escalated, item 1), lenses risk and reliability: approved,
   lineage `review-8a220532b1fd6830`, acknowledged. R3-001 (SUGGESTION, no test ran the arm that keeps the reported
   leaf when the merge does not fit): test `the_last_leaf_is_reported_when_the_merge_does_not_fit`.
+- **L48** (2026-11-12) — Codex round 1 of the third round over `18e38f7..29d0694`
+  ([report](../../docs/reviews/table-row-reads/2026-11-12-code-03.md)): `findings`, one: R1 (minor, the comment of
+  `Beside::Unknown` called a valid state impossible), fixed in `ce11e62`
+  ([resolutions](../../docs/reviews/table-row-reads/2026-11-12-code-03-resolutions.md)); no functional defect found.
