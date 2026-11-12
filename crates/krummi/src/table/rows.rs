@@ -333,6 +333,26 @@ impl Reader {
         row: &'r [(&str, Value<'_>)],
         fill: bool,
     ) -> std::result::Result<Checked<'r>, Fault> {
+        // A row that gives every column once, in schema order, can break none of the name rules (E6, a repeated or
+        // a missing key column): its values are checked in the same order the general path checks them.
+        let in_order = row.len() == self.columns.len()
+            && row
+                .iter()
+                .zip(&self.columns)
+                .all(|((name, _), column)| *name == column.name);
+        if in_order {
+            let values = row
+                .iter()
+                .zip(&self.columns)
+                .map(|((_, value), column)| {
+                    normalize(&column.ty, column.nullable, value.reborrow())
+                        .map(Some)
+                        .map_err(|rule| column.fault(rule))
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let key = self.encode_key_of(&values)?;
+            return Ok(Checked { values, key });
+        }
         let mut at = Vec::with_capacity(row.len());
         for (name, _) in row {
             match self.names.get(*name) {
@@ -369,6 +389,10 @@ impl Reader {
 
     /// The encoded primary key of `values`, which give every key column.
     fn encode_key_of(&self, values: &[Option<Value<'_>>]) -> std::result::Result<Vec<u8>, Fault> {
+        if let [i] = self.key_columns[..] {
+            let value = values[i].as_ref().expect("a key column").reborrow();
+            return Ok(encode_key(&self.key_types, std::slice::from_ref(&value))?);
+        }
         let key: Vec<Value<'_>> = self
             .key_columns
             .iter()

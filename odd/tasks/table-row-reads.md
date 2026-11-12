@@ -89,6 +89,9 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T6 | S6: an update that gives only fixed-width columns of a current-version row rewrites their slots in the stored row (`Reader::patch`, `Slot::write`) | inline | done (L35) (guard test `an_update_stores_the_bytes_of_the_whole_merged_row` passes before and after; fails with `Slot::write` emptied, mutation run) || `7b645e5`, `c873418`, `bb1408b` |
 | T7 | S6: the update writes a row of the same length where `get_located` found it (`krummi_tree::overwrite`), without a second descent | inline | done (L35; RED: `a_located_value_of_the_same_length_is_overwritten_in_place` did not compile) || `7b645e5` |
 | T8 | S6: the journal entry of a page skips unchanged 64-byte blocks before comparing word by word (`journal::encode_page`), the same entry byte for byte | inline | reverted (L35) (equivalence test `entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word` against the word-by-word encoder; fails when a changed block is skipped, mutation run) || `c76626e`, reverted in `5bd0f92` |
+| T9 | Investigate the W23 drop of L31 (about −3 % from `bb8acca` to `d6a88b7`) | inline (A/B measurements) | done (L42): no drop | — |
+| T10 | W25 (Codex proposal 3): a row that gives every column in schema order skips the name map and its staging; a one-column key is encoded without a staged vector | inline | done (L43) (equivalence test `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order`) | (this commit) |
+| T11 | W25 (Codex proposal 5): an append cursor for ordered inserts | inline | pending | |
 
 ## Log
 
@@ -379,3 +382,17 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 - **L41** (2026-11-12): final checks on `bb1408b`: fmt, clippy clean, 808 passed, 0 failed, 23 ignored. Closing report
   updated with the second round: [table-row-reads-report.md](table-row-reads-report.md). The branch stays unmerged and
   unpushed for the user's review.
+- **L42** (2026-11-12) — Third round, user request «Hazlo todo» (after the Krummi and Voron only benchmark, see
+  `odd/tasks/benchmark-krummi-voron.md`; estimate for the whole batch 6 h – 10 h). T9: Krummi-only W23 on Windows,
+  pinned to the performance cores, bench power plan, nine release builds alternated in three rounds
+  (`work/bkv/ab.py`, `work/bkv/w23-bisect.tsv`), medians of the three rounds: `bb8acca` 372,381; `a840f02` 369,281;
+  `963d126` 369,026; `ed61733` 370,803; `e7dd8d2` 370,108; `5dcfa29` 372,066; `bb496a1` 371,052; `d6a88b7` 371,925;
+  HEAD (`1531bd0`, same Krummi as `bb1408b`) 368,866. Every build's rounds span 361k–375k: there is no drop; L31's −3 %
+  came from two alternating pairs within this spread.
+- **L43** (2026-11-12) — T10: `Reader::check` takes a row that gives every column once in schema order without the
+  name map, the `at` and `given` vectors (it can break none of the name rules, and its values are checked in the
+  same schema order); `encode_key_of` encodes a one-column key without a staged vector. Guard test
+  `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order` (first rule in schema order, same stored row,
+  duplicate key). Krummi-only A/B against HEAD, pinned, power plan, three alternating rounds (`work/bkv/e1.tsv`),
+  medians: W25 360,048 → **385,142 (+7.0 %)**; W23 373,629 → 387,893 (+3.8 %); W24 95,859 → 97,333 (+1.5 %). Every
+  round of the candidate is above every round of HEAD in W25 and W23. `cargo test -p krummi`: 373 passed.

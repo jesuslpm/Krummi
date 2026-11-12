@@ -2483,3 +2483,57 @@ fn a_typed_read_of_another_type_panics() {
     let row = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
     let _ = row.text(1);
 }
+
+/// E17 and E10 with a row that gives every column in schema order (the write's fast path for such rows): it fails
+/// with the same first rule, in schema order, as the same row given in another order, and it stores the same row.
+#[test]
+fn a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order() {
+    stores(|store, folder| {
+        let mut write = store.write().unwrap();
+        let table = create(&mut write, "p", &people());
+        let bad = [
+            ("id", Value::I64(1)),
+            ("name", Value::I64(2)),
+            ("n", Value::Null),
+            ("score", s("x")),
+        ];
+        let reordered = [
+            bad[3].clone(),
+            bad[2].clone(),
+            bad[1].clone(),
+            bad[0].clone(),
+        ];
+        for row in [&bad[..], &reordered[..]] {
+            let error = write.insert_row(&table, row).unwrap_err();
+            assert_eq!(
+                invalid_value(error, folder),
+                (some("p"), some("name"), ValueRule::WrongType)
+            );
+        }
+        // The first broken rule of the first column in schema order wins, whatever the rules of the later ones.
+        let null_first = [
+            ("id", Value::I64(1)),
+            ("name", s("a")),
+            ("n", Value::Null),
+            ("score", s("x")),
+        ];
+        let error = write.insert_row(&table, &null_first).unwrap_err();
+        assert_eq!(
+            invalid_value(error, folder),
+            (some("p"), some("n"), ValueRule::NullNotAllowed)
+        );
+        // A canonical float is stored normalized either way.
+        let in_order = person(1, "a", 3, -0.0);
+        let mut other = person(2, "a", 3, -0.0);
+        other.reverse();
+        write.insert_row(&table, &in_order).unwrap();
+        write.insert_row(&table, &other).unwrap();
+        let first = read_w(&write, &table, &[Value::I64(1)]).unwrap();
+        let second = read_w(&write, &table, &[Value::I64(2)]).unwrap();
+        assert_eq!(first[1..], second[1..]);
+        assert_eq!(first[3].1, Value::F64(0.0));
+        // A duplicate key in schema order is the duplicate it always was.
+        let error = write.insert_row(&table, &in_order).unwrap_err();
+        assert!(matches!(error, Error::DuplicateKey { .. }), "{error:?}");
+    });
+}
