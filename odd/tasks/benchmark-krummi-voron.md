@@ -113,3 +113,7 @@ Left to the implementation (PRD): how the classes are found and how a process is
   `b02b34b` (the launcher runs nothing without its job; the benchmark starts the process itself; the Windows chain test).
   R4-launcher-ctrlc-kills-engine: kept (AC-K9 removes the stores). R3-run-accepts-desconocido-unconditionally: kept
   (B5 allows it; the chain test checks the limit). Details in the resolutions.
+- **L11** (2026-11-12) — Codex round 2 (follow-up, `1e9dffc..1531bd0`,
+  [report](../../docs/reviews/benchmark-krummi-voron/2026-11-12-code-02.md)): `approved`, R1 and R2 verified resolved.
+- **L12** (2026-11-12) — Closing report: [benchmark-krummi-voron-report.md](benchmark-krummi-voron-report.md). The
+  batch continues with the table loads (W23, W25) in `odd/tasks/table-row-reads.md`.

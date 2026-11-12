@@ -64,3 +64,9 @@ lineage `review-57046d6b0ba0caf5`, approved) left warnings on R1's fix, applied 
 
 Checks: `cargo fmt --all --check`; clippy clean and `cargo test -p krummi-bench` passing on Windows and WSL 2 Ubuntu; the
 ignored `a_krummi_and_voron_only_run_measures_only_those_two` passes on Windows (217 s).
+
+## 2026-11-12 (verification)
+
+Follow-up report: [2026-11-12-code-02.md](2026-11-12-code-02.md), fix range `1e9dffc..1531bd0`, thread
+`01a1d165-2363-7df2-8d3a-3ca10685a1c7`, wrapper status `approved`, verdict "Approved: R1 and R2 are verified
+resolved; no findings remain open in the requested follow-up scope."
