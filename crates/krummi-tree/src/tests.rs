@@ -1094,6 +1094,9 @@ fn the_last_leaf_is_reported_when_the_merge_does_not_fit() {
     let mut root = new_tree(&engine);
     let mut tx = engine.write(None).unwrap();
     let mut underfull_reported = 0;
+    // About a hundred entries of an 8-byte key and a 60-byte value fill a leaf, so 3,000 ordered inserts split the last
+    // leaf some thirty times, and each split leaves a new last leaf under a quarter full beside a full one, a pair that
+    // does not fit; more than ten such reports shows the arm runs again and again, not once by chance.
     for i in 0..3_000u64 {
         let key = format!("{i:08}").into_bytes();
         let (update, found) = try_add_at_last(&mut tx, root, &key, &[3u8; 60]).unwrap();
@@ -1109,4 +1112,5 @@ fn the_last_leaf_is_reported_when_the_merge_does_not_fit() {
         }
     }
     assert!(underfull_reported > 10, "{underfull_reported}");
+    validate(&tx, root, None, None, true);
 }

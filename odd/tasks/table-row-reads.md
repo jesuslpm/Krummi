@@ -461,3 +461,12 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   still requires one address (it changed every page it reads), and the read part repeats in a new read transaction,
   up to ten times, until no transfer cuts it; a copy made for each read never gives one address. The whole binary
   passed 3 of 3 runs after it.
+- **L52** (2026-11-12) — RDD of the last slice, `caa86c3..3641ace` (assessed `medium`, `under_budget`; reviewed as the
+  last slice), lenses readability and reliability: approved, lineage `review-8123cb28685cc534`, acknowledged.
+  R2-001 (SUGGESTION, unexplained sizes in `the_last_leaf_is_reported_when_the_merge_does_not_fit`): a comment says
+  why. R3-001 (SUGGESTION, that test never validated the tree): it calls `validate` now. R2-002 (SUGGESTION, the
+  checks mark of the phase log said T12): relabelled T13. R3-002 (SUGGESTION, use the transfer pause to make the e11
+  test deterministic): not applied, the integration tests cannot reach the engine's test hooks (`store.engine` is
+  private to the crate); the read repeats only while a transfer cuts it, and after the commit nothing else writes, so
+  the commit's versions move once. Checks: the full workspace suite on `d92a88f`, fmt and clippy clean, 829 passed,
+  0 failed, 34 ignored; `cargo test -p krummi-tree` after the fixes.
