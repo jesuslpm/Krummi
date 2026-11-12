@@ -51,8 +51,14 @@ impl Bench {
     }
 
     fn run(&self, ravendb: &Path, fail: Option<&str>) -> Output {
+        self.run_with(ravendb, fail, &[])
+    }
+
+    /// A reduced run with `extra` options too.
+    fn run_with(&self, ravendb: &Path, fail: Option<&str>, extra: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_krummi-bench"));
         command
+            .args(extra)
             .arg("--ravendb")
             .arg(ravendb)
             .arg("--reducido")
@@ -109,11 +115,16 @@ fn grouped(cell: &str) -> bool {
 /// Checks a table of engines: one row per load of `loads`, in order, with `no aplica` exactly where the engine does
 /// not run the load (K6) and elsewhere a whole number with a dot every three digits (annotation of 2026-11-07).
 fn check_engine_cells(rows: &[Vec<String>], loads: &[Load]) {
+    check_cells_of(rows, loads, &Engine::ALL);
+}
+
+/// `check_engine_cells` for the columns of `engines`.
+fn check_cells_of(rows: &[Vec<String>], loads: &[Load], engines: &[Engine]) {
     let shown: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
     let expected: Vec<&str> = loads.iter().map(|l| l.name()).collect();
     assert_eq!(shown, expected);
     for (row, &load) in rows.iter().zip(loads) {
-        for (i, engine) in Engine::ALL.into_iter().enumerate() {
+        for (i, &engine) in engines.iter().enumerate() {
             let cell = &row[1 + i];
             if runs(engine, load) {
                 assert!(grouped(cell), "{load:?} {engine:?}: {cell}");
@@ -192,16 +203,6 @@ fn a_reduced_run_writes_its_report_and_leaves_no_store() {
     );
 
     // AC-K11: one progress line per process, engines in the order of K3 and loads in table order.
-    let processes: Vec<(String, String)> = stderr
-        .lines()
-        .filter(|l| l.contains(" op/s"))
-        .map(|l| {
-            let mut words = l.split_whitespace();
-            let engine = words.next().unwrap().to_string();
-            let load = words.next().unwrap().trim_end_matches(':').to_string();
-            (engine, load)
-        })
-        .collect();
     let expected: Vec<(String, String)> = Engine::ALL
         .into_iter()
         .flat_map(|e| {
@@ -211,7 +212,7 @@ fn a_reduced_run_writes_its_report_and_leaves_no_store() {
                 .map(move |l| (e.name().to_string(), l.name().to_string()))
         })
         .collect();
-    assert_eq!(processes, expected, "stderr: {stderr}");
+    assert_eq!(progress(&stderr), expected, "stderr: {stderr}");
 }
 
 #[test]
@@ -331,4 +332,108 @@ fn voron_with_a_wrong_sum_stops_the_run() {
 #[ignore = "needs .NET 10 and KRUMMI_BENCH_RAVENDB"]
 fn voron_ending_without_a_message_stops_the_run() {
     fails("voron:W4:exit", Engine::Voron, Load::W4, EXIT_CAUSE);
+}
+
+/// The engine and load of every progress line of a process, in order (AC-K11).
+fn progress(stderr: &str) -> Vec<(String, String)> {
+    stderr
+        .lines()
+        .filter(|l| l.contains(" op/s"))
+        .map(|l| {
+            let mut words = l.split_whitespace();
+            let engine = words.next().unwrap().to_string();
+            let load = words.next().unwrap().trim_end_matches(':').to_string();
+            (engine, load)
+        })
+        .collect()
+}
+
+// AC-B1 and AC-B4 (AC-K5 with `--solo-krummi-voron`): a reduced Krummi and Voron only run measures Krummi and then
+// Voron, every load, and writes the report of B3 with the line *Núcleos* of B5.
+#[test]
+#[ignore = "needs .NET 10 and KRUMMI_BENCH_RAVENDB"]
+fn a_krummi_and_voron_only_run_measures_only_those_two() {
+    let ravendb = ravendb();
+    let bench = Bench::new();
+    let out = bench.run_with(&ravendb, None, &["--solo-krummi-voron"]);
+    let stderr = text(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    let stdout = text(&out.stdout);
+    assert!(
+        stdout.starts_with("Ejecución reducida, sin umbrales. Informe: banco-"),
+        "{stdout}"
+    );
+    let [name] = names(bench.cwd.path()).try_into().unwrap();
+    assert_eq!(names(bench.work.path()), Vec::<String>::new(), "work");
+
+    let report = fs::read_to_string(bench.cwd.path().join(name)).unwrap();
+    assert!(report.contains(
+        "
+- Ejecución: reducida, solo Krummi y Voron
+"
+    ));
+    let lines: Vec<&str> = report.lines().collect();
+    let cpu = lines
+        .iter()
+        .position(|l| l.starts_with("- Procesador: "))
+        .unwrap();
+    let cores = lines[cpu + 1];
+    assert!(
+        cores.starts_with("- Núcleos: ")
+            && (cores.ends_with(" (los motores se miden en ellos)")
+                || cores
+                    == "- Núcleos: sin fijar (el sistema no distingue núcleos de rendimiento)"),
+        "{cores}"
+    );
+    let engines = lines.iter().find(|l| l.starts_with("- Motores: ")).unwrap();
+    assert!(
+        engines.starts_with("- Motores: Voron 7.2.7 (.NET 10."),
+        "{engines}"
+    );
+    assert!(!engines.contains(','), "{engines}");
+    let rates = table(&report, "Operaciones por segundo");
+    check_cells_of(&rates, &Load::ALL, &Engine::KRUMMI_VORON);
+    assert!(rates.iter().all(|r| r.len() == 5 && r[4] == "sin evaluar"));
+    let sizes = table(&report, "Tamaño del almacén (bytes)");
+    check_cells_of(&sizes, &Load::SIZED, &Engine::KRUMMI_VORON);
+    assert!(sizes.iter().all(|r| r.len() == 3));
+    assert!(!report.contains("no aplica"));
+    assert!(report.ends_with(
+        "
+## Opciones cambiadas
+
+Ninguna.
+"
+    ));
+
+    let expected: Vec<(String, String)> = Engine::KRUMMI_VORON
+        .into_iter()
+        .flat_map(|e| {
+            Load::ALL
+                .into_iter()
+                .filter(|l| l.has_process())
+                .map(move |l| (e.name().to_string(), l.name().to_string()))
+        })
+        .collect();
+    assert_eq!(progress(&stderr), expected, "stderr: {stderr}");
+}
+
+// AC-B4 (AC-K9 with `--solo-krummi-voron`): a failure stops a Krummi and Voron only run as any other.
+#[test]
+#[ignore = "needs .NET 10 and KRUMMI_BENCH_RAVENDB"]
+fn a_krummi_and_voron_only_run_stops_on_a_failure() {
+    let bench = Bench::new();
+    let out = bench.run_with(
+        &ravendb(),
+        Some("voron:W7:missing"),
+        &["--solo-krummi-voron"],
+    );
+    bench.stopped(
+        &out,
+        &format!(
+            "El motor Voron falló en la carga {}: {}.",
+            Load::W7.name(),
+            missing_cause()
+        ),
+    );
 }

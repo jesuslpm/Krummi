@@ -22,6 +22,18 @@ impl Engine {
         Engine::Fjall,
     ];
 
+    /// The engines of a `--solo-krummi-voron` run, in the order of K3 (B2 of the Krummi and Voron only PRD).
+    pub const KRUMMI_VORON: [Engine; 2] = [Engine::Krummi, Engine::Voron];
+
+    /// The engines a run measures, in the order of K3.
+    pub fn measured(only_krummi_voron: bool) -> &'static [Engine] {
+        if only_krummi_voron {
+            &Engine::KRUMMI_VORON
+        } else {
+            &Engine::ALL
+        }
+    }
+
     /// The name the report and the messages use.
     pub fn name(self) -> &'static str {
         match self {

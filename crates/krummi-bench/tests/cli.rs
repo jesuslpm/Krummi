@@ -111,7 +111,8 @@ fn an_invalid_argument_is_named_and_ends_with_code_2() {
     let rv = case.ravendb();
     let work = case.work();
     let invalid = |o: &str| format!("Opción no válida: {o}.");
-    let cases: [(Vec<&str>, &str); 7] = [
+    let solo = "--solo-krummi-voron";
+    let cases: [(Vec<&str>, &str); 10] = [
         (vec!["--ravendb", &rv, "--otra"], "--otra"),
         (vec!["--ravendb=x"], "--ravendb=x"),
         (vec!["suelto", "--ravendb", &rv], "suelto"),
@@ -128,6 +129,13 @@ fn an_invalid_argument_is_named_and_ends_with_code_2() {
             vec!["--carpeta", "--informe", "x.md", "--ravendb", &rv],
             "--carpeta",
         ),
+        // AC-B4: `--solo-krummi-voron` repeated, written with `=` or followed by a loose argument.
+        (vec!["--ravendb", &rv, solo, "--reducido", solo], solo),
+        (
+            vec!["--ravendb", &rv, "--solo-krummi-voron=sí"],
+            "--solo-krummi-voron=sí",
+        ),
+        (vec![solo, "suelto", "--ravendb", &rv], "suelto"),
     ];
     for (args, shown) in cases {
         case.fails(&args, None, &invalid(shown), 2);

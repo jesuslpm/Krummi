@@ -62,12 +62,18 @@ pub struct Measured {
     pub sizes: BTreeMap<(Load, Engine), u64>,
 }
 
-/// Runs the whole plan with its stores under `sub`, strictly one process at a time.
-pub fn run(workers: &Workers, sub: &Path, scale: Scale) -> Result<Measured, Stop> {
+/// Runs the whole plan for `engines` (in the order of K3) with their stores under `sub`, strictly one process at a
+/// time.
+pub fn run(
+    workers: &Workers,
+    sub: &Path,
+    scale: Scale,
+    engines: &[Engine],
+) -> Result<Measured, Stop> {
     let mut measured = Measured::default();
     // Krummi runs first and every load: its data digests are the reference of every other engine (AC-K7).
     let mut reference = BTreeMap::new();
-    for engine in Engine::ALL {
+    for &engine in engines {
         run_engine(workers, sub, scale, engine, &mut reference, &mut measured)?;
     }
     Ok(measured)

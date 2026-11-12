@@ -30,10 +30,12 @@ pub struct Options {
     pub work: Option<PathBuf>,
     pub report: Option<PathBuf>,
     pub reduced: bool,
+    /// `--solo-krummi-voron`: only Krummi and Voron are measured (B1, B2 of the Krummi and Voron only PRD).
+    pub only_krummi_voron: bool,
 }
 
 /// Parses the arguments after the program's name. Arguments are read left to right and the first invalid one
-/// wins: one that is none of the four options (also `--option=value` or a loose argument), the second occurrence
+/// wins: one that is none of the five options (also `--option=value` or a loose argument), the second occurrence
 /// of a repeated option, or an option whose value is missing or starts with `--` (named by the option).
 pub fn parse(args: &[OsString]) -> Result<Options, Failure> {
     let invalid = |shown: &str| Failure::new(format!("Opción no válida: {shown}."), 2);
@@ -41,18 +43,24 @@ pub fn parse(args: &[OsString]) -> Result<Options, Failure> {
     let mut work = None;
     let mut report = None;
     let mut reduced = false;
+    let mut only_krummi_voron = false;
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].to_string_lossy().into_owned();
-        let slot = match arg.as_str() {
-            "--reducido" => {
-                if reduced {
-                    return Err(invalid(&arg));
-                }
-                reduced = true;
-                i += 1;
-                continue;
+        let flag = match arg.as_str() {
+            "--reducido" => Some(&mut reduced),
+            "--solo-krummi-voron" => Some(&mut only_krummi_voron),
+            _ => None,
+        };
+        if let Some(flag) = flag {
+            if *flag {
+                return Err(invalid(&arg));
             }
+            *flag = true;
+            i += 1;
+            continue;
+        }
+        let slot = match arg.as_str() {
             "--ravendb" => &mut ravendb,
             "--carpeta" => &mut work,
             "--informe" => &mut report,
@@ -80,6 +88,7 @@ pub fn parse(args: &[OsString]) -> Result<Options, Failure> {
         work,
         report,
         reduced,
+        only_krummi_voron,
     })
 }
 
@@ -254,11 +263,42 @@ mod tests {
                 ravendb: "rv".into(),
                 work: Some("w".into()),
                 report: Some("r.md".into()),
-                reduced: true
+                reduced: true,
+                only_krummi_voron: false,
             }
         );
         let o = parse(&args(&["--ravendb", "rv"])).unwrap();
-        assert_eq!((o.work, o.report, o.reduced), (None, None, false));
+        assert_eq!(
+            (o.work, o.report, o.reduced, o.only_krummi_voron),
+            (None, None, false, false)
+        );
+        // B1: `--solo-krummi-voron` takes no value and combines with every other option.
+        let o = parse(&args(&[
+            "--solo-krummi-voron",
+            "--ravendb",
+            "rv",
+            "--reducido",
+            "--carpeta",
+            "w",
+            "--informe",
+            "r.md",
+        ]))
+        .unwrap();
+        assert_eq!(
+            o,
+            Options {
+                ravendb: "rv".into(),
+                work: Some("w".into()),
+                report: Some("r.md".into()),
+                reduced: true,
+                only_krummi_voron: true,
+            }
+        );
+        assert!(
+            parse(&args(&["--ravendb", "rv", "--solo-krummi-voron"]))
+                .unwrap()
+                .only_krummi_voron
+        );
     }
 
     // AC-K9, first rows of the table: the first invalid argument from the left wins.
@@ -273,6 +313,15 @@ mod tests {
             usage("--ravendb")
         );
         assert_eq!(fails(&["--reducido", "--reducido"]), usage("--reducido"));
+        // AC-B4: repeated, written with `=` or followed by a loose argument.
+        let solo = "--solo-krummi-voron";
+        assert_eq!(fails(&[solo, "--ravendb", "rv", solo]), usage(solo));
+        assert_eq!(
+            fails(&["--ravendb", "rv", "--solo-krummi-voron=sí"]),
+            usage("--solo-krummi-voron=sí")
+        );
+        assert_eq!(fails(&["--ravendb", "rv", solo, "suelto"]), usage("suelto"));
+        assert_eq!(fails(&[solo, solo]), usage(solo));
         assert_eq!(fails(&["--ravendb", "rv", "--carpeta"]), usage("--carpeta"));
         assert_eq!(fails(&["--carpeta", "--informe", "x"]), usage("--carpeta"));
         assert_eq!(

@@ -41,6 +41,8 @@ pub struct Versions {
 pub struct Run {
     pub started: DateTime<FixedOffset>,
     pub scale: Scale,
+    /// `--solo-krummi-voron`: the report has only the Krummi and Voron columns (B3).
+    pub only_krummi_voron: bool,
     pub machine: Machine,
     pub versions: Versions,
     /// The metric of every load and engine that ran it (K8).
@@ -51,10 +53,11 @@ pub struct Run {
     pub changed_options: Vec<(Engine, Vec<String>)>,
 }
 
-/// The options every engine runs with (`Engine::changed_options`), for `Run::changed_options`.
-pub fn changed_options() -> Vec<(Engine, Vec<String>)> {
-    Engine::ALL
-        .into_iter()
+/// The options the `engines` of a run run with (`Engine::changed_options`), for `Run::changed_options`.
+pub fn changed_options(engines: &[Engine]) -> Vec<(Engine, Vec<String>)> {
+    engines
+        .iter()
+        .copied()
         .filter(|e| !e.changed_options().is_empty())
         .map(|e| {
             (
@@ -145,9 +148,23 @@ impl Run {
             Some(c) if v.krummi_dirty => format!("{c} (con cambios sin confirmar)"),
             Some(c) => c.clone(),
         };
-        let (execution, repetitions) = match self.scale {
+        let (scale, repetitions) = match self.scale {
             Scale::Full => ("completa", "1 previa y 3 medidas, mediana"),
             Scale::Reduced => ("reducida", "1 medida"),
+        };
+        let execution = if self.only_krummi_voron {
+            format!("{scale}, solo Krummi y Voron")
+        } else {
+            scale.to_string()
+        };
+        let voron = format!("Voron 7.2.7 (.NET {})", or_unknown(&v.dotnet));
+        let engines_line = if self.only_krummi_voron {
+            voron
+        } else {
+            format!(
+                "{voron}, LMDB {} (heed 0.23.1), redb 4.4.0, canopydb 0.2.5, fjall 3.1.13",
+                or_unknown(&v.lmdb)
+            )
         };
         let _ = writeln!(out, "# Banco comparativo de Krummi\n");
         let _ = writeln!(
@@ -161,12 +178,7 @@ impl Run {
         let _ = writeln!(out, "- Memoria: {memory}");
         let _ = writeln!(out, "- Disco: {disk}");
         let _ = writeln!(out, "- Krummi: {krummi}");
-        let _ = writeln!(
-            out,
-            "- Motores: Voron 7.2.7 (.NET {}), LMDB {} (heed 0.23.1), redb 4.4.0, canopydb 0.2.5, fjall 3.1.13",
-            or_unknown(&v.dotnet),
-            or_unknown(&v.lmdb)
-        );
+        let _ = writeln!(out, "- Motores: {engines_line}");
         let _ = writeln!(out, "- Rust: {}", or_unknown(&v.rust));
         let _ = writeln!(out, "- Repeticiones: {repetitions}");
 
@@ -184,7 +196,8 @@ impl Run {
             );
         }
 
-        let engines: Vec<&str> = Engine::ALL.iter().map(|e| e.name()).collect();
+        let measured = Engine::measured(self.only_krummi_voron);
+        let engines: Vec<&str> = measured.iter().map(|e| e.name()).collect();
         let _ = writeln!(out, "\n## Operaciones por segundo\n");
         let _ = writeln!(
             out,
@@ -193,7 +206,7 @@ impl Run {
         );
         let _ = writeln!(out, "|---|{}---|---|", "---|".repeat(engines.len()));
         for load in Load::ALL {
-            let cells: Vec<String> = Engine::ALL
+            let cells: Vec<String> = measured
                 .iter()
                 .map(|&e| {
                     if runs(e, load) {
@@ -225,7 +238,7 @@ impl Run {
         let _ = writeln!(out, "| Carga | {} |", engines.join(" | "));
         let _ = writeln!(out, "|---|{}", "---|".repeat(engines.len()));
         for load in Load::SIZED {
-            let cells: Vec<String> = Engine::ALL
+            let cells: Vec<String> = measured
                 .iter()
                 .map(|&e| {
                     if runs(e, load) {
@@ -290,6 +303,7 @@ mod tests {
                 .with_ymd_and_hms(2026, 11, 3, 10, 15, 0)
                 .unwrap(),
             scale,
+            only_krummi_voron: false,
             machine: Machine {
                 system: Some("Windows 11 Pro 10.0.26200".into()),
                 cpu_model: Some("CPU X".into()),
@@ -307,7 +321,7 @@ mod tests {
             },
             metrics,
             sizes,
-            changed_options: changed_options(),
+            changed_options: changed_options(&Engine::ALL),
         }
     }
 
@@ -406,6 +420,131 @@ mod tests {
         assert_eq!(
             r.summary_line("banco-20261103-101500.md"),
             "Krummi cumple 29 de 29 umbrales. Informe: banco-20261103-101500.md"
+        );
+    }
+
+    /// `run` with only the Krummi and Voron results, as a `--solo-krummi-voron` run leaves them (B2).
+    fn only_krummi_voron(scale: Scale, krummi_factor: impl Fn(Load) -> f64) -> Run {
+        let mut r = run(scale, krummi_factor);
+        let kept = |e: &Engine| Engine::KRUMMI_VORON.contains(e);
+        r.metrics.retain(|(_, e), _| kept(e));
+        r.sizes.retain(|(_, e), _| kept(e));
+        r.only_krummi_voron = true;
+        r.changed_options = changed_options(&Engine::KRUMMI_VORON);
+        r
+    }
+
+    // AC-B2 (B3): the whole `--solo-krummi-voron` report, byte for byte, with every threshold met.
+    #[test]
+    fn a_krummi_and_voron_only_report_has_the_exact_shape() {
+        let r = only_krummi_voron(Scale::Full, |_| 1.02);
+        let text = r.render();
+        let header = HEADER
+            .replace(
+                "- Ejecución: completa
+",
+                "- Ejecución: completa, solo Krummi y Voron
+",
+            )
+            .replace(
+                ", LMDB 0.9.70 (heed 0.23.1), redb 4.4.0, canopydb 0.2.5, fjall 3.1.13",
+                "",
+            );
+        let mut expected = header
+            + "Krummi cumple 29 de 29 umbrales.
+
+## Operaciones por segundo
+
+| Carga | Krummi | Voron | Krummi / Voron | Umbral |
+|---|---|---|---|---|
+";
+        for load in Load::ALL {
+            let voron = 1_000 * load.number();
+            expected += &format!(
+                "| {} | {} | {} | 1,02 | cumple |
+",
+                load.name(),
+                thousands(voron * 102 / 100),
+                thousands(voron)
+            );
+        }
+        expected += "
+## Tamaño del almacén (bytes)
+
+| Carga | Krummi | Voron |
+|---|---|---|
+";
+        for load in Load::SIZED {
+            let size = 1_000 * load.number();
+            expected += &format!(
+                "| {} | {} | {} |
+",
+                load.name(),
+                thousands(size),
+                thousands(size + 1)
+            );
+        }
+        expected += "
+## Opciones cambiadas
+
+Ninguna.
+";
+        assert_eq!(text, expected);
+        assert!(!text.contains(NOT_APPLICABLE));
+        assert_eq!(r.exit_code(), 0);
+        assert_eq!(
+            r.summary_line("x.md"),
+            "Krummi cumple 29 de 29 umbrales. Informe: x.md"
+        );
+    }
+
+    // AC-B2: a missed threshold and a reduced run keep the benchmark's rules with only two engine columns.
+    #[test]
+    fn a_krummi_and_voron_only_report_keeps_the_thresholds_and_the_reduced_rules() {
+        let missed = only_krummi_voron(Scale::Full, |l| if l == Load::W28 { 0.79 } else { 1.0 });
+        let text = missed.render();
+        assert!(text.contains(
+            "
+## Resultado
+
+Krummi cumple 28 de 29 umbrales. Incumple: `tabla-actualizacion`.
+"
+        ));
+        assert_eq!(
+            row(&text, Load::W28),
+            "| tabla-actualizacion | 22.120 | 28.000 | 0,79 | incumple |"
+        );
+        assert_eq!(missed.exit_code(), 1);
+        assert_eq!(
+            missed.summary_line("x.md"),
+            "Krummi cumple 28 de 29 umbrales. Informe: x.md"
+        );
+
+        let reduced = only_krummi_voron(Scale::Reduced, |_| 0.1);
+        let text = reduced.render();
+        assert!(text.contains(
+            "- Ejecución: reducida, solo Krummi y Voron
+"
+        ));
+        assert!(text.contains(
+            "- Repeticiones: 1 medida
+"
+        ));
+        assert!(text.contains(
+            "
+## Resultado
+
+Ejecución reducida, sin umbrales.
+"
+        ));
+        assert_eq!(
+            row(&text, Load::W1),
+            "| carga-en-orden | 100 | 1.000 | 0,10 | sin evaluar |"
+        );
+        assert_eq!(reduced.exit_code(), 0);
+        assert_eq!(
+            reduced.summary_line("r.md"),
+            "Ejecución reducida, sin umbrales. Informe: r.md"
         );
     }
 

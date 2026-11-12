@@ -143,7 +143,13 @@ fn execute(
         rust: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("krummi-bench")),
         voron: build_voron(&options.ravendb, sub)?,
     };
-    let lmdb = workers.version(Engine::Lmdb, "lmdb")?;
+    let engines = Engine::measured(options.only_krummi_voron);
+    // LMDB's version only goes in a report that measures it (B3).
+    let lmdb = if engines.contains(&Engine::Lmdb) {
+        workers.version(Engine::Lmdb, "lmdb")?
+    } else {
+        None
+    };
     let dotnet = workers.version(Engine::Voron, "dotnet")?;
     let (krummi_commit, krummi_dirty) = machine::krummi_commit();
     let versions = Versions {
@@ -158,16 +164,17 @@ fn execute(
         return Err(Stop::Interrupted);
     }
 
-    let measured = plan::run(&workers, sub, scale)?;
+    let measured = plan::run(&workers, sub, scale, engines)?;
 
     let run = Run {
         started,
         scale,
+        only_krummi_voron: options.only_krummi_voron,
         machine,
         versions,
         metrics: measured.metrics,
         sizes: measured.sizes,
-        changed_options: report::changed_options(),
+        changed_options: report::changed_options(engines),
     };
     write_report(report, &run.render()).map_err(|e| {
         Failure::new(
