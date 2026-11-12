@@ -92,6 +92,8 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T9 | Investigate the W23 drop of L31 (about −3 % from `bb8acca` to `d6a88b7`) | inline (A/B measurements) | done (L42): no drop | — |
 | T10 | W25 (Codex proposal 3): a row that gives every column in schema order skips the name map and its staging; a one-column key is encoded without a staged vector | inline | done (L43) (equivalence test `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order`) | `9027c66` |
 | T11 | W25 (Codex proposal 5): an insert beyond the table's greatest key adds at the end of the rows tree's last leaf (`krummi_tree::append_last`) when the tree would change only there | inline | done (L44) (tree equivalence tests byte for byte, table model test, mutations) | `a71297b`, `2c7bb1d` |
+| T12 | S1, S5: final full runs with `--solo-krummi-voron` on Windows (pinned to the performance cores) and WSL 2 | inline (background runs) | done (L50): 29 of 29 thresholds on both | `6ffad00` |
+| T13 | Final checks: `e11_old_rows_borrow_the_defaults_of_added_columns` failed in about one of three runs of the whole `table_rows` binary | inline | done (L51) | `d92a88f` |
 
 ## Log
 
@@ -441,3 +443,21 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 - **L49** (2026-11-12) — Codex round 2 (follow-up, `29d0694..e4e19de`,
   [report](../../docs/reviews/table-row-reads/2026-11-12-code-04.md)): `approved`, R1 verified. Final full runs with
   `--solo-krummi-voron` follow (T12).
+- **L50** (2026-11-12) — T12, final full runs with `--solo-krummi-voron` under the bench power plan
+  (`work/bkv/final-runs.sh`): Windows at `6ffad00`, 16 of 32 cores pinned, 21:57–22:20, 1,363 s
+  ([report](../../docs/benchmark/2026-11-12-windows-row-reads.md)); WSL 2 at `29d0694` (archive; it differs from
+  `6ffad00` only in a comment, so its report says «Krummi: desconocido»), unpinned, 22:20–23:03, 2,610 s
+  ([report](../../docs/benchmark/2026-11-12-linux-row-reads.md)). Krummi meets 29 of 29 thresholds on both. Table loads,
+  Krummi / Voron, Windows then WSL 2: W23 1.39 / 1.19; W24 0.92 / 1.07; W25 1.05 / 1.29; W26 1.01 / 1.10; W27 0.86 /
+  0.95; W28 0.88 / 1.03; W29 2.27 / 1.90. W25 on Windows goes from 0.82 (L40) to 1.05 with T10–T11.
+- **L51** (2026-11-12) — Final checks on `6ffad00`: fmt and clippy clean, but `cargo test --workspace` failed one
+  test, `e11_old_rows_borrow_the_defaults_of_added_columns` (`tests/table_rows.rs`, the address check of the read
+  part); it passes alone (40 of 40) and failed in 2 of 6 runs of the whole binary. Cause, shown by a temporary probe
+  in `src/tests.rs` (transfer paused, `get_row`, `transfer_now`, `get_row` again in the same read transaction: the
+  text default's address changed, `equal=false`): the background transfer moves the catalog page from its version
+  in the scratch area to the data file between two reads of one read transaction, so the same bytes are borrowed at
+  another address. The flake predates this run (the test comes from `b0288e3`, on `feat/tables-schema`); no commit
+  since `18e38f7` touches the pager, the transaction layer or the stored defaults. Fix, test only: the write part
+  still requires one address (it changed every page it reads), and the read part repeats in a new read transaction,
+  up to ten times, until no transfer cuts it; a copy made for each read never gives one address. The whole binary
+  passed 3 of 3 runs after it.
