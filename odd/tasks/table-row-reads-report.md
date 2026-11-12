@@ -1,11 +1,11 @@
-# Lecturas de filas de las tablas terminadas: W26 y W27 cumplen K7 en Windows y Linux, rama verificada sin fusionar
+# Lecturas de filas de las tablas terminadas: las siete cargas de tablas cumplen K7 en Windows y Linux, rama verificada sin fusionar
 
-Informe de cierre de `table-row-reads` (2026-11-12). Enfoque de ejecución: ODD.
+Informe de cierre de `table-row-reads` (2026-11-12, actualizado tras la segunda ronda, T6–T8). Enfoque de ejecución: ODD.
 Fuente de producto: [tables-row-reads.prd.md](../../docs/prd/krummi/tables-row-reads.prd.md) (desde L20; antes, una
 optimización sin PRD, anotación del 2026-11-04 a K13 de [benchmark.prd.md](../../docs/prd/krummi/benchmark.prd.md)).
 Documento de ejecución: [table-row-reads.md](table-row-reads.md).
 
-Rama `feat/table-row-reads` en `d6a88b7` (más los commits de este informe), creada desde `feat/tables-schema` en
+Rama `feat/table-row-reads` en `bb1408b` (más los commits de este informe), creada desde `feat/tables-schema` en
 `bb8acca`. Sin fusionar y sin publicar: la revisa el usuario antes.
 
 ## Resultado
@@ -14,13 +14,21 @@ Rama `feat/table-row-reads` en `d6a88b7` (más los commits de este informe), cre
   fila mal formada se devuelve y leer su columna da otro valor o un pánico normal del hilo (L2); actualizar e insertar
   o actualizar siguen comprobando la fila que reemplazan (L3). Antes, las optimizaciones sin cambio observable: filas
   perezosas que guardan sus bytes, lecturas tipadas, un plan por columna, los lectores guardados en la transacción
-  (ahora en un trie de hash) y `next_row`, que presta la fila. Suite: `cargo test --workspace` 804 pasan, 0 fallan,
+  (ahora en un trie de hash) y `next_row`, que presta la fila. Suite en `bb1408b`: `cargo test --workspace` 808 pasan, 0 fallan,
   23 ignoradas; `cargo fmt --all --check` y `cargo clippy --workspace --all-targets -- -D warnings` limpios; los 10
   tests de filas mal formadas pasan también con `--release`.
+- **Segunda ronda (T6–T8, L33–L40):** W28, la única carga que seguía fallando en Windows, pasa de 0,75 a **0,88**
+  (y de 0,91 a 1,00 en Linux). Lo consiguen dos cambios: una actualización que solo da columnas de ancho fijo
+  reescribe sus huecos en la fila guardada en lugar de reconstruirla (`Reader::patch`), y la fila del mismo tamaño se
+  escribe donde la encontró la lectura, sin bajar otra vez por el árbol (`krummi_tree::get_located` y `overwrite`).
+  La diferencia del journal por bloques (T8) no ganó nada medible y restaba un 1–4 % en W28: se revirtió. Con
+  `bb1408b`, las siete cargas de tablas cumplen K7 en los dos sistemas (L40).
 - **Aceptación:** cargas de tablas W23–W29 de Krummi y Voron con `d6a88b7` (decisión del usuario, L30: solo las
   cargas de tablas). W27 pasa de 0,15 a **0,89** en Windows y de 0,19 a **0,97** en Linux; W26 de 0,75 a **0,96** y de
   0,88 a **1,13**. Las sumas de datos de Voron coinciden con las de Krummi en todas las cargas. Detalle en L31.
-- **Revisiones y verificación:** siete revisiones RDD, todas aprobadas (sección siguiente); revisión cruzada de Codex
+- **Revisiones y verificación:** once revisiones RDD, todas aprobadas (sección siguiente); en la segunda ronda,
+  Codex revisó `d6a88b7..33f7f7b` (dos rondas, aprobada tras corregir R1); pasan las pruebas de aceptación ignoradas
+  del journal (`page_diffs`, 184 s) y de la recuperación (`recovery`, cada byte alterado, 4.076 s); revisión cruzada de Codex
   del PRD (tres rondas, aprobada) y del código en dos cadenas: `bb8acca..7cf73ca` (dos rondas, aprobada) y la de toda
   la ejecución, `bb8acca..3ecc294` (tres rondas, aprobada). Informes y resoluciones en
   [docs/reviews/table-row-reads/](../../docs/reviews/table-row-reads/) y
@@ -34,6 +42,9 @@ Rama `feat/table-row-reads` en `d6a88b7` (más los commits de este informe), cre
     de 1.000 tablas); un trie de hash en `bb496a1` lo deja en 196 ns.
   - Codex R4 (menor): un test nuevo no pasaba clippy. El comando de checks lo ocultaba porque pasaba clippy por `tail`;
     desde entonces los checks se ejecutan con `pipefail` (L24).
+  - Codex R1 de la segunda ronda (mayor): `Reader::patch` buscaba cada columna dada en la lista de columnas de la
+    clave, cuadrático en una clave compuesta ancha (2,32 veces el camino general con 1.022 columnas); corregido en
+    `c873418` (0,76 después).
   - Medición: las cargas sueltas sin el plan de energía inflaban las razones (L11), y Windows mueve los procesos a los
     núcleos de eficiencia si no se fijan (L13). La primera tanda de tablas en Windows se descartó por eso (L31).
 
@@ -49,7 +60,8 @@ Rama `feat/table-row-reads` en `d6a88b7` (más los commits de este informe), cre
 | AC-L6 | los tests AC19 de `table_damage.rs`, sin cambios | PASS |
 | AC-L7 | ninguna línea de la codificación de filas y claves cambió desde `bb8acca` (L20); Codex lo confirmó estáticamente | PASS (estático: no se abrió un almacén escrito por 7.1) |
 | AC-L8 | anotaciones de E19, G6 y K7 en los originales y sus traducciones (`15bf568`; la línea en blanco de E19 en `3ecc294`) | PASS |
-| AC-L9 | cargas de tablas en Windows (fijadas) y en Linux (L31) | W26 y W27 cumplen en los dos; las bajadas de más de 0,05 (W23 en Windows, W29 en Linux) quedan dentro del margen con cargas sueltas; W1–W22 no se ejecutaron (decisión del usuario) |
+| S6 (W28) | `an_update_stores_the_bytes_of_the_whole_merged_row`, `an_update_with_an_invalid_fixed_width_value_fails_before_the_patch`, `an_update_under_a_wide_compound_key_stores_the_merged_row` (`table::update_tests`), `a_located_value_of_the_same_length_is_overwritten_in_place` (`krummi-tree`); tanda final de tablas (L40) | PASS: W28 0,88 en Windows y 1,00 en Linux |
+| AC-L9 | cargas de tablas en Windows (fijadas) y en Linux (L31; repetidas con `bb1408b`, L40) | W26 y W27 cumplen en los dos; las bajadas de más de 0,05 (W23 en Windows, W29 en Linux) quedan dentro del margen con cargas sueltas; W1–W22 no se ejecutaron (decisión del usuario) |
 
 ## Revisiones RDD
 
@@ -62,37 +74,41 @@ Rama `feat/table-row-reads` en `d6a88b7` (más los commits de este informe), cre
 | `5dcfa29..9ea1b59` | risk, readability, reliability | aprobada | cinco SUGGESTION (ancho del dígito del trie, índice sin nombre, encabezados repetidos, texto antiguo en escritura, test concurrente): corregidos en `5174433` | `review-cb691290c004b232` |
 | `9ea1b59..5174433` | reliability, readability | aprobada | nombre del test concurrente (WARNING, en las dos lentes), guarda de `DIGIT` y constante con nombre: corregidos en `d6a88b7`; R2-missing-resolution-context (WARNING) descartado (los hallazgos RDD van en el registro, L26) | `review-056aee61ef36b0bd` |
 | `5174433..d6a88b7` | readability, reliability | aprobada | R2-001 (SUGGESTION: una variable sombrea un cierre en un test) aceptado tal cual | `review-389fd4a1315c29ca` |
+| `d6a88b7..5bd0f92` | risk, reliability, readability | aprobada | el nulo en una columna sin nulos ante `Slot::write` (WARNING, tres lentes) descartado: `Reader::check` lo rechaza antes, y lo fija un test nuevo; `apply_rows` omitido tras la escritura en el sitio (WARNING): comentado y probado leyendo tras confirmar; T6–T7 ausentes del documento confirmado (WARNING): confirmado; sugerencias (hoja en `overwrite`, `FIXED_BYTES`, `upsert`, raíz del test del árbol) corregidas en `33f7f7b` | `review-28c95d242b64ea75` |
+| `33f7f7b..b5f82bd` | reliability, readability | aprobada | nombres `key` e `in_key` confundibles (WARNING) y sugerencias de documentación y del test: corregidos en `bb1408b`; un número de línea del informe de Codex, aceptado (los informes no se editan) | `review-f239fe4be7f70170` |
+| `b5f82bd..bb1408b` | readability | aprobada | ninguno | `review-4a114bbe6859cbf3` |
 
 Las evaluaciones de cada tramo dijeron `medium`, `under_budget`; todos los tramos se revisaron igualmente.
 
 ## Tiempo
 
 - Estimaciones: 6 h – 10 h para la optimización sin PRD (L1); 1–2 h más unas 4 h de ejecuciones completas para
-  implementar el PRD (L20). Inicio real: 2026-11-11 12:05:51 +0000. Fin: 2026-11-12 07:13:14 +0000.
-- **Duración activa: 7 h 53 min** en total, dentro de la primera estimación, aunque incluye además escribir el PRD y
-  su implementación. La implementación del PRD (commits `5dcfa29`–`d6a88b7` y lo posterior en la tabla por commit)
-  suma unas 2 h 43 min, con la aceptación reducida a las cargas de tablas (unos 25 min en lugar de unas 4 h). El código
-  (3 h 12 min) y la revisión (2 h 24 min) se llevaron la mayor parte; la revisión incluye unos 45 min en los que el
-  primer intento de ejecución completa corría en segundo plano.
+  implementar el PRD (L20); 3 h – 5 h para la segunda ronda, T6 y T7 (L33), a la que se añadió T8.
+  Inicio real: 2026-11-11 12:05:51 +0000. Fin: 2026-11-12 12:12:37 +0000.
+- **Duración activa: 11 h 41 min** en total. La primera parte (optimización, PRD e implementación del PRD) llevó
+  7 h 53 min, dentro de su primera estimación aunque incluye además el PRD; su aceptación se redujo a las cargas de
+  tablas (unos 25 min en lugar de unas 4 h). La segunda ronda, desde 08:24:26, llevó **3 h 48 min**, dentro de su
+  estimación de 3–5 h aunque incluye T8. Se la llevaron sobre todo las revisiones y los checks: el barrido de
+  `recovery` (68 min en segundo plano) y dos rondas de mediciones para descartar T8.
 - Esperas por el usuario: las del registro de fases (abajo); la mayor, 8 h 06 min, es el reinicio de Windows de esa
-  noche, que cortó la ejecución completa (L29).
+  noche, que cortó la ejecución completa (L29). Entre las dos rondas hay una pausa de 1 h 11 min.
 
 ### Tiempo por fase
 
 | Fase | Duración | % del activo | Tramos |
 |---|---|---|---|
-| Exploración y mapa | 1 min 42 s | 0 % | 1 |
-| Plan (documento de ejecución) | 36 min 32 s | 8 % | 1 |
-| Código y tests | 3 h 12 min | 41 % | 5 |
-| Checks (fmt, clippy, suite de tests) | 12 min 00 s | 3 % | 1 |
-| Aceptación | 1 h 18 min | 17 % | 4 |
-| Revisión RDD | 2 h 24 min | 31 % | 5 |
-| Correcciones de hallazgos | 7 min 24 s | 2 % | 1 |
-| Cierre (informe y merge) | 0 min 00 s | 0 % | 1 |
-| **Total activo** | **7 h 53 min** | **100 %** | **19** |
+| Exploración y mapa | 6 min 22 s | 1 % | 2 |
+| Plan (documento de ejecución) | 36 min 32 s | 5 % | 1 |
+| Código y tests | 3 h 13 min | 28 % | 6 |
+| Checks (fmt, clippy, suite de tests) | 1 h 31 min | 13 % | 3 |
+| Aceptación | 2 h 30 min | 21 % | 6 |
+| Revisión RDD | 3 h 35 min | 31 % | 6 |
+| Correcciones de hallazgos | 7 min 24 s | 1 % | 1 |
+| Cierre (informe y merge) | 0 min 00 s | 0 % | 2 |
+| **Total activo** | **11 h 41 min** | **100 %** | **27** |
 
-- Inicio: 2026-11-11 12:05:51 +00:00. Fin: 2026-11-12 07:13:14 +00:00.
-- Arranque confirmado: 20:23:30. Activo desde el arranque: **7 h 53 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
+- Inicio: 2026-11-11 12:05:51 +00:00. Fin: 2026-11-12 12:12:37 +00:00.
+- Arranque confirmado: 08:24:26. Activo desde el arranque: **11 h 41 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
 - Esperas por el usuario (fuera del activo): 11 h 13 min.
   - 12:45:50–13:17:38 (31 min 48 s): W27 decision
   - 14:41:09–14:58:58 (17 min 49 s): W27 and W28 scope
@@ -100,6 +116,8 @@ Las evaluaciones de cada tramo dijeron `medium`, `under_budget`; todos los tramo
   - 18:10:43–18:28:35 (17 min 52 s): PRD malformed rows
   - 19:05:07–20:23:30 (1 h 18 min): PRD authorization
   - 22:28:52–06:35:29 (8 h 06 min): Windows restart
+- Pausas entre sesiones (fuera del activo): 1 h 11 min.
+  - 2026-11-12 07:13:14 +00:00 – 2026-11-12 08:24:26 +00:00 (1 h 11 min)
 
 En segundo plano (se solapa con las fases de arriba; no suma al activo):
 
@@ -127,8 +145,17 @@ En segundo plano (se solapa con las fases de arriba; no suma al activo):
 | Aceptación | w29 wsl | 06:59:24 | 06:59:28 | 0 min 04 s |
 | Aceptación | w29 wsl | 06:59:52 | 07:07:58 | 8 min 06 s |
 | Aceptación | w23 w25 single | 07:11:03 | 07:12:45 | 1 min 42 s |
-| **Aceptación (total)** | | | | **1 h 25 min** |
-| **Revisión RDD (total)** | | | | **55 min 16 s** |
+| Aceptación | single loads T6-T8 | 09:53:51 | 10:05:47 | 11 min 56 s |
+| Aceptación | W28 t67 t8 | 10:06:10 | 10:09:05 | 2 min 55 s |
+| Revisión RDD | rdd-T6-T7 | 10:45:34 | 10:47:15 | 1 min 41 s |
+| Revisión RDD | codex-T6-R1 | 10:58:01 | 11:07:19 | 9 min 18 s |
+| Revisión RDD | codex-T6-R2 | 11:09:30 | 11:14:22 | 4 min 52 s |
+| Checks (fmt, clippy, suite de tests) | recovery sweep | 10:45:36 | 11:53:47 | 1 h 08 min |
+| Aceptación | final tables windows | 11:56:44 | 12:02:31 | 5 min 47 s |
+| Aceptación | final tables wsl | 12:02:31 | 12:12:12 | 9 min 41 s |
+| **Checks (fmt, clippy, suite de tests) (total)** | | | | **1 h 08 min** |
+| **Aceptación (total)** | | | | **1 h 55 min** |
+| **Revisión RDD (total)** | | | | **1 h 11 min** |
 
 Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan):
 
@@ -167,18 +194,28 @@ Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan
 | `5d5f7a7` | docs(reviews): add the approving code review follow-up | T5 | 2 min 59 s | Revisión RDD 2 min 59 s |
 | `5174433` | test(tables): apply the RDD review of the last row reads slice | T5 | 8 min 36 s | Revisión RDD 8 min 36 s |
 | `d6a88b7` | test(tables): name the concurrent readers test for what it checks | T5 | 2 min 39 s | Revisión RDD 2 min 39 s |
-| — | después del último commit | T5, T3 | 1 h 23 min | Aceptación 37 min 45 s, Revisión RDD 45 min 41 s |
-| **Total** | | | **7 h 53 min** | |
+| `30f0458` | docs: add the table row reads closing report | T5, T3 | 1 h 23 min | Aceptación 37 min 45 s, Revisión RDD 45 min 41 s |
+| `7b645e5` | perf(tables): patch an update's fixed-width columns and write it in place | T6 | 12 min 29 s | Exploración y mapa 4 min 40 s, Checks (fmt, clippy, suite de tests) 7 min 49 s |
+| `c76626e` | perf(pager): skip a journal entry's unchanged 64-byte blocks | T6, T8 | 1 h 12 min | Código y tests 0 min 22 s, Checks (fmt, clippy, suite de tests) 1 h 11 min |
+| `5bd0f92` | revert(pager): compare journal entries word by word again | T8 | 52 min 51 s | Aceptación 52 min 51 s |
+| `33f7f7b` | test(tables): apply the RDD review of the update patch | T8, T6 | 15 min 53 s | Aceptación 3 min 13 s, Revisión RDD 12 min 40 s |
+| `c873418` | perf(tables): find an update's key columns in constant time | T6 | 11 min 25 s | Revisión RDD 11 min 25 s |
+| `b5f82bd` | docs(reviews): add the update patch code review and its resolution |  | 0 min 00 s |  |
+| `a714bb0` | docs(reviews): add the approving follow-up of the update patch review | T6 | 5 min 19 s | Revisión RDD 5 min 19 s |
+| `bb1408b` | refactor(tables): name the primary key mark of the per-column plan | T6 | 1 min 50 s | Revisión RDD 1 min 50 s |
+| — | después del último commit | T6 | 56 min 04 s | Aceptación 16 min 08 s, Revisión RDD 39 min 56 s |
+| **Total** | | | **11 h 41 min** | |
 
 ## Informe de cambios (`bb8acca..HEAD`)
 
 | Área | + | − | Código + | Comentarios + | Archivos |
 |---|---|---|---|---|---|
-| `crates/krummi` | 2.237 | 142 | 1.937 | 215 | 13 |
-| `docs` | 1.273 | 0 | — | — | 19 |
-| `odd` | 197 | 0 | — | — | 2 |
+| `crates/krummi` | 2.638 | 150 | 2.288 | 252 | 14 |
+| `docs` | 1.547 | 0 | — | — | 22 |
+| `odd` | 680 | 0 | — | — | 3 |
+| `crates/krummi-tree` | 88 | 5 | 69 | 15 | 2 |
 | `crates/krummi-bench` | 34 | 31 | 27 | 6 | 1 |
-| **Total** | **3.741** | **173** | **1.964** | **221** | **35** |
+| **Total** | **4.987** | **186** | **2.384** | **273** | **42** |
 
 Código + y Comentarios + desglosan las líneas añadidas en archivos de código (Rust, Python, PowerShell, JavaScript/TypeScript, TOML, YAML y shell); las líneas en blanco no cuentan en ninguna de las dos.
 
@@ -206,8 +243,11 @@ no sellar una fila mal formada.
 
 ## Pendiente (no bloquea)
 
-- **W28 en Windows** sigue en 0,75 (0,73 en el cierre de 7.1): su coste está en la escritura, fuera de este PRD;
-  sigue K13 y pide un cambio aparte.
+- **W25 en Windows** queda en 0,82, la carga con menos margen: las propuestas 3 (camino rápido de escritura para filas
+  completas) y 5 (cursor de inserción para claves crecientes) del informe de Codex (`work/codex/table-perf.md`) quedan
+  para un cambio aparte (L36).
+- **AVX2 en el journal** no se probó: la diferencia por bloques no ganó nada, así que ese bucle no es el cuello de
+  botella (L35).
 - **W1–W22 no se midieron** en esta ejecución (decisión del usuario, L30); este cambio solo toca el código de las
   tablas.
 - **W23 en Windows:** Krummi mide un 3 % menos que con el binario de 7.1 en cargas sueltas, dentro del margen de AC-L9;
@@ -218,7 +258,9 @@ no sellar una fila mal formada.
 - `writer_check_tests::ac_h1_a_write_never_checks_the_nodes_it_changed` falló una vez por tiempos (L11); es código de
   los árboles, ajeno a esta ejecución.
 
-**Riesgo:** item 4 (los lectores guardados son un trie de solo inserción con `OnceLock`, compartido por los hilos de una
+**Riesgo:** item 1 en la segunda ronda (la actualización escribe la fila en su hoja con `page_mut`, sin pasar por
+`set`: lo cubren el test de equivalencia de bytes, la lectura tras confirmar, el test del árbol con una lectura abierta
+antes, la lente de riesgo de RDD y las revisiones de Codex). Item 4 (los lectores guardados son un trie de solo inserción con `OnceLock`, compartido por los hilos de una
 transacción de lectura; lo cubren `threads_of_one_read_transaction_read_each_table_with_its_own_schema`, la lente de
 riesgo de RDD y la reproducción concurrente de Codex en su segunda ronda). Además, item 3 por petición del usuario: E19
 cambia para las lecturas (PRD L1–L3).

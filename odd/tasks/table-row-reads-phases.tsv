@@ -83,3 +83,13 @@
 2026-11-12T10:47:15+00:00	bg-end	review	rdd-T6-T7
 2026-11-12T10:58:01+00:00	bg-start	review	codex-T6-R1
 2026-11-12T11:07:19+00:00	bg-end	review	codex-T6-R1
+2026-11-12T11:09:30+00:00	bg-start	review	codex-T6-R2
+2026-11-12T11:14:22+00:00	bg-end	review	codex-T6-R2
+2026-11-12T11:53:47+00:00	bg-end	checks	recovery sweep
+2026-11-12T11:56:29+00:00	mark	acceptance	T6
+2026-11-12T11:56:44+00:00	bg-start	acceptance	final tables windows
+2026-11-12T12:02:31+00:00	bg-end	acceptance	final tables windows
+2026-11-12T12:02:31+00:00	bg-start	acceptance	final tables wsl
+2026-11-12T12:12:12+00:00	bg-end	acceptance	final tables wsl
+2026-11-12T12:12:37+00:00	mark	close	T6
+2026-11-12T12:12:37+00:00	end		

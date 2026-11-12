@@ -86,9 +86,9 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T4 | S1 (W27): typed accessors that read a checked column without a `Value`; an access plan if needed; a remembered row check if still short | inline | typed reads done (L11); the rest waits for the user | `5409362` |
 | T5 | S5 (AC-L1–AC-L7): reads by key and scans without row content checks, update and upsert still checking | inline | done (RED: 6 of the 8 new tests in `table::malformed_tests` failed with damage; GREEN: 8 passed in debug and in release; suite 799 passed) | `5dcfa29` |
 | T3 | S1, S5 (AC-L9: complete runs on Windows and Linux) | inline (background runs) | done for the table loads only (L30, L31); W1–W22 not run by the user's decision | `d6a88b7` |
-| T6 | S6: an update that gives only fixed-width columns of a current-version row rewrites their slots in the stored row (`Reader::patch`, `Slot::write`) | inline | done (L35) (guard test `an_update_stores_the_bytes_of_the_whole_merged_row` passes before and after; fails with `Slot::write` emptied, mutation run) | |
-| T7 | S6: the update writes a row of the same length where `get_located` found it (`krummi_tree::overwrite`), without a second descent | inline | done (L35; RED: `a_located_value_of_the_same_length_is_overwritten_in_place` did not compile) | |
-| T8 | S6: the journal entry of a page skips unchanged 64-byte blocks before comparing word by word (`journal::encode_page`), the same entry byte for byte | inline | reverted (L35) (equivalence test `entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word` against the word-by-word encoder; fails when a changed block is skipped, mutation run) | |
+| T6 | S6: an update that gives only fixed-width columns of a current-version row rewrites their slots in the stored row (`Reader::patch`, `Slot::write`) | inline | done (L35) (guard test `an_update_stores_the_bytes_of_the_whole_merged_row` passes before and after; fails with `Slot::write` emptied, mutation run) || `7b645e5`, `c873418`, `bb1408b` |
+| T7 | S6: the update writes a row of the same length where `get_located` found it (`krummi_tree::overwrite`), without a second descent | inline | done (L35; RED: `a_located_value_of_the_same_length_is_overwritten_in_place` did not compile) || `7b645e5` |
+| T8 | S6: the journal entry of a page skips unchanged 64-byte blocks before comparing word by word (`journal::encode_page`), the same entry byte for byte | inline | reverted (L35) (equivalence test `entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word` against the word-by-word encoder; fails when a changed block is skipped, mutation run) || `c76626e`, reverted in `5bd0f92` |
 
 ## Log
 
@@ -364,3 +364,18 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   with a text column. A functional test cannot tell a patch that skips the text key column from the full merge, which
   stores the same row, so the constant-time search is pinned only by the review's measurement. Accepted as is:
   R2-review-report-line-citation-off-by-one (a line number in Codex's report, which is not edited).
+- **L40** (2026-11-12): RDD of `bb1408b` (lens readability), lineage `review-4a114bbe6859cbf3`, **approved** without
+  findings, acknowledged. The ignored `recovery` sweep of every altered byte passed (4,075.66 s, 10:45–11:53, alongside
+  the reviews). Final table loads of `bb1408b` (`work/rr/tables.py`, under the bench power plan; data digests match in
+  every load), against `d6a88b7`'s (L31) in brackets:
+  - Windows, both engines pinned (`work/rr/final-windows.tsv`): W23 368,033 / 339,593 = 1.08 (1.10); W24 96,524 /
+    107,427 = 0.90 (0.92); W25 366,869 / 445,392 = 0.82 (0.84); W26 745,173 / 753,134 = 0.99 (0.96); W27 9,247,732 /
+    10,986,147 = 0.84 (0.89: Krummi 9,221,262 then, Voron 10,387,076); W28 114,865 / 129,932 = **0.88** (0.75); W29
+    122,357 / 53,512 = 2.29 (2.24).
+  - WSL 2 (`work/rr/final-linux.tsv`): W23 1.17 (1.11); W24 1.03 (1.03); W25 1.11 (1.18); W26 1.14 (1.13); W27 0.97
+    (0.97); W28 70,442 / 70,502 = **1.00** (0.91); W29 1.82 (1.80).
+  - Every table load meets K7 on both systems. The changes against L31 other than W28 are within the runs' variance:
+    Krummi's figures are the same, and Voron's move by up to 6 %.
+- **L41** (2026-11-12): final checks on `bb1408b`: fmt, clippy clean, 808 passed, 0 failed, 23 ignored. Closing report
+  updated with the second round: [table-row-reads-report.md](table-row-reads-report.md). The branch stays unmerged and
+  unpushed for the user's review.
