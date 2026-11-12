@@ -356,3 +356,11 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   the full merge with 1,022 key columns) fixed in `c873418` (patch / full merge after it: 0.76 at 1,022 keys).
 - **L38** (2026-11-12): Codex follow-up ([report](../../docs/reviews/table-row-reads/2026-11-12-code-02.md)):
   `approved`, "Approved for the requested follow-up scope: R1 verified resolved; no open findings."
+- **L39** (2026-11-12): RDD of the slice `33f7f7b..` the follow-up's record (lenses reliability and readability),
+  lineage `review-f239fe4be7f70170`, **approved** and acknowledged. Advisories, fixed in the next commit:
+  R2-fastcolumn-key-vs-in-key-naming (WARNING) and R2-shadowed-key-binding: the field is `primary_key`, the vector
+  `is_primary_key`, one doc line per field; R2-test-doc-overclaims-constant-time and R3-test-doc-claims-constant-time:
+  the test's documentation says it is a functional check; R3-wide-key-test-no-variable-key: the test's key now starts
+  with a text column. A functional test cannot tell a patch that skips the text key column from the full merge, which
+  stores the same row, so the constant-time search is pinned only by the review's measurement. Accepted as is:
+  R2-review-report-line-citation-off-by-one (a line number in Codex's report, which is not edited).

@@ -232,29 +232,35 @@ fn an_update_with_an_invalid_fixed_width_value_fails_before_the_patch() {
     write.commit().unwrap();
 }
 
-/// An update of a table whose primary key has many columns (R1 of the Codex review of T6 and T7): it stores the merged
-/// row, by update and by upsert, finding each given key column in constant time.
+/// An update of a table whose primary key has many columns, a text and 300 `bool` ones (R1 of the Codex review of T6
+/// and T7): it stores the merged row, by update and by upsert. A functional check only: the review's quadratic search
+/// for the key columns gave the same rows, and so would a patch that skipped only the fixed-width key columns.
 #[test]
 fn an_update_under_a_wide_compound_key_stores_the_merged_row() {
     let keys = 300;
     let names: Vec<String> = (0..keys).map(|k| format!("k{k}")).collect();
-    let mut columns: Vec<Column> = names
-        .iter()
-        .map(|name| Column::new(name.as_str(), ColumnType::Bool).not_null())
-        .collect();
+    let mut columns = vec![Column::new("name", ColumnType::String).not_null()];
+    columns.extend(
+        names
+            .iter()
+            .map(|name| Column::new(name.as_str(), ColumnType::Bool).not_null()),
+    );
     columns.push(Column::new("n", ColumnType::I64));
-    let key_names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut key_names: Vec<&str> = vec!["name"];
+    key_names.extend(names.iter().map(String::as_str));
     let schema = Schema::new(columns, &key_names);
     let store = Store::open_temporary(&StoreOptions::default()).unwrap();
     let mut write = store.write().unwrap();
     let table = write
         .open_table_with("t", TableMode::CreateNew(&schema))
         .unwrap();
-    let key_values: Vec<(&str, Value<'_>)> = key_names
-        .iter()
-        .enumerate()
-        .map(|(k, name)| (*name, Value::Bool(k % 3 == 0)))
-        .collect();
+    let mut key_values: Vec<(&str, Value<'_>)> = vec![("name", Value::String("wide".into()))];
+    key_values.extend(
+        names
+            .iter()
+            .enumerate()
+            .map(|(k, name)| (name.as_str(), Value::Bool(k % 3 == 0))),
+    );
     let with_n = |n: i64| {
         let mut row = key_values.clone();
         row.push(("n", Value::I64(n)));
@@ -268,7 +274,7 @@ fn an_update_under_a_wide_compound_key_stores_the_merged_row() {
     );
     let key: Vec<Value<'_>> = key_values.iter().map(|(_, v)| v.clone()).collect();
     let row = write.get_row(&table, &key).unwrap().unwrap();
-    assert_eq!(row.i64(keys), Some(3));
+    assert_eq!(row.i64(keys + 1), Some(3));
     let mut expected: Vec<Value<'_>> = key.clone();
     expected.push(Value::I64(3));
     assert_eq!(row.values().collect::<Vec<_>>(), expected);

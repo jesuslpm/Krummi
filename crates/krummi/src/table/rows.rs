@@ -297,19 +297,19 @@ impl Reader {
             .filter(|&i| layout.needs_check(i))
             .map(|i| (slots[i], columns[i].ty))
             .collect();
-        let mut key = vec![false; columns.len()];
+        let mut is_primary_key = vec![false; columns.len()];
         for &i in &key_columns {
-            key[i] = true;
+            is_primary_key[i] = true;
         }
         let fast = columns
             .iter()
             .zip(&slots)
-            .zip(key)
-            .map(|((column, &slot), key)| FastColumn {
+            .zip(is_primary_key)
+            .map(|((column, &slot), primary_key)| FastColumn {
                 slot,
                 ty: column.ty,
                 in_key: column.in_key.is_some(),
-                key,
+                primary_key,
             })
             .collect();
         Reader {
@@ -512,7 +512,7 @@ impl Reader {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, value)| Some((i, value.as_ref()?)))
-                .filter(|(i, _)| !self.fast[*i].key)
+                .filter(|(i, _)| !self.fast[*i].primary_key)
         };
         let mut identical = true;
         for (i, value) in given() {
@@ -739,14 +739,16 @@ pub(super) struct Versions<'t> {
     defaults: Option<Arc<Vec<Value<'t>>>>,
 }
 
-/// A live column as the typed reads need it: where it is in rows of the current version, its type, whether the key
-/// holds it, together so that a read touches one small record, and whether it is a primary key column at all.
+/// A live column as the typed reads and the update patch need it, together so that they touch one small record.
 #[derive(Clone, Copy)]
 struct FastColumn {
+    /// Where it is in rows of the current version.
     slot: Slot,
     ty: ColumnType,
+    /// Whether the key holds it instead of the row: a fixed-width primary key column.
     in_key: bool,
-    key: bool,
+    /// Whether it is a primary key column, of any width.
+    primary_key: bool,
 }
 
 /// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes or
