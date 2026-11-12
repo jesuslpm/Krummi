@@ -127,6 +127,12 @@ contain a Krummi store (D10, decision R6).*
   17. The item "Bindings for other languages (C API, .NET, Python)" now excludes the other languages: the C
   interface and the .NET binding come into module 18.*
 
+*Annotation of 2026-11-12 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative; child PRD 7.5):*
+
+- *D11 and AC20: from a JSON column, the whole document remains a reference without a copy; a string inside the JSON
+  read as text is returned without a copy if it has no escapes, and decoded into a copy the application owns if it
+  has them, because its decoded value is not contiguous in the engine's memory.*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

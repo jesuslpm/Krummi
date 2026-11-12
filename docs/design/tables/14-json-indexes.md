@@ -10,7 +10,9 @@ own for it ("documento propio", document 13, product question 9).
 Status: architecture approved by the external review of 2026-11-11 (*Review history*), with its invariants (X1 to
 X5, and the two rules of *Queries*) to be kept when the indexes are designed in detail. Nothing here is implemented,
 built or measured in the engine; the compression figures come from
-small simulations outside the repository. The PRDs are not changed. The product questions at the end stay open until
+small simulations outside the repository. No PRD takes these indexes yet; the tables PRD's annotation of 7.5
+(2026-11-12) records where they stand and that the multi-valued index over one element is a requirement of module
+17. The product questions at the end stay open until
 this work is planned, after module 14, when real documents can measure terms per row (decided 2026-11-11; the user, to
 leaving them for then: "Sí").
 
@@ -467,7 +469,9 @@ step. No product question changed.
 7. **Multi-valued expression indexes.** Recommended: yes, with expression indexes. Alternative: leave arrays to the
    inverted index.
 8. **Where they land.** Expression and multi-valued indexes after 7.2 and module 17; inverted indexes after module 14.
-   Whether each is a child PRD of module 7 or part of module 14 is the user's numbering.
+   Whether each is a child PRD of module 7 or part of module 14 is the user's numbering. Already decided, and outside
+   this question: the multi-valued index over several members of one element is a requirement of module 17's PRD,
+   with document 13's quantifiers (2026-11-11; aligned 2026-11-12 with the tables PRD's annotation of 7.5).
 
 ## Sources
 

@@ -57,14 +57,22 @@ found.
 
 *Annotations of 2026-11-10 from tables with schema ([tables-schema.prd.md](tables-schema.prd.md), 7.1, Spanish, authoritative):*
 
-- *N1 and AC-N5: the catalog has three object classes, trees, tables and sequences, with one name space; Exists and List apply to all three, and the other operations fail with different type on another class (E14).*
-- *N4: there are no autonumeric columns; the sentence "Autonumeric columns are 64-bit integers (N6)." no longer holds (E14). The date and time domains are those of E8.*
-- *N6: "all of them pass the whole row" and "replaces the row" no longer hold: update, and insert or update when the row exists, change only the columns given (E10). The `ulid` and `uuid` generators are public functions (E15). Autonumeric columns are replaced by sequences (E14), with the same promise: a committed value is never given again, even if rows are deleted, the table is emptied or the process crashes.*
+- *N1 and AC-N5: the catalog has three object classes, trees, tables and sequences, with one name space; Exists and List
+  apply to all three, and the other operations fail with different type on another class (E14).*
+- *N4: there are no autonumeric columns; the sentence "Autonumeric columns are 64-bit integers (N6)." no longer holds
+  (E14). The date and time domains are those of E8.*
+- *N6: "all of them pass the whole row" and "replaces the row" no longer hold: update, and insert or update when the row
+  exists, change only the columns given (E10). The `ulid` and `uuid` generators are public functions (E15). Autonumeric
+  columns are replaced by sequences (E14), with the same promise: a committed value is never given again, even if rows
+  are deleted, the table is emptied or the process crashes.*
 - *N10: a fourth class is added, invalid schema (E5).*
-- *AC-N3: the second insert or update updates the columns given; the cases of a generated key colliding with an explicit one and of the exhausted autonumeric counter disappear; and a failed load leaves the sequences as before (E13). The cases with indexes are checked by 7.2.*
+- *AC-N3: the second insert or update updates the columns given; the cases of a generated key colliding with an explicit
+  one and of the exhausted autonumeric counter disappear; and a failed load leaves the sequences as before (E13). The
+  cases with indexes are checked by 7.2.*
 - *AC-N4: its second part applies to sequences instead of the autonumeric column (AC11 of 7.1).*
 - *AC-N7: removing a column of an index fails with invalid schema (E5).*
-- *Out of scope: "Updating part of a row: update replaces the whole row (N6)" no longer holds, and "Resetting or setting the counter of an autonumeric column" becomes resetting or setting a sequence after creating it.*
+- *Out of scope: "Updating part of a row: update replaces the whole row (N6)" no longer holds, and "Resetting or setting
+  the counter of an autonumeric column" becomes resetting or setting a sequence after creating it.*
 
 ### Starting state
 
@@ -77,7 +85,7 @@ Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the desi
 | Format | The current format version is `10`. |
 | Benchmark | 22 workloads with a threshold against Voron (K7); none of tables. |
 | Voron (reference) | Tables with schema and indexes, whose rows carry no types or nulls and whose keys are built by the application; optional dictionary compression (design documents 1, 2 and 7). |
-| Design | Eight design documents with the user's decisions and a verification of their claims against primary sources ([README](../../design/tables/README.md), [verification](../../design/tables/verification.md)). *Annotation of 2026-11-10:* there are twelve since that day; the four additions cover the interchange format of queries, the tooling for agents, the query contract and the approximate vector indexes. |
+| Design | Eight design documents with the user's decisions and a verification of their claims against primary sources ([README](../../design/tables/README.md), [verification](../../design/tables/verification.md)). *Annotation of 2026-11-10:* there are twelve since that day; the four additions cover the interchange format of queries, the tooling for agents, the query contract and the approximate vector indexes. *Annotation of 2026-11-12:* there are fourteen; the two additions cover the JSON columns and the indexes over JSON. |
 
 ## Actors
 
@@ -89,10 +97,10 @@ Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the desi
 
 1. The application creates a table with its schema and its primary key (N3), and then its indexes (N7).
 2. Inside a transaction it opens the table by its name (N1).
-3. In a write it inserts, updates and deletes rows; each value is validated against its column before anything
-   changes (N4, N10), and the indexes are left in agreement with the table (N7).
-4. In any transaction it reads rows by their primary key and traverses them by ranges of the primary key or of an
-   index (N6, N7).
+3. In a write it inserts, updates and deletes rows; each value is validated against its column before anything changes
+   (N4, N10), and the indexes are left in agreement with the table (N7).
+4. In any transaction it reads rows by their primary key and traverses them by ranges of the primary key or of an index
+   (N6, N7).
 5. When an estimation is requested, the statistics that are missing or stale are built in the background (N8).
 
 ## Split into child PRDs
@@ -107,42 +115,147 @@ names what that child PRD must decide, in addition to its content and its own er
 | 7.3 | **Statistics** | The per-column statistics, the estimation operation, their construction in the background and the analyze operation (N8); their measurement (N11). | Which estimations it offers and which is the default estimation; in which transactions estimation and analyze can be requested, and whether analyze waits for them to be stored; what counts as a modification for the threshold (for example, insert or update with an identical row, update without finding the row or an aborted write); whether a write that requests an estimation sees its own changes; whether they exist in temporary mode; what happens if storing them fails, where it is reported and what happens to them in a store that does not accept writes (T12), including whether a failure to store them is the first failure of T12 and who reports it; when the sampling thread is created and when it ends, whether closing the store waits for a sampling in progress, and in which place of the write queue (T4) the storing enters; what the store information (P12) reports about them, if anything; what happens to them when removing or renaming a column or deleting the table; whether vector columns have statistics; the test hooks that stop the sampling and the storing of the statistics (AC-N8). |
 | 7.4 | **Dictionary compression** | Deferred (N2, N9). | — |
 
-*Annotation of 2026-11-10 (child PRD 7.5):* child PRD **7.5, JSON columns** is added, built after 7.3 and before
-module 17, so that queries can filter by JSON paths from the start. User: «Sí anótalo en el reparto del PRD de tablas
-como PRD hijo 7.5, después de 7.3». **Content**: a JSON column type stored in a binary format read without copying or
-parsing text, in the style of RavenDB's blittable or PostgreSQL's `jsonb`; building it, navigating it and reading its
-properties; its conversion to and from text; its benchmark loads (N11). **Sets**: the binary format (one of those two
-or Krummi's own) and whether its change is incompatible (B12); how numbers are represented (integers, `f64`,
-`decimal`), repeated keys and property order, and when two documents are equal; its size and depth limits; the
-classes with which an invalid text or document fails; whether parsing the text uses a dependency (with its D12
-annotation, like P11 of design document 11) or a reader of Krummi's own; that a JSON is not a primary key or an index
-column. With this annotation, N2 closes module 7 when 7.1, 7.2, 7.3 and 7.5 are closed, and "JSON" leaves *Out of
-scope*. Indexing paths inside a JSON stays outside 7.5 (expression indexes, after 7.2 and module 17).
+*Annotation of 2026-11-10 (child PRD 7.5):* child PRD **7.5, JSON columns** is added, built after 7.3 and before module
+17, so that queries can filter by JSON paths from the start. User: «Sí anótalo en el reparto del PRD de tablas como PRD
+hijo 7.5, después de 7.3».
 
-*Annotation of 2026-11-10 (child PRD 7.6):* child PRD **7.6, Approximate vector indexes** is added, built after 7.5
-and before module 17, so that queries can search for the nearest neighbours approximately from the start. User:
-«Además los índices ANN hay que inluirlos en el alcance» and, on the order, «Tras 7.5, antes del 17». Its technical
-starting state is [design document 12](../../design/tables/12-vector-indexes.md). **Content**: an approximate vector
-index over a vector column, of a class distinct from the secondary indexes of 7.2, which document 12 recommends
-building with partitions (IVF) and 8-bit codes per component (SQ8); its asynchronous maintenance: writing a row only
-records that the row changed, and the store brings the index up to date in the background, in short batches, also
-when it is created and rebuilt; a search for the k nearest neighbours that the application asks for explicitly as
-approximate and that returns only rows visible in its snapshot that satisfy its filters, with their exact distance;
-its benchmark loads (N11). Exact distance searches never use the index and return the same as without it. **Sets**:
-the algorithm, after measuring document 12's experiment against its recall and latency thresholds, and the
-alternative if it misses them; which element types and metrics it supports; whether a search sees the rows the index
-has not yet brought up to date and what it does when there are too many; whether an index can declare partition
-columns, for example per tenant; whether creating and rebuilding it is done without blocking writes; how long the
-background work may hold the write turn (G4), and with how many threads and how much memory it trains; whether
-rebuilds are explicit and which metrics recommend them; what a search does while the index is not ready and how many
-rows it needs to train; the classes with which invalid definitions fail; what the store information (P12) reports
-about the index; what happens to the index when the table or the column is deleted, when the table is emptied and in
-a bulk load; whether its change is incompatible (B12). The six product questions of document 12 are part of what it
-sets. With this annotation, N2 closes module 7 when 7.1, 7.2, 7.3, 7.5 and 7.6 are closed; the sentence of N7 "Every
-write of a row leaves all its indexes in agreement with the table in the same transaction (G1)" holds for secondary
-indexes, not for approximate vector indexes, which are brought up to date after the transaction; "cannot be the
-primary key or columns of an index", of N5, refers to the primary key and to secondary indexes; and "Vector indexes" leaves
-*Out of scope*. Filtering by a distance threshold stays exact and belongs to module 17.
+- **Content**:
+  - a JSON column type stored in a binary format read without copying or parsing text, in the style of RavenDB's
+    blittable or PostgreSQL's `jsonb`;
+  - building it, navigating it and reading its properties;
+  - its conversion to and from text;
+  - its benchmark loads (N11).
+- **Sets**:
+  - the binary format (one of those two or Krummi's own) and whether its change is incompatible (B12);
+  - how numbers are represented (integers, `f64`, `decimal`), repeated keys and property order, and when two documents
+    are equal;
+  - its size and depth limits;
+  - the classes with which an invalid text or document fails;
+  - whether parsing the text uses a dependency (with its D12 annotation, like P11 of design document 11) or a reader of
+    Krummi's own;
+  - that a JSON is not a primary key or an index column.
+- With this annotation, N2 closes module 7 when 7.1, 7.2, 7.3 and 7.5 are closed, and "JSON" leaves *Out of scope*.
+- Indexing paths inside a JSON stays outside 7.5 (expression indexes, after 7.2 and module 17).
+
+*Annotation of 2026-11-12 (child PRD 7.5, from design documents 13 and 14):* the design of the JSON columns was decided
+with the user on 2026-11-11 in [design document 13](../../design/tables/13-json-column-storage.md), which is the
+technical starting state of 7.5 (the exact bytes that are stored are its *Stored form v1*), and it changes or refines
+the previous annotation:
+
+- **Content**: "stored in a binary format read without copying or parsing text, in the style of RavenDB's blittable or
+  PostgreSQL's `jsonb`" no longer holds. A JSON value is stored as normalized JSON text, behind a byte that identifies
+  its form: with no whitespace outside strings, with a single way of writing each string, with the properties in the
+  order in which they arrive and with each number as it was written. The whole document is read without copying it, as
+  text. 7.5 navigates the document and reads its properties by walking the text; doing it without walking it is left for
+  when the measurement of the queries of module 17 asks for it, and the form byte reserves what it will need, without
+  rewriting the stored rows. N4 gains the JSON column type; how it is declared is set by 7.5. User: «Sí, pero ¿el texto
+  canónico no exigiría que dos json con el mismo significado fueran iguales en texto?» and, once it was clarified that
+  the text is normalized and not canonical, «Sí seguimos con el texto normalizado.»; on reading properties without
+  walking the text, «Después, pero que quede anotado».
+- **Now set**, of what 7.5 sets:
+  - the format: the normalized text above;
+  - what a valid JSON value is: any RFC 8259 value in valid UTF-8, also a bare one at the root (`42`, `"x"`, `true`,
+    `null`), with surrounding whitespace that is discarded; an empty text, data after the value, a BOM, `NaN`,
+    `Infinity`, `+1` and `01` are not valid, nor is a lone UTF-16 surrogate (`"\ud800"`); an escaped surrogate pair is
+    stored as its character; U+0000 and the Unicode noncharacters are valid, as in a `string` column (E7 of 7.1). User:
+    «Sí adóptalas.»;
+  - the column null and the JSON `null` are different: the first is the column without a value, the second a stored
+    document. A JSON column admits a default value like any other (E4 of 7.1), a constant that is stored normalized; so,
+    unlike E4, a default value that is the `null` document is a default value, not the lack of one, and one that is not
+    valid JSON fails with invalid schema (E5). User: the same «Sí adóptalas.»;
+  - numbers: they are stored as they were written, without losing any digit;
+  - repeated keys: an object with two properties of the same name, also if they only coincide after reading their
+    escapes, is not valid. User, on rejecting them naming the object and the repeated name: «Sí»;
+  - property order: it is kept;
+  - when two documents are equal: when storing a row (the identical update of E10 of 7.1), when their normalized text is
+    the same, so `{"n":1}` and `{"n":1.0}` are different; equality by meaning, with the properties in any order and the
+    numbers by their value (`1`, `1.0` and `1e0` are the same number), is an operation of the queries;
+  - depth: at most 128 nested objects or arrays. User: «128»;
+  - the error class: a text that is not a valid JSON value, with repeated keys or with more than 128 levels fails with
+    invalid value (N10); a document that makes the row larger than its maximum fails with invalid size (E18 of 7.1);
+  - parsing the text: a reader of Krummi's own, with no new dependency, tested in layers. User: «El propio, pero muy
+    bien probado.»;
+  - reading a value of the JSON as a Krummi type, in 7.5 and in the queries of module 17: a text, from a string, without
+    copying it if the string has no escapes and decoded into a copy owned by the application if it has them, an
+    exception to D11 and AC20 like the other decoded values (*Output*), while the whole document is always read without
+    a copy (user, choosing among a copy only for strings with escapes, a copy always and a view without a copy that
+    decodes on the fly: «A»); a boolean, from `true` or `false`; an `i64` or `u64` integer, only if its value is an
+    exact integer, in any notation (user: «valor entero exacto»); a `decimal`, rounded to its scale as in E8 of 7.1
+    (user: «Redondear no es inventar, yo redondearía.»); an `f64`, rounded to the nearest, with the normalization of N4
+    (`-0` as `+0`); a date, only from a `YYYY-MM-DD` text; an instant, only from a `YYYY-MM-DDTHH:MM:SS` text with an
+    optional fraction of a second and an offset `Z`, `+HH:MM` or `-HH:MM` (`2026-11-11T10:23:00Z`,
+    `2026-11-11T00:30:00+01:00`, with `T` and `Z` in upper case), converted to UTC and with the fraction rounded to the
+    microsecond as in E8 (user, on accepting offsets and rounding: «Sí»; on adding dates and instants: «Las dos cosas»).
+    What is missing, is `null`, is of another class or does not fit gives null, never an error: an integer with a
+    fraction (`100.6`) or out of range; a `decimal` that once rounded exceeds its precision; an `f64` out of its range
+    (`1e400`); a date that does not exist (`2026-02-30`) or outside the domains of E8; an instant without an offset, in
+    lower case, with a space instead of `T` or with a leap second; a number where a date or an instant is asked for.
+- **Refined**, from the previous annotation: a JSON is not a primary key or a column of the key of a secondary index;
+  whether it can be an included column of an index is set by 7.2.
+- **7.5 still sets**: whether its change is incompatible (B12); how a JSON column is declared; the class with which a
+  schema with a JSON in the primary key or in the key of an index fails; the data of its errors and their precedence;
+  its benchmark loads (N11).
+- **Outside 7.5**:
+  - updating or removing a property by its path inside the engine: the application reads the document, changes it and
+    stores it. User: «no en 7.5»;
+  - indexes over JSON, over expressions, multivalue and inverted, which are designed in [design document
+    14](../../design/tables/14-json-indexes.md) (user, on designing them in a document of their own: «documento
+    propio»). Except for the multivalue index over several properties of the same element, which is a requirement of
+    module 17 (below), their product questions, including which PRD each class of index enters, stay open until they are
+    planned (user: «Sí»); until then, N2 and the split do not change, and whether those indexes change the definition of
+    a secondary index (a list of columns, N7) is decided by the PRD that introduces them.
+- **For module 17**, without changing this PRD, document 13 leaves as requirements of its queries:
+  - paths inside a JSON as lists of steps, each a property name or an array position, with no text to parse; a step that
+    expects an array or an object and finds something else gives "not there";
+  - conditions on the elements of an array: that some, or all, satisfy a condition on their own properties, so that the
+    same element satisfies the whole condition, for example the orders with a line of a product P and a quantity greater
+    than C; "all" is true on an empty array; an element whose condition is unknown does not count for "some", and makes
+    "all" unknown unless another element makes it false. User: «sí»;
+  - the multivalue index over several properties of the same element, which resolves those conditions (design document
+    14), with the same «sí», to be annotated together with them;
+  - the typed reading above, also for dates and instants;
+  - a benchmark load that filters by a path, with which it is decided whether a property is read without walking the
+    text.
+
+*Annotation of 2026-11-10 (child PRD 7.6):* child PRD **7.6, Approximate vector indexes** is added, built after 7.5 and
+before module 17, so that queries can search for the nearest neighbours approximately from the start. User: «Además los
+índices ANN hay que inluirlos en el alcance» and, on the order, «Tras 7.5, antes del 17». Its technical starting state
+is [design document 12](../../design/tables/12-vector-indexes.md).
+
+- **Content**:
+  - an approximate vector index over a vector column, of a class distinct from the secondary indexes of 7.2, which
+    document 12 recommends building with partitions (IVF) and 8-bit codes per component (SQ8);
+  - its asynchronous maintenance: writing a row only records that the row changed, and the store brings the index up to
+    date in the background, in short batches, also when it is created and rebuilt;
+  - a search for the k nearest neighbours that the application asks for explicitly as approximate and that returns only
+    rows visible in its snapshot that satisfy its filters, with their exact distance;
+  - its benchmark loads (N11).
+
+  Exact distance searches never use the index and return the same as without it.
+- **Sets**:
+  - the algorithm, after measuring document 12's experiment against its recall and latency thresholds, and the
+    alternative if it misses them;
+  - which element types and metrics it supports;
+  - whether a search sees the rows the index has not yet brought up to date and what it does when there are too many;
+  - whether an index can declare partition columns, for example per tenant;
+  - whether creating and rebuilding it is done without blocking writes;
+  - how long the background work may hold the write turn (G4), and with how many threads and how much memory it trains;
+  - whether rebuilds are explicit and which metrics recommend them;
+  - what a search does while the index is not ready and how many rows it needs to train;
+  - the classes with which invalid definitions fail;
+  - what the store information (P12) reports about the index;
+  - what happens to the index when the table or the column is deleted, when the table is emptied and in a bulk load;
+  - whether its change is incompatible (B12).
+
+  The six product questions of document 12 are part of what it sets.
+- With this annotation:
+  - N2 closes module 7 when 7.1, 7.2, 7.3, 7.5 and 7.6 are closed;
+  - the sentence of N7 "Every write of a row leaves all its indexes in agreement with the table in the same transaction
+    (G1)" holds for secondary indexes, not for approximate vector indexes, which are brought up to date after the
+    transaction;
+  - "cannot be the primary key or columns of an index", of N5, refers to the primary key and to secondary indexes;
+  - and "Vector indexes" leaves *Out of scope*.
+- Filtering by a distance threshold stays exact and belongs to module 17.
 
 ## Validations and messages
 
@@ -162,10 +275,13 @@ PRD adds the situations of its operations and sets the data of each error.
 
 ## Output
 
-The module writes nothing to the screen. A read returns the stored values, with the normalization of N4 (`-0` and
-NaN); those of `string`, `bytes`, vector and JSON (from 7.5), without copying them (D11, T16, B10), and the others, decoded into a
-copy owned by the application (exception to D11, like List in A3). The store information (P12) adds no data except
-what 7.3 sets. The benchmark report adds the workloads of N11 and counts their thresholds with the others.
+The module writes nothing to the screen. A read returns the stored values, with the normalization of N4 (`-0` and NaN);
+those of `string`, `bytes`, vector and JSON (from 7.5), without copying them (D11, T16, B10), and the others, decoded
+into a copy owned by the application (exception to D11, like List in A3). The store information (P12) adds no data
+except what 7.3 sets. The benchmark report adds the workloads of N11 and counts their thresholds with the others.
+*Annotation of 2026-11-12 (from the 7.5 annotation of that day):* of a JSON, the whole document is returned without
+copying it; a JSON string read as text is returned without copying it if it has no escapes, and decoded into a copy
+owned by the application if it has them.
 
 ## Reuse
 
@@ -183,15 +299,19 @@ what 7.3 sets. The benchmark report adds the workloads of N11 and counts their t
   12](../../design/tables/12-vector-indexes.md) as its technical starting state.
 - Raw data sections: storing bytes under an identifier is covered by the containers (module 13).
 - Joins, `GROUP BY`, views and triggers; foreign keys, constraints between tables, and `CHECK` constraints.
-- Arrays, enums, JSON, stored time zones, `f16` as a scalar and case-insensitive text comparison.
+- Arrays, enums, JSON, stored time zones, `f16` as a scalar and case-insensitive text comparison. *Annotation of
+  2026-11-12:* JSON stops being out of scope since the annotation of 2026-11-10 of child PRD 7.5 (see *Split into child
+  PRDs*).
 - Changing the type of a column or the primary key of a table, forbidding nulls in an existing column, and changing
   the default value of a column or the order of the columns.
-- Updating part of a row: update replaces the whole row (N6).
+- Updating part of a row: update replaces the whole row (N6). *Annotation of 2026-11-12:* it no longer holds since the
+  annotations of 2026-11-10 from 7.1 (see *Product decisions*).
 - Rows larger than the maximum that 7.1 sets (streams, module 8).
 - Tables without a primary key.
 - Partial indexes (reserved, N7) and dictionary compression (deferred, N9).
 - Exact counts of the rows between two keys (the number of rows of the whole table is included, N6).
-- Resetting or setting the counter of an autonumeric column.
+- Resetting or setting the counter of an autonumeric column. *Annotation of 2026-11-12:* it becomes resetting or setting
+  a sequence after creating it, since the annotations of 2026-11-10 from 7.1 (see *Product decisions*).
 - Renaming an index or changing its definition: it is deleted and created again.
 - Statistics of several columns together.
 - Importing and exporting row files (CSV, JSON lines, Parquet): module 19. From the application, the bulk load
@@ -215,101 +335,97 @@ what 7.3 sets. The benchmark report adds the workloads of N11 and counts their t
 
 Those of the ancestors hold. Each criterion is checked by the child PRD named in it.
 
-1. **AC-N1** — Given a table with one column of each type of N4 that can be ordered, as a one-column primary key
-   and as part of a multi-column one, when rows are inserted and traversed by the primary key forwards and
-   backwards, then they come back in the order of N5 for each type, including `ulid`, negative integers, `-0` and
-   NaN, and `uuid` in both orders: that of RFC 9562 is that of its 16 bytes, and that of SQL Server is the one that
-   `SqlGuid` of .NET gives to the same values, on test vectors set by 7.1 ordered with `SqlGuid`, and empty `bytes`
-   and `bytes` with the zero byte in any position (and empty `string` and `string` with the null character if 7.1
-   admits them) in front of other columns of the key; when a range of the primary key is traversed, on a whole key
-   and on a prefix of a composite one, with each combination of included, excluded and absent bounds, then exactly
-   the rows of the range come back according to the semantics that 7.1 sets; when a property test stores random
-   rows in tables with random primary keys, of one to four columns of all the types that can be ordered, with their
-   extreme values (`-0` and `+0`, NaN with different bits, `uuid` in both orders, the date and time types and
-   `ulid`) and keys at the size limit, then the order of the traversals, the rows of each range and the duplicate
-   keys are those of a reference model of N5 that compares the values by their type, without using their encoding;
-   and each row is read with the stored values, `-0` as `+0` and every NaN as the single NaN (7.1).
-2. **AC-N2** — Given a table, when a row is inserted with a primary key that already exists, a value that does not
-   meet the rules of its column (one for each rule of N4) or a null in a column that does not admit them, then the
-   operation fails with its class (N10), the table and the transaction stay as before, and the transaction can
-   commit its other changes; inserting `+0` with a stored `-0` key, or a NaN with another, gives duplicate key
-   (N5); when values at the limits of their type are stored (vectors of dimension 1, or 8 for `bit`, and 4,096, of
-   each element type, and a `decimal` of 38 digits), then they are read back equal; when a table is created with
-   each of the invalid schemas that 7.1 lists, then it fails without effect with the class that 7.1 sets; and when
-   a table is opened in each case of different schema that 7.1 sets, then it fails with different schema (7.1).
+1. **AC-N1** — Given a table with one column of each type of N4 that can be ordered, as a one-column primary key and as
+   part of a multi-column one, when rows are inserted and traversed by the primary key forwards and backwards, then they
+   come back in the order of N5 for each type, including `ulid`, negative integers, `-0` and NaN, and `uuid` in both
+   orders: that of RFC 9562 is that of its 16 bytes, and that of SQL Server is the one that `SqlGuid` of .NET gives to
+   the same values, on test vectors set by 7.1 ordered with `SqlGuid`, and empty `bytes` and `bytes` with the zero byte
+   in any position (and empty `string` and `string` with the null character if 7.1 admits them) in front of other
+   columns of the key; when a range of the primary key is traversed, on a whole key and on a prefix of a composite one,
+   with each combination of included, excluded and absent bounds, then exactly the rows of the range come back according
+   to the semantics that 7.1 sets; when a property test stores random rows in tables with random primary keys, of one to
+   four columns of all the types that can be ordered, with their extreme values (`-0` and `+0`, NaN with different bits,
+   `uuid` in both orders, the date and time types and `ulid`) and keys at the size limit, then the order of the
+   traversals, the rows of each range and the duplicate keys are those of a reference model of N5 that compares the
+   values by their type, without using their encoding; and each row is read with the stored values, `-0` as `+0` and
+   every NaN as the single NaN (7.1).
+2. **AC-N2** — Given a table, when a row is inserted with a primary key that already exists, a value that does not meet
+   the rules of its column (one for each rule of N4) or a null in a column that does not admit them, then the operation
+   fails with its class (N10), the table and the transaction stay as before, and the transaction can commit its other
+   changes; inserting `+0` with a stored `-0` key, or a NaN with another, gives duplicate key (N5); when values at the
+   limits of their type are stored (vectors of dimension 1, or 8 for `bit`, and 4,096, of each element type, and a
+   `decimal` of 38 digits), then they are read back equal; when a table is created with each of the invalid schemas that
+   7.1 lists, then it fails without effect with the class that 7.1 sets; and when a table is opened in each case of
+   different schema that 7.1 sets, then it fails with different schema (7.1).
 3. **AC-N3** — Given a table, when a row that does not exist is updated, then the table does not change and the
-   operation reports that it did not find it; when a row that does not exist is inserted or updated and then again
-   with other values, then the first time it inserts it and the second it replaces it; reading and deleting a row
-   that does not exist give what 7.1 sets; the number of rows that an opening reports is, after each operation of
-   the test, that of the rows its transaction sees, reading the same pages with 10 as with 100,000 rows according to
-   the test hook of 7.1, also in a concurrent read that does not see the write; when a range of the primary key is
-   deleted, then exactly the rows outside the range remain; and when 100,000 rows are bulk loaded in primary key
-   order, then the table has the same rows as if they had been inserted one by one; and loads with rows out of
-   order, repeated or invalid give what 7.1 sets, also when the one that fails is the last, when a generated key
-   collides with an explicit one or with a row that already existed and when the autonumeric counter is exhausted:
-   if 7.1 sets that the load fails entirely, then the table, its indexes and its counters stay as before the load,
-   also when the source of the rows fails or the application cancels the load halfway, and another write gets its
-   turn afterwards (7.1).
-4. **AC-N4** — Given 100,000 values of each generator of N6, generated with the test clock that 7.1 sets, as many in
-   the same millisecond as the increment that 7.1 sets allows and the rest in successive milliseconds, from a single
-   thread, when they are ordered with the order of their column, then they end up in the order in which they were
-   generated; and given a table with an autonumeric column, when insertions are committed, the row with the highest
-   value is deleted and committed, the table is emptied and committed, and a process crash is simulated and the
-   store reopened, then the following insertions in that table never repeat a value of a committed row (7.1).
-5. **AC-N5** — Given a tree and a table in a store, when a table is created with the name of the table, then it
-   fails with the class of already existing that 7.1 sets; when a table is created with the name of the tree, or a
-   tree with that of the table, then it fails with different type, which wins over already existing (B3); when the
-   table is opened, deleted, renamed or emptied as a tree and the tree as a table, or one is renamed to the name of
-   the other with overwrite, then each operation fails without effect with different type; when one is renamed to
-   the name of the other without overwrite, then it fails without effect with already existing; Exists says that
-   both names exist; and listing the catalog shows the table with its type and none of its internal trees, which,
-   according to the test hook that 7.1 sets, no name reaches as a tree (7.1).
-6. **AC-N6** — Given a table with rows, when a column that admits nulls is added, one with a default value, a column
-   is removed, another is renamed and nulls are allowed in another, then the rows stored before are read with the
-   new schema, with null or with the default value in the added columns, a column added with the name of a removed
-   one is read as null, and the write of each change writes the same pages with 10 as with 100,000 rows, according
-   to the test hook that 7.1 sets; and when each unsupported change of N3 is requested, or removing a column of the
-   primary key, then it fails without effect with the class that 7.1 sets (7.1).
-7. **AC-N7** — Given a table with rows, when unique and non-unique indexes are created, ascending and descending,
-   with nulls first and last, with each combination of direction and order of nulls in consecutive columns, also
-   after `bytes` columns with the zero byte (and `string` with the null character if 7.1 admits it), and with
-   included columns, then each index has the entries of the rows that were already there;
-   when a write inserts, updates, deletes rows and deletes a range of the primary key and commits, and in another
-   case aborts or a process crash is simulated, then each index has exactly the entries of the rows of the table in
-   the order of N5, and two rows with nulls in a unique index do not collide; when an index is deleted, then it
-   disappears and the table does not change; when each index is read and traversed forwards and backwards, then the
-   rows, or the values of their included columns, come back in that order; when a range of a column of an index is
-   traversed with the previous ones fixed, with each combination of included, excluded and absent bounds, then
-   exactly the rows of the range come back according to the semantics that 7.2 sets; the same property test of
-   AC-N1, with random indexes of one to four columns of any direction and order of nulls, gives the order and the
-   rows of the reference model; and
-   when a row is stored that repeats the values without nulls of a unique index, or whose index entry is too large,
-   or a column of an index is removed, then it fails without effect with duplicate key, with the name of the index,
-   with invalid size or with the class that 7.1 sets, also when inserting and when updating in a table with several
-   unique indexes when each of them fails in turn, and the row, the other indexes and the number of rows stay as
-   they were and the transaction can commit its other changes; and when a unique index is created on rows that
-   already repeat their values and the write commits other changes, then the index does not exist, the table and its
-   other indexes do not change, and, if 7.2 sets that this case fails without effect, the store information (P12)
-   is the one it would have without the attempt (7.2).
-8. **AC-N8** — Given a table with columns without an index and the sampling stopped at the hook that 7.3 sets, when
-   an estimation is requested without statistics, then it answers the default estimation without waiting, and the
-   reads and writes of the application finish; when the sampling is released, then the statistics are stored and
-   the same estimation, on data chosen so that it differs from the default estimation, uses them; when the
-   modifications exceed the threshold of N8 and another estimation is requested, then it answers the default
-   estimation and they are built again, also when part of those modifications was made before closing and reopening
-   the store and when the table is emptied; when analyze is requested, then, when it ends as 7.3 sets, the
-   estimation uses the new statistics, also if it is requested while they are being built in the background and
-   either of the two ends first, and without either of them being left waiting for the other in the transactions in
-   which 7.3 allows requesting it; if 7.3 allows analyzing inside a write, when that write changes rows, analyzes
-   and aborts, then the rows, the counter and the statistics stay as before, and when it changes more rows after
-   analyzing and commits, then those modifications count toward the threshold; when a bulk load fails while
-   statistics are being built in the background, then the ones that are stored count only the rows of the load that
-   remained committed according to what 7.1 sets (none if the load fails entirely); and with the storing of the
-   statistics stopped at its hook, a write of the application with a time limit fails with the timeout error when it
-   elapses (T4) (7.3).
+   operation reports that it did not find it; when a row that does not exist is inserted or updated and then again with
+   other values, then the first time it inserts it and the second it replaces it; reading and deleting a row that does
+   not exist give what 7.1 sets; the number of rows that an opening reports is, after each operation of the test, that
+   of the rows its transaction sees, reading the same pages with 10 as with 100,000 rows according to the test hook of
+   7.1, also in a concurrent read that does not see the write; when a range of the primary key is deleted, then exactly
+   the rows outside the range remain; and when 100,000 rows are bulk loaded in primary key order, then the table has the
+   same rows as if they had been inserted one by one; and loads with rows out of order, repeated or invalid give what
+   7.1 sets, also when the one that fails is the last, when a generated key collides with an explicit one or with a row
+   that already existed and when the autonumeric counter is exhausted: if 7.1 sets that the load fails entirely, then
+   the table, its indexes and its counters stay as before the load, also when the source of the rows fails or the
+   application cancels the load halfway, and another write gets its turn afterwards (7.1).
+4. **AC-N4** — Given 100,000 values of each generator of N6, generated with the test clock that 7.1 sets, as many in the
+   same millisecond as the increment that 7.1 sets allows and the rest in successive milliseconds, from a single thread,
+   when they are ordered with the order of their column, then they end up in the order in which they were generated; and
+   given a table with an autonumeric column, when insertions are committed, the row with the highest value is deleted
+   and committed, the table is emptied and committed, and a process crash is simulated and the store reopened, then the
+   following insertions in that table never repeat a value of a committed row (7.1).
+5. **AC-N5** — Given a tree and a table in a store, when a table is created with the name of the table, then it fails
+   with the class of already existing that 7.1 sets; when a table is created with the name of the tree, or a tree with
+   that of the table, then it fails with different type, which wins over already existing (B3); when the table is
+   opened, deleted, renamed or emptied as a tree and the tree as a table, or one is renamed to the name of the other
+   with overwrite, then each operation fails without effect with different type; when one is renamed to the name of the
+   other without overwrite, then it fails without effect with already existing; Exists says that both names exist; and
+   listing the catalog shows the table with its type and none of its internal trees, which, according to the test hook
+   that 7.1 sets, no name reaches as a tree (7.1).
+6. **AC-N6** — Given a table with rows, when a column that admits nulls is added, one with a default value, a column is
+   removed, another is renamed and nulls are allowed in another, then the rows stored before are read with the new
+   schema, with null or with the default value in the added columns, a column added with the name of a removed one is
+   read as null, and the write of each change writes the same pages with 10 as with 100,000 rows, according to the test
+   hook that 7.1 sets; and when each unsupported change of N3 is requested, or removing a column of the primary key,
+   then it fails without effect with the class that 7.1 sets (7.1).
+7. **AC-N7** — Given a table with rows, when unique and non-unique indexes are created, ascending and descending, with
+   nulls first and last, with each combination of direction and order of nulls in consecutive columns, also after
+   `bytes` columns with the zero byte (and `string` with the null character if 7.1 admits it), and with included
+   columns, then each index has the entries of the rows that were already there; when a write inserts, updates, deletes
+   rows and deletes a range of the primary key and commits, and in another case aborts or a process crash is simulated,
+   then each index has exactly the entries of the rows of the table in the order of N5, and two rows with nulls in a
+   unique index do not collide; when an index is deleted, then it disappears and the table does not change; when each
+   index is read and traversed forwards and backwards, then the rows, or the values of their included columns, come back
+   in that order; when a range of a column of an index is traversed with the previous ones fixed, with each combination
+   of included, excluded and absent bounds, then exactly the rows of the range come back according to the semantics that
+   7.2 sets; the same property test of AC-N1, with random indexes of one to four columns of any direction and order of
+   nulls, gives the order and the rows of the reference model; and when a row is stored that repeats the values without
+   nulls of a unique index, or whose index entry is too large, or a column of an index is removed, then it fails without
+   effect with duplicate key, with the name of the index, with invalid size or with the class that 7.1 sets, also when
+   inserting and when updating in a table with several unique indexes when each of them fails in turn, and the row, the
+   other indexes and the number of rows stay as they were and the transaction can commit its other changes; and when a
+   unique index is created on rows that already repeat their values and the write commits other changes, then the index
+   does not exist, the table and its other indexes do not change, and, if 7.2 sets that this case fails without effect,
+   the store information (P12) is the one it would have without the attempt (7.2).
+8. **AC-N8** — Given a table with columns without an index and the sampling stopped at the hook that 7.3 sets, when an
+   estimation is requested without statistics, then it answers the default estimation without waiting, and the reads and
+   writes of the application finish; when the sampling is released, then the statistics are stored and the same
+   estimation, on data chosen so that it differs from the default estimation, uses them; when the modifications exceed
+   the threshold of N8 and another estimation is requested, then it answers the default estimation and they are built
+   again, also when part of those modifications was made before closing and reopening the store and when the table is
+   emptied; when analyze is requested, then, when it ends as 7.3 sets, the estimation uses the new statistics, also if
+   it is requested while they are being built in the background and either of the two ends first, and without either of
+   them being left waiting for the other in the transactions in which 7.3 allows requesting it; if 7.3 allows analyzing
+   inside a write, when that write changes rows, analyzes and aborts, then the rows, the counter and the statistics stay
+   as before, and when it changes more rows after analyzing and commits, then those modifications count toward the
+   threshold; when a bulk load fails while statistics are being built in the background, then the ones that are stored
+   count only the rows of the load that remained committed according to what 7.1 sets (none if the load fails entirely);
+   and with the storing of the statistics stopped at its hook, a write of the application with a time limit fails with
+   the timeout error when it elapses (T4) (7.3).
 9. **AC-N9** — Given the workloads of N11, when they are compared with the tables of Voron in a full run of the
-   benchmark, then Krummi reaches the threshold of K7 in each one, on Windows and on Linux; a missed threshold
-   follows K13: it does not prevent closing the child PRD and becomes a separate change (7.1, 7.2).
+   benchmark, then Krummi reaches the threshold of K7 in each one, on Windows and on Linux; a missed threshold follows
+   K13: it does not prevent closing the child PRD and becomes a separate change (7.1, 7.2).
 10. **AC-N10** — Given the closing of each child PRD, when its report is reviewed, then it includes the single-workload
     measurements of N11, on Windows and on Linux: the benchmark workloads that already existed, before and after its
     change, and its new workloads after (7.1, 7.2, 7.3).
@@ -329,8 +445,11 @@ translations too):
 - Root parent, objective 2 and D4: the product is complete with the modules of the split without 9 (annotation of
   2026-11-09 on encryption), with 17, 18 and 19, and without dictionary compression (N2), although Voron has it.
 - Root parent, D2: the public surface adds the C interface and the C# binding of module 18.
-- Root parent, D11 and AC20: the values of the columns that are not `string`, `bytes`, vector or JSON (from 7.5) are returned decoded
-  into a copy owned by the application (Output), like List in A3.
+- Root parent, D11 and AC20: the values of the columns that are not `string`, `bytes`, vector or JSON (from 7.5) are
+  returned decoded into a copy owned by the application (Output), like List in A3. *Annotation of 2026-11-12 (from the
+  7.5 annotation of that day):* a JSON string read as text is returned decoded into a copy owned by the application when
+  it has escapes, and without a copy when it has none; the whole JSON document is still a reference without a copy. The
+  root parent carries the annotation of 2026-11-12.
 - Root parent, Out of scope: the item «Servidor de red, protocolo remoto, lenguaje de consulta o SQL» now excludes
   only the network server, the remote protocol, a text query language and SQL: the query tree and the execution plans
   enter module 17. The item «Bindings para otros lenguajes (API C, .NET, Python)» now excludes the other languages:
@@ -376,5 +495,5 @@ translations too):
   [trees-keys.prd.en.md](trees-keys.prd.en.md) (A1–A15) and [trees-scan.prd.en.md](trees-scan.prd.en.md)
 - Transactions: [transactions.prd.en.md](transactions.prd.en.md) (T4, T10, T11, T12, T16)
 - Benchmark: [benchmark.prd.en.md](benchmark.prd.en.md) (K4, K6, K7, K11, K13, *Output*)
-- Design: [docs/design/tables/README.md](../../design/tables/README.md) and its documents 1 to 12
+- Design: [docs/design/tables/README.md](../../design/tables/README.md) and its documents 1 to 14
 - Parked document product: [documents.prd.md](../documents/documents.prd.md)

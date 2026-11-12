@@ -126,6 +126,12 @@ no contiene un almacén de Krummi (D10, decisión R6).*
   ejecución entran en el módulo 17. El punto «Bindings para otros lenguajes (API C, .NET, Python)» pasa a excluir
   los demás lenguajes: la interfaz C y el binding .NET entran en el módulo 18.*
 
+*Anotación del 2026-11-12 desde las tablas ([tables.prd.md](tables.prd.md), PRD hijo 7.5):*
+
+- *D11 y AC20: de una columna JSON, el documento entero sigue siendo una referencia sin copia; una cadena del JSON
+  leída como texto se devuelve sin copia si no tiene escapes, y decodificada en una copia propia de la aplicación si
+  los tiene, porque su valor decodificado no está contiguo en la memoria del motor.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

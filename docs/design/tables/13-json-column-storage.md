@@ -13,7 +13,10 @@ duplicate names rejected, member order kept, numbers kept as written, depth 128,
 over JSON go to [document 14](14-json-indexes.md). Nothing here is implemented or built. The microbenchmarks of
 *Experiments* were run in a scratch project outside the repository and say nothing about the engine's performance.
 The PRDs and the other design documents are not changed; PRD 7.5 takes these decisions and annotates the 7.5 entry of
-the tables PRD.
+the tables PRD. *Updated 2026-11-12:* the tables PRD's annotation of 7.5 of that day records these decisions; the
+rows of *Semantics first* that no product question covered (root scalars, empty input, the grammar, surrogates,
+U+0000 and noncharacters, column `NULL` against JSON `null`, defaults) were proposed to the user then and adopted:
+"Sí adóptalas."
 
 Evidence labels: **[V]** verified in a primary source (fetched 2026-11-11, or read in a local source tree, with the
 path); **[K]** Krummi's own documents or code; **[M]** measured here; **[I]** inference or estimate of this document;

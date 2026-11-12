@@ -33,8 +33,9 @@ Lo que cambia o precisa reglas anteriores está declarado en sus decisiones y an
 
 En este documento, una **tabla** es una colección con nombre de filas dentro de un almacén; una **fila** es un valor
 para cada columna del esquema; el **esquema** es la lista de columnas de la tabla, con su nombre, su tipo, si admiten
-nulos y sus opciones (N4, N6), y su clave primaria; la **clave primaria** es la lista de columnas cuyos valores identifican una fila; un
-**índice secundario** es una lista de columnas, distinta de la clave primaria, por la que se pueden encontrar filas.
+nulos y sus opciones (N4, N6), y su clave primaria; la **clave primaria** es la lista de columnas cuyos valores
+identifican una fila; un **índice secundario** es una lista de columnas, distinta de la clave primaria, por la que se
+pueden encontrar filas.
 
 ### Decisiones de producto
 
@@ -54,14 +55,23 @@ nulos y sus opciones (N4, N6), y su clave primaria; la **clave primaria** es la 
 
 *Anotaciones del 2026-11-10 desde las tablas con esquema ([tables-schema.prd.md](tables-schema.prd.md), 7.1):*
 
-- *N1 y AC-N5: el catálogo tiene tres clases de objeto, árboles, tablas y secuencias, con un solo espacio de nombres; Existe y Listar valen para las tres y las demás operaciones fallan con tipo distinto sobre otra clase (E14).*
-- *N4: no hay columnas autonuméricas; la frase «Las columnas autonuméricas son enteros de 64 bits (N6)» deja de valer (E14). Los dominios de las fechas y las horas son los de E8.*
-- *N6: «todas pasan la fila entera» y «reemplaza la fila» dejan de valer: actualizar, e insertar o actualizar cuando la fila existe, cambian solo las columnas que se dan (E10). Los generadores de `ulid` y `uuid` son funciones públicas (E15). Las columnas autonuméricas se sustituyen por secuencias (E14), con la misma promesa: un valor confirmado nunca vuelve a darse, aunque se borren filas, se vacíe la tabla o el proceso caiga.*
+- *N1 y AC-N5: el catálogo tiene tres clases de objeto, árboles, tablas y secuencias, con un solo espacio de nombres;
+  Existe y Listar valen para las tres y las demás operaciones fallan con tipo distinto sobre otra clase (E14).*
+- *N4: no hay columnas autonuméricas; la frase «Las columnas autonuméricas son enteros de 64 bits (N6)» deja de valer
+  (E14). Los dominios de las fechas y las horas son los de E8.*
+- *N6: «todas pasan la fila entera» y «reemplaza la fila» dejan de valer: actualizar, e insertar o actualizar cuando la
+  fila existe, cambian solo las columnas que se dan (E10). Los generadores de `ulid` y `uuid` son funciones públicas
+  (E15). Las columnas autonuméricas se sustituyen por secuencias (E14), con la misma promesa: un valor confirmado nunca
+  vuelve a darse, aunque se borren filas, se vacíe la tabla o el proceso caiga.*
 - *N10: se añade una cuarta clase, esquema no válido (E5).*
-- *AC-N3: la segunda inserción o actualización actualiza las columnas que se dan; desaparecen los casos de una clave generada que choca con una explícita y del contador autonumérico agotado; y una carga fallida deja las secuencias como antes (E13). Los casos con índices los comprueba 7.2.*
+- *AC-N3: la segunda inserción o actualización actualiza las columnas que se dan; desaparecen los casos de una clave
+  generada que choca con una explícita y del contador autonumérico agotado; y una carga fallida deja las secuencias como
+  antes (E13). Los casos con índices los comprueba 7.2.*
 - *AC-N4: la segunda parte vale para las secuencias en lugar de la columna autonumérica (AC11 de 7.1).*
 - *AC-N7: quitar una columna de un índice falla con esquema no válido (E5).*
-- *Fuera de alcance: «Actualizar parte de una fila: actualizar reemplaza la fila entera (N6)» deja de valer, y «Reiniciar o fijar el contador de una columna autonumérica» pasa a ser reiniciar o fijar una secuencia después de crearla.*
+- *Fuera de alcance: «Actualizar parte de una fila: actualizar reemplaza la fila entera (N6)» deja de valer, y
+  «Reiniciar o fijar el contador de una columna autonumérica» pasa a ser reiniciar o fijar una secuencia después de
+  crearla.*
 
 ### Estado de partida
 
@@ -74,7 +84,7 @@ Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los 
 | Formato | La versión de formato vigente es `10`. |
 | Banco | 22 cargas con umbral frente a Voron (K7); ninguna de tablas. |
 | Voron (referencia) | Tablas con esquema e índices, cuyas filas no llevan tipos ni nulos y cuyas claves construye la aplicación; compresión opcional por diccionario (documentos de diseño 1, 2 y 7). |
-| Diseño | Ocho documentos de diseño con las decisiones del usuario y una verificación de sus afirmaciones contra fuentes primarias ([README](../../design/tables/README.md), [verificación](../../design/tables/verification.md)). *Anotación del 2026-11-10:* desde ese día son doce; los cuatro añadidos tratan del formato de intercambio de las consultas, las herramientas para agentes, el contrato de las consultas y los índices vectoriales aproximados. |
+| Diseño | Ocho documentos de diseño con las decisiones del usuario y una verificación de sus afirmaciones contra fuentes primarias ([README](../../design/tables/README.md), [verificación](../../design/tables/verification.md)). *Anotación del 2026-11-10:* desde ese día son doce; los cuatro añadidos tratan del formato de intercambio de las consultas, las herramientas para agentes, el contrato de las consultas y los índices vectoriales aproximados. *Anotación del 2026-11-12:* son catorce; los dos añadidos tratan de las columnas JSON y de los índices sobre JSON. |
 
 ## Actores
 
@@ -106,43 +116,152 @@ nombra lo que ese PRD hijo debe decidir, además de su contenido y de sus propio
 
 *Anotación del 2026-11-10 (PRD hijo 7.5):* se añade el PRD hijo **7.5, Columnas JSON**, que se construye después de
 7.3 y antes del módulo 17, para que las consultas puedan filtrar por rutas del JSON desde el principio. Usuario: «Sí
-anótalo en el reparto del PRD de tablas como PRD hijo 7.5, después de 7.3». **Contenido**: un tipo de columna JSON
-guardado en un formato binario que se lee sin copiar ni analizar el texto, al estilo del blittable de RavenDB o del
-`jsonb` de PostgreSQL; construirlo, navegarlo y leer sus propiedades; su conversión a texto y desde texto; sus cargas
-del banco (N11). **Fija**: el formato binario (uno de esos dos o uno propio) y si su cambio es incompatible (B12);
-cómo se representan los números (enteros, `f64`, `decimal`), las claves repetidas y el orden de las propiedades, y
-cuándo dos documentos son iguales; sus límites de tamaño y de profundidad; con qué clases fallan un texto o un
-documento no válidos; si el análisis del texto usa una dependencia (con su anotación en D12, como P11 del documento
-de diseño 11) o un lector propio; que un JSON no es clave primaria ni columna de un índice. Con esta anotación, N2
-cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3 y 7.5, y «JSON» deja de estar en *Fuera de alcance*. Indexar rutas
-dentro de un JSON queda fuera de 7.5 (índices sobre expresiones, después de 7.2 y del módulo 17).
+anótalo en el reparto del PRD de tablas como PRD hijo 7.5, después de 7.3».
+
+- **Contenido**:
+  - un tipo de columna JSON guardado en un formato binario que se lee sin copiar ni analizar el texto, al estilo del
+    blittable de RavenDB o del `jsonb` de PostgreSQL;
+  - construirlo, navegarlo y leer sus propiedades;
+  - su conversión a texto y desde texto;
+  - sus cargas del banco (N11).
+- **Fija**:
+  - el formato binario (uno de esos dos o uno propio) y si su cambio es incompatible (B12);
+  - cómo se representan los números (enteros, `f64`, `decimal`), las claves repetidas y el orden de las propiedades,
+    y cuándo dos documentos son iguales;
+  - sus límites de tamaño y de profundidad;
+  - con qué clases fallan un texto o un documento no válidos;
+  - si el análisis del texto usa una dependencia (con su anotación en D12, como P11 del documento de diseño 11) o un
+    lector propio;
+  - que un JSON no es clave primaria ni columna de un índice.
+- Con esta anotación, N2 cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3 y 7.5, y «JSON» deja de estar en *Fuera de
+  alcance*.
+- Indexar rutas dentro de un JSON queda fuera de 7.5 (índices sobre expresiones, después de 7.2 y del módulo 17).
+
+*Anotación del 2026-11-12 (PRD hijo 7.5, desde los documentos de diseño 13 y 14):* el diseño de las columnas JSON se
+decidió con el usuario el 2026-11-11 en el [documento de diseño 13](../../design/tables/13-json-column-storage.md),
+que es el estado de partida técnico de 7.5 (los bytes exactos que se guardan son su *Stored form v1*), y cambia o
+precisa la anotación anterior:
+
+- **Contenido**: deja de valer «guardado en un formato binario que se lee sin copiar ni analizar el texto, al estilo
+  del blittable de RavenDB o del `jsonb` de PostgreSQL». Un valor JSON se guarda como texto JSON normalizado, detrás
+  de un byte que identifica su forma: sin espacios fuera de las cadenas, con una sola forma de escribir cada cadena,
+  con las propiedades en el orden en que llegan y con cada número tal como se escribió. El documento entero se lee
+  sin copiarlo, como texto. 7.5 navega el documento y lee sus propiedades recorriendo el texto; hacerlo sin
+  recorrerlo queda para cuando lo pida la medición de las consultas del módulo 17, y el byte de la forma reserva lo
+  que necesitará, sin reescribir las filas guardadas. N4 gana el tipo de columna JSON; cómo se declara lo fija 7.5.
+  Usuario: «Sí, pero ¿el texto canónico no exigiría que dos json con el mismo significado fueran iguales en texto?»
+  y, aclarado que el texto es normalizado y no canónico, «Sí seguimos con el texto normalizado.»; sobre leer
+  propiedades sin recorrer el texto, «Después, pero que quede anotado».
+- **Queda fijado**, de lo que fija 7.5:
+  - el formato: el texto normalizado de arriba;
+  - qué es un valor JSON válido: cualquier valor de RFC 8259 en UTF-8 válido, también uno suelto en la raíz (`42`,
+    `"x"`, `true`, `null`), con espacios alrededor que se descartan; no lo son un texto vacío, datos después del
+    valor, una marca BOM, `NaN`, `Infinity`, `+1` ni `01`, ni un sustituto UTF-16 suelto (`"\ud800"`); un par de
+    sustitutos escapado se guarda como su carácter; U+0000 y los no caracteres de Unicode son válidos, como en una
+    columna `string` (E7 de 7.1). Usuario: «Sí adóptalas.»;
+  - el nulo de la columna y el `null` del JSON son distintos: el primero es la columna sin valor, el segundo un
+    documento guardado. Una columna JSON admite un valor por defecto como cualquier otra (E4 de 7.1), una constante
+    que se guarda normalizada; por eso, a diferencia de E4, un valor por defecto que es el documento `null` es un
+    valor por defecto, no la falta de él, y uno que no es JSON válido falla con esquema no válido (E5). Usuario: el
+    mismo «Sí adóptalas.»;
+  - los números: se guardan tal como se escribieron, sin perder ningún dígito;
+  - las claves repetidas: un objeto con dos propiedades del mismo nombre, también si solo coinciden al leer sus
+    escapes, no es válido. Usuario, a rechazarlas nombrando el objeto y el nombre repetido: «Sí»;
+  - el orden de las propiedades: se conserva;
+  - cuándo dos documentos son iguales: al guardar una fila (la actualización idéntica de E10 de 7.1), cuando su texto
+    normalizado es el mismo, así que `{"n":1}` y `{"n":1.0}` son distintos; la igualdad por significado, con las
+    propiedades en cualquier orden y los números por su valor (`1`, `1.0` y `1e0` son el mismo número), es una
+    operación de las consultas;
+  - la profundidad: como mucho 128 objetos o arrays anidados. Usuario: «128»;
+  - la clase de error: un texto que no es un valor JSON válido, con claves repetidas o con más de 128 niveles falla
+    con valor no válido (N10); un documento que hace la fila más grande que su máximo falla con tamaño no válido (E18
+    de 7.1);
+  - el análisis del texto: un lector propio, sin dependencia nueva, probado por capas. Usuario: «El propio, pero muy
+    bien probado.»;
+  - la lectura de un valor del JSON como un tipo de Krummi, en 7.5 y en las consultas del módulo 17: un texto, de una
+    cadena, sin copiarlo si la cadena no tiene escapes y decodificado en una copia propia de la aplicación si los tiene,
+    una excepción a D11 y AC20 como la de los demás valores decodificados (*Salida*), mientras el documento entero se
+    lee siempre sin copia (usuario, entre una copia solo para las cadenas con escapes, una copia siempre y una vista sin
+    copia que decodifica al vuelo: «A»); un booleano, de `true` o `false`; un entero `i64` o `u64`, solo si su valor es
+    entero exacto, en cualquier notación (usuario: «valor entero exacto»); un `decimal`, redondeado a su escala como en
+    E8 de 7.1 (usuario: «Redondear no es inventar, yo redondearía.»); un `f64`, redondeado al más cercano, con la
+    normalización de N4 (`-0` como `+0`); una fecha, solo de un texto `AAAA-MM-DD`; un instante, solo de un texto
+    `AAAA-MM-DDTHH:MM:SS` con fracción de segundo opcional y desfase `Z`, `+HH:MM` o `-HH:MM` (`2026-11-11T10:23:00Z`,
+    `2026-11-11T00:30:00+01:00`, con `T` y `Z` en mayúscula), convertido a UTC y con la fracción redondeada al
+    microsegundo como en E8 (usuario, a aceptar desfases y redondear: «Sí»; a añadir fechas e instantes: «Las dos
+    cosas»). Lo que falta, es `null`, es de otra clase o no cabe da nulo, nunca un error: un entero con fracción
+    (`100.6`) o fuera de rango; un `decimal` que redondeado pasa de su precisión; un `f64` fuera de su rango (`1e400`);
+    una fecha que no existe (`2026-02-30`) o fuera de los dominios de E8; un instante sin desfase, en minúsculas, con un
+    espacio en lugar de `T` o con un segundo intercalar; un número donde se pide una fecha o un instante.
+- **Se precisa**, de la anotación anterior, que un JSON no es clave primaria ni columna de la clave de un índice
+  secundario; si puede ser una columna incluida de un índice lo fija 7.2.
+- **Sigue fijando 7.5**: si su cambio es incompatible (B12); cómo se declara una columna JSON; con qué clase falla un
+  esquema con un JSON en la clave primaria o en la clave de un índice; los datos de sus errores y su precedencia; sus
+  cargas del banco (N11).
+- **Fuera de 7.5**:
+  - actualizar o quitar una propiedad por su ruta dentro del motor: la aplicación lee el documento, lo cambia y lo
+    guarda. Usuario: «no en 7.5»;
+  - los índices sobre JSON, sobre expresiones, multivalor e invertidos, que se diseñan en el
+    [documento de diseño 14](../../design/tables/14-json-indexes.md) (usuario, a diseñarlos en un documento propio:
+    «documento propio»). Salvo el índice multivalor sobre varias propiedades de un mismo elemento, que es requisito
+    del módulo 17 (abajo), sus preguntas de producto, incluido en qué PRD entra cada clase de índice, quedan abiertas
+    hasta que se planifiquen (usuario: «Sí»); hasta entonces, N2 y el reparto no cambian, y si esos índices cambian
+    la definición de índice secundario (una lista de columnas, N7) lo decide el PRD que los introduzca.
+- **Para el módulo 17**, sin cambiar este PRD, el documento 13 deja como requisitos de sus consultas:
+  - las rutas dentro de un JSON como listas de pasos, cada uno un nombre de propiedad o una posición de array, sin un
+    texto que analizar; un paso que espera un array o un objeto y encuentra otra cosa da «no está»;
+  - las condiciones sobre los elementos de un array: que alguno, o que todos, cumplan una condición sobre sus propias
+    propiedades, de modo que un mismo elemento cumpla la condición entera, por ejemplo los pedidos con una línea de un
+    producto P y una cantidad mayor que C; «todos» es verdadero en un array vacío; un elemento cuya condición es
+    desconocida no cuenta para «alguno», y hace desconocido «todos» salvo que otro elemento la haga falsa. Usuario:
+    «sí»;
+  - el índice multivalor sobre varias propiedades de un mismo elemento, que resuelve esas condiciones (documento de
+    diseño 14), con el mismo «sí», a anotarlo junto con ellas;
+  - la lectura tipada de arriba, también para fechas e instantes;
+  - una carga del banco que filtre por una ruta, con la que decide si se lee una propiedad sin recorrer el texto.
 
 *Anotación del 2026-11-10 (PRD hijo 7.6):* se añade el PRD hijo **7.6, Índices vectoriales aproximados**, que se
 construye después de 7.5 y antes del módulo 17, para que las consultas puedan buscar de forma aproximada los vecinos
 más cercanos desde el principio. Usuario: «Además los índices ANN hay que inluirlos en el alcance» y, sobre el orden,
 «Tras 7.5, antes del 17». Su estado de partida técnico es el
-[documento de diseño 12](../../design/tables/12-vector-indexes.md). **Contenido**: un índice vectorial aproximado
-sobre una columna vector, de una clase distinta de los índices secundarios de 7.2, que el documento 12 recomienda
-construir con particiones (IVF) y códigos de 8 bits por componente (SQ8); su mantenimiento asíncrono: la escritura de
-una fila solo deja anotado que la fila cambió, y el almacén pone el índice al día en segundo plano, en lotes cortos,
-también al crearlo y al reconstruirlo; una operación de búsqueda de los k vecinos más cercanos que la aplicación pide
-expresamente como aproximada y que devuelve solo filas visibles en su instantánea, que cumplen sus filtros, con su
-distancia exacta; sus cargas del banco (N11). Las búsquedas exactas por distancia nunca usan el índice y devuelven lo
-mismo que sin él. **Fija**: el algoritmo, después de medir el experimento del documento 12 contra sus umbrales de
-recall y latencia, y la alternativa si no los cumple; qué tipos de elemento y qué métricas admite; si una búsqueda ve
-las filas que el índice aún no ha puesto al día y qué hace cuando son demasiadas; si un índice puede declarar columnas
-de partición, por ejemplo por inquilino; si crearlo y reconstruirlo se hace sin bloquear las escrituras; cuánto tiempo
-puede retener el turno de escritura (G4) el trabajo en segundo plano, y con cuántos hilos y cuánta memoria entrena; si
-las reconstrucciones son explícitas y qué métricas las recomiendan; qué hace una búsqueda mientras el índice no está
-listo y cuántas filas necesita para entrenarse; con qué clases fallan las definiciones no válidas; qué informa del
-índice la información del almacén (P12); qué pasa con el índice al borrar la tabla o la columna, al vaciar la tabla y
-en la carga masiva; si su cambio es incompatible (B12). Las seis preguntas de producto del documento 12 son parte de
-lo que fija. Con esta anotación, N2 cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3, 7.5 y 7.6; la frase de N7
-«Cada escritura de una fila deja todos sus índices de acuerdo con la tabla en la misma transacción (G1)» vale para los
-índices secundarios, no para los vectoriales aproximados, que se ponen al día después de la transacción; «no pueden
-ser clave primaria ni columnas de un índice», de N5, se refiere a la clave primaria y a los índices secundarios; e
-«Índices vectoriales» deja de estar en *Fuera de alcance*. Filtrar por un umbral de distancia sigue siendo exacto y
-del módulo 17.
+[documento de diseño 12](../../design/tables/12-vector-indexes.md).
+
+- **Contenido**:
+  - un índice vectorial aproximado sobre una columna vector, de una clase distinta de los índices secundarios de 7.2,
+    que el documento 12 recomienda construir con particiones (IVF) y códigos de 8 bits por componente (SQ8);
+  - su mantenimiento asíncrono: la escritura de una fila solo deja anotado que la fila cambió, y el almacén pone el
+    índice al día en segundo plano, en lotes cortos, también al crearlo y al reconstruirlo;
+  - una operación de búsqueda de los k vecinos más cercanos que la aplicación pide expresamente como aproximada y que
+    devuelve solo filas visibles en su instantánea, que cumplen sus filtros, con su distancia exacta;
+  - sus cargas del banco (N11).
+
+  Las búsquedas exactas por distancia nunca usan el índice y devuelven lo mismo que sin él.
+- **Fija**:
+  - el algoritmo, después de medir el experimento del documento 12 contra sus umbrales de recall y latencia, y la
+    alternativa si no los cumple;
+  - qué tipos de elemento y qué métricas admite;
+  - si una búsqueda ve las filas que el índice aún no ha puesto al día y qué hace cuando son demasiadas;
+  - si un índice puede declarar columnas de partición, por ejemplo por inquilino;
+  - si crearlo y reconstruirlo se hace sin bloquear las escrituras;
+  - cuánto tiempo puede retener el turno de escritura (G4) el trabajo en segundo plano, y con cuántos hilos y cuánta
+    memoria entrena;
+  - si las reconstrucciones son explícitas y qué métricas las recomiendan;
+  - qué hace una búsqueda mientras el índice no está listo y cuántas filas necesita para entrenarse;
+  - con qué clases fallan las definiciones no válidas;
+  - qué informa del índice la información del almacén (P12);
+  - qué pasa con el índice al borrar la tabla o la columna, al vaciar la tabla y en la carga masiva;
+  - si su cambio es incompatible (B12).
+
+  Las seis preguntas de producto del documento 12 son parte de lo que fija.
+- Con esta anotación:
+  - N2 cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3, 7.5 y 7.6;
+  - la frase de N7 «Cada escritura de una fila deja todos sus índices de acuerdo con la tabla en la misma transacción
+    (G1)» vale para los índices secundarios, no para los vectoriales aproximados, que se ponen al día después de la
+    transacción;
+  - «no pueden ser clave primaria ni columnas de un índice», de N5, se refiere a la clave primaria y a los índices
+    secundarios;
+  - e «Índices vectoriales» deja de estar en *Fuera de alcance*.
+- Filtrar por un umbral de distancia sigue siendo exacto y del módulo 17.
 
 ## Validaciones y mensajes
 
@@ -163,8 +282,12 @@ añade las situaciones de sus operaciones y fija los datos de cada error.
 ## Salida
 
 El módulo no escribe nada en pantalla. Una lectura devuelve los valores guardados, con la normalización de N4 (`-0` y
-NaN); los de `string`, `bytes`, vector y JSON (desde 7.5), sin copiarlos (D11, T16, B10), y los demás, decodificados en una copia propia de la aplicación (excepción a D11, como Listar en A3). La información del almacén (P12) no añade datos salvo lo que fije 7.3. El
-informe del banco añade las cargas de N11 y cuenta sus umbrales con los demás.
+NaN); los de `string`, `bytes`, vector y JSON (desde 7.5), sin copiarlos (D11, T16, B10), y los demás, decodificados en
+una copia propia de la aplicación (excepción a D11, como Listar en A3). La información del almacén (P12) no añade datos
+salvo lo que fije 7.3. El informe del banco añade las cargas de N11 y cuenta sus umbrales con los demás.
+*Anotación del 2026-11-12 (desde la anotación de 7.5 de ese día):* de un JSON, el documento entero se devuelve sin
+copiarlo; una cadena del JSON leída como texto se devuelve sin copiarla si no tiene escapes, y decodificada en una copia
+propia de la aplicación si los tiene.
 
 ## Reutilización
 
@@ -184,15 +307,18 @@ informe del banco añade las cargas de N11 y cuenta sus umbrales con los demás.
 - Joins, `GROUP BY`, vistas y disparadores; las claves foráneas, restricciones entre tablas, y las restricciones
   `CHECK`.
 - Arrays, enums, JSON, zonas horarias guardadas, `f16` como escalar y la comparación de texto sin distinguir
-  mayúsculas.
+  mayúsculas. *Anotación del 2026-11-12:* JSON deja de estar fuera de alcance desde la anotación del 2026-11-10 del
+  PRD hijo 7.5 (ver *Reparto en PRD hijos*).
 - Cambiar el tipo de una columna o la clave primaria de una tabla, prohibir nulos en una columna existente, y cambiar
   el valor por defecto de una columna o el orden de las columnas.
-- Actualizar parte de una fila: actualizar reemplaza la fila entera (N6).
+- Actualizar parte de una fila: actualizar reemplaza la fila entera (N6). *Anotación del 2026-11-12:* deja de valer
+  desde las anotaciones del 2026-11-10 desde 7.1 (ver *Decisiones de producto*).
 - Filas más grandes que el máximo que fije 7.1 (streams, módulo 8).
 - Tablas sin clave primaria.
 - Índices parciales (reservados, N7) y la compresión por diccionario (aplazada, N9).
 - Conteos exactos de las filas entre dos claves (el número de filas de la tabla entera sí está, N6).
-- Reiniciar o fijar el contador de una columna autonumérica.
+- Reiniciar o fijar el contador de una columna autonumérica. *Anotación del 2026-11-12:* pasa a ser reiniciar o fijar
+  una secuencia después de crearla, desde las anotaciones del 2026-11-10 desde 7.1 (ver *Decisiones de producto*).
 - Renombrar un índice o cambiar su definición: se borra y se vuelve a crear.
 - Estadísticas de varias columnas juntas.
 - Importar y exportar archivos de filas (CSV, JSON por líneas, Parquet): módulo 19. Desde la aplicación, la carga
@@ -232,30 +358,32 @@ Valen los de los ascendientes. Cada criterio lo comprueba el PRD hijo que se nom
    codificación; y cada fila se lee con los
    valores guardados, `-0` como `+0` y todo NaN como el único NaN (7.1).
 2. **AC-N2** — Dada una tabla, cuando se inserta una fila con una clave primaria que ya existe, un valor que no cumple
-   las reglas de su columna (uno por cada regla de N4) o un nulo en una columna que no los admite, entonces la
-   operación falla con su clase (N10), la tabla y la transacción quedan como antes, y la transacción puede confirmar
-   sus otros cambios; insertar `+0` con una clave `-0` guardada, o un NaN con otro, da clave duplicada (N5); cuando se guardan valores en los límites de su tipo (vectores de dimensión 1, u 8 para `bit`, y 4.096, de
-   cada tipo de elemento, y un `decimal` de 38 dígitos), entonces se leen iguales; cuando se crea una tabla con cada uno de
-   los esquemas no válidos que enumera 7.1, entonces falla sin efecto con la clase que fije 7.1; y cuando se abre una
-   tabla en cada caso de esquema distinto que fije 7.1, entonces falla con esquema distinto (7.1).
+   las reglas de su columna (uno por cada regla de N4) o un nulo en una columna que no los admite, entonces la operación
+   falla con su clase (N10), la tabla y la transacción quedan como antes, y la transacción puede confirmar sus otros
+   cambios; insertar `+0` con una clave `-0` guardada, o un NaN con otro, da clave duplicada (N5); cuando se guardan
+   valores en los límites de su tipo (vectores de dimensión 1, u 8 para `bit`, y 4.096, de cada tipo de elemento, y un
+   `decimal` de 38 dígitos), entonces se leen iguales; cuando se crea una tabla con cada uno de los esquemas no válidos
+   que enumera 7.1, entonces falla sin efecto con la clase que fije 7.1; y cuando se abre una tabla en cada caso de
+   esquema distinto que fije 7.1, entonces falla con esquema distinto (7.1).
 3. **AC-N3** — Dada una tabla, cuando se actualiza una fila que no existe, entonces la tabla no cambia y la operación
    informa de que no la encontró; cuando se inserta o actualiza una fila que no existe y después otra vez con otros
-   valores, entonces la primera vez la inserta y la segunda la reemplaza; leer y borrar una fila que no existe dan
-   lo que fije 7.1; el número de filas que informa una apertura es, tras cada operación de la prueba, el de filas que
-   ve su transacción, leyendo las mismas páginas con 10 que con 100.000 filas según el gancho de pruebas de 7.1, también en una lectura concurrente que no ve la escritura; cuando se borra un intervalo de la
-   clave primaria, entonces quedan exactamente las filas de fuera del intervalo; y cuando se cargan en masa 100.000
-   filas en orden de clave primaria, entonces la tabla tiene las mismas filas que si se hubieran insertado una a una;
-   y las cargas con filas fuera de orden, repetidas o no válidas dan lo que fije 7.1, también cuando la que falla es
-   la última, cuando una clave generada choca con una explícita o con una fila que ya existía y cuando se agota el
-   contador autonumérico: si 7.1 fija que la carga falla entera, entonces la tabla, sus índices y sus contadores quedan
-   como antes de la carga, también cuando la fuente de las filas falla o la aplicación cancela la carga a mitad, y
-   otra escritura obtiene después su turno (7.1).
+   valores, entonces la primera vez la inserta y la segunda la reemplaza; leer y borrar una fila que no existe dan lo
+   que fije 7.1; el número de filas que informa una apertura es, tras cada operación de la prueba, el de filas que ve su
+   transacción, leyendo las mismas páginas con 10 que con 100.000 filas según el gancho de pruebas de 7.1, también en
+   una lectura concurrente que no ve la escritura; cuando se borra un intervalo de la clave primaria, entonces quedan
+   exactamente las filas de fuera del intervalo; y cuando se cargan en masa 100.000 filas en orden de clave primaria,
+   entonces la tabla tiene las mismas filas que si se hubieran insertado una a una; y las cargas con filas fuera de
+   orden, repetidas o no válidas dan lo que fije 7.1, también cuando la que falla es la última, cuando una clave
+   generada choca con una explícita o con una fila que ya existía y cuando se agota el contador autonumérico: si 7.1
+   fija que la carga falla entera, entonces la tabla, sus índices y sus contadores quedan como antes de la carga,
+   también cuando la fuente de las filas falla o la aplicación cancela la carga a mitad, y otra escritura obtiene
+   después su turno (7.1).
 4. **AC-N4** — Dados 100.000 valores de cada generador de N6, generados con el reloj de prueba que fije 7.1, tantos en
    el mismo milisegundo como permita el incremento que fije 7.1 y el resto en milisegundos sucesivos, desde un solo
-   hilo, cuando se ordenan con el orden de su columna, entonces quedan en el orden en que se generaron; y dada una
-   tabla con una columna autonumérica, cuando se confirman inserciones, se borra la fila de mayor valor y se confirma,
-   se vacía la tabla y se confirma, y se simula una caída del proceso y se reabre, entonces las inserciones siguientes en esa tabla nunca repiten un
-   valor de una fila confirmada (7.1).
+   hilo, cuando se ordenan con el orden de su columna, entonces quedan en el orden en que se generaron; y dada una tabla
+   con una columna autonumérica, cuando se confirman inserciones, se borra la fila de mayor valor y se confirma, se
+   vacía la tabla y se confirma, y se simula una caída del proceso y se reabre, entonces las inserciones siguientes en
+   esa tabla nunca repiten un valor de una fila confirmada (7.1).
 5. **AC-N5** — Dados un árbol y una tabla en un almacén, cuando se crea una tabla con el nombre de la tabla, entonces
    falla con la clase de ya existente que fije 7.1; cuando se crea una tabla con el nombre del árbol, o un árbol con
    el de la tabla, entonces falla con tipo distinto, que gana a ya existente (B3); cuando se abren, borran,
@@ -266,45 +394,45 @@ Valen los de los ascendientes. Cada criterio lo comprueba el PRD hijo que se nom
    gancho de pruebas que fije 7.1, ningún nombre alcanza como árbol (7.1).
 6. **AC-N6** — Dada una tabla con filas, cuando se añade una columna que admite nulos, una con valor por defecto, se
    quita una columna, se renombra otra y se permiten nulos en otra, entonces las filas guardadas antes se leen con el
-   esquema nuevo, con nulo o con el valor por defecto en las columnas añadidas, una columna añadida con el nombre de una quitada se lee nula, y la escritura de cada cambio escribe
-   las mismas páginas con 10 que con 100.000 filas, según el gancho de pruebas que fije 7.1; y cuando se pide cada
-   cambio no admitido de N3, o quitar una columna de la clave primaria, entonces falla sin efecto con la clase que fije
-   7.1 (7.1).
+   esquema nuevo, con nulo o con el valor por defecto en las columnas añadidas, una columna añadida con el nombre de una
+   quitada se lee nula, y la escritura de cada cambio escribe las mismas páginas con 10 que con 100.000 filas, según el
+   gancho de pruebas que fije 7.1; y cuando se pide cada cambio no admitido de N3, o quitar una columna de la clave
+   primaria, entonces falla sin efecto con la clase que fije 7.1 (7.1).
 7. **AC-N7** — Dada una tabla con filas, cuando se crean índices únicos y no únicos, ascendentes y descendentes, con
    nulos primero y último, con cada combinación de dirección y orden de los nulos en columnas consecutivas, también
-   detrás de columnas de `bytes` con el byte cero (y de `string` con el carácter nulo si 7.1 lo admite), y con
-   columnas incluidas, entonces cada índice tiene las entradas de las filas que ya había;
-   cuando una escritura inserta, actualiza, borra filas y borra un intervalo de la clave primaria y se confirma, y en otro caso se aborta o se simula una caída
-   del proceso, entonces cada índice tiene exactamente las entradas de las filas de la tabla en el orden de N5, y dos
-   filas con nulos en un índice único no chocan; cuando se borra un índice, entonces desaparece y la tabla no cambia; cuando se lee y se recorre por cada índice hacia delante y hacia
-   atrás, entonces vuelven las filas, o los valores de sus columnas incluidas, en ese orden; cuando se recorre un
-   intervalo de una columna de un índice con las anteriores fijadas, con cada combinación de extremos incluidos,
-   excluidos y sin extremo, entonces vuelven exactamente las filas del intervalo según la semántica que fije 7.2; la
-   misma prueba de propiedades de AC-N1, con índices al azar de una a cuatro columnas de cualquier dirección y orden
-   de los nulos, da el orden y las filas del modelo de referencia; y
-   cuando se guarda una
-   fila que repite los valores sin nulos de un índice único, o cuya entrada de índice es demasiado grande, o se quita
-   una columna de un índice, entonces falla sin efecto con clave duplicada, con el nombre del índice, con tamaño no
-   válido o con la clase que fije 7.1, también al insertar y al actualizar en una tabla con varios índices únicos
-   cuando falla cada uno de ellos por turno, y la fila, los demás índices y el número de filas quedan como estaban
-   y la transacción puede confirmar sus otros cambios; y cuando se crea un índice único sobre filas que ya repiten sus
-   valores y la escritura confirma otros cambios, entonces el índice no existe, la tabla y sus otros índices no
-   cambian, y, si 7.2 fija que ese caso falla sin efecto, la información del almacén (P12) es la que habría sin el
-   intento (7.2).
+   detrás de columnas de `bytes` con el byte cero (y de `string` con el carácter nulo si 7.1 lo admite), y con columnas
+   incluidas, entonces cada índice tiene las entradas de las filas que ya había; cuando una escritura inserta,
+   actualiza, borra filas y borra un intervalo de la clave primaria y se confirma, y en otro caso se aborta o se simula
+   una caída del proceso, entonces cada índice tiene exactamente las entradas de las filas de la tabla en el orden de
+   N5, y dos filas con nulos en un índice único no chocan; cuando se borra un índice, entonces desaparece y la tabla no
+   cambia; cuando se lee y se recorre por cada índice hacia delante y hacia atrás, entonces vuelven las filas, o los
+   valores de sus columnas incluidas, en ese orden; cuando se recorre un intervalo de una columna de un índice con las
+   anteriores fijadas, con cada combinación de extremos incluidos, excluidos y sin extremo, entonces vuelven exactamente
+   las filas del intervalo según la semántica que fije 7.2; la misma prueba de propiedades de AC-N1, con índices al azar
+   de una a cuatro columnas de cualquier dirección y orden de los nulos, da el orden y las filas del modelo de
+   referencia; y cuando se guarda una fila que repite los valores sin nulos de un índice único, o cuya entrada de índice
+   es demasiado grande, o se quita una columna de un índice, entonces falla sin efecto con clave duplicada, con el
+   nombre del índice, con tamaño no válido o con la clase que fije 7.1, también al insertar y al actualizar en una tabla
+   con varios índices únicos cuando falla cada uno de ellos por turno, y la fila, los demás índices y el número de filas
+   quedan como estaban y la transacción puede confirmar sus otros cambios; y cuando se crea un índice único sobre filas
+   que ya repiten sus valores y la escritura confirma otros cambios, entonces el índice no existe, la tabla y sus otros
+   índices no cambian, y, si 7.2 fija que ese caso falla sin efecto, la información del almacén (P12) es la que habría
+   sin el intento (7.2).
 8. **AC-N8** — Dada una tabla con columnas sin índice y el muestreo detenido en el gancho que fije 7.3, cuando se pide
-   una estimación sin estadísticas, entonces responde la estimación por defecto sin esperar, y las lecturas y
-   escrituras de la aplicación terminan; cuando se libera el muestreo, entonces las estadísticas se guardan y la misma
-   estimación, sobre datos elegidos para que difiera de la estimación por defecto, las usa; cuando las modificaciones superan el umbral de N8 y se pide otra estimación, entonces responde la estimación por
-   defecto y se vuelven a construir, también cuando parte de esas modificaciones se hizo antes de cerrar y reabrir el
-   almacén y cuando se vacía la tabla; cuando se pide analizar, entonces, cuando termina como fije 7.3, la estimación usa las estadísticas
-   nuevas, también si se pide mientras se construyen en segundo plano y cualquiera de las dos termina antes, y sin que
-   ninguna se quede esperando a la otra en las transacciones en que 7.3 permita pedirlo; si 7.3 permite analizar
-   dentro de una escritura, cuando esa escritura cambia filas, analiza y aborta, entonces las filas, el contador y
-   las estadísticas quedan como antes, y cuando cambia más filas después de analizar y confirma, entonces esas
-   modificaciones cuentan para el umbral; cuando una carga masiva falla mientras se construyen estadísticas en
-   segundo plano, entonces las que se guardan cuentan solo las filas de la carga que quedaron confirmadas según fije
-   7.1 (ninguna si la carga falla entera); y con el guardado de las estadísticas detenido en su gancho, una escritura de la aplicación con tiempo
-   límite falla con tiempo de espera agotado al vencer (T4) (7.3).
+   una estimación sin estadísticas, entonces responde la estimación por defecto sin esperar, y las lecturas y escrituras
+   de la aplicación terminan; cuando se libera el muestreo, entonces las estadísticas se guardan y la misma estimación,
+   sobre datos elegidos para que difiera de la estimación por defecto, las usa; cuando las modificaciones superan el
+   umbral de N8 y se pide otra estimación, entonces responde la estimación por defecto y se vuelven a construir, también
+   cuando parte de esas modificaciones se hizo antes de cerrar y reabrir el almacén y cuando se vacía la tabla; cuando
+   se pide analizar, entonces, cuando termina como fije 7.3, la estimación usa las estadísticas nuevas, también si se
+   pide mientras se construyen en segundo plano y cualquiera de las dos termina antes, y sin que ninguna se quede
+   esperando a la otra en las transacciones en que 7.3 permita pedirlo; si 7.3 permite analizar dentro de una escritura,
+   cuando esa escritura cambia filas, analiza y aborta, entonces las filas, el contador y las estadísticas quedan como
+   antes, y cuando cambia más filas después de analizar y confirma, entonces esas modificaciones cuentan para el umbral;
+   cuando una carga masiva falla mientras se construyen estadísticas en segundo plano, entonces las que se guardan
+   cuentan solo las filas de la carga que quedaron confirmadas según fije 7.1 (ninguna si la carga falla entera); y con
+   el guardado de las estadísticas detenido en su gancho, una escritura de la aplicación con tiempo límite falla con
+   tiempo de espera agotado al vencer (T4) (7.3).
 9. **AC-N9** — Dadas las cargas de N11, cuando se comparan con las tablas de Voron en una ejecución completa del banco,
    entonces Krummi llega al umbral de K7 en cada una, en Windows y en Linux; un umbral incumplido sigue K13: no
    impide cerrar el PRD hijo y se convierte en un cambio aparte (7.1, 7.2).
@@ -328,8 +456,11 @@ traducciones también):
   2026-11-09 sobre el cifrado), con el 17, el 18 y el 19, y sin la compresión por diccionario (N2), aunque Voron la
   tiene.
 - Padre raíz, D2: la superficie pública añade la interfaz C y el binding C# del módulo 18.
-- Padre raíz, D11 y AC20: los valores de las columnas que no son `string`, `bytes`, vector ni JSON (desde 7.5) se devuelven
-  decodificados en una copia propia de la aplicación (Salida), como Listar en A3.
+- Padre raíz, D11 y AC20: los valores de las columnas que no son `string`, `bytes`, vector ni JSON (desde 7.5) se
+  devuelven decodificados en una copia propia de la aplicación (Salida), como Listar en A3. *Anotación del 2026-11-12
+  (desde la anotación de 7.5 de ese día):* una cadena de un JSON leída como texto se devuelve decodificada en una copia
+  propia de la aplicación cuando tiene escapes, y sin copia cuando no los tiene; el documento JSON entero sigue siendo
+  una referencia sin copia. El padre raíz lleva la anotación del 2026-11-12.
 - Padre raíz, Fuera de alcance: el punto «Servidor de red, protocolo remoto, lenguaje de consulta o SQL» pasa a
   excluir solo el servidor de red, el protocolo remoto, un lenguaje de consulta de texto y SQL: el árbol de consulta y
   los planes de ejecución entran en el módulo 17. El punto «Bindings para otros lenguajes (API C, .NET, Python)» pasa
@@ -363,9 +494,9 @@ traducciones también):
   como dice A3; Existe y Listar cubren también las tablas, con su tipo; los modos de apertura,
   las clases de no encontrado y ya existente, la precedencia, el daño y los cambios de las operaciones de tabla los
   fija 7.1.
-- Transacciones, T4: la escritura que espera puede esperar a la escritura interna que guarda las estadísticas (N8).
-  Con un límite de cero, una escritura falla si ese guardado está en la cola. T12: esa escritura interna puede ser la que encuentra el primer fallo de entrada y salida; cómo se informa lo fija
-  7.3.
+- Transacciones, T4: la escritura que espera puede esperar a la escritura interna que guarda las estadísticas (N8). Con
+  un límite de cero, una escritura falla si ese guardado está en la cola. T12: esa escritura interna puede ser la que
+  encuentra el primer fallo de entrada y salida; cómo se informa lo fija 7.3.
 - Árboles, Fuera de alcance «Tablas con esquema, índices secundarios y compresión de valores por diccionario (módulo
   7)»: lo cubre este módulo.
 
@@ -376,5 +507,5 @@ traducciones también):
   (A1–A15) y [trees-scan.prd.md](trees-scan.prd.md)
 - Transacciones: [transactions.prd.md](transactions.prd.md) (T4, T10, T11, T12, T16)
 - Banco: [benchmark.prd.md](benchmark.prd.md) (K4, K6, K7, K11, K13, *Salida*)
-- Diseño: [docs/design/tables/README.md](../../design/tables/README.md) y sus documentos 1 a 12
+- Diseño: [docs/design/tables/README.md](../../design/tables/README.md) y sus documentos 1 a 14
 - Producto documental (aparcado): [documents.prd.md](../documents/documents.prd.md)
