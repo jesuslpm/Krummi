@@ -103,6 +103,14 @@ hilos (G4); Krummi además las lleva al disco agrupadas (E4).
 
 *Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables-row-reads.prd.md)): K7: En W26 y W27, Voron lee sus filas sin comprobar su contenido y Krummi tampoco desde [tables-row-reads.prd.md](tables-row-reads.prd.md) (L4): las dos cargas comparan el mismo trabajo. Los umbrales no cambian.*
 
+*Anotaciones del 2026-11-12 desde el banco solo con Krummi y Voron ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md)):*
+
+- *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md)): la orden admite además `--solo-krummi-voron`, sin valor, que mide solo Krummi y Voron (B1, B2); la tabla de validaciones cuenta cinco opciones.*
+- *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron: con `--solo-krummi-voron`, el banco mide solo Krummi y después Voron (B2); en toda ejecución, cada proceso que mide una carga se limita a los núcleos de rendimiento cuando el sistema los distingue (B4).*
+- *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron: todo informe lleva la línea *Núcleos* después de *Procesador* (B5), también en los textos esperados de AC-K2; excepción a «Las columnas de motores son siempre las seis»: con `--solo-krummi-voron`, el informe tiene solo las columnas de Krummi y Voron (B3); AC-K1 vale para las ejecuciones sin esa opción.*
+- *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron: antes de cada versión, el mantenedor puede ejecutar el banco con `--solo-krummi-voron` (B6); el banco averigua los núcleos de rendimiento antes de medir, y con esa opción solo mide Krummi y Voron (B2, B4).*
+- *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron: excepciones a «Elegir desde la orden qué motores o qué cargas ejecutar», porque `--solo-krummi-voron` elige el par Krummi y Voron (B1), y a «Preparar el equipo», porque el banco limita sus procesos de medición a los núcleos de rendimiento (B4).*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

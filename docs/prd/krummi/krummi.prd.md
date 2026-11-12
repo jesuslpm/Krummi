@@ -480,6 +480,8 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 
     *Anotación del 2026-11-03 a AC19: los umbrales vigentes son los de K7 de [benchmark.prd.md](benchmark.prd.md);
     AC19 se exige antes de cada versión del producto, no para cerrar el módulo 6 (decisión K13).*
+
+    *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md)): una ejecución completa con `--solo-krummi-voron` en Windows y en Linux, con solo Krummi y Voron, vale para comprobar los umbrales (B6).*
 20. **AC20** — Dada una lectura de cualquier estructura de datos, cuando devuelve un valor, entonces la referencia
     apunta a memoria del motor (la proyección del archivo, o la memoria de la transacción si la página está
     cifrada o comprimida) y no a una copia hecha para esa lectura; y usar la referencia después de cerrar la

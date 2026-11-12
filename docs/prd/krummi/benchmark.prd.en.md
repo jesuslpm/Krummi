@@ -103,6 +103,14 @@ brings them to disk grouped (E4).
 
 *Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables-row-reads.prd.md), Spanish, authoritative): K7: In W26 and W27, Voron reads its rows without checking their content and Krummi does not either since [tables-row-reads.prd.en.md](tables-row-reads.prd.en.md) (L4): the two loads compare the same work. The thresholds do not change.*
 
+*Annotations of 2026-11-12 from the Krummi and Voron only benchmark ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md), Spanish, authoritative; translation [benchmark-krummi-voron.prd.en.md](benchmark-krummi-voron.prd.en.md)):*
+
+- *Annotation of 2026-11-12 from the Krummi and Voron only benchmark ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md), Spanish, authoritative): the command also accepts `--solo-krummi-voron`, without a value, which measures only Krummi and Voron (B1, B2); the validations table counts five options.*
+- *Annotation of 2026-11-12 from the Krummi and Voron only benchmark: with `--solo-krummi-voron`, the benchmark measures only Krummi and then Voron (B2); in every run, each process that measures a load is limited to the performance cores when the system tells them apart (B4).*
+- *Annotation of 2026-11-12 from the Krummi and Voron only benchmark: every report has the *Núcleos* line after *Procesador* (B5), also in the expected texts of AC-K2; exception to «Las columnas de motores son siempre las seis»: with `--solo-krummi-voron`, the report has only the Krummi and Voron columns (B3); AC-K1 holds for runs without that option.*
+- *Annotation of 2026-11-12 from the Krummi and Voron only benchmark: before each release, the maintainer may run the benchmark with `--solo-krummi-voron` (B6); the benchmark finds the performance cores before measuring, and with that option measures only Krummi and Voron (B2, B4).*
+- *Annotation of 2026-11-12 from the Krummi and Voron only benchmark: exceptions to «Elegir desde la orden qué motores o qué cargas ejecutar», because `--solo-krummi-voron` picks the Krummi and Voron pair (B1), and to «Preparar el equipo», because the benchmark limits its measuring processes to the performance cores (B4).*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

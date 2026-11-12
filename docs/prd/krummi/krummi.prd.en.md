@@ -474,6 +474,8 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
     *Annotation of 2026-11-03 to AC19: the thresholds in force are those of K7 of
     [benchmark.prd.en.md](benchmark.prd.en.md); AC19 is required before each product release, not to close module 6
     (decision K13).*
+
+    *Annotation of 2026-11-12 to AC19 from the Krummi and Voron only benchmark ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md), Spanish, authoritative): a full run with `--solo-krummi-voron` on Windows and on Linux, with only Krummi and Voron, is enough to check the thresholds (B6).*
 20. **AC20** — Given a read of any data structure, when it returns a value, then the reference points to engine
     memory (the file projection, or the transaction's memory if the page is encrypted or compressed) and not to a
     copy made for that read; and using the reference after closing the transaction does not compile (D11). Each
