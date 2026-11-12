@@ -438,3 +438,6 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   ([report](../../docs/reviews/table-row-reads/2026-11-12-code-03.md)): `findings`, one: R1 (minor, the comment of
   `Beside::Unknown` called a valid state impossible), fixed in `ce11e62`
   ([resolutions](../../docs/reviews/table-row-reads/2026-11-12-code-03-resolutions.md)); no functional defect found.
+- **L49** (2026-11-12) — Codex round 2 (follow-up, `29d0694..e4e19de`,
+  [report](../../docs/reviews/table-row-reads/2026-11-12-code-04.md)): `approved`, R1 verified. Final full runs with
+  `--solo-krummi-voron` follow (T12).

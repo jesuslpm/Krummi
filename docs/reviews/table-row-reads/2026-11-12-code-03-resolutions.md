@@ -21,3 +21,8 @@ Checks after the fix: `cargo fmt --all --check`; `cargo clippy -p krummi-tree --
 
 Review record: [2026-11-12-code-03.md](2026-11-12-code-03.md), wrapper status `findings`, thread
 `01a1d1b3-e8dd-7bb0-bf8d-7831c209e632`.
+
+## 2026-11-12 (verification)
+
+Follow-up report: [2026-11-12-code-04.md](2026-11-12-code-04.md), fix range `29d0694..e4e19de`, thread
+`01a1d1bf-f80f-7861-803f-5746cf093eff`, wrapper status `approved`.
