@@ -103,8 +103,7 @@ fn first_allowed_core() -> usize {
 }
 
 // AC-B3 on Linux: a limited process and the process it starts run on the limit's cores; the benchmark's own affinity
-// does not change. It limits to one core this test may use, so it runs on any machine. On Windows the limit goes
-// through the benchmark's executable, the launcher, which `tests/cores.rs` runs.
+// does not change. It limits to one core this test may use, so it runs on any machine.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_limited_process_and_the_ones_it_starts_run_on_its_cores() {
@@ -159,37 +158,64 @@ fn the_launcher_runs_the_same_command_with_its_role_and_mask() {
     assert_eq!(wrapped.get_current_dir(), Some(Path::new("folder")));
 }
 
-// The launcher's first line says whether it joined the job; it is not part of the worker's output.
+/// The benchmark's executable that `cargo test` built next to this test's: the launcher of the limit on Windows.
+#[cfg(windows)]
+fn launcher() -> std::path::PathBuf {
+    let deps = std::env::current_exe().unwrap();
+    let path = deps
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("krummi-bench.exe");
+    assert!(
+        path.is_file(),
+        "build the benchmark first: cargo test -p krummi-bench"
+    );
+    path
+}
+
+/// The affinity mask of this process.
+#[cfg(windows)]
+fn own_mask() -> usize {
+    let current = win32job::utils::get_current_process();
+    win32job::utils::get_process_affinity_mask(current)
+        .unwrap()
+        .0
+}
+
+// AC-B3 on Windows, through the whole chain of the run (R1 of the Codex code review and its RDD review): `Pin` starts
+// the real launcher, reads its `limit 1`, and the engine process and the one it starts run on the limit's core; the
+// launcher's line is not in the process's output, and the benchmark's own affinity does not change.
 #[cfg(windows)]
 #[test]
-fn the_launcher_line_is_taken_out_of_the_output() {
-    let pin = Pin::new(&[0], Path::new("bench.exe")).expect("a limit");
-    let mut out = "limit 1
-rep 0 W1 1 1
-"
-    .to_string();
-    pin.finish(&mut out);
-    assert_eq!(
-        out,
-        "rep 0 W1 1 1
-"
-    );
+fn a_limited_process_and_the_ones_it_starts_run_on_its_cores() {
+    let before = own_mask();
+    let core = before.trailing_zeros() as usize;
+    let pin = Pin::new(&[core], &launcher()).expect("a limit");
+    let Ended::Finished(f) = child::run_with(&mut affinities(), Some(&pin)) else {
+        panic!("the command runs");
+    };
+    assert_eq!(f.code, Some(0), "{}", f.stderr);
+    let expected = (1usize << core).to_string();
+    let lines: Vec<&str> = f.stdout.lines().map(str::trim_end).collect();
+    assert_eq!(lines, [&*expected, &*expected], "{}", f.stdout);
     assert!(!pin.failed());
-    let mut out = "limit 0
-rep 0 W1 1 1
-"
-    .to_string();
-    pin.finish(&mut out);
-    assert_eq!(
-        out,
-        "rep 0 W1 1 1
-"
-    );
-    assert!(pin.failed());
-    // A launcher that failed before its line also counts as a process without the limit.
-    let pin = Pin::new(&[0], Path::new("bench.exe")).expect("a limit");
-    let mut out = String::new();
-    pin.finish(&mut out);
+    assert_eq!(own_mask(), before);
+}
+
+// B4 on Windows: when the launcher cannot start, the process starts itself without the limit, and the limit says so.
+#[cfg(windows)]
+#[test]
+fn a_process_whose_launcher_cannot_start_runs_without_the_limit() {
+    let pin = Pin::new(&[0], Path::new("no-such-launcher.exe")).expect("a limit");
+    let Ended::Finished(f) = child::run_with(&mut affinities(), Some(&pin)) else {
+        panic!("the command runs");
+    };
+    assert_eq!(f.code, Some(0), "{}", f.stderr);
+    let own = own_mask().to_string();
+    let lines: Vec<&str> = f.stdout.lines().map(str::trim_end).collect();
+    assert_eq!(lines, [&*own, &*own], "{}", f.stdout);
     assert!(pin.failed());
 }
 

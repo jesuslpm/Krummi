@@ -1,6 +1,7 @@
 //! The launcher that limits an engine process to the performance cores on Windows (B4 of the Krummi and Voron only
 //! PRD; R1 of its Codex code review): the benchmark's executable with `KRUMMI_BENCH_ROLE=limit` joins a job limited
-//! to `KRUMMI_BENCH_LIMIT_MASK` and only then starts the engine process, which is created inside the job.
+//! to `KRUMMI_BENCH_LIMIT_MASK` and only then starts the engine process, which is created inside the job; when it
+//! cannot, it says so and starts nothing.
 #![cfg(windows)]
 
 use std::process::{Command, Output};
@@ -61,9 +62,9 @@ fn the_launcher_starts_the_process_inside_the_limit() {
     assert_eq!(own_mask(), before);
 }
 
-// B4: a launcher that cannot set the limit says so and still runs the engine process, without the limit.
+// B4: a launcher that cannot set the limit says so and runs nothing: the benchmark then starts the process itself.
 #[test]
-fn a_launcher_without_its_limit_runs_the_process_unlimited() {
+fn a_launcher_without_its_limit_runs_nothing() {
     let out = launch("not a mask");
     assert_eq!(
         out.status.code(),
@@ -71,8 +72,7 @@ fn a_launcher_without_its_limit_runs_the_process_unlimited() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let own = own_mask().to_string();
-    assert_eq!(lines(&out), ["limit 0", "worker", &own, &own]);
+    assert_eq!(lines(&out), ["limit 0"]);
 }
 
 // The launcher ends with the engine process's exit code.

@@ -114,8 +114,8 @@ impl Pin {
         })
     }
 
-    /// Starts `command`, with no input and its output and errors piped, limited to the cores; if the limit fails,
-    /// the process runs without it. Its collected output goes through [`Pin::finish`] once it ends.
+    /// Starts `command`, limited to the cores; if the limit fails, the process runs without it. On Windows its input
+    /// is null and its output and errors are piped, as `child::run_with` sets them.
     pub fn spawn(&self, command: &mut Command) -> io::Result<Child> {
         let (child, limited) = match &self.limit {
             Some(limit) => spawn_limited(limit, command)?,
@@ -125,18 +125,6 @@ impl Pin {
             self.failed.store(true, Ordering::SeqCst);
         }
         Ok(child)
-    }
-
-    /// Takes the launcher's line out of the output of a process started by [`Pin::spawn`], and records a process
-    /// that ran without the limit.
-    pub fn finish(&self, stdout: &mut String) {
-        if cfg!(windows) && self.limit.is_some() {
-            let (first, rest) = stdout.split_once('\n').unwrap_or((stdout.as_str(), ""));
-            if first.trim_end() != LIMITED {
-                self.failed.store(true, Ordering::SeqCst);
-            }
-            *stdout = rest.to_string();
-        }
     }
 
     /// Whether a process ran without the limit.
@@ -150,23 +138,28 @@ pub const LAUNCHER_ROLE: &str = "limit";
 /// The variable with the launcher's affinity mask, and the one with the role it gives the engine process.
 const MASK_VARIABLE: &str = "KRUMMI_BENCH_LIMIT_MASK";
 const INNER_ROLE_VARIABLE: &str = "KRUMMI_BENCH_LIMIT_ROLE";
-/// The launcher's first line of output when it joined the job; `limit 0` when it could not.
+/// The launcher's first line of output when it joined the job; `limit 0` when it could not, and then it runs nothing.
 const LIMITED: &str = "limit 1";
+const NOT_LIMITED: &str = "limit 0";
 
-/// The launcher (Windows): joins a job limited to the mask of `KRUMMI_BENCH_LIMIT_MASK`, says on its first line of
-/// output whether it could, and then runs `args` (a program and its arguments) with its own input and output, with
-/// `KRUMMI_BENCH_ROLE` set to `KRUMMI_BENCH_LIMIT_ROLE` when there is one. Returns the program's exit code, or `1`
-/// if it could not start. The job closes with the launcher and ends the processes in it, so stopping the launcher
-/// stops the engine process too.
+/// The launcher (Windows): joins a job limited to the mask of `KRUMMI_BENCH_LIMIT_MASK` and says on its first line of
+/// output whether it could. If it could, it runs `args` (a program and its arguments) with its own input and output,
+/// with `KRUMMI_BENCH_ROLE` set to `KRUMMI_BENCH_LIMIT_ROLE` when there is one, and returns the program's exit code,
+/// or `1` if it could not start; the job closes with the launcher and ends the processes in it, so stopping the
+/// launcher stops the engine process too. If it could not, it runs nothing and returns `0`: the benchmark then starts
+/// the program itself, without the limit.
 pub fn launcher_main(args: Vec<OsString>) -> i32 {
     use std::io::Write as _;
     let role = crate::worker::ROLE_VARIABLE;
     let job = launcher_job();
-    let line = if job.is_some() { LIMITED } else { "limit 0" };
+    let line = if job.is_some() { LIMITED } else { NOT_LIMITED };
     let mut out = io::stdout();
     if writeln!(out, "{line}").and_then(|()| out.flush()).is_err() {
         return 1;
     }
+    let Some(job) = job else {
+        return 0;
+    };
     let Some((program, rest)) = args.split_first() else {
         eprintln!("falta el programa que lanzar");
         return 1;
@@ -183,9 +176,7 @@ pub fn launcher_main(args: Vec<OsString>) -> i32 {
             1
         }
     };
-    if let Some(job) = job {
-        keep_until_exit(job);
-    }
+    keep_until_exit(job);
     code
 }
 
@@ -257,16 +248,42 @@ fn limit(cores: &[usize], launcher: &Path) -> Option<Limit> {
     })
 }
 
-/// Whether the process is limited is known when it ends, from the launcher's first line ([`Pin::finish`]).
+/// Starts the launcher and reads its first line: with `limit 1`, the engine process starts inside the job and the
+/// launcher is the child; otherwise (the launcher could not join the job, or could not start), `command` starts
+/// itself, without the limit, so that no process is left outside the benchmark's control.
 #[cfg(windows)]
 fn spawn_limited(limit: &Limit, command: &mut Command) -> io::Result<(Child, bool)> {
     use std::process::Stdio;
-    let child = through_launcher(&limit.launcher, limit.mask, command)
+    let launched = through_launcher(&limit.launcher, limit.mask, command)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()?;
-    Ok((child, true))
+        .spawn();
+    if let Ok(mut launcher) = launched {
+        if first_line(launcher.stdout.as_mut()).as_deref() == Some(LIMITED) {
+            return Ok((launcher, true));
+        }
+        let _ = launcher.kill();
+        let _ = launcher.wait();
+    }
+    command.spawn().map(|child| (child, false))
+}
+
+/// The first line of `pipe`, read byte by byte so that the rest stays in the pipe for the caller.
+#[cfg(windows)]
+fn first_line(pipe: Option<&mut std::process::ChildStdout>) -> Option<String> {
+    use std::io::Read as _;
+    let pipe = pipe?;
+    let mut line = Vec::new();
+    let mut byte = [0u8];
+    while line.len() < 64 {
+        match pipe.read(&mut byte) {
+            Ok(1) if byte[0] == b'\n' => break,
+            Ok(1) => line.push(byte[0]),
+            _ => return None,
+        }
+    }
+    Some(String::from_utf8_lossy(&line).trim_end().to_string())
 }
 
 #[cfg(target_os = "linux")]

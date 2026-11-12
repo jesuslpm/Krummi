@@ -83,14 +83,11 @@ pub fn run_with(command: &mut Command, pin: Option<&Pin>) -> Ended {
         }
         thread::sleep(POLL);
     };
-    let mut finished = Finished {
+    let finished = Finished {
         code: status.and_then(|s| s.code()),
         stdout: stdout.join().unwrap_or_default(),
         stderr: stderr.join().unwrap_or_default(),
     };
-    if let Some(pin) = pin {
-        pin.finish(&mut finished.stdout);
-    }
     if finished.code != Some(0) {
         thread::sleep(GRACE);
         if interrupted() {
