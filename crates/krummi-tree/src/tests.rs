@@ -1085,3 +1085,28 @@ fn appending_declines_where_adding_would_merge_the_last_leaf() {
     );
     validate(&tx, root, None, None, true);
 }
+
+/// `try_add_at_last` reports the last leaf also when the insert leaves it under a quarter full and `merge_child` finds
+/// that the pair does not fit, changing nothing: right after an ordered run splits the last leaf.
+#[test]
+fn the_last_leaf_is_reported_when_the_merge_does_not_fit() {
+    let engine = temporary();
+    let mut root = new_tree(&engine);
+    let mut tx = engine.write(None).unwrap();
+    let mut underfull_reported = 0;
+    for i in 0..3_000u64 {
+        let key = format!("{i:08}").into_bytes();
+        let (update, found) = try_add_at_last(&mut tx, root, &key, &[3u8; 60]).unwrap();
+        root = update.root;
+        let (last, _) = last_leaf(&tx, root).unwrap();
+        if let Some(found) = found {
+            assert_eq!(found, last, "{i}");
+            if matches!(found.beside, Beside::Left(_))
+                && node::used(tx.page(found.page).unwrap()) < UNDERFULL
+            {
+                underfull_reported += 1;
+            }
+        }
+    }
+    assert!(underfull_reported > 10, "{underfull_reported}");
+}

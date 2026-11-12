@@ -431,3 +431,6 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   The tree test checks that `try_add_at_last` reports the leaf `last_leaf` finds. A/B against `a71297b`, three rounds
   (`work/bkv/e3.tsv`): W25 469,476 → 463,348 (−1.3 %), W23 458,611 → 459,776, W24 96,677 → 96,632, within the rounds'
   spread. `cargo test -p krummi -p krummi-tree`: 429 passed.
+- **L47** (2026-11-12) — RDD of `2c7bb1d..caa86c3` (escalated, item 1), lenses risk and reliability: approved,
+  lineage `review-8a220532b1fd6830`, acknowledged. R3-001 (SUGGESTION, no test ran the arm that keeps the reported
+  leaf when the merge does not fit): test `the_last_leaf_is_reported_when_the_merge_does_not_fit`.
