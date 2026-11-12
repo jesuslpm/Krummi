@@ -1,12 +1,13 @@
-# Lecturas de filas de las tablas terminadas: las siete cargas de tablas cumplen K7 en Windows y Linux, rama verificada sin fusionar
+# Lecturas de filas de las tablas terminadas: Krummi cumple los 29 umbrales en Windows y Linux, rama verificada
 
-Informe de cierre de `table-row-reads` (2026-11-12, actualizado tras la segunda ronda, T6–T8). Enfoque de ejecución: ODD.
+Informe de cierre de `table-row-reads` (2026-11-12, actualizado tras la segunda ronda, T6–T8, y la tercera, T9–T13). Enfoque de ejecución: ODD.
 Fuente de producto: [tables-row-reads.prd.md](../../docs/prd/krummi/tables-row-reads.prd.md) (desde L20; antes, una
 optimización sin PRD, anotación del 2026-11-04 a K13 de [benchmark.prd.md](../../docs/prd/krummi/benchmark.prd.md)).
 Documento de ejecución: [table-row-reads.md](table-row-reads.md).
 
-Rama `feat/table-row-reads` en `bb1408b` (más los commits de este informe), creada desde `feat/tables-schema` en
-`bb8acca`. Sin fusionar y sin publicar: la revisa el usuario antes.
+Rama `feat/table-row-reads`, creada desde `feat/tables-schema` en `bb8acca`; incluye también el banco solo con Krummi
+y Voron, con su propio [informe](benchmark-krummi-voron-report.md). Sin publicar; el usuario autorizó fusionarla en
+`main` al final de la tercera ronda («Ya está revisada»).
 
 ## Resultado
 
@@ -23,6 +24,16 @@ Rama `feat/table-row-reads` en `bb1408b` (más los commits de este informe), cre
   escribe donde la encontró la lectura, sin bajar otra vez por el árbol (`krummi_tree::get_located` y `overwrite`).
   La diferencia del journal por bloques (T8) no ganó nada medible y restaba un 1–4 % en W28: se revirtió. Con
   `bb1408b`, las siete cargas de tablas cumplen K7 en los dos sistemas (L40).
+- **Tercera ronda (T9–T13, L42–L51):** W25, la carga con menos margen en Windows, pasa de 0,82 a **1,05** (y de 1,11
+  a 1,29 en Linux), y W23 de 1,08 a 1,39. Lo consiguen dos cambios: una fila que da todas las columnas en el orden del
+  esquema se comprueba sin el mapa de nombres (T10, +7 % en W25), y una inserción más allá de la mayor clave de la
+  tabla se añade al final de la última hoja del árbol de filas, que la propia inserción anterior dejó localizada,
+  cuando el árbol solo cambiaría ahí (T11, `krummi_tree::append_last`, +23 %). La caída del 3 % de W23 no existe
+  (T9: nueve binarios dentro de su dispersión). Ejecuciones completas finales con `--solo-krummi-voron`: **29 de 29
+  umbrales** en Windows (fijado a los núcleos de rendimiento) y en Linux (L50). T13 corrigió un test intermitente
+  anterior a esta ejecución (L51). Suite final en `d92a88f`: `cargo test --workspace` 829 pasan, 0 fallan, 34
+  ignoradas; fmt y clippy limpios. Tres revisiones RDD más, todas aprobadas, y Codex en tres rondas, aprobada (L48,
+  L49, L53).
 - **Aceptación:** cargas de tablas W23–W29 de Krummi y Voron con `d6a88b7` (decisión del usuario, L30: solo las
   cargas de tablas). W27 pasa de 0,15 a **0,89** en Windows y de 0,19 a **0,97** en Linux; W26 de 0,75 a **0,96** y de
   0,88 a **1,13**. Las sumas de datos de Voron coinciden con las de Krummi en todas las cargas. Detalle en L31.
@@ -61,7 +72,8 @@ Rama `feat/table-row-reads` en `bb1408b` (más los commits de este informe), cre
 | AC-L7 | ninguna línea de la codificación de filas y claves cambió desde `bb8acca` (L20); Codex lo confirmó estáticamente | PASS (estático: no se abrió un almacén escrito por 7.1) |
 | AC-L8 | anotaciones de E19, G6 y K7 en los originales y sus traducciones (`15bf568`; la línea en blanco de E19 en `3ecc294`) | PASS |
 | S6 (W28) | `an_update_stores_the_bytes_of_the_whole_merged_row`, `an_update_with_an_invalid_fixed_width_value_fails_before_the_patch`, `an_update_under_a_wide_compound_key_stores_the_merged_row` (`table::update_tests`), `a_located_value_of_the_same_length_is_overwritten_in_place` (`krummi-tree`); tanda final de tablas (L40) | PASS: W28 0,88 en Windows y 1,00 en Linux |
-| AC-L9 | cargas de tablas en Windows (fijadas) y en Linux (L31; repetidas con `bb1408b`, L40) | W26 y W27 cumplen en los dos; las bajadas de más de 0,05 (W23 en Windows, W29 en Linux) quedan dentro del margen con cargas sueltas; W1–W22 no se ejecutaron (decisión del usuario) |
+| AC-L9 | cargas de tablas en Windows (fijadas) y en Linux (L31; repetidas con `bb1408b`, L40); ejecuciones completas con `--solo-krummi-voron` (L50) | W26 y W27 cumplen en los dos; las bajadas de más de 0,05 (W23 en Windows, W29 en Linux) quedan dentro del margen con cargas sueltas; las ejecuciones completas finales, W1–W29, cumplen 29 de 29 en los dos sistemas |
+| T10, T11 (W25) | `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order`, `ordered_inserts_mixed_with_other_changes_keep_the_rows_in_order`, `ordered_inserts_add_at_the_end_of_the_last_leaf`, `an_insert_elsewhere_does_not_need_a_damaged_last_leaf` y las equivalencias byte a byte del árbol (`appending_to_the_last_leaf_changes_the_tree_as_adding_does` y siguientes); verificador independiente (L46) | PASS: W25 1,05 en Windows y 1,29 en Linux |
 
 ## Revisiones RDD
 
@@ -77,38 +89,52 @@ Rama `feat/table-row-reads` en `bb1408b` (más los commits de este informe), cre
 | `d6a88b7..5bd0f92` | risk, reliability, readability | aprobada | el nulo en una columna sin nulos ante `Slot::write` (WARNING, tres lentes) descartado: `Reader::check` lo rechaza antes, y lo fija un test nuevo; `apply_rows` omitido tras la escritura en el sitio (WARNING): comentado y probado leyendo tras confirmar; T6–T7 ausentes del documento confirmado (WARNING): confirmado; sugerencias (hoja en `overwrite`, `FIXED_BYTES`, `upsert`, raíz del test del árbol) corregidas en `33f7f7b` | `review-28c95d242b64ea75` |
 | `33f7f7b..b5f82bd` | reliability, readability | aprobada | nombres `key` e `in_key` confundibles (WARNING) y sugerencias de documentación y del test: corregidos en `bb1408b`; un número de línea del informe de Codex, aceptado (los informes no se editan) | `review-f239fe4be7f70170` |
 | `b5f82bd..bb1408b` | readability | aprobada | ninguno | `review-4a114bbe6859cbf3` |
+| `18e38f7..a71297b` | risk, reliability, readability (escalada, item 1) | aprobada | R2-001 (WARNING, `append_last` repetía a mano la regla de fusión de `merge_child`): los dos llaman a `merge_fits`; R1-001 (atar la hoja guardada a la raíz), R3 (el test de la tabla no mostraba que el camino rápido corría) y R2-002 (`_folder`): corregidos en `2c7bb1d` | `review-c0f10da564cef53f` |
+| `2c7bb1d..caa86c3` | risk, reliability (escalada, item 1) | aprobada | R3-001 (SUGGESTION, ningún test pasaba por la rama que conserva la hoja cuando la fusión no cabe): test en `29d0694` | `review-8a220532b1fd6830` |
+| `caa86c3..3641ace` (último tramo) | readability, reliability | aprobada | R2-001 (tamaños sin explicar en el test del árbol) y R3-001 (ese test no validaba el árbol): corregidos en `abf5555`; R2-002 (etiqueta de la fase de checks): corregida; R3-002 (pausar la transferencia en el test e11): no aplicada, los tests de integración no llegan a los ganchos del motor (L52) | `review-8123cb28685cc534` |
 
-Las evaluaciones de cada tramo dijeron `medium`, `under_budget`; todos los tramos se revisaron igualmente.
+Las evaluaciones de cada tramo dijeron `medium`, `under_budget`; todos los tramos se revisaron igualmente. En la
+tercera ronda se escalaron al item 1 (T11 cambia cómo se escriben las páginas del árbol de filas). Además, un
+verificador independiente (L46) encontró un defecto de T11 (`follow_last` leía el borde derecho del árbol, contra E19),
+corregido en `caa86c3` con un test RED/GREEN, y Codex revisó `18e38f7..29d0694` en dos rondas: un hallazgo menor de
+documentación, corregido en `ce11e62`, y aprobada
+([informe](../../docs/reviews/table-row-reads/2026-11-12-code-03.md),
+[seguimiento](../../docs/reviews/table-row-reads/2026-11-12-code-04.md),
+[resoluciones](../../docs/reviews/table-row-reads/2026-11-12-code-03-resolutions.md)).
 
 ## Tiempo
 
 - Estimaciones: 6 h – 10 h para la optimización sin PRD (L1); 1–2 h más unas 4 h de ejecuciones completas para
-  implementar el PRD (L20); 3 h – 5 h para la segunda ronda, T6 y T7 (L33), a la que se añadió T8.
-  Inicio real: 2026-11-11 12:05:51 +0000. Fin: 2026-11-12 12:12:37 +0000.
-- **Duración activa: 11 h 41 min** en total. La primera parte (optimización, PRD e implementación del PRD) llevó
-  7 h 53 min, dentro de su primera estimación aunque incluye además el PRD; su aceptación se redujo a las cargas de
-  tablas (unos 25 min en lugar de unas 4 h). La segunda ronda, desde 08:24:26, llevó **3 h 48 min**, dentro de su
-  estimación de 3–5 h aunque incluye T8. Se la llevaron sobre todo las revisiones y los checks: el barrido de
-  `recovery` (68 min en segundo plano) y dos rondas de mediciones para descartar T8.
+  implementar el PRD (L20); 3 h – 5 h para la segunda ronda, T6 y T7 (L33), a la que se añadió T8; 6 h – 10 h para la
+  tanda «Hazlo todo» (L42: el banco solo con Krummi y Voron, W25, W23, las ejecuciones completas, la limpieza y la
+  fusión). Inicio real: 2026-11-11 12:05:51 +0000. Fin: 2026-11-12 23:50:41 +0000.
+- **Duración activa: 15 h 11 min** en total. La primera parte (optimización, PRD e implementación del PRD) llevó
+  7 h 53 min; la segunda ronda, 3 h 48 min; la **tercera ronda**, de 20:20:12 a 23:50:41, **3 h 30 min**. Con las
+  3 h 06 min del banco solo con Krummi y Voron ([informe](benchmark-krummi-voron-report.md)), la tanda «Hazlo todo»
+  llevó **6 h 36 min**, en el borde bajo de su estimación de 6–10 h. Se la llevaron sobre todo las dos ejecuciones
+  completas finales (1 h 07 min en segundo plano, contadas como aceptación) y las revisiones; los checks finales y la
+  corrección del test intermitente (T13) suman la fase de checks posterior a `6ffad00`, en la que también entran,
+  sin marca propia, la revisión RDD del último tramo, la ronda 3 de Codex y la limpieza.
 - Esperas por el usuario: las del registro de fases (abajo); la mayor, 8 h 06 min, es el reinicio de Windows de esa
-  noche, que cortó la ejecución completa (L29). Entre las dos rondas hay una pausa de 1 h 11 min.
+  noche, que cortó la ejecución completa (L29). Entre rondas hay pausas de 1 h 11 min y 8 h 07 min.
 
 ### Tiempo por fase
 
 | Fase | Duración | % del activo | Tramos |
 |---|---|---|---|
-| Exploración y mapa | 6 min 22 s | 1 % | 2 |
-| Plan (documento de ejecución) | 36 min 32 s | 5 % | 1 |
-| Código y tests | 3 h 13 min | 28 % | 6 |
-| Checks (fmt, clippy, suite de tests) | 1 h 31 min | 13 % | 3 |
-| Aceptación | 2 h 30 min | 21 % | 6 |
-| Revisión RDD | 3 h 35 min | 31 % | 6 |
+| Exploración y mapa | 12 min 07 s | 1 % | 3 |
+| Plan (documento de ejecución) | 36 min 32 s | 4 % | 1 |
+| Código y tests | 3 h 56 min | 26 % | 7 |
+| Checks (fmt, clippy, suite de tests) | 2 h 17 min | 15 % | 4 |
+| Aceptación | 3 h 38 min | 24 % | 7 |
+| Revisión RDD | 4 h 23 min | 29 % | 8 |
 | Correcciones de hallazgos | 7 min 24 s | 1 % | 1 |
-| Cierre (informe y merge) | 0 min 00 s | 0 % | 2 |
-| **Total activo** | **11 h 41 min** | **100 %** | **27** |
+| Documentación | 0 min 07 s | 0 % | 1 |
+| Cierre (informe y merge) | 0 min 07 s | 0 % | 3 |
+| **Total activo** | **15 h 11 min** | **100 %** | **35** |
 
-- Inicio: 2026-11-11 12:05:51 +00:00. Fin: 2026-11-12 12:12:37 +00:00.
-- Arranque confirmado: 08:24:26. Activo desde el arranque: **11 h 41 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
+- Inicio: 2026-11-11 12:05:51 +00:00. Fin: 2026-11-12 23:50:41 +00:00.
+- Arranque confirmado: 08:24:26. Activo desde el arranque: **15 h 11 min** (compárese con la estimación); antes del arranque: 0 min 00 s.
 - Esperas por el usuario (fuera del activo): 11 h 13 min.
   - 12:45:50–13:17:38 (31 min 48 s): W27 decision
   - 14:41:09–14:58:58 (17 min 49 s): W27 and W28 scope
@@ -116,8 +142,10 @@ Las evaluaciones de cada tramo dijeron `medium`, `under_budget`; todos los tramo
   - 18:10:43–18:28:35 (17 min 52 s): PRD malformed rows
   - 19:05:07–20:23:30 (1 h 18 min): PRD authorization
   - 22:28:52–06:35:29 (8 h 06 min): Windows restart
-- Pausas entre sesiones (fuera del activo): 1 h 11 min.
+- Pausas entre sesiones (fuera del activo): 9 h 19 min.
   - 2026-11-12 07:13:14 +00:00 – 2026-11-12 08:24:26 +00:00 (1 h 11 min)
+  - 2026-11-12 12:12:37 +00:00 – 2026-11-12 20:20:12 +00:00 (8 h 07 min)
+  - 2026-11-12 23:04:47 +00:00 – 2026-11-12 23:05:18 +00:00 (0 min 31 s)
 
 En segundo plano (se solapa con las fases de arriba; no suma al activo):
 
@@ -153,9 +181,18 @@ En segundo plano (se solapa con las fases de arriba; no suma al activo):
 | Checks (fmt, clippy, suite de tests) | recovery sweep | 10:45:36 | 11:53:47 | 1 h 08 min |
 | Aceptación | final tables windows | 11:56:44 | 12:02:31 | 5 min 47 s |
 | Aceptación | final tables wsl | 12:02:31 | 12:12:12 | 9 min 41 s |
+| Aceptación | W23 bisection | 20:20:12 | 20:25:35 | 5 min 23 s |
+| Aceptación | W25 e1 A/B | 20:32:00 | 20:38:48 | 6 min 48 s |
+| Aceptación | W23-W29 e2 A/B | 20:53:36 | 21:08:46 | 15 min 10 s |
+| Aceptación | W23-W25 e3 A/B | 21:31:10 | 21:37:41 | 6 min 31 s |
+| Revisión RDD | codex-R1 tables | 21:39:34 | 21:52:26 | 12 min 52 s |
+| Revisión RDD | codex-R2 tables | 21:52:58 | 21:56:11 | 3 min 13 s |
+| Aceptación | final full windows | 21:57:14 | 22:19:58 | 22 min 44 s |
+| Aceptación | final full wsl | 22:19:58 | 23:03:47 | 43 min 49 s |
+| Revisión RDD | codex-R3 tables | 23:46:22 | 23:50:15 | 3 min 53 s |
 | **Checks (fmt, clippy, suite de tests) (total)** | | | | **1 h 08 min** |
-| **Aceptación (total)** | | | | **1 h 55 min** |
-| **Revisión RDD (total)** | | | | **1 h 11 min** |
+| **Aceptación (total)** | | | | **3 h 36 min** |
+| **Revisión RDD (total)** | | | | **1 h 31 min** |
 
 Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan):
 
@@ -203,23 +240,65 @@ Tiempo por commit (cada fila va desde el commit anterior; las esperas no cuentan
 | `b5f82bd` | docs(reviews): add the update patch code review and its resolution |  | 0 min 00 s |  |
 | `a714bb0` | docs(reviews): add the approving follow-up of the update patch review | T6 | 5 min 19 s | Revisión RDD 5 min 19 s |
 | `bb1408b` | refactor(tables): name the primary key mark of the per-column plan | T6 | 1 min 50 s | Revisión RDD 1 min 50 s |
-| — | después del último commit | T6 | 56 min 04 s | Aceptación 16 min 08 s, Revisión RDD 39 min 56 s |
-| **Total** | | | **11 h 41 min** | |
+| `190cd84` | docs: update the table row reads closing report with the W28 round | T6 | 56 min 04 s | Aceptación 16 min 08 s, Revisión RDD 39 min 56 s |
+| `1feb103` | docs(prd): annotate child PRD 7.5 with the JSON column design and restructure the tables annotations |  | 0 min 00 s |  |
+| `a030203` | docs(reviews): record the Codex review of the tables PRD JSON annotation and its approval |  | 0 min 00 s |  |
+| `cac715b` | docs(prd): add the Krummi and Voron only benchmark PRD |  | 0 min 00 s |  |
+| `e05d783` | feat(bench): measure only Krummi and Voron with --solo-krummi-voron |  | 0 min 00 s |  |
+| `e95287d` | feat(bench): measure the engines on the performance cores and report where |  | 0 min 00 s |  |
+| `eb24cdf` | refactor(bench): clarify the limit of the engine processes after the review |  | 0 min 00 s |  |
+| `47f3e8d` | fix(bench): give the workers absolute store paths for a relative work folder |  | 0 min 00 s |  |
+| `93ba937` | docs(benchmark): add the Krummi and Voron only runs on Windows and Linux |  | 0 min 00 s |  |
+| `1e9dffc` | docs(bench): explain the absolute store paths and the limit flag |  | 0 min 00 s |  |
+| `a65a111` | fix(bench): start Windows engine processes inside their core limit |  | 0 min 00 s |  |
+| `440f8ac` | docs(reviews): add the Krummi and Voron only code review and its resolutions |  | 0 min 00 s |  |
+| `b02b34b` | fix(bench): start an engine process without its limit when the launcher cannot limit it |  | 0 min 00 s |  |
+| `1531bd0` | docs(reviews): record the review of the launcher fixes |  | 0 min 00 s |  |
+| `18e38f7` | docs: add the Krummi and Voron only benchmark closing report |  | 0 min 00 s |  |
+| `9027c66` | perf(tables): check a row given in schema order without the name map | T9, T10 | 19 min 46 s | Exploración y mapa 5 min 45 s, Código y tests 14 min 01 s |
+| `a71297b` | perf(tables): add ordered inserts at the end of the rows tree's last leaf | T10 | 29 min 08 s | Código y tests 29 min 08 s |
+| `2c7bb1d` | refactor(tables): share the merge rule and tie the kept leaf to its root | T10 | 8 min 43 s | Código y tests 0 min 14 s, Revisión RDD 8 min 29 s |
+| `caa86c3` | fix(tables): find the last leaf only on the insert's own path |  | 20 min 09 s | Revisión RDD 20 min 09 s |
+| `29d0694` | test(tree): pin the last leaf of an insert whose merge does not fit |  | 1 min 36 s | Revisión RDD 1 min 36 s |
+| `ce11e62` | docs(tree): describe a parent without separators as a valid state |  | 13 min 18 s | Revisión RDD 13 min 18 s |
+| `e4e19de` | docs(reviews): add the third round code review of the row reads and its resolution |  | 0 min 00 s |  |
+| `6ffad00` | docs(reviews): record the approval of the third round code review | T12 | 4 min 22 s | Aceptación 0 min 27 s, Revisión RDD 3 min 55 s |
+| `d92a88f` | test(tables): repeat the default borrow read until no transfer cuts it | T12, T13 | 1 h 45 min | Checks (fmt, clippy, suite de tests) 37 min 43 s, Aceptación 1 h 07 min, Documentación 0 min 07 s |
+| `3641ace` | docs(benchmark): add the final Krummi and Voron only runs of the row reads | T13 | 0 min 22 s | Checks (fmt, clippy, suite de tests) 0 min 22 s |
+| `abf5555` | test(tree): explain the sizes of the last leaf merge test and validate its tree | T13 | 2 min 50 s | Checks (fmt, clippy, suite de tests) 2 min 50 s |
+| — | después del último commit | T13 | 4 min 28 s | Checks (fmt, clippy, suite de tests) 4 min 21 s, Cierre (informe y merge) 0 min 07 s |
+| **Total** | | | **15 h 11 min** | |
 
-## Informe de cambios (`bb8acca..HEAD`)
+## Informe de cambios
+
+Toda la rama (`bb8acca..HEAD`). Incluye el banco solo con Krummi y Voron (`crates/krummi-bench`, `README.md` y parte de
+`docs` y `odd`), que tiene su propio informe:
 
 | Área | + | − | Código + | Comentarios + | Archivos |
 |---|---|---|---|---|---|
-| `crates/krummi` | 2.638 | 150 | 2.288 | 252 | 14 |
-| `docs` | 1.547 | 0 | — | — | 22 |
-| `odd` | 680 | 0 | — | — | 3 |
-| `crates/krummi-tree` | 88 | 5 | 69 | 15 | 2 |
-| `crates/krummi-bench` | 34 | 31 | 27 | 6 | 1 |
-| **Total** | **4.987** | **186** | **2.384** | **273** | **42** |
+| `docs` | 3.654 | 259 | — | — | 44 |
+| `crates/krummi` | 3.032 | 172 | 2.635 | 290 | 14 |
+| `crates/krummi-bench` | 1.374 | 87 | 1.064 | 133 | 17 |
+| `odd` | 1.159 | 0 | — | — | 6 |
+| `crates/krummi-tree` | 442 | 17 | 361 | 66 | 2 |
+| `README.md` | 6 | 2 | — | — | 1 |
+| **Total** | **9.667** | **537** | **4.060** | **489** | **84** |
 
 Código + y Comentarios + desglosan las líneas añadidas en archivos de código (Rust, Python, PowerShell, JavaScript/TypeScript, TOML, YAML y shell); las líneas en blanco no cuentan en ninguna de las dos.
 
-Sin archivos de bloqueo ni generados.
+Aparte (lockfiles, generados o binarios): `Cargo.lock` (+32 −0)
+
+Tercera ronda (`18e38f7..HEAD`):
+
+| Área | + | − | Código + | Comentarios + | Archivos |
+|---|---|---|---|---|---|
+| `crates/krummi` | 394 | 22 | 347 | 38 | 5 |
+| `crates/krummi-tree` | 354 | 12 | 292 | 51 | 2 |
+| `docs` | 311 | 0 | — | — | 5 |
+| `odd` | 115 | 0 | — | — | 2 |
+| **Total** | **1.174** | **34** | **639** | **89** | **14** |
+
+Código + y Comentarios + desglosan las líneas añadidas en archivos de código (Rust, Python, PowerShell, JavaScript/TypeScript, TOML, YAML y shell); las líneas en blanco no cuentan en ninguna de las dos.
 
 ## Resumen
 
@@ -240,32 +319,37 @@ no sellar una fila mal formada.
 - Las bajadas de más de 0,05 se comprobaron con cargas sueltas: W29 en Linux dos veces más; W23 en Windows alternando
   el binario de 7.1 y el de ahora.
 - Avisos de RDD aceptados tal cual o descartados con evidencia, como dice la tabla de arriba.
+- Tercera ronda: W25 se midió con A/B solo de Krummi en rondas alternas (`work/bkv/ab.py`), porque Voron no cambia; la
+  ejecución de Linux corre sin fijar núcleos, porque WSL 2 no distingue los de rendimiento (B4 del PRD del banco), y
+  compila el archivo de `29d0694`, que solo difiere de la cabeza en un comentario (L50).
+- El test intermitente de T13 se corrigió en el test, no en el almacén: que una página cambie de dirección cuando la
+  transferencia la lleva al archivo de datos es el diseño del pager (L51).
 
 ## Pendiente (no bloquea)
 
-- **W25 en Windows** queda en 0,82, la carga con menos margen: las propuestas 3 (camino rápido de escritura para filas
-  completas) y 5 (cursor de inserción para claves crecientes) del informe de Codex (`work/codex/table-perf.md`) quedan
-  para un cambio aparte (L36).
 - **AVX2 en el journal** no se probó: la diferencia por bloques no ganó nada, así que ese bucle no es el cuello de
   botella (L35).
-- **W1–W22 no se midieron** en esta ejecución (decisión del usuario, L30); este cambio solo toca el código de las
-  tablas.
-- **W23 en Windows:** Krummi mide un 3 % menos que con el binario de 7.1 en cargas sueltas, dentro del margen de AC-L9;
-  sin investigar.
-- **El banco no fija sus procesos** a los núcleos de rendimiento, y en Windows eso puede partir por dos una carga (L13,
-  L31): un cambio del banco aparte.
+- **Los motores distintos de Voron** no se midieron con esta rama: las ejecuciones completas finales usan
+  `--solo-krummi-voron`.
 - **Copia en Engram** del documento de ejecución pendiente: Engram no aceptó escrituras en esta sesión.
+- **Codex no revisó el cambio del test e11** (`d92a88f`): su tercera ronda, la última de la cadena, lo dejó fuera de
+  su alcance de seguimiento; lo revisó RDD (L52, L53). Una revisión más necesita la autorización del usuario.
+- **Pregunta de producto del banco**, abierta en su [informe](benchmark-krummi-voron-report.md): en Linux, varias
+  `cpu_capacity` casi iguales cuentan como clases distintas (B4).
 - `writer_check_tests::ac_h1_a_write_never_checks_the_nodes_it_changed` falló una vez por tiempos (L11); es código de
   los árboles, ajeno a esta ejecución.
 
-**Riesgo:** item 1 en la segunda ronda (la actualización escribe la fila en su hoja con `page_mut`, sin pasar por
+**Riesgo:** item 1 en la tercera ronda (`append_last` añade la fila a la última hoja sin bajar por el árbol: lo cubren
+las equivalencias byte a byte con `try_add`, el test de modelo de la tabla, el test de una hoja dañada, el verificador
+independiente, dos revisiones RDD escaladas y Codex). Item 1 en la segunda ronda (la actualización escribe la fila en su hoja con `page_mut`, sin pasar por
 `set`: lo cubren el test de equivalencia de bytes, la lectura tras confirmar, el test del árbol con una lectura abierta
 antes, la lente de riesgo de RDD y las revisiones de Codex). Item 4 (los lectores guardados son un trie de solo inserción con `OnceLock`, compartido por los hilos de una
 transacción de lectura; lo cubren `threads_of_one_read_transaction_read_each_table_with_its_own_schema`, la lente de
 riesgo de RDD y la reproducción concurrente de Codex en su segunda ronda). Además, item 3 por petición del usuario: E19
 cambia para las lecturas (PRD L1–L3).
 
-## Limpieza manual
+## Limpieza
 
-- `work/rr/` (1,5 GB): binarios, fuentes archivadas, la compilación de Voron y los perfiles de esta ejecución.
-- En WSL: `~/rr` (322 MB) y `~/rrprof` (1,5 GB).
+Hecha al final de la tercera ronda: las compilaciones, fuentes, binarios, perfiles y almacenes de `work/rr/` y
+`work/bkv/` (unos 6,5 GB) y, en WSL, `~/rr`, `~/rrprof` y `~/bkv` (unos 3,5 GB). Quedan los archivos sueltos de
+medidas y scripts (`*.tsv`, `*.py`, `*.sh`, `*.md`, registros: 3,5 MB) que cita el documento de ejecución.

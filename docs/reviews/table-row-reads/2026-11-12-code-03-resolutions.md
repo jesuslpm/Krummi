@@ -26,3 +26,15 @@ Review record: [2026-11-12-code-03.md](2026-11-12-code-03.md), wrapper status `f
 
 Follow-up report: [2026-11-12-code-04.md](2026-11-12-code-04.md), fix range `29d0694..e4e19de`, thread
 `01a1d1bf-f80f-7861-803f-5746cf093eff`, wrapper status `approved`.
+
+## 2026-11-12 (verification, round 3)
+
+Follow-up over `e4e19de..abf5555` ([report](2026-11-12-code-05.md)): «Approved for the requested follow-up scope: R1
+remains verified resolved; no open findings.» The report says the default-borrow test change (`d92a88f`) was not
+reopened, so this chain gives no Codex verdict on it; its review is the RDD of the last slice
+(`review-8123cb28685cc534`, ODD L52). The round limit of the chain is reached.
+
+Review record: [2026-11-12-code-05.md](2026-11-12-code-05.md), wrapper status `violation`, thread
+`01a1d227-f45c-7803-95a2-384fd8c4c7a1`, coordinator `gpt-6.1-sol` high, reviewer `krummi-review` `gpt-6.1-sol` high
+(telemetry). The violation names only `odd/tasks/table-row-reads-report.md`, which Claude edited while the review ran
+(the RDD row of the last slice and the cleanup section); Codex's own changes were only its report.

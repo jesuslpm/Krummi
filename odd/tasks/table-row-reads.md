@@ -470,3 +470,7 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   private to the crate); the read repeats only while a transfer cuts it, and after the commit nothing else writes, so
   the commit's versions move once. Checks: the full workspace suite on `d92a88f`, fmt and clippy clean, 829 passed,
   0 failed, 34 ignored; `cargo test -p krummi-tree` after the fixes.
+- **L53** (2026-11-12) — Codex round 3 (follow-up, `e4e19de..abf5555`,
+  [report](../../docs/reviews/table-row-reads/2026-11-12-code-05.md)): approved for its scope, R1 still resolved; it
+  did not reopen the e11 test change (`d92a88f`), reviewed only by RDD (L52). Wrapper status `violation` because Claude
+  edited the closing report during the run; recorded in the resolutions. Round limit reached.
