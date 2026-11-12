@@ -354,3 +354,5 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   [resolutions](../../docs/reviews/table-row-reads/2026-11-12-code-resolutions.md)): `findings`, R1 (major:
   `Reader::patch` searched the key columns' list for each given column, quadratic in a wide compound key; 2.32 times
   the full merge with 1,022 key columns) fixed in `c873418` (patch / full merge after it: 0.76 at 1,022 keys).
+- **L38** (2026-11-12): Codex follow-up ([report](../../docs/reviews/table-row-reads/2026-11-12-code-02.md)):
+  `approved`, "Approved for the requested follow-up scope: R1 verified resolved; no open findings."

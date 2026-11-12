@@ -25,3 +25,9 @@ Artifact versions: fix in commit `c873418`, on branch `feat/table-row-reads`.
 Checks after the fix: `cargo clippy --workspace --all-targets -- -D warnings` clean; the crate's unit tests pass.
 
 Review record: [2026-11-12-code.md](2026-11-12-code.md), wrapper status `findings`; telemetry as in the report.
+
+## 2026-11-12 (verification)
+
+Follow-up report: [2026-11-12-code-02.md](2026-11-12-code-02.md), fix range `33f7f7b..b5f82bd`, thread
+`01a1cf72-dc49-7161-830e-6c4697a199be`, wrapper status `approved`, verdict "Approved for the requested follow-up
+scope: R1 verified resolved; no open findings."
