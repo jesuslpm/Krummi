@@ -39,7 +39,7 @@ Left to the implementation (PRD): how the classes are found and how a process is
   engine process from a thread pinned with `sched_setaffinity` (`nix`), so the process inherits the mask from its
   creation. The classes come from the Voron program's new `cores` command (`GetSystemCpuSetInformation`'s
   `EfficiencyClass` on Windows, `cpu_capacity` under `/sys` on Linux), which the benchmark builds before measuring.
-- **D2** — An assignment that fails on Windows leaves that process unlimited for its whole life; the window between the
+- **D2** (replaced by the launcher after R1 of the Codex review, L9) — An assignment that fails on Windows leaves that process unlimited for its whole life; the window between the
   spawn and the assignment is not measured (the workers prepare their stores first).
 
 ## Tasks
@@ -100,3 +100,10 @@ Left to the implementation (PRD): how the classes are found and how a process is
   Voron build already needed). R2-limit-held-comment and R2-placeholder-commit-refs (SUGGESTION): fixed. R3-001
   (SUGGESTION, the relative-folder test is ignored): dismissed, CI runs the ignored benchmark tests with RavenDB
   (`.github/workflows/ci.yml:152`, `cargo test --release -p krummi-bench -- --include-ignored`).
+- **L9** (2026-11-12) — Independent verifier (Sonnet, high; item 5): S1–S6 PASS, no blockers; advisories: `Cores.cs`
+  has no isolated test, cores of a second processor group give `desconocido`, the dirty-commit note of L7, the
+  capacity-class question of L5. Codex round 1 over `cac715b..1e9dffc`
+  ([report](../../docs/reviews/benchmark-krummi-voron/2026-11-12-code.md)): `findings`, R1 (blocker, the Windows
+  process ran before its assignment to the job) and R2 (minor, the run test rejected `Núcleos: desconocido`), both
+  fixed in `a65a111`: D2 is replaced by the launcher of the resolutions
+  ([resolutions](../../docs/reviews/benchmark-krummi-voron/2026-11-12-code-resolutions.md)).
