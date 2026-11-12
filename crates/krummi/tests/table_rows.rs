@@ -2537,3 +2537,139 @@ fn a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order() {
         assert!(matches!(error, Error::DuplicateKey { .. }), "{error:?}");
     });
 }
+
+/// The rows of `table` in key order, as `(id, v)` pairs.
+fn id_rows(write: &WriteTransaction<'_>, table: &WriteTable<'_>) -> Vec<(i64, Vec<u8>)> {
+    write
+        .range_rows(table, &[], ..)
+        .unwrap()
+        .map(|row| {
+            let row = row.unwrap();
+            match (row.get("id"), row.get("v")) {
+                (Some(Value::I64(id)), Some(Value::Bytes(v))) => (id, v.into_owned()),
+                other => panic!("not a row of the table: {other:?}"),
+            }
+        })
+        .collect()
+}
+
+/// E10, E11 and E12 with the inserts of increasing keys that add at the end of the rows tree's last leaf: mixed with
+/// inserts of smaller keys, deletes of rows and ranges, updates in place and of another size, upserts and emptying
+/// the table, the table always holds the rows of a model, in key order, with its count, and keeps them after the
+/// commit.
+#[test]
+fn ordered_inserts_mixed_with_other_changes_keep_the_rows_in_order() {
+    stores(|store, folder| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("v", ColumnType::Bytes),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let mut table = create(&mut write, "t", &schema);
+        let mut model = std::collections::BTreeMap::<i64, Vec<u8>>::new();
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut rand = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let mut next = 0i64;
+        for step in 0..12_000 {
+            let roll = rand(100);
+            let len = if rand(50) == 0 {
+                3_000
+            } else {
+                rand(120) as usize
+            };
+            let bytes = vec![step as u8; len];
+            let existing = |r: u64, model: &std::collections::BTreeMap<i64, Vec<u8>>| {
+                model.keys().nth(r as usize % model.len().max(1)).copied()
+            };
+            match roll {
+                0..60 => {
+                    next += 1 + rand(3) as i64;
+                    write
+                        .insert_row(&table, &[("id", Value::I64(next)), ("v", b(&bytes))])
+                        .unwrap();
+                    model.insert(next, bytes);
+                }
+                60..70 => {
+                    let id = rand(next.max(1) as u64) as i64;
+                    let inserted =
+                        write.insert_row(&table, &[("id", Value::I64(id)), ("v", b(&bytes))]);
+                    match model.entry(id) {
+                        std::collections::btree_map::Entry::Vacant(e) => {
+                            inserted.unwrap();
+                            e.insert(bytes);
+                        }
+                        std::collections::btree_map::Entry::Occupied(_) => {
+                            assert!(matches!(inserted, Err(Error::DuplicateKey { .. })));
+                        }
+                    }
+                }
+                70..80 => {
+                    if let Some(id) = existing(rand(1 << 20), &model) {
+                        assert!(write.delete_row(&table, &[Value::I64(id)]).unwrap());
+                        model.remove(&id);
+                    }
+                }
+                80..92 => {
+                    if let Some(id) = existing(rand(1 << 20), &model) {
+                        // Half of the updates keep the length, which rewrites the row where it is.
+                        let len = if rand(2) == 0 { model[&id].len() } else { len };
+                        let bytes = vec![step as u8; len];
+                        assert!(
+                            write
+                                .update_row(&table, &[("id", Value::I64(id)), ("v", b(&bytes))])
+                                .unwrap()
+                        );
+                        model.insert(id, bytes);
+                    }
+                }
+                92..97 => {
+                    let id = next + 1 + rand(2) as i64;
+                    write
+                        .upsert_row(&table, &[("id", Value::I64(id)), ("v", b(&bytes))])
+                        .unwrap();
+                    next = next.max(id);
+                    model.insert(id, bytes);
+                }
+                97..99 => {
+                    let from = rand(next.max(1) as u64) as i64;
+                    let to = from + rand(40) as i64;
+                    let removed = write
+                        .delete_range(&table, &[], Value::I64(from)..Value::I64(to))
+                        .unwrap();
+                    let before = model.len();
+                    model.retain(|&id, _| !(from..to).contains(&id));
+                    assert_eq!(removed, (before - model.len()) as u64);
+                }
+                _ => {
+                    if rand(20) == 0 {
+                        table = write
+                            .open_table_with("t", TableMode::CreateOrEmpty(&schema))
+                            .unwrap();
+                        model.clear();
+                    }
+                }
+            }
+            if step % 997 == 0 {
+                let expected: Vec<_> = model.iter().map(|(k, v)| (*k, v.clone())).collect();
+                assert_eq!(id_rows(&write, &table), expected, "step {step}");
+                assert_eq!(write.row_count(&table).unwrap(), model.len() as u64);
+            }
+        }
+        let expected: Vec<_> = model.iter().map(|(k, v)| (*k, v.clone())).collect();
+        assert_eq!(id_rows(&write, &table), expected);
+        write.commit().unwrap();
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        assert_eq!(id_rows(&write, &table), expected);
+        assert_eq!(write.row_count(&table).unwrap(), model.len() as u64);
+        let _ = (&mut write, folder);
+    });
+}

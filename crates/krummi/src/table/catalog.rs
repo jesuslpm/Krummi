@@ -143,6 +143,11 @@ pub(crate) struct TableState {
     deleted: bool,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
     pub(super) dirty: bool,
+    /// The rows tree's rightmost leaf, while no change of the tree but an insert at its end has touched it since it
+    /// was found: the ordered inserts of [`WriteTransaction::insert_row`] add there without walking the tree.
+    pub(super) last: Option<krummi_tree::LastLeaf>,
+    /// The rows tree's greatest key, while it is known: an insert keeps it or raises it, and a removal forgets it.
+    pub(super) greatest: Option<Vec<u8>>,
 }
 
 impl TableState {
@@ -500,6 +505,8 @@ impl<'s> WriteTransaction<'s> {
                     schema: found.schema,
                     deleted: false,
                     dirty: false,
+                    last: None,
+                    greatest: None,
                 },
             );
         }
@@ -598,6 +605,8 @@ impl<'s> WriteTransaction<'s> {
         state.rows_root = root;
         state.count = 0;
         state.dirty = true;
+        state.last = None;
+        state.greatest = None;
         Ok(handle)
     }
 

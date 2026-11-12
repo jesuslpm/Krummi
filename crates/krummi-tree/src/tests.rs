@@ -944,3 +944,137 @@ fn a_located_value_of_the_same_length_is_overwritten_in_place() {
     );
     validate(&after, grown, None, None, true);
 }
+
+/// The page number and bytes of every node of the tree at `root`, in depth-first order.
+fn node_pages<S: PageSource>(tx: &S, root: u64) -> Vec<(u64, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(page) = stack.pop() {
+        let node = tx.page(page).unwrap();
+        if !node::is_leaf(node) {
+            stack.extend((0..=node::count(node)).map(|i| node::child(node, i)));
+        }
+        out.push((page, node.to_vec()));
+    }
+    out
+}
+
+/// `append_last` adds an entry at the end of the rightmost leaf exactly as `try_add` would: a run of increasing keys,
+/// added with it whenever it applies (and with `try_add` otherwise, finding the rightmost leaf again after each),
+/// leaves every node byte for byte as `try_add` alone, through splits, values off their leaf, an empty root and a
+/// key that is not greater than the leaf's last.
+#[test]
+fn appending_to_the_last_leaf_changes_the_tree_as_adding_does() {
+    let (plain, fast) = (temporary(), temporary());
+    let (plain_root, fast_root) = (new_tree(&plain), new_tree(&fast));
+    let mut a = plain.write(None).unwrap();
+    let mut b = fast.write(None).unwrap();
+    let (mut root_a, mut root_b) = (plain_root, fast_root);
+    let mut leaf = last_leaf(&b, root_b).unwrap().0;
+    let (mut appended, mut added) = (0, 0);
+    let key_of = |i: usize| format!("{i:08}").into_bytes();
+    for i in 0..4_000usize {
+        let key = key_of(i);
+        let len = match i % 97 {
+            0 => 5_000,
+            n if n % 3 == 0 => 300,
+            _ => 20,
+        };
+        let value: Vec<u8> = (0..len).map(|j| (i + j) as u8).collect();
+        root_a = try_add(&mut a, root_a, &key, &value).unwrap().root;
+        if append_last(&mut b, &leaf, &key, &value).unwrap() {
+            appended += 1;
+        } else {
+            let update = try_add(&mut b, root_b, &key, &value).unwrap();
+            assert!(update.count_changed);
+            root_b = update.root;
+            leaf = last_leaf(&b, root_b).unwrap().0;
+            added += 1;
+        }
+        assert_eq!(root_a, root_b, "{i}");
+    }
+    assert!(appended > 30 * added && added > 40, "{appended} {added}");
+    // A key that is not greater than the last one is never appended, and changes nothing.
+    assert!(!append_last(&mut b, &leaf, &key_of(3_999), b"x").unwrap());
+    assert!(!append_last(&mut b, &leaf, &key_of(10), b"x").unwrap());
+    assert_eq!(node_pages(&a, root_a), node_pages(&b, root_b));
+    assert_eq!(last_leaf(&b, root_b).unwrap().1, Some(key_of(3_999)));
+    a.commit().unwrap();
+    b.commit().unwrap();
+    let read = fast.read().unwrap();
+    validate(&read, root_b, None, None, true);
+    assert_eq!(entries(&read, root_b).len(), 4_000);
+}
+
+/// `append_last` against `try_add` with removals in between, which leave leaves under a quarter full beside the last
+/// one: after any change but its own, the caller finds the last leaf again; the trees stay the same, node for node.
+#[test]
+fn appending_after_removals_changes_the_tree_as_adding_does() {
+    let mut rng = Rng(7);
+    let (plain, fast) = (temporary(), temporary());
+    let (mut root_a, mut root_b) = (new_tree(&plain), new_tree(&fast));
+    let mut a = plain.write(None).unwrap();
+    let mut b = fast.write(None).unwrap();
+    let mut leaf = last_leaf(&b, root_b).unwrap().0;
+    let key_of = |i: u64| format!("{i:08}").into_bytes();
+    let (mut next, mut appended) = (0u64, 0);
+    for _ in 0..20_000 {
+        if rng.below(10) < 2 && next > 0 {
+            let key = key_of(rng.below(next));
+            root_a = remove(&mut a, root_a, &key).unwrap().root;
+            root_b = remove(&mut b, root_b, &key).unwrap().root;
+            leaf = last_leaf(&b, root_b).unwrap().0;
+        } else {
+            let key = key_of(next);
+            next += 1;
+            let value = vec![next as u8; rng.below(200) as usize];
+            root_a = try_add(&mut a, root_a, &key, &value).unwrap().root;
+            if append_last(&mut b, &leaf, &key, &value).unwrap() {
+                appended += 1;
+            } else {
+                root_b = try_add(&mut b, root_b, &key, &value).unwrap().root;
+                leaf = last_leaf(&b, root_b).unwrap().0;
+            }
+        }
+        assert_eq!(root_a, root_b);
+    }
+    assert!(appended > 10_000, "{appended}");
+    assert_eq!(node_pages(&a, root_a), node_pages(&b, root_b));
+    validate(&b, root_b, None, None, true);
+}
+
+/// The state where adding would merge the last leaf: after a split leaves it with one entry, removals bring its left
+/// sibling down to just over a quarter, so that both fit in one page. `append_last` declines, and `try_add` merges them.
+#[test]
+fn appending_declines_where_adding_would_merge_the_last_leaf() {
+    let engine = temporary();
+    let mut root = new_tree(&engine);
+    let mut tx = engine.write(None).unwrap();
+    let key_of = |i: u64| format!("{i:08}").into_bytes();
+    let value = [7u8; 100];
+    let mut next = 0;
+    // Until a split leaves the last leaf with one entry and a left sibling.
+    let (leaf, left) = loop {
+        root = try_add(&mut tx, root, &key_of(next), &value).unwrap().root;
+        next += 1;
+        let (leaf, _) = last_leaf(&tx, root).unwrap();
+        if let (Beside::Left(left), 1) = (leaf.beside, node::count(tx.page(leaf.page).unwrap())) {
+            break (leaf, left);
+        }
+    };
+    let mut gone = next - 2;
+    while node::used(tx.page(left).unwrap()) > UNDERFULL + 2 * (value.len() + 20) {
+        root = remove(&mut tx, root, &key_of(gone)).unwrap().root;
+        gone -= 1;
+    }
+    let (now, _) = last_leaf(&tx, root).unwrap();
+    assert_eq!(now, leaf, "no merge yet");
+    assert!(!append_last(&mut tx, &now, &key_of(next), &value).unwrap());
+    let pages = node_pages(&tx, root).len();
+    root = try_add(&mut tx, root, &key_of(next), &value).unwrap().root;
+    assert!(
+        node_pages(&tx, root).len() < pages,
+        "adding merged the two leaves"
+    );
+    validate(&tx, root, None, None, true);
+}

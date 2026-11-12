@@ -1351,6 +1351,9 @@ impl WriteTransaction<'_> {
             }
             let values = reader.fill(values).map_err(|fault| fail(self, fault))?;
             let encoded = reader.encode(&values).map_err(|fault| fail(self, fault))?;
+            if op == Op::Insert && self.append_row(table, &key, &encoded)? {
+                return Ok(Written::Inserted);
+            }
             let update = krummi_tree::try_add(&mut self.inner, rows_root, &key, &encoded)?;
             if !update.count_changed {
                 return Err(Error::DuplicateKey {
@@ -1360,6 +1363,7 @@ impl WriteTransaction<'_> {
                 });
             }
             self.apply_rows(table, update.root, RowCount::Added)?;
+            self.follow_last(table, update.root, &key)?;
             return Ok(Written::Inserted);
         };
         // The row it replaces is checked (L3 of the row reads PRD).
@@ -1443,6 +1447,58 @@ impl WriteTransaction<'_> {
             state.count = count;
             state.rows_root = root;
             state.dirty = true;
+        }
+        // The change may have split or merged the last leaf, and a removal may have taken the greatest key.
+        state.last = None;
+        if matches!(change, RowCount::Removed(n) if n > 0) {
+            state.greatest = None;
+        }
+        Ok(())
+    }
+
+    /// Inserts the row `row` of `key` at the end of the rows tree's last leaf when `key` is greater than every key
+    /// of the table and the tree would change only there (`krummi_tree::append_last`); returns whether it did. An
+    /// ordered run of inserts, as a bulk load of increasing keys, then walks the tree once per leaf.
+    fn append_row(&mut self, table: &WriteTable<'_>, key: &[u8], row: &[u8]) -> Result<bool> {
+        let state = self
+            .tables
+            .get_mut()
+            .get_mut(table.id)
+            .expect("a live handle");
+        let (Some(last), Some(greatest), Some(count)) = (
+            state.last,
+            state.greatest.as_deref(),
+            state.count.checked_add(1),
+        ) else {
+            return Ok(false);
+        };
+        if key <= greatest || !krummi_tree::append_last(&mut self.inner, &last, key, row)? {
+            return Ok(false);
+        }
+        state.count = count;
+        state.dirty = true;
+        let greatest = state.greatest.get_or_insert_default();
+        greatest.clear();
+        greatest.extend_from_slice(key);
+        Ok(true)
+    }
+
+    /// After an insert of `key` in the rows tree at `root` that walked the tree: when `key` is beyond the greatest
+    /// key known, or none is, finds the tree's last leaf and greatest key again for the next ordered insert.
+    fn follow_last(&mut self, table: &WriteTable<'_>, root: u64, key: &[u8]) -> Result<()> {
+        let state = self
+            .tables
+            .get_mut()
+            .get_mut(table.id)
+            .expect("a live handle");
+        if state
+            .greatest
+            .as_deref()
+            .is_none_or(|greatest| key > greatest)
+        {
+            let (last, greatest) = krummi_tree::last_leaf(&self.inner, root)?;
+            state.last = Some(last);
+            state.greatest = greatest;
         }
         Ok(())
     }

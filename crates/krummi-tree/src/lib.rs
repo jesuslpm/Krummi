@@ -547,6 +547,105 @@ pub fn try_add(
     update(tx, root, key, Op::Add(value))
 }
 
+/// The rightmost leaf of a tree, for [`append_last`], as [`last_leaf`] finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LastLeaf {
+    /// The leaf's page.
+    pub page: u64,
+    /// What is beside it: whether a leaf under a quarter full would be merged.
+    beside: Beside,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Beside {
+    /// The leaf is the root: nothing merges it.
+    Root,
+    /// The leaf's left sibling under the same parent, the leaf a merge would join.
+    Left(u64),
+    /// A parent without cells, which the tree never leaves: the leaf is not appended to while under a quarter full.
+    Unknown,
+}
+
+/// The rightmost leaf of the tree at `root`, for [`append_last`], and the tree's greatest key, `None` when the tree
+/// is empty. It reads and checks the nodes of that path, as a lookup does.
+pub fn last_leaf(tx: &WriteTransaction<'_>, root: u64) -> Result<(LastLeaf, Option<Vec<u8>>)> {
+    let (mut page, mut level, mut beside) = (root, None, Beside::Root);
+    loop {
+        let node = node_at(tx, page, level)?;
+        let count = node::count(node);
+        if node::is_leaf(node) {
+            let greatest = count.checked_sub(1).map(|i| node::key(node, i).to_vec());
+            return Ok((LastLeaf { page, beside }, greatest));
+        }
+        level = child_level(node);
+        beside = match count {
+            0 => Beside::Unknown,
+            _ => Beside::Left(node::child(node, count - 1)),
+        };
+        page = node::child(node, count);
+    }
+}
+
+/// Adds `key` and `value` at the end of `leaf`, the rightmost leaf of its tree, when [`try_add`] would change that
+/// leaf and nothing else in the same way: the key is greater than every key of the leaf, the value stays in the
+/// leaf, the entry fits without a split, and the leaf is left at least a quarter full or, below that, it is the
+/// root or a merge with its left sibling would not fit (as `merge_child` decides). Returns whether it added them;
+/// otherwise it changes nothing and the caller uses [`try_add`]. The tree's root and the leaf's page stay.
+///
+/// The caller vouches that `last` is the rightmost leaf of the tree: one that [`last_leaf`] returned and that no
+/// change of the tree but this function's has touched since. Appending to another leaf would break the tree's order.
+///
+/// # Panics
+///
+/// As [`set`].
+pub fn append_last(
+    tx: &mut WriteTransaction<'_>,
+    last: &LastLeaf,
+    key: &[u8],
+    value: &[u8],
+) -> Result<bool> {
+    let leaf = last.page;
+    assert!(
+        (1..=MAX_KEY).contains(&key.len()),
+        "a key has 1 to {MAX_KEY} bytes"
+    );
+    assert!(
+        value.len() <= MAX_VALUE,
+        "a value has up to {MAX_VALUE} bytes"
+    );
+    if !node::fits_inline(key.len(), value.len()) {
+        return Ok(false);
+    }
+    let node = node_at(&*tx, leaf, Some(0))?;
+    let count = node::count(node);
+    if count > 0 && node::key(node, count - 1) >= key {
+        return Ok(false);
+    }
+    let mut buf = [0; MAX_LEAF_CELL];
+    let cell_len = node::encode_leaf(&mut buf, key, Value::Inline(value));
+    // The conditions under which `change_leaf` inserts without a split and no ancestor changes: it returns `Done`,
+    // or `Underfull` and then the root keeps its leaf, or `merge_child` finds that the pair does not fit and returns
+    // `Done`.
+    if node::free_space(node) < cell_len + 2 {
+        return Ok(false);
+    }
+    let used = node::used(node) + cell_len + 2;
+    if used < UNDERFULL {
+        match last.beside {
+            Beside::Root => {}
+            Beside::Unknown => return Ok(false),
+            Beside::Left(left) => {
+                let left = node_at(&*tx, left, Some(0))?;
+                if node::used(left) + used - node::HEADER <= PAYLOAD_SIZE {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    node::insert(tx.page_mut(leaf)?, count, &buf[..cell_len]);
+    Ok(true)
+}
+
 /// Removes the entry of `key`, if it is there.
 ///
 /// # Panics

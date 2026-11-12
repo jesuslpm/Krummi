@@ -90,8 +90,8 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
 | T7 | S6: the update writes a row of the same length where `get_located` found it (`krummi_tree::overwrite`), without a second descent | inline | done (L35; RED: `a_located_value_of_the_same_length_is_overwritten_in_place` did not compile) || `7b645e5` |
 | T8 | S6: the journal entry of a page skips unchanged 64-byte blocks before comparing word by word (`journal::encode_page`), the same entry byte for byte | inline | reverted (L35) (equivalence test `entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word` against the word-by-word encoder; fails when a changed block is skipped, mutation run) || `c76626e`, reverted in `5bd0f92` |
 | T9 | Investigate the W23 drop of L31 (about −3 % from `bb8acca` to `d6a88b7`) | inline (A/B measurements) | done (L42): no drop | — |
-| T10 | W25 (Codex proposal 3): a row that gives every column in schema order skips the name map and its staging; a one-column key is encoded without a staged vector | inline | done (L43) (equivalence test `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order`) | (this commit) |
-| T11 | W25 (Codex proposal 5): an append cursor for ordered inserts | inline | pending | |
+| T10 | W25 (Codex proposal 3): a row that gives every column in schema order skips the name map and its staging; a one-column key is encoded without a staged vector | inline | done (L43) (equivalence test `a_row_in_schema_order_fails_and_is_stored_as_in_any_other_order`) | `9027c66` |
+| T11 | W25 (Codex proposal 5): an insert beyond the table's greatest key adds at the end of the rows tree's last leaf (`krummi_tree::append_last`) when the tree would change only there | inline | done (L44) (tree equivalence tests byte for byte, table model test, mutations) | (this commit) |
 
 ## Log
 
@@ -396,3 +396,18 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   duplicate key). Krummi-only A/B against HEAD, pinned, power plan, three alternating rounds (`work/bkv/e1.tsv`),
   medians: W25 360,048 → **385,142 (+7.0 %)**; W23 373,629 → 387,893 (+3.8 %); W24 95,859 → 97,333 (+1.5 %). Every
   round of the candidate is above every round of HEAD in W25 and W23. `cargo test -p krummi`: 373 passed.
+- **L44** (2026-11-12) — T11 (Codex proposal 5): `krummi_tree::last_leaf` finds the rightmost leaf (with its left
+  sibling) and the greatest key; `krummi_tree::append_last` adds at the end of that leaf only when `try_add` would
+  change that leaf and nothing else in the same way (the key beyond the leaf's last, the value in the leaf, no
+  split, and a leaf left under a quarter full only when it is the root or a merge with its left sibling would not
+  fit, as `merge_child` decides). The table state keeps the last leaf and the greatest key: `apply_rows` (every other
+  change of the rows tree) and emptying the table drop the leaf, a removal forgets the greatest key, and an insert
+  that walked the tree beyond the greatest key finds the last leaf again, once per leaf in an ordered run. Tests:
+  `appending_to_the_last_leaf_changes_the_tree_as_adding_does` and `appending_after_removals_changes_the_tree_as_adding_does`
+  (every node byte for byte against `try_add` alone), `appending_declines_where_adding_would_merge_the_last_leaf`
+  (built state; a mutation that skips the merge check fails it, and the other two did not catch it), and the table
+  model test `ordered_inserts_mixed_with_other_changes_keep_the_rows_in_order` (inserts in and out of order,
+  deletes, ranges, updates in place and resized, upserts, emptying; mutations that keep the leaf after `apply_rows`
+  or after emptying fail it). Krummi-only A/B against T10, three rounds (`work/bkv/e2.tsv`), medians: W25 381,525 →
+  **469,456 (+23.0 %)**; W23 383,866 → **470,030 (+22.4 %)**; W24 +0.6 %; W26 +0.8 %; W27 −1.2 %; W28 −0.4 %; W29
+  −1.1 % (the last four within their rounds' spread). `cargo test -p krummi -p krummi-tree`: 427 passed.
