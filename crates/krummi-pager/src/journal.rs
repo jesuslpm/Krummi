@@ -60,11 +60,6 @@ pub(crate) const MIN_ENTRY: usize = 8 + 2;
 pub(crate) const MAX_ENTRY: usize = MIN_ENTRY + 4 + PAGE_SIZE;
 /// Words of 8 bytes in a page, the unit an entry compares.
 const WORDS: usize = PAGE_SIZE / 8;
-/// Words that [`encode_page`] compares at once before it looks at them one by one: 64 bytes, which the compiler
-/// compares with vector instructions, so a page that changed in a few words is mostly skipped a block at a time.
-const BLOCK: usize = 8;
-/// The base of a page the commit created (Y1).
-static ZEROS: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
 /// Flag of the page number of an entry whose page is part of a value run (D5 of the large values execution): it is
 /// not sealed on its own, so recovery writes it without checking it, and the record's checksum covers it. Its run
 /// is checked as a whole when it is read (D1).
@@ -85,17 +80,13 @@ pub(crate) fn encode_page(out: &mut Vec<u8>, (entry, page, base): JournalPage<'_
     out.extend_from_slice(&(entry | flags).to_le_bytes());
     let count_at = out.len();
     out.extend_from_slice(&[0, 0]);
-    let base = base.unwrap_or(&ZEROS);
-    let (words, base_words) = (page.as_chunks::<8>().0, base.as_chunks::<8>().0);
-    let (blocks, base_blocks) = (page.as_chunks::<64>().0, base.as_chunks::<64>().0);
-    let differs = |word: usize| words[word] != base_words[word];
+    let words = page.as_chunks::<8>().0;
+    let differs = |word: usize| match base {
+        Some(base) => words[word] != base.as_chunks::<8>().0[word],
+        None => words[word] != [0; 8],
+    };
     let (mut runs, mut word) = (0u16, 0);
     while word < WORDS {
-        // A block that starts here and did not change is skipped whole: the runs are the same as word by word.
-        if word % BLOCK == 0 && blocks[word / BLOCK] == base_blocks[word / BLOCK] {
-            word += BLOCK;
-            continue;
-        }
         if !differs(word) {
             word += 1;
             continue;
@@ -1138,85 +1129,6 @@ fn journal_error(pager: &Pager, source: io::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The entry of a page as `encode_page` wrote it word by word before it skipped unchanged blocks.
-    fn encode_page_by_words(out: &mut Vec<u8>, (entry, page, base): JournalPage<'_>) {
-        let flags = if base.is_none() { CREATED_ENTRY } else { 0 };
-        out.extend_from_slice(&(entry | flags).to_le_bytes());
-        let count_at = out.len();
-        out.extend_from_slice(&[0, 0]);
-        let words = page.as_chunks::<8>().0;
-        let differs = |word: usize| match base {
-            Some(base) => words[word] != base.as_chunks::<8>().0[word],
-            None => words[word] != [0; 8],
-        };
-        let (mut runs, mut word) = (0u16, 0);
-        while word < WORDS {
-            if !differs(word) {
-                word += 1;
-                continue;
-            }
-            let start = word;
-            while word < WORDS && differs(word) {
-                word += 1;
-            }
-            let (at, len) = (start * 8, (word - start) * 8);
-            out.extend_from_slice(&(at as u16).to_le_bytes());
-            out.extend_from_slice(&(len as u16).to_le_bytes());
-            out.extend_from_slice(&page[at..at + len]);
-            runs += 1;
-        }
-        out[count_at..count_at + 2].copy_from_slice(&runs.to_le_bytes());
-    }
-
-    /// T8 of the row reads run: skipping unchanged blocks writes the same entry, byte for byte, as comparing word by
-    /// word, for pages that changed nowhere, everywhere, in one byte at each place of a block, in runs that cross
-    /// block boundaries, at random, and for created pages over zeros.
-    #[test]
-    fn entries_skip_unchanged_blocks_and_keep_the_runs_of_every_word() {
-        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
-        let mut next = move || {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed
-        };
-        let mut base = [0u8; PAGE_SIZE];
-        base.iter_mut().for_each(|b| *b = next() as u8);
-        let mut pages: Vec<[u8; PAGE_SIZE]> = vec![base, base.map(|b| !b)];
-        for at in [0, 1, 7, 8, 63, 64, 65, 127, 4095, 8128, 8191] {
-            let mut page = base;
-            page[at] ^= 0xFF;
-            pages.push(page);
-        }
-        for (start, len) in [(56, 16), (60, 72), (0, 64), (8000, 192), (100, 3000)] {
-            let mut page = base;
-            page[start..start + len].iter_mut().for_each(|b| *b ^= 0x5A);
-            pages.push(page);
-        }
-        for changes in [1, 3, 20, 200] {
-            for _ in 0..50 {
-                let mut page = base;
-                for _ in 0..changes {
-                    let at = next() as usize % PAGE_SIZE;
-                    page[at] = page[at].wrapping_add(1 + next() as u8 % 255);
-                }
-                pages.push(page);
-            }
-        }
-        let mut sparse = [0u8; PAGE_SIZE];
-        sparse[70] = 1;
-        sparse[8191] = 2;
-        pages.extend([sparse, [0u8; PAGE_SIZE]]);
-        for (i, page) in pages.iter().enumerate() {
-            for base in [Some(&base), None] {
-                let (mut blocks, mut words) = (Vec::new(), Vec::new());
-                encode_page(&mut blocks, (7, page, base));
-                encode_page_by_words(&mut words, (7, page, base));
-                assert_eq!(blocks, words, "page {i}, created {}", base.is_none());
-            }
-        }
-    }
 
     #[test]
     fn file_names_round_trip_and_others_are_not_journal_files() {
