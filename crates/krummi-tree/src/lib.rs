@@ -636,7 +636,7 @@ pub fn append_last(
             Beside::Unknown => return Ok(false),
             Beside::Left(left) => {
                 let left = node_at(&*tx, left, Some(0))?;
-                if node::used(left) + used - node::HEADER <= PAYLOAD_SIZE {
+                if merge_fits(node::used(left), used, 0) {
                     return Ok(false);
                 }
             }
@@ -1082,9 +1082,7 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
             node::leftmost(right_node),
         ) + 2
     };
-    let fits =
-        node::used(tx.page(left)?) + node::used(right_node) - node::HEADER + extra <= PAYLOAD_SIZE;
-    if !fits {
+    if !merge_fits(node::used(tx.page(left)?), node::used(right_node), extra) {
         return Ok(Outcome::Done);
     }
     let moved = copy(&*tx, right_node)?;
@@ -1099,6 +1097,12 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
     let parent = tx.page_mut(page)?;
     node::remove(parent, pair);
     Ok(underfull_or_done(parent))
+}
+
+/// Whether two sibling nodes that use `left` and `right` bytes fit in one page, with `extra` bytes for the separator
+/// a branch merge brings down: the rule of `merge_child`, which `append_last` follows too.
+fn merge_fits(left: usize, right: usize, extra: usize) -> bool {
+    left + right - node::HEADER + extra <= PAYLOAD_SIZE
 }
 
 /// Frees child `index` of the branch at `page`, which has no entries left, and removes it with its separator; the

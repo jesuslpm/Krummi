@@ -281,3 +281,40 @@ fn an_update_under_a_wide_compound_key_stores_the_merged_row() {
     drop(row);
     write.commit().unwrap();
 }
+
+/// T11 of the row reads run: an ordered run of inserts adds at the end of the rows tree's last leaf, walking the tree
+/// only when a leaf is full; and it leaves the rows, the root and the count that walking the tree for every insert
+/// leaves (the tree's own tests compare every node byte for byte).
+#[test]
+fn ordered_inserts_add_at_the_end_of_the_last_leaf() {
+    let rows = |fast: bool| {
+        let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("t", TableMode::CreateNew(&schema()))
+            .unwrap();
+        for id in 0..3_000 {
+            if !fast {
+                write.tables.get_mut().get_mut(table.id).unwrap().last = None;
+            }
+            write.insert_row(&table, &row(id)).unwrap();
+        }
+        let state = write.tables.get_mut().get_mut(table.id).unwrap();
+        let (appended, root) = (state.appended, state.rows_root);
+        let entries: Vec<String> = write
+            .range_rows(&table, &[], ..)
+            .unwrap()
+            .map(|row| format!("{:?}", row.unwrap().values().collect::<Vec<_>>()))
+            .collect();
+        (appended, entries, root, write.row_count(&table).unwrap())
+    };
+    let (appended, entries, root, count) = rows(true);
+    let (walked, same_entries, same_root, same_count) = rows(false);
+    assert!(appended > 2_900, "{appended}");
+    assert_eq!(walked, 0);
+    assert_eq!(
+        (entries, root, count),
+        (same_entries, same_root, same_count)
+    );
+    assert_eq!(count, 3_000);
+}

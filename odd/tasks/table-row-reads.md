@@ -411,3 +411,10 @@ Ubuntu). Estimate: 6 h – 10 h. Real start: 2026-11-11 12:05:51 +0000.
   or after emptying fail it). Krummi-only A/B against T10, three rounds (`work/bkv/e2.tsv`), medians: W25 381,525 →
   **469,456 (+23.0 %)**; W23 383,866 → **470,030 (+22.4 %)**; W24 +0.6 %; W26 +0.8 %; W27 −1.2 %; W28 −0.4 %; W29
   −1.1 % (the last four within their rounds' spread). `cargo test -p krummi -p krummi-tree`: 427 passed.
+- **L45** (2026-11-12) — RDD of `18e38f7..a71297b` (T10, T11; escalated, item 1), lenses risk, reliability and
+  readability: approved, lineage `review-c0f10da564cef53f`, acknowledged. R2-001 (WARNING, `append_last` repeated the
+  merge rule of `merge_child` by hand): both call `merge_fits` now. R1-001 (SUGGESTION, tie the kept leaf to the
+  root): the state keeps the root with the leaf and uses it only for that root. R3 (SUGGESTION, the table test did
+  not show the fast path ran): unit test `ordered_inserts_add_at_the_end_of_the_last_leaf` (over 2,900 of 3,000
+  ordered inserts add at the end, a test-only count; the same rows, root and count with the leaf dropped before each
+  insert). R2-002 (SUGGESTION): `_folder`. Checks: clippy clean, `cargo test -p krummi -p krummi-tree` 428 passed.

@@ -1465,18 +1465,25 @@ impl WriteTransaction<'_> {
             .get_mut()
             .get_mut(table.id)
             .expect("a live handle");
-        let (Some(last), Some(greatest), Some(count)) = (
+        let (Some((root, last)), Some(greatest), Some(count)) = (
             state.last,
             state.greatest.as_deref(),
             state.count.checked_add(1),
         ) else {
             return Ok(false);
         };
-        if key <= greatest || !krummi_tree::append_last(&mut self.inner, &last, key, row)? {
+        if root != state.rows_root
+            || key <= greatest
+            || !krummi_tree::append_last(&mut self.inner, &last, key, row)?
+        {
             return Ok(false);
         }
         state.count = count;
         state.dirty = true;
+        #[cfg(test)]
+        {
+            state.appended += 1;
+        }
         let greatest = state.greatest.get_or_insert_default();
         greatest.clear();
         greatest.extend_from_slice(key);
@@ -1497,7 +1504,7 @@ impl WriteTransaction<'_> {
             .is_none_or(|greatest| key > greatest)
         {
             let (last, greatest) = krummi_tree::last_leaf(&self.inner, root)?;
-            state.last = Some(last);
+            state.last = Some((root, last));
             state.greatest = greatest;
         }
         Ok(())

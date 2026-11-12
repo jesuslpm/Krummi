@@ -2559,7 +2559,7 @@ fn id_rows(write: &WriteTransaction<'_>, table: &WriteTable<'_>) -> Vec<(i64, Ve
 /// commit.
 #[test]
 fn ordered_inserts_mixed_with_other_changes_keep_the_rows_in_order() {
-    stores(|store, folder| {
+    stores(|store, _folder| {
         let schema = Schema::new(
             vec![
                 Column::new("id", ColumnType::I64).not_null(),
@@ -2666,10 +2666,9 @@ fn ordered_inserts_mixed_with_other_changes_keep_the_rows_in_order() {
         let expected: Vec<_> = model.iter().map(|(k, v)| (*k, v.clone())).collect();
         assert_eq!(id_rows(&write, &table), expected);
         write.commit().unwrap();
-        let mut write = store.write().unwrap();
+        let write = store.write().unwrap();
         let table = write.open_table("t").unwrap();
         assert_eq!(id_rows(&write, &table), expected);
         assert_eq!(write.row_count(&table).unwrap(), model.len() as u64);
-        let _ = (&mut write, folder);
     });
 }

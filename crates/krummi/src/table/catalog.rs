@@ -143,9 +143,13 @@ pub(crate) struct TableState {
     deleted: bool,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
     pub(super) dirty: bool,
-    /// The rows tree's rightmost leaf, while no change of the tree but an insert at its end has touched it since it
-    /// was found: the ordered inserts of [`WriteTransaction::insert_row`] add there without walking the tree.
-    pub(super) last: Option<krummi_tree::LastLeaf>,
+    /// The rows tree's root and its rightmost leaf, while no change of the tree but an insert at its end has touched
+    /// it since it was found: the ordered inserts of [`WriteTransaction::insert_row`] add there without walking the
+    /// tree. A leaf of another root than `rows_root` is never used.
+    pub(super) last: Option<(u64, krummi_tree::LastLeaf)>,
+    /// How many inserts added at the end of the last leaf, for the tests.
+    #[cfg(test)]
+    pub(super) appended: u64,
     /// The rows tree's greatest key, while it is known: an insert keeps it or raises it, and a removal forgets it.
     pub(super) greatest: Option<Vec<u8>>,
 }
@@ -507,6 +511,8 @@ impl<'s> WriteTransaction<'s> {
                     dirty: false,
                     last: None,
                     greatest: None,
+                    #[cfg(test)]
+                    appended: 0,
                 },
             );
         }
