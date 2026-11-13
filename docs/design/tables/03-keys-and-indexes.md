@@ -31,7 +31,7 @@ for it, so every cost below is an estimate and says so.
 ## Requirements
 
 - **R1.** Index and primary keys compare in the typed order using only Krummi's byte comparison; no application
-  comparators (B5, [trees.prd.md:45](../../prd/krummi/trees.prd.md)).
+  comparators (B5, [trees.prd.md:45](../../prd/krummi/trees/trees.prd.md)).
 - **R2.** Keys fit the 2,048-byte maximum (B5); an oversized key must fail cleanly, never corrupt.
 - **R3.** Equality on a prefix of the columns, and a range on the next column, are one tree range scan (the tree
   already has prefix and bounded scans, ascending and descending).
@@ -101,7 +101,7 @@ fixed-size tree of row ids (`Table.cs:940-964`, `UpdateValuesFromIndex`). Krummi
 
 | Option | Notes |
 |---|---|
-| A. Multivalue tree: key = columns, values = primary keys (Voron's shape) | A key's values are an ordered set in the entry (0–2,048 bytes each, never off-leaf), or a subtree above the thresholds of M2 ([trees-multivalue.prd.md:41](../../prd/krummi/trees-multivalue.prd.md)). The API gives "number of values of one key", exact and O(1) after one descent, but "no total of values", and the tree count is the number of keys (M6). Counting a range of keys needs a walk. |
+| A. Multivalue tree: key = columns, values = primary keys (Voron's shape) | A key's values are an ordered set in the entry (0–2,048 bytes each, never off-leaf), or a subtree above the thresholds of M2 ([trees-multivalue.prd.md:41](../../prd/krummi/trees/trees-multivalue.prd.md)). The API gives "number of values of one key", exact and O(1) after one descent, but "no total of values", and the tree count is the number of keys (M6). Counting a range of keys needs a walk. |
 | B. Normal tree: key = `tuple(columns) ‖ tuple(pk)`, value = covering columns (**decided**) | One entry per row; entries with equal columns sort by primary key. Duplicates of the columns are stored once per row, by key bytes (4-byte cell header and 2-byte slot, about 6 bytes of cell overhead, per `node.rs:16`). |
 | C. Fixed-size tree (u64 key, fixed value up to 2,048 bytes) | Not applicable: the key is `columns ‖ pk`, not a `u64`. |
 
@@ -115,7 +115,7 @@ descent instead (statistics below).
 
 | Approach | Exact? | Write cost | Format change | Used by |
 |---|---|---|---|---|
-| Entry count per tree | exact | O(1), already kept (A5, [trees-keys.prd.md:40](../../prd/krummi/trees-keys.prd.md)); a count of the whole tree only | none | Voron `TableSchemaStats.NumberOfEntries` (`TableSchemaStats.cs:5-12`) |
+| Entry count per tree | exact | O(1), already kept (A5, [trees-keys.prd.md:40](../../prd/krummi/trees/trees-keys.prd.md)); a count of the whole tree only | none | Voron `TableSchemaStats.NumberOfEntries` (`TableSchemaStats.cs:5-12`) |
 | Order-statistic B+ tree (count in every branch cell) | exact range counts, O(height) | counts in each ancestor change on every write | branch cell +8 bytes | not chosen |
 | Descent estimate (count children between two boundary paths) | exact within one leaf, otherwise approximate | none | none | "index dive" in MySQL (`eq_range_index_dive_limit`) |
 | Sampled statistics: row counts, distinct counts, most common values, histograms (SQLite `sqlite_stat1/4`, PostgreSQL `pg_statistic`, SQL Server statistics, CockroachDB histograms) | approximate | none online; sampling cost when built | a stats tree | all four |
@@ -181,7 +181,7 @@ Nulls:
 
 - A not-null column, and every primary key column, has no null element. Each index column chooses whether its nulls
   come first (the default) or last in the forward order of the index, whatever its direction (N5 of the
-  [tables PRD](../../prd/krummi/tables.prd.md); decided: "nulls first by default, first or last per index column").
+  [tables PRD](../../prd/krummi/tables/tables.prd.md); decided: "nulls first by default, first or last per index column").
   The schema says which. A nullable column's NULL is:
 
   | Direction | Nulls first | Nulls last |
@@ -268,7 +268,7 @@ UUID and ULID:
   milliseconds, 80 random bits incremented within a millisecond) by a generator the product provides.
 - A random UUID (v4) used as a primary key or index key sends every insert to a random leaf; a time-ordered key (ULID,
   v7, sequential GUID) appends to the last leaf and fills it (the append split, document 2). Krummi's own
-  sequential-against-random load in A15 ([trees-keys.prd.md:50](../../prd/krummi/trees-keys.prd.md)) is the way to
+  sequential-against-random load in A15 ([trees-keys.prd.md:50](../../prd/krummi/trees/trees-keys.prd.md)) is the way to
   quantify it. The engine accepts v4 and documents the cost.
 
 Composite keys and prefix scans:
@@ -563,14 +563,14 @@ The statistics need be neither exact nor current. A stale histogram gives a wors
 Repository (paths from `C:\projects\Krummi`):
 
 - `docs/design/tables/README.md` (agreed scope and decisions).
-- `docs/prd/krummi/trees.prd.md:45` (B5: keys 1-2,048 bytes, unsigned byte order, prefix before extension, no custom
+- `docs/prd/krummi/trees/trees.prd.md:45` (B5: keys 1-2,048 bytes, unsigned byte order, prefix before extension, no custom
   comparators), `:46` (B6: values to 256 MiB).
-- `docs/prd/krummi/trees-keys.prd.md:40` (A5: entry count without a walk), `:50` (A15 sequential/random load
+- `docs/prd/krummi/trees/trees-keys.prd.md:40` (A5: entry count without a walk), `:50` (A15 sequential/random load
   measurement), `:66` (the annotation that sets the value maximum to 268,435,456 bytes and supersedes the provisional
   1,024 bytes of A11).
-- `docs/prd/krummi/trees-multivalue.prd.md:40-41` (M1 values up to 2,048 bytes; M2 two thresholds), `:45` (M6: count
+- `docs/prd/krummi/trees/trees-multivalue.prd.md:40-41` (M1 values up to 2,048 bytes; M2 two thresholds), `:45` (M6: count
   is keys; per-key value count; no total of values).
-- `docs/prd/krummi/trees-fixed-size.prd.md:40` (X1: values 0-2,048 bytes), `:44` (X5: u64 keys).
+- `docs/prd/krummi/trees/trees-fixed-size.prd.md:40` (X1: values 0-2,048 bytes), `:44` (X5: u64 keys).
 - `crates/krummi-tree/src/node.rs:1-22` (page layout, cell format, branch cell with full key), `:44-55` (maximum
   branch cell and fit guarantees); `crates/krummi-pager/src/format.rs:33` (8 KiB pages), `:41` (format version 10).
 

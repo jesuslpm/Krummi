@@ -7,15 +7,15 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 
 Artifact versions after the fixes (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/trees-large-values.prd.md`: `5d61fd7c429f4cd1bc8c948fa37271e05ae05f091f1479540b9fbc13cf08f2ae`
-- `docs/prd/krummi/trees-large-values.prd.en.md`: `d1c302b6e6020b669e43640887393f20dac75d6e2f5ba57326e0774823cfe794`
+- `docs/prd/krummi/trees/trees-large-values.prd.md`: `5d61fd7c429f4cd1bc8c948fa37271e05ae05f091f1479540b9fbc13cf08f2ae`
+- `docs/prd/krummi/trees/trees-large-values.prd.en.md`: `d1c302b6e6020b669e43640887393f20dac75d6e2f5ba57326e0774823cfe794`
 
 No product rule changed: every fix tightens an acceptance criterion or adds the generated section.
 
 ### R1 — major: AC-V5 requires the pages in use from before the tree was created without AC-A15's condition
 
 - Disposition: fixed.
-- Evidence: AC-A15 (`docs/prd/krummi/trees-keys.prd.md`, criterion 15) returns to the pages in use from before the
+- Evidence: AC-A15 (`docs/prd/krummi/trees/trees-keys.prd.md`, criterion 15) returns to the pages in use from before the
   first cycle only "cuando la entrada de `x` no hizo crecer el catálogo (las pruebas lo saben por la
   implementación)". AC-V5 required it whenever the tree is deleted or overwritten with Renombrar.
 - Fix: AC-V5 now reads "el valor final es el de antes de crearlo cuando su entrada no hizo crecer el catálogo (las
@@ -49,8 +49,8 @@ No product rule changed: every fix tightens an acceptance criterion or adds the 
 - Disposition: fixed.
 - Evidence: by the `prd` skill, `scripts/prd_time.py` writes that section as the last step of the session, never
   by hand. The review arrived before that step.
-- Fix: `python .claude/skills/prd/scripts/prd_time.py docs/prd/krummi/trees-large-values.prd.md
-  docs/prd/krummi/trees-large-values.prd.en.md` (exit 0) wrote *Tiempo de elaboración* and *Elaboration time*.
+- Fix: `python .claude/skills/prd/scripts/prd_time.py docs/prd/krummi/trees/trees-large-values.prd.md
+  docs/prd/krummi/trees/trees-large-values.prd.en.md` (exit 0) wrote *Tiempo de elaboración* and *Elaboration time*.
   Session `1927218b`: 2 h 4 min wall clock, 46 min discarded, 1 h 18 min active (30 min agent, 48 min person), 14
   interventions.
 - Status: claimed fixed, unverified until a follow-up review.

@@ -32,7 +32,7 @@ probes kept as regression tests; not part of R1). Reviewed head of the original 
   on Windows (372 passed, 0 failed, 13 ignored) and `-p krummi-pager -p krummi-tx -p krummi` on Linux (356 passed);
   the ignored AC-V8 sweeps pass.
 - RDD review 5 of `62f7571..3a528ec` approved it (lineage `review-695b76ad34d5b00d`); its advisory findings are in
-  the execution document (`odd/tasks/trees-large-values.md`, L16).
+  the execution document (`odd/done/trees/trees-large-values.md`, L16).
 - Status: claimed fixed, unverified until a follow-up review.
 
 **Review record**: [2026-10-27-code.md](2026-10-27-code.md), wrapper status `findings`, `threadId`

@@ -132,8 +132,8 @@ Pendientes hasta resolver las preguntas abiertas.
 ## Referencias
 
 - [krummi.prd.md](../krummi/krummi.prd.md): producto sobre el que se construye.
-- [trees-large-values.prd.md](../krummi/trees-large-values.prd.md) y
-  [trees-multivalue.prd.md](../krummi/trees-multivalue.prd.md): estructuras que reutiliza.
+- [trees-large-values.prd.md](../krummi/trees/trees-large-values.prd.md) y
+  [trees-multivalue.prd.md](../krummi/trees/trees-multivalue.prd.md): estructuras que reutiliza.
 
 ## Tiempo de elaboración
 

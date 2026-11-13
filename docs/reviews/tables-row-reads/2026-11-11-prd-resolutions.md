@@ -5,7 +5,7 @@ claimed fix stays unverified until a follow-up review confirms it.
 
 ## 2026-11-11
 
-Artifact versions: the reviewed draft `docs/prd/krummi/tables-row-reads.prd.md` of the commit "docs(prd): draft the
+Artifact versions: the reviewed draft `docs/prd/krummi/tables/tables-row-reads.prd.md` of the commit "docs(prd): draft the
 table row reads PRD"; fixes in the next commit on branch `feat/table-row-reads`.
 
 ### R1 — major: a thread panic does not guarantee process termination

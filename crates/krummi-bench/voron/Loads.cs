@@ -1,4 +1,4 @@
-// The 22 loads on Voron, exactly as design D10 of odd/tasks/benchmark.md (the table loads W23-W29 are in Tables.cs), and the stores of the worker protocol
+// The 22 loads on Voron, exactly as design D10 of odd/done/benchmark/benchmark.md (the table loads W23-W29 are in Tables.cs), and the stores of the worker protocol
 // (crates/krummi-bench/src/protocol.rs). Every load generates its data, its digest and its expected sums before any
 // timer starts; a repetition's time goes from its first operation to its last commit or read (K8).
 

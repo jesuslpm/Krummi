@@ -5,7 +5,7 @@ claimed fix stays unverified until a follow-up review confirms it.
 
 ## 2026-11-12
 
-Artifact versions: `docs/prd/krummi/benchmark-krummi-voron.prd.md` uncommitted, SHA-256 starting `8d00cc9199f8fcb3`.
+Artifact versions: `docs/prd/krummi/benchmark/benchmark-krummi-voron.prd.md` uncommitted, SHA-256 starting `8d00cc9199f8fcb3`.
 
 ### R1 — major: AC-B3 requires unchanged results when affinity fallback can change them
 

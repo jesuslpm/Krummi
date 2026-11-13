@@ -1,4 +1,4 @@
-//! Krummi comparative benchmark (module 6, [benchmark.prd.md](../../../docs/prd/krummi/benchmark.prd.md)).
+//! Krummi comparative benchmark (module 6, [benchmark.prd.md](../../../docs/prd/krummi/benchmark/benchmark.prd.md)).
 //!
 //! The library holds what the orchestrator (`krummi-bench`, the command of K10) and the Rust worker (the same
 //! executable started with `KRUMMI_BENCH_ROLE=worker`) share: the loads and their quantities, the data, the worker protocol, the metrics and

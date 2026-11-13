@@ -2,7 +2,7 @@
 
 Informe de cierre de `benchmark-separators` (2026-11-07). Enfoque de ejecución: ODD, tarea pequeña (en línea, sin
 documento de ejecución). Fuente: la anotación del 2026-11-07 a
-[benchmark.prd.md](../prd/krummi/benchmark.prd.md) (reglas de la forma del informe, AC-K2 y el nuevo AC-K15).
+[benchmark.prd.md](../prd/krummi/benchmark/benchmark.prd.md) (reglas de la forma del informe, AC-K2 y el nuevo AC-K15).
 
 Rama `feat/benchmark-separators`, que parte de `perf/write-path` (`ba310b1`, donde están la anotación y su
 traducción), sin fusionar en `main` ni subir.

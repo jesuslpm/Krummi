@@ -38,7 +38,7 @@ From the agreed scope ([README](README.md)) and the root PRD:
 - R2. O(1) access to any column, including after variable-length ones, because the query layer will filter and
   project single columns over millions of rows.
 - R3. Low fixed overhead per row and near-zero overhead per null; rows are values of the B+ trees of
-  [trees.prd.md](../../prd/krummi/trees.prd.md), so every byte is paid in every leaf page and in the journal.
+  [trees.prd.md](../../prd/krummi/trees/trees.prd.md), so every byte is paid in every leaf page and in the journal.
 - R4. Updating one column must be cheap: the row is a copy-on-write tree value, so the cost is one memcpy of the row
   plus the write of the new leaf.
 - R5. Schema evolution without rewriting rows: add a nullable column (or one with a default), drop, rename.
@@ -340,7 +340,7 @@ Voron (local, read for this document):
 Krummi:
 
 - `docs/prd/krummi/krummi.prd.md`: D11 (line 51 and annotations), D12 (line 52).
-- `docs/prd/krummi/trees.prd.md` and `trees-large-values.prd.md` (V1: values up to 256 MiB; V2: large values read contiguous).
+- `docs/prd/krummi/trees/trees.prd.md` and `trees-large-values.prd.md` (V1: values up to 256 MiB; V2: large values read contiguous).
 
 External:
 

@@ -1,6 +1,6 @@
 # Tables PRD (JSON annotation) review resolutions
 
-Resolutions of [2026-11-12-prd.md](2026-11-12-prd.md), the review of `docs/prd/krummi/tables.prd.md` with its
+Resolutions of [2026-11-12-prd.md](2026-11-12-prd.md), the review of `docs/prd/krummi/tables/tables.prd.md` with its
 annotation of child PRD 7.5 of 2026-11-12 and the readability restructuring of its annotations. Append-only: each
 update is dated and keeps the earlier ones. A claimed fix stays unverified until a follow-up review confirms it.
 
@@ -8,7 +8,7 @@ update is dated and keeps the earlier ones. A claimed fix stays unverified until
 
 Artifact versions after the fixes (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/tables.prd.md`: `894a4417b471bba40006dea7142cef2875b18ee401512ba944b3edbe4ce327d4`
+- `docs/prd/krummi/tables/tables.prd.md`: `894a4417b471bba40006dea7142cef2875b18ee401512ba944b3edbe4ce327d4`
 - `docs/prd/krummi/krummi.prd.md`: `792939f15881399437b8c349a478aded63aaceed5a285f2a05737abc0343a9a5`
 
 Review record: `docs/reviews/tables-json/2026-11-12-prd.md`, wrapper status `findings` (open R1, product question

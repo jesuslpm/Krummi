@@ -424,7 +424,7 @@ Design (documents, then the execution):
 Repository (paths under `C:\projects\Krummi`): `docs/design/tables/README.md`, `03-keys-and-indexes.md` (statistics),
 `04-query-tree-and-planner.md`, `06-c-interface-and-csharp.md`, `08-execution-plans.md` (read whole or in the parts
 cited); `docs/prd/krummi/krummi.prd.md` (objectives, D2, D6, D8, D9, D12, G3, G9, reparto, *Salida*, out of scope);
-`docs/prd/krummi/tables.prd.md` (N1, N8, 7.1, 7.3, *Anotaciones a otros PRD*); `docs/prd/documents/documents.prd.md`
+`docs/prd/krummi/tables/tables.prd.md` (N1, N8, 7.1, 7.3, *Anotaciones a otros PRD*); `docs/prd/documents/documents.prd.md`
 (DD9, Q13, Q16); `.claude/skills/prd/SKILL.md`, `.agents/skills/review-code/SKILL.md`, `AGENTS.md` (local skill
 format); `crates/` (no CLI crate exists yet).
 

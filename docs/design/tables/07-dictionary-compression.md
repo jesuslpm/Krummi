@@ -139,7 +139,7 @@ tables do not need. Reserve the hooks now (below) so that the PRD for it can be 
   no copy of the row, and its included values stay uncompressed, so compressing table rows does not affect index scans.
   Only the table tree's row values are compressed. (Document 3's covering columns made the first draft's phrase "key plus
   row address" incomplete; this is the reconciled statement, contradiction 15.)
-- **Journal.** The journal compresses each record with LZ4 (see [journal-page-diffs.prd.md](../../prd/krummi/journal-page-diffs.prd.md)).
+- **Journal.** The journal compresses each record with LZ4 (see [journal-page-diffs.prd.md](../../prd/krummi/journal/journal-page-diffs.prd.md)).
   Compressed rows reach it as already-incompressible bytes; it already falls back to raw when LZ4 does not shrink the
   record (`journal.rs:347-356`), so double compression wastes only a failed attempt. A journal that stores page diffs
   gains less from compressed rows whose bytes change completely on update; this is a reason to keep compression opt-in.

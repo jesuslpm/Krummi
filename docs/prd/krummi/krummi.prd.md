@@ -27,7 +27,7 @@ módulos, y reparte el producto en PRD hijos, cada uno con su propia ejecución 
 *Anotación del 2026-11-03 al objetivo 2 y a D4: excepción: Krummi no reproduce la compresión de páginas hoja de los
 árboles de Voron. Esa compresión gasta más memoria y CPU para ahorrar disco y, con las lecturas sin copia (D11),
 retendría descomprimida en memoria de la transacción cada hoja que lee una transacción de lectura hasta cerrarse.
-Los motivos están en la anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md). El producto sigue completo
+Los motivos están en la anotación del 2026-11-03 a B2 de [trees.prd.md](trees/trees.prd.md). El producto sigue completo
 cuando se cierran los 16 PRD hijos del reparto, con el módulo 5 sin esa compresión.*
 
 **Por qué**: Voron es un diseño probado durante años en producción (un escritor con lectores concurrentes que no
@@ -53,61 +53,61 @@ lleva ese diseño a Rust como producto propio, sin atarse a su formato en disco.
 
 *Anotación del 2026-10-22 a D12: ninguna operación pública provoca comportamiento indefinido, salvo que otro
 programa modifique los archivos del almacén mientras está abierto, lo que queda fuera de alcance (decisión P16 de
-[pager.prd.md](pager.prd.md)).*
+[pager.prd.md](pager/pager.prd.md)).*
 
 *Anotación del 2026-10-22 a D7: un almacén íntegro cuyo número de formato es menor que el vigente es de formato
 anterior, también con el número `0`, que ninguna versión usa y solo aparece en las pruebas (decisión P5 de
-[pager.prd.md](pager.prd.md)).*
+[pager.prd.md](pager/pager.prd.md)).*
 
 *Anotación del 2026-10-22 a D11: la referencia de una lectura también puede apuntar a la memoria donde el motor
 conserva una versión confirmada de la página que no está en el archivo de datos, nunca a una copia hecha para esa
-lectura (decisión T16 de [transactions.prd.md](transactions.prd.md)).*
+lectura (decisión T16 de [transactions.prd.md](transactions/transactions.prd.md)).*
 
 *Anotación del 2026-10-23: el producto se llama Krummi; sus paquetes y los archivos de un almacén toman los nombres
 de R2 y R3, y este documento se actualizó con los nombres nuevos (decisiones R1–R13 de
-[rename-to-krummi.prd.md](rename-to-krummi.prd.md)). Los nombres de archivo y los números de formato de las
+[rename-to-krummi.prd.md](tooling/rename-to-krummi.prd.md)). Los nombres de archivo y los números de formato de las
 anotaciones anteriores se leen según R3 y R5, y el formato vigente es `3`. Una carpeta con un almacén de MuninnDB
 no contiene un almacén de Krummi (D10, decisión R6).*
 
 *Anotación del 2026-10-24 a D7: con el espacio libre, la versión de formato vigente pasa a ser `5` (decisión F11 de
-[free-space.prd.md](free-space.prd.md)).*
+[free-space.prd.md](free-space/free-space.prd.md)).*
 
-*Anotación del 2026-10-25 a D7: con el catálogo de árboles, la versión de formato vigente pasa a ser `6` (decisión A13 de [trees-keys.prd.md](trees-keys.prd.md)).*
+*Anotación del 2026-10-25 a D7: con el catálogo de árboles, la versión de formato vigente pasa a ser `6` (decisión A13 de [trees-keys.prd.md](trees/trees-keys.prd.md)).*
 
-*Anotación del 2026-10-25 a D11: Listar los árboles devuelve una copia propia de la aplicación, no referencias a memoria del motor (decisión A3 de [trees-keys.prd.md](trees-keys.prd.md)).*
+*Anotación del 2026-10-25 a D11: Listar los árboles devuelve una copia propia de la aplicación, no referencias a memoria del motor (decisión A3 de [trees-keys.prd.md](trees/trees-keys.prd.md)).*
 
-*Anotación del 2026-10-27 a D7: con los valores grandes, la versión de formato vigente pasa a ser `7` (decisión V9 de [trees-large-values.prd.md](trees-large-values.prd.md)).*
+*Anotación del 2026-10-27 a D7: con los valores grandes, la versión de formato vigente pasa a ser `7` (decisión V9 de [trees-large-values.prd.md](trees/trees-large-values.prd.md)).*
 
-*Anotación del 2026-10-27 a D11: todo valor de un árbol, también uno de hasta 256 MiB guardado fuera de su página hoja, se devuelve como una sola secuencia contigua de bytes sin copia, también en modo temporal (decisión V2 de [trees-large-values.prd.md](trees-large-values.prd.md)).*
+*Anotación del 2026-10-27 a D11: todo valor de un árbol, también uno de hasta 256 MiB guardado fuera de su página hoja, se devuelve como una sola secuencia contigua de bytes sin copia, también en modo temporal (decisión V2 de [trees-large-values.prd.md](trees/trees-large-values.prd.md)).*
 
-*Anotación del 2026-10-29 a D7: con los árboles multivalor, la versión de formato vigente pasa a ser `8` (decisión M14 de [trees-multivalue.prd.md](trees-multivalue.prd.md)).*
+*Anotación del 2026-10-29 a D7: con los árboles multivalor, la versión de formato vigente pasa a ser `8` (decisión M14 de [trees-multivalue.prd.md](trees/trees-multivalue.prd.md)).*
 
-*Anotación del 2026-11-02 a D7: con los árboles de tamaño fijo, la versión de formato vigente pasa a ser `9` (decisión X12 de [trees-fixed-size.prd.md](trees-fixed-size.prd.md)).*
+*Anotación del 2026-11-02 a D7: con los árboles de tamaño fijo, la versión de formato vigente pasa a ser `9` (decisión X12 de [trees-fixed-size.prd.md](trees/trees-fixed-size.prd.md)).*
 
-*Anotación del 2026-11-03 a D11: el módulo 5 no guarda páginas comprimidas, porque la compresión de páginas hoja queda fuera de alcance (anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md)); la copia en memoria de la transacción sigue valiendo para las páginas cifradas (módulo 9).*
+*Anotación del 2026-11-03 a D11: el módulo 5 no guarda páginas comprimidas, porque la compresión de páginas hoja queda fuera de alcance (anotación del 2026-11-03 a B2 de [trees.prd.md](trees/trees.prd.md)); la copia en memoria de la transacción sigue valiendo para las páginas cifradas (módulo 9).*
 
-*Anotación del 2026-11-03 al objetivo 3 y a D5: "competitivo" significa que, en cada carga del banco, Krummi rinde al menos el 80% de lo que rinde Voron. Excepción a D5: Voron, que no es un motor de Rust, entra en el banco, compilado desde el código de RavenDB, y es la única referencia de los umbrales; los demás motores dan contexto (decisiones K2 y K7 de [benchmark.prd.md](benchmark.prd.md)).*
+*Anotación del 2026-11-03 al objetivo 3 y a D5: "competitivo" significa que, en cada carga del banco, Krummi rinde al menos el 80% de lo que rinde Voron. Excepción a D5: Voron, que no es un motor de Rust, entra en el banco, compilado desde el código de RavenDB, y es la única referencia de los umbrales; los demás motores dan contexto (decisiones K2 y K7 de [benchmark.prd.md](benchmark/benchmark.prd.md)).*
 
-*Anotación del 2026-11-03 a D2 y D12: el banco comparativo es una herramienta del mantenedor, no de la superficie pública del producto; sus dependencias no llegan a la biblioteca, y puede usar código no seguro solo donde la interfaz de otro motor lo exige (decisión K14 de [benchmark.prd.md](benchmark.prd.md)).*
+*Anotación del 2026-11-03 a D2 y D12: el banco comparativo es una herramienta del mantenedor, no de la superficie pública del producto; sus dependencias no llegan a la biblioteca, y puede usar código no seguro solo donde la interfaz de otro motor lo exige (decisión K14 de [benchmark.prd.md](benchmark/benchmark.prd.md)).*
 
 *Anotación del 2026-11-06 a D12: el Pager puede usar el compresor del diario en su modo con código no seguro (`lz4_flex` sin `safe-encode`). Ese modo produce los mismos bytes que el modo seguro y comprime entre un 30 % y un 50 % más rápido, medido sobre páginas de un almacén real. La descompresión sigue en su modo seguro y comprobado. D12 sigue rigiendo el código del propio motor, y la comprobación automática lo cubre como hasta ahora (decisión del usuario, O5 del plan de rendimiento).*
 
 *Anotaciones del 2026-11-08 desde el diario de los cambios de cada página
-([journal-page-diffs.prd.md](journal-page-diffs.prd.md)):*
+([journal-page-diffs.prd.md](journal/journal-page-diffs.prd.md)):*
 
 - *D7: la versión de formato vigente es `10` (decisión Y5).*
 - *G5: una recuperación que encuentra una página dañada falla después de modificar el almacén, y la siguiente
   apertura la repite (decisión Y3).*
 
 *Anotaciones del 2026-11-09 desde la comprobación de los nodos de la escritura después de confirmar
-([pager-commit-checks.prd.md](pager-commit-checks.prd.md)):*
+([pager-commit-checks.prd.md](pager/pager-commit-checks.prd.md)):*
 
 - *G6: la excepción de I8, ampliada por S3, se amplía con H3: dentro de una escritura, una lectura de un nodo que
   ella cambió puede devolver datos que no son los escritos, fallar con otra clase o terminar con un pánico si un
   fallo del motor, del hardware o de la memoria lo dejó inconsistente; la confirmación lo guarda, y cada lectura de
   él por otra transacción falla con la clase de daño.*
 
-*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables/tables.prd.md)):*
 
 - *Objetivo 2 y D4: el producto está completo con los módulos del reparto sin el 9 (anotación del 2026-11-09 sobre
   el cifrado), con el 17, el 18 y el 19, y sin la compresión por diccionario, aplazada (N2 de las tablas), aunque
@@ -126,7 +126,7 @@ no contiene un almacén de Krummi (D10, decisión R6).*
   ejecución entran en el módulo 17. El punto «Bindings para otros lenguajes (API C, .NET, Python)» pasa a excluir
   los demás lenguajes: la interfaz C y el binding .NET entran en el módulo 18.*
 
-*Anotación del 2026-11-12 desde las tablas ([tables.prd.md](tables.prd.md), PRD hijo 7.5):*
+*Anotación del 2026-11-12 desde las tablas ([tables.prd.md](tables/tables.prd.md), PRD hijo 7.5):*
 
 - *D11 y AC20: de una columna JSON, el documento entero sigue siendo una referencia sin copia; una cadena del JSON
   leída como texto se devuelve sin copia si no tiene escapes, y decodificada en una copia propia de la aplicación si
@@ -173,41 +173,41 @@ y anota este documento.
 
 *Anotación del 2026-10-22: excepción a G12. Como en Voron, un fallo físico del disco al leer a través de la
 proyección del archivo en memoria termina el proceso en lugar de devolver un error; G12 sigue valiendo para las
-escrituras y para lo que no se lee por la proyección (decisión P17 de [pager.prd.md](pager.prd.md)).*
+escrituras y para lo que no se lee por la proyección (decisión P17 de [pager.prd.md](pager/pager.prd.md)).*
 
 *Anotación del 2026-10-22: G6 se precisa para el encabezado del almacén. Si solo una de sus dos copias está
 dañada, el almacén abre sin error con la otra, porque no se devuelve ningún dato dañado (decisión P6 de
-[pager.prd.md](pager.prd.md)).*
+[pager.prd.md](pager/pager.prd.md)).*
 
 *Anotación del 2026-10-22: excepción temporal a G1 (solo ante caídas), G2, G5 y G12 (en lo que la reapertura
 recupera) hasta el módulo 3. Sin diario, una caída, un fallo de entrada y salida que el cierre no resuelve o dejar
 de usar el almacén sin cerrarlo cuando falla la escritura pueden dejar el archivo de datos sin parte de lo confirmado desde la última
 apertura; tras un cierre sin error, lo confirmado está, y G6 sigue valiendo (decisión T9 de
-[transactions.prd.md](transactions.prd.md)).*
+[transactions.prd.md](transactions/transactions.prd.md)).*
 
 *Anotación del 2026-10-22: la excepción temporal anterior termina con el módulo 3; lo confirmado de forma durable
-ya no puede faltar al reabrir (decisiones J4 y J13 de [journal.prd.md](journal.prd.md)).*
+ya no puede faltar al reabrir (decisiones J4 y J13 de [journal.prd.md](journal/journal.prd.md)).*
 
 *Anotación del 2026-10-22: G5, G6 y D10 se precisan para el diario. Una confirmación del diario dañada, incompleta
 o que falta, que no consta como durable en el propio diario, se descarta sin error como una confirmación que no
 terminó; y si se daña la última confirmación durable sin ninguna posterior, no se distingue de ella y también se
-descarta (decisión J9 de [journal.prd.md](journal.prd.md)).*
+descarta (decisión J9 de [journal.prd.md](journal/journal.prd.md)).*
 
 *Anotación del 2026-10-23: con la escritura agrupada del diario, lo anterior vale por grupos de confirmaciones
 escritas juntas: si se daña el último grupo sin ninguno posterior, se descartan la confirmación dañada y las
 siguientes; y la versión de formato vigente pasa a ser `4` (decisiones E9 y E15 de
-[journal-group-commit.prd.md](journal-group-commit.prd.md)).*
+[journal-group-commit.prd.md](journal/journal-group-commit.prd.md)).*
 
 *Anotación del 2026-10-30: excepción a G6. La comprobación de organización de un nodo de un árbol cuya integridad se
 acaba de verificar se omite si ese mismo contenido (número de página y código de integridad de 64 bits) ya la pasó
 mientras el almacén sigue abierto. Una alteración hecha con el almacén abierto que coincide en el código de integridad
 de un contenido recordado puede devolver datos que no son los escritos o terminar en un pánico en lugar de un error;
 las alteraciones hechas con el almacén cerrado se detectan como hasta ahora (decisión C7 de
-[trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)).*
+[trees-node-check-cache.prd.md](trees/trees-node-check-cache.prd.md)).*
 
-*Anotación del 2026-11-05: excepción a G6. En las transacciones de lectura, la integridad de una página se comprueba la primera vez que se lee en cada apertura y la primera vez después de que el motor la reescriba, y se recuerda hasta cerrar. Un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor (un fallo del hardware o de la memoria, o un programa ajeno) puede devolver datos que no son los escritos o terminar en un pánico hasta reabrir. Las transacciones de escritura, el backup, la compactación, la migración y la verificación siguen comprobando todo lo que leen, así que ninguna escritura sella un daño (decisión I8 de [pager-integrity-once.prd.md](pager-integrity-once.prd.md)).*
+*Anotación del 2026-11-05: excepción a G6. En las transacciones de lectura, la integridad de una página se comprueba la primera vez que se lee en cada apertura y la primera vez después de que el motor la reescriba, y se recuerda hasta cerrar. Un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor (un fallo del hardware o de la memoria, o un programa ajeno) puede devolver datos que no son los escritos o terminar en un pánico hasta reabrir. Las transacciones de escritura, el backup, la compactación, la migración y la verificación siguen comprobando todo lo que leen, así que ninguna escritura sella un daño (decisión I8 de [pager-integrity-once.prd.md](pager/pager-integrity-once.prd.md)).*
 
-*Anotación del 2026-11-06: la anotación anterior decía que las transacciones de escritura siguen comprobando todo lo que leen; ahora usan las páginas recordadas como las de lectura. La excepción a G6 se amplía: una escritura puede sellar en una versión nueva un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor, y el daño queda guardado. AC10 no cambia (decisiones S2 y S3 de [pager-writer-checks.prd.md](pager-writer-checks.prd.md)).*
+*Anotación del 2026-11-06: la anotación anterior decía que las transacciones de escritura siguen comprobando todo lo que leen; ahora usan las páginas recordadas como las de lectura. La excepción a G6 se amplía: una escritura puede sellar en una versión nueva un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor, y el daño queda guardado. AC10 no cambia (decisiones S2 y S3 de [pager-writer-checks.prd.md](pager/pager-writer-checks.prd.md)).*
 
 *Anotación del 2026-11-09 (decisión del usuario en el diseño de las tablas,
 [docs/design/tables/README.md](../../design/tables/README.md)): el cifrado de lo que el motor escribe mientras el
@@ -222,7 +222,7 @@ cifrado en modo temporal, su fila de Validaciones y mensajes, el paso 6 de las c
 que D10 dice de lo legible sin clave dejan de aplicarse al almacén; la gestión y custodia de claves sigue fuera de
 alcance.*
 
-*Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables-row-reads.prd.md)): Excepción a G6: leer por la clave y recorrer las filas de las tablas no comprueban su contenido. Una fila mal formada en una página cuya integridad pasó G6 (un fallo del motor, un archivo alterado con el almacén cerrado que recalcula los códigos de integridad, o una página recordada alterada con el almacén abierto) puede devolver datos que no son los escritos o terminar en un pánico en lugar de un error. Actualizar e insertar o actualizar siguen comprobando la fila que reemplazan; AC10 no cambia (decisiones L1–L3 de [tables-row-reads.prd.md](tables-row-reads.prd.md)).*
+*Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables/tables-row-reads.prd.md)): Excepción a G6: leer por la clave y recorrer las filas de las tablas no comprueban su contenido. Una fila mal formada en una página cuya integridad pasó G6 (un fallo del motor, un archivo alterado con el almacén cerrado que recalcula los códigos de integridad, o una página recordada alterada con el almacén abierto) puede devolver datos que no son los escritos o terminar en un pánico en lugar de un error. Actualizar e insertar o actualizar siguen comprobando la fila que reemplazan; AC10 no cambia (decisiones L1–L3 de [tables-row-reads.prd.md](tables/tables-row-reads.prd.md)).*
 
 ## Flujo
 
@@ -231,7 +231,7 @@ alcance.*
    un almacén completo, o la carpeta queda vacía, sin restos del almacén.
 
    *Anotación del 2026-10-22: tras una creación interrumpida puede quedar un archivo temporal hasta la apertura
-   siguiente, que lo borra y crea el almacén (decisión P8 de [pager.prd.md](pager.prd.md)).*
+   siguiente, que lo borra y crea el almacén (decisión P8 de [pager.prd.md](pager/pager.prd.md)).*
 2. La apertura hace las comprobaciones en el [orden fijado](#orden-de-las-comprobaciones-al-abrir) y, si el
    almacén se cerró por una caída, lo recupera (G5).
 3. La aplicación abre transacciones de lectura desde cualquier hilo y una de escritura cada vez (G3, G4); lee y
@@ -266,18 +266,18 @@ errores y mensajes.
 
 *Anotación del 2026-10-24 al módulo 4: una lectura de larga duración no impide reutilizar páginas liberadas ni hace
 crecer `krummi.data`; lo que retiene son versiones de páginas en `krummi.temp`, que cuentan para el tamaño máximo
-(decisión F7 de [free-space.prd.md](free-space.prd.md)).*
+(decisión F7 de [free-space.prd.md](free-space/free-space.prd.md)).*
 
 *Anotación del 2026-10-24 al módulo 5: se reparte en seis PRD hijos (5.1 a 5.6) bajo un PRD de módulo sin ejecución
 propia, y cuenta como cerrado para el objetivo 2 cuando lo están los seis; los tamaños máximos de clave (2.048
 bytes), de valor (256 MiB) y de nombre de árbol (1.024 bytes) y sus errores están en B4–B8 de
-[trees.prd.md](trees.prd.md).*
+[trees.prd.md](trees/trees.prd.md).*
 
 *Anotación del 2026-11-03 al módulo 5: la compresión de páginas hoja sale de su contenido y del alcance del
 producto (excepción al objetivo 2 y a D4); el módulo se reparte en cinco PRD hijos (5.1 a 5.5) y cuenta como cerrado para
-el objetivo 2 cuando lo están los cinco (anotación del 2026-11-03 a B2 de [trees.prd.md](trees.prd.md)).*
+el objetivo 2 cuando lo están los cinco (anotación del 2026-11-03 a B2 de [trees.prd.md](trees/trees.prd.md)).*
 
-*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables.prd.md)):*
+*Anotaciones del 2026-11-10 desde las tablas ([tables.prd.md](tables/tables.prd.md)):*
 
 - *Módulo 7: fija también los tipos de columna (N4) y el error de valor no válido (N10); las secciones de datos en
   bruto quedan fuera de él (las cubre el módulo 13) y la compresión por diccionario queda aplazada (N2). Se reparte
@@ -321,7 +321,7 @@ La herramienta escribe cada mensaje en una línea propia en la salida de errores
 Cuando se cumplen varias situaciones, gana la primera de esta lista:
 
 *Anotación del 2026-10-22: antes del paso 1 se comprueban las opciones de apertura; unas opciones no válidas ganan a
-todo lo demás y la apertura falla sin tocar nada (flujo de [pager.prd.md](pager.prd.md)).*
+todo lo demás y la apertura falla sin tocar nada (flujo de [pager.prd.md](pager/pager.prd.md)).*
 
 1. La carpeta se puede usar.
 2. El almacén no está abierto ya.
@@ -330,7 +330,7 @@ todo lo demás y la apertura falla sin tocar nada (flujo de [pager.prd.md](pager
 
    *Anotación del 2026-10-22: para este paso y para la fila de carpeta que no es un almacén, el archivo temporal
    que deja una creación interrumpida no cuenta como entrada cuando es el único contenido de la carpeta (decisión
-   P8 de [pager.prd.md](pager.prd.md)).*
+   P8 de [pager.prd.md](pager/pager.prd.md)).*
 4. Lo que queda legible sin clave (G8), incluida la versión de formato, supera su comprobación de integridad
    (D10).
 5. Su formato es el de esta versión. Un almacén de otro formato que además necesita recuperación se rechaza sin
@@ -359,7 +359,7 @@ Convenciones comunes de la herramienta de línea de comandos; el PRD hijo 12 fij
   Código de salida: `1`.
 
 *Anotación del 2026-11-03: la orden del banco comparativo también termina con `1` cuando Krummi incumple un umbral,
-aunque haya escrito su informe (decisión K13 de [benchmark.prd.md](benchmark.prd.md)).*
+aunque haya escrito su informe (decisión K13 de [benchmark.prd.md](benchmark/benchmark.prd.md)).*
 
 ## Reutilización
 
@@ -420,7 +420,7 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
 
    *Anotación del 2026-10-23 a AC6: en un almacén en disco, una lectura nueva solo ve confirmaciones durables; tras
    una confirmación diferida, la ve cuando es durable, no al devolver (decisión E3 de
-   [journal-group-commit.prd.md](journal-group-commit.prd.md)).*
+   [journal-group-commit.prd.md](journal/journal-group-commit.prd.md)).*
 7. **AC7** — Dados varios hilos que piden a la vez una transacción de escritura, cuando se observan, entonces
    nunca hay dos abiertas a la vez y, dentro de los límites de espera que fije el PRD hijo 2, todas terminan
    confirmadas (G4).
@@ -438,18 +438,18 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
     estructuras que añade.
 
     *Anotación del 2026-10-22 a AC10: una alteración en la última confirmación del diario también puede producir su
-    descarte sin error (decisión J9 de [journal.prd.md](journal.prd.md)).*
+    descarte sin error (decisión J9 de [journal.prd.md](journal/journal.prd.md)).*
 
     *Anotación del 2026-10-23 a AC10: con la escritura agrupada, ese descarte vale para una alteración en el último
-    grupo de confirmaciones escritas juntas (decisión E9 de [journal-group-commit.prd.md](journal-group-commit.prd.md)).*
+    grupo de confirmaciones escritas juntas (decisión E9 de [journal-group-commit.prd.md](journal/journal-group-commit.prd.md)).*
 
     *Anotación del 2026-10-30 a AC10: el criterio no cambia, porque sus alteraciones se hacen con el almacén cerrado y
     un almacén recién abierto no recuerda ningún nodo; el riesgo residual de la excepción a G6 solo afecta a
-    alteraciones con el almacén abierto (decisión C7 de [trees-node-check-cache.prd.md](trees-node-check-cache.prd.md)).*
+    alteraciones con el almacén abierto (decisión C7 de [trees-node-check-cache.prd.md](trees/trees-node-check-cache.prd.md)).*
 
     *Anotación del 2026-11-05 a AC10: el criterio no cambia, porque un almacén recién abierto no recuerda ninguna
     página como íntegra; el riesgo residual de la excepción a G6 solo afecta a alteraciones con el almacén abierto
-    (decisión I8 de [pager-integrity-once.prd.md](pager-integrity-once.prd.md)).*
+    (decisión I8 de [pager-integrity-once.prd.md](pager/pager-integrity-once.prd.md)).*
 11. **AC11** — Dado un disco sin espacio, cuando una transacción de escritura no cabe, entonces falla con la clase
     de error de disco lleno, no aplica ningún cambio, el almacén sigue permitiendo transacciones de lectura y,
     al liberar espacio, una escritura siguiente se confirma sin reabrir (G7).
@@ -478,10 +478,10 @@ módulo 1, y añade los suyos. El PRD hijo 12 comprueba además a nivel de herra
     un informe con la misma estructura, los mismos motores, las mismas cargas y los mismos campos, en el que
     Krummi cumple los umbrales vigentes (D5).
 
-    *Anotación del 2026-11-03 a AC19: los umbrales vigentes son los de K7 de [benchmark.prd.md](benchmark.prd.md);
+    *Anotación del 2026-11-03 a AC19: los umbrales vigentes son los de K7 de [benchmark.prd.md](benchmark/benchmark.prd.md);
     AC19 se exige antes de cada versión del producto, no para cerrar el módulo 6 (decisión K13).*
 
-    *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md)): una ejecución completa con `--solo-krummi-voron` en Windows y en Linux, con solo Krummi y Voron, vale para comprobar los umbrales (B6).*
+    *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron ([benchmark-krummi-voron.prd.md](benchmark/benchmark-krummi-voron.prd.md)): una ejecución completa con `--solo-krummi-voron` en Windows y en Linux, con solo Krummi y Voron, vale para comprobar los umbrales (B6).*
 20. **AC20** — Dada una lectura de cualquier estructura de datos, cuando devuelve un valor, entonces la referencia
     apunta a memoria del motor (la proyección del archivo, o la memoria de la transacción si la página está
     cifrada o comprimida) y no a una copia hecha para esa lectura; y usar la referencia después de cerrar la

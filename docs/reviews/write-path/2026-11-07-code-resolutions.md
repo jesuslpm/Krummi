@@ -6,7 +6,7 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 ## 2026-11-07
 
 Artifact versions: reviewed range `b9514cf..b5739cd`; the documentation fixes and the W22 measurements of L18 of
-[write-path.md](../../../odd/tasks/write-path.md), committed after `b5739cd`. No code change.
+[write-path.md](../../../odd/done/pager/write-path.md), committed after `b5739cd`. No code change.
 
 ### R1 — blocker: AC-S8 is not met on WSL 2
 
@@ -85,7 +85,7 @@ transaction does unchanged, and generated code is only a hypothesis until a prof
 ## 2026-11-07 (user decision)
 
 - **R1:** the user accepts AC-S8 as met, as an intermediate step ("Sí"). Annotation of 2026-11-07 to AC-S8 in
-  [pager-writer-checks.prd.md](../../prd/krummi/pager-writer-checks.prd.md) and its translation. Disposition: resolved
+  [pager-writer-checks.prd.md](../../prd/krummi/pager/pager-writer-checks.prd.md) and its translation. Disposition: resolved
   by a product decision, unverified until a follow-up review.
 - **R2:** the user accepts O5 as a partial step ("Sí"). The plan's O5 section records the two remaining copies as
   pending. Disposition: resolved by a product decision, unverified until a follow-up review.

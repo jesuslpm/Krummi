@@ -1,4 +1,4 @@
-//! Internal tests of the row reads PRD (`docs/prd/krummi/tables-row-reads.prd.md`): reading by key and scanning do not
+//! Internal tests of the row reads PRD (`docs/prd/krummi/tables/tables-row-reads.prd.md`): reading by key and scanning do not
 //! check a row's content (L1, L2), update and upsert still check the row they replace (L3), and a panic of a column
 //! read leaves the transaction intact (L2). The malformed rows are written through the tree, so that the commit
 //! computes their pages' integrity codes over them, as a Krummi defect or a file altered with its codes recomputed

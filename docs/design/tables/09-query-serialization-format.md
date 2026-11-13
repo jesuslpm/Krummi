@@ -355,7 +355,7 @@ cost measured); D2 required types versus inference; D3 copying versus borrowing 
 
 Repository (paths under `C:\projects\Krummi`): `docs/design/tables/README.md`, `04-query-tree-and-planner.md`,
 `06-c-interface-and-csharp.md`, `08-execution-plans.md` (read whole); `01-row-format-and-types.md`,
-`03-keys-and-indexes.md`, `05-vectors.md`, `verification.md` (skimmed); `docs/prd/krummi/tables.prd.md` (N4, annotations to
+`03-keys-and-indexes.md`, `05-vectors.md`, `verification.md` (skimmed); `docs/prd/krummi/tables/tables.prd.md` (N4, annotations to
 other PRDs); `docs/prd/krummi/krummi.prd.md` (D11, D12, out of scope); `docs/benchmark/2026-11-09-windows-margin.md`
 (`lecturas-al-azar`); the workspace `Cargo.toml` files (no `serde` today).
 

@@ -1,5 +1,5 @@
 //! The transfer to `krummi.data` without further commits, and the data flushes it pays for (J5, J6 of the Journal
-//! PRD): odd/tasks/transfer-background-thread.md, S1–S4.
+//! PRD): odd/done/journal/transfer-background-thread.md, S1–S4.
 
 mod common;
 

@@ -1077,8 +1077,8 @@ Repository (paths under `C:\projects\Krummi`): `docs/design/tables/README.md`, `
 `06-c-interface-and-csharp.md`, `08-execution-plans.md`, `09-query-serialization-format.md`, `10-agent-tooling.md`
 (read whole); `01-row-format-and-types.md` (types, domains, schema versions, column ids), `05-vectors.md` (NaN rule) in
 part; `docs/prd/krummi/krummi.prd.md` (objectives, D2, D7, D8, D12, out of scope, AC21; working copy with the
-uncommitted annotation of 2026-11-09); `docs/prd/krummi/tables.prd.md` (N3, N4, N10, 7.1, *Anotaciones a otros PRD*);
-`docs/prd/krummi/transactions.prd.md` (T2, T6, T7); `docs/prd/documents/documents.prd.md` (DD9);
+uncommitted annotation of 2026-11-09); `docs/prd/krummi/tables/tables.prd.md` (N3, N4, N10, 7.1, *Anotaciones a otros PRD*);
+`docs/prd/krummi/transactions/transactions.prd.md` (T2, T6, T7); `docs/prd/documents/documents.prd.md` (DD9);
 `crates/krummi-pager/Cargo.toml` and `src/sys.rs`; `Cargo.lock` and `cargo tree` (normal and development trees,
 2026-11-10); the local crate sources of `rustix` 1.1.5 (`Cargo.toml`, `src/lib.rs`, `src/rand/`), `windows-sys`
 0.61.2 (`Cargo.toml`, `src/Windows/Win32/Security/Cryptography/mod.rs`) and `getrandom` 0.4.3 (`Cargo.toml`,

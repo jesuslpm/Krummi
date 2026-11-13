@@ -485,7 +485,7 @@ IndexedDB's `multiEntry`; the structure and every rule are unchanged.
 ## Sources
 
 Repository: `docs/prd/krummi/krummi.prd.md` (D4; modules 13 to 16 and the order of 17 and 18),
-`docs/prd/krummi/tables.prd.md` (N7, the 7.5 annotation, *Fuera de alcance*), `docs/prd/krummi/tables-schema.prd.md`
+`docs/prd/krummi/tables/tables.prd.md` (N7, the 7.5 annotation, *Fuera de alcance*), `docs/prd/krummi/tables/tables-schema.prd.md`
 (E14, E15), documents 2, 3, 4, 10 and 13 of this set, `docs/benchmark/2026-11-09-windows-margin.md`.
 
 RavenDB (local source, read 2026-11-11): `Corax/Indexing/TermIdMask.cs`; `Corax/Indexing/IndexWriter.cs` (term

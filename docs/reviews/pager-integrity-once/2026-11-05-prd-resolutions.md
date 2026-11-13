@@ -6,8 +6,8 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 ## 2026-11-05
 
 Artifact versions after the fixes: commit `7050669`
-(`docs/prd/krummi/pager-integrity-once.prd.md`, `docs/prd/krummi/trees-large-values.prd.md`,
-`docs/prd/krummi/trees.prd.md`).
+(`docs/prd/krummi/pager/pager-integrity-once.prd.md`, `docs/prd/krummi/trees/trees-large-values.prd.md`,
+`docs/prd/krummi/trees/trees.prd.md`).
 
 ### R1 — minor: Missing annotations for superseded tree integrity rules
 

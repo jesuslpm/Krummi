@@ -36,5 +36,5 @@ reopened, so this chain gives no Codex verdict on it; its review is the RDD of t
 
 Review record: [2026-11-12-code-05.md](2026-11-12-code-05.md), wrapper status `violation`, thread
 `01a1d227-f45c-7803-95a2-384fd8c4c7a1`, coordinator `gpt-6.1-sol` high, reviewer `krummi-review` `gpt-6.1-sol` high
-(telemetry). The violation names only `odd/tasks/table-row-reads-report.md`, which Claude edited while the review ran
+(telemetry). The violation names only `odd/done/tables/table-row-reads-report.md`, which Claude edited while the review ran
 (the RDD row of the last slice and the cleanup section); Codex's own changes were only its report.

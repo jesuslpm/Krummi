@@ -5,7 +5,7 @@ ANN indexing algorithm suits Krummi: "Seleccionar un algoritmo ANN **equilibrado
 de implementar y mantener**. No buscamos el algoritmo con el mayor rendimiento absoluto". Document 5 left vector
 indexes out "de momento", without closing the door on them; this document is the follow-up that opens that door.
 The user then brought them into scope: "Además los índices ANN hay que inluirlos en el alcance". The tables PRD
-([tables.prd.md](../../prd/krummi/tables.prd.md)) was annotated the same day with child PRD 7.6, *Approximate vector
+([tables.prd.md](../../prd/krummi/tables/tables.prd.md)) was annotated the same day with child PRD 7.6, *Approximate vector
 indexes*, built after 7.5 and before module 17, with this document as its technical starting state.
 
 Status: a proposal. Nothing here is implemented, built or measured. The six decisions in *Product questions* need the
@@ -619,9 +619,9 @@ table added.
 
 Repository files read:
 
-- `README.md`; `docs/prd/krummi/krummi.prd.en.md` (modules, G4); `docs/prd/krummi/journal-page-diffs.prd.en.md`;
-  `docs/prd/krummi/journal-group-commit.prd.en.md` (E5, AC-J7)
-- `docs/prd/krummi/tables.prd.en.md` (out of scope: vector indexes); `docs/prd/krummi/tables-schema.prd.en.md` (E2,
+- `README.md`; `docs/prd/krummi/krummi.prd.en.md` (modules, G4); `docs/prd/krummi/journal/journal-page-diffs.prd.en.md`;
+  `docs/prd/krummi/journal/journal-group-commit.prd.en.md` (E5, AC-J7)
+- `docs/prd/krummi/tables/tables.prd.en.md` (out of scope: vector indexes); `docs/prd/krummi/tables/tables-schema.prd.en.md` (E2,
   E13; internal trees out of the catalog)
 - `docs/design/tables/README.md`, [05-vectors.md](05-vectors.md) (whole, including R3); [03-keys-and-indexes.md](03-keys-and-indexes.md)
   (statistics thread, index creation); [04-query-tree-and-planner.md](04-query-tree-and-planner.md) and

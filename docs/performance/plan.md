@@ -1,7 +1,7 @@
 # Performance plan: meeting the benchmark thresholds
 
 Technical guide for the optimizations that bring Krummi to at least 0.80 × Voron's operations per second on every
-load of the comparative benchmark (K7 of [benchmark.prd.md](../prd/krummi/benchmark.prd.md)). It is not a PRD:
+load of the comparative benchmark (K7 of [benchmark.prd.md](../prd/krummi/benchmark/benchmark.prd.md)). It is not a PRD:
 under the annotation of 2026-11-04 to K13, an optimization that changes nothing observable of the product runs
 straight as an ODD execution, and one that does change something observable (output, messages, stored data or its
 format on disk, the public interface, the guarantees or the options) needs its own PRD first. Each optimization
@@ -61,7 +61,7 @@ On Linux the single and concurrent durable writes (W4–W6) meet their threshold
   complete report of the same platform. A load whose ratio drops by more than 0.05 counts as worse only when
   single-load runs, before and after in the same session with the order alternated, confirm the drop. Complete runs
   on different days move by more than 0.05, also for the engines that do not change (annotation of 2026-11-06 to
-  AC-I12 of [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md)). While iterating, the single-load worker run measures
+  AC-I12 of [pager-integrity-once.prd.md](../prd/krummi/pager/pager-integrity-once.prd.md)). While iterating, the single-load worker run measures
   before and after.
 - **Windows environment.** Since 2026-11-07, Microsoft Defender's real-time scan excludes `C:\projects\Krummi\work`
   (added by the user as administrator), and every Windows measurement writes its stores there: single-load runs
@@ -77,7 +77,7 @@ On Linux the single and concurrent durable writes (W4–W6) meet their threshold
 - **Noise floor.** The next before/after measurement starts with an A/A run: the same binary against itself, in
   two alternated rounds, which gives each load's noise floor. On 2026-11-07, effects of 2 % to 3 % on WSL 2 were
   smaller than the spread between repetitions (annotation of 2026-11-07 to AC-S8 of
-  [pager-writer-checks.prd.md](../prd/krummi/pager-writer-checks.prd.md)).
+  [pager-writer-checks.prd.md](../prd/krummi/pager/pager-writer-checks.prd.md)).
 
 ## Diagnosis
 
@@ -121,7 +121,7 @@ The commit takes 55.5 % of W2's samples and 59.4 % of W21's (`WriteTransaction::
 
 - libc has no symbols in these profiles: the copies and the zeroed allocations are two unnamed libc functions,
   identified by their callers (`alloc_zeroed` calls the second one); confirm with libc symbols before O4.
-- The journal is compressed by product rule (J16 of [journal.prd.md](../prd/krummi/journal.prd.md)), as Voron's
+- The journal is compressed by product rule (J16 of [journal.prd.md](../prd/krummi/journal/journal.prd.md)), as Voron's
   is; removing the compression changes stored data and needs a PRD. Making it cheaper (compressing into a reused
   buffer, not zeroing the output buffer before `compress_into`) does not.
 - A W2 repetition takes about 37 s for 1M inserts in 1,000 writes, so the CPU per write dominates over the 1,000
@@ -177,12 +177,12 @@ was not profiled: samply needs administrator rights there.
 - **Node layout check.** `node::is_valid` and `cell_len_at` (`crates/krummi-tree/src/node.rs:109`, `:196`) are called
   from `node_at_with` (`crates/krummi-tree/src/lib.rs:256`). A page the transaction changed has no integrity code,
   so its layout is checked in full on every read (C3 of
-  [trees-node-check-cache.prd.md](../prd/krummi/trees-node-check-cache.prd.md)). A sequential load reads the same
+  [trees-node-check-cache.prd.md](../prd/krummi/trees/trees-node-check-cache.prd.md)). A sequential load reads the same
   few changed leaves and branches thousands of times per transaction, so this check takes 57–63 % of W1 and W3. The
   2026-11-04 profile missed it because it covered only W2 and W21.
 - **Page checksum on the way down.** `page_and_code` → `run_with` (`scratch.rs:999`, `pager.rs:382`) takes
   5.7–10.2 %, more than sealing (2.7–5.0 %). The writer checks every page it reads, even a remembered one (I3 of
-  [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md)), so a clean leaf can be hashed up to
+  [pager-integrity-once.prd.md](../prd/krummi/pager/pager-integrity-once.prd.md)), so a clean leaf can be hashed up to
   three times per insert: on the descent, in `insert_cell` and in `copy_for_write`. Voron checks each data file page
   once per process (`StorageEnvironment.cs:1561-1576`).
 - **Against 2026-11-04.**
@@ -248,10 +248,10 @@ both platforms. Shares are of the committing thread unless marked otherwise.
 - **Candidates, by measured share.**
   1. O8, journal the changed bytes: LZ4 (24–36 % of W2, W14, W15 and W19) and the raw payload copy, and a smaller
      record shortens the Windows wait. Needs a PRD (journal format and recovery). **Done** (2026-11-08, `ebbf6ee`,
-     `fe2f1b8`, `7192dc7`; [journal-page-diffs.prd.md](../prd/krummi/journal-page-diffs.prd.md)): see O8.
+     `fe2f1b8`, `7192dc7`; [journal-page-diffs.prd.md](../prd/krummi/journal/journal-page-diffs.prd.md)): see O8.
   2. Layout check of scratch-area versions, remembered like that of store pages: up to 15–22 % of W2 and W19 (WSL 2).
      Amends C3; needs a PRD. Count first how much of `is_valid` it covers. **Done** (2026-11-08, `5199efc`,
-     `a289acf`; [pager-version-checks.prd.md](../prd/krummi/pager-version-checks.prd.md)), with page reads that
+     `a289acf`; [pager-version-checks.prd.md](../prd/krummi/pager/pager-version-checks.prd.md)), with page reads that
      share the temporary-area lock.
   3. Roll the journal file off the commit (create the next file and close the old one on the journal thread): 5–12 %
      on Windows. No observable change, if the new file is still durable before its first write. **Done, close only**
@@ -292,9 +292,9 @@ profiles ran without the bench power plan, so only their shares compare (`work/p
 - **W21 on Linux:** two copies of each page (27 % in `memcpy`), LZ4 (15 %) and xxh3 (10 %); removing a copy is a large
   refactor for about 10 %, left for later.
 
-Proposals, carried out in [margin.md](../../odd/tasks/margin.md): the old one-walk check for nodes without holes
+Proposals, carried out in [margin.md](../../odd/done/pager/margin.md): the old one-walk check for nodes without holes
 (W3 a); no check of the nodes a write changed, which later reads check
-([pager-commit-checks.prd.md](../prd/krummi/pager-commit-checks.prd.md), W3 b); readers that find versions without
+([pager-commit-checks.prd.md](../prd/krummi/pager/pager-commit-checks.prd.md), W3 b); readers that find versions without
 the lock (W12); more released own chunks kept (W17); one lookup for both memories (W11).
 
 ## Optimizations
@@ -338,7 +338,7 @@ the lock (W12); more released own chunks kept (W17); one lookup for both memorie
 ### O3 — Stop verifying the checksum of the same page on every read
 
 - **Kind:** **changes a guarantee → needs a PRD first.** The remembered node layout check (5.x) kept the integrity
-  check on every read of the data file (C7 of [trees-node-check-cache.prd.md](../prd/krummi/trees-node-check-cache.prd.md))
+  check on every read of the data file (C7 of [trees-node-check-cache.prd.md](../prd/krummi/trees/trees-node-check-cache.prd.md))
   and left out of its scope "Dejar de comprobar la integridad en cada lectura, o recordarla".
 - **What:** verify each page of the data file once per opening and remember it, as Voron does: its
   `_validPagesAfterLoad` bitmap marks a page after its first successful check, and pages beyond the file's size at
@@ -365,7 +365,7 @@ the lock (W12); more released own chunks kept (W17); one lookup for both memorie
 ### O5 — Copy each changed page once in the commit
 
 - **Kind:** optimization without observable change → ODD, no PRD.
-- **What:** O4 left these copies out (L3 of [commit-copies.md](../../odd/tasks/commit-copies.md)). Remove them:
+- **What:** O4 left these copies out (L3 of [commit-copies.md](../../odd/done/journal/commit-copies.md)). Remove them:
   - Seal each changed page straight into its slot of the temporary area, instead of into a separate sealed page.
   - Build the journal record from those slots, without copying the raw payload.
   - Write a group without copying its records into a second buffer: lay the records out in place in one aligned
@@ -389,7 +389,7 @@ the lock (W12); more released own chunks kept (W17); one lookup for both memorie
 
 ### O6 — Check the layout of a changed node once per change
 
-- **Kind:** changes C3 of [trees-node-check-cache.prd.md](../prd/krummi/trees-node-check-cache.prd.md), under which
+- **Kind:** changes C3 of [trees-node-check-cache.prd.md](../prd/krummi/trees/trees-node-check-cache.prd.md), under which
   the pages the write itself changes are checked on every read → PRD amendment first.
 - **What:** a node the transaction changed is checked the first time it is read after its last change. That check
   is remembered until the transaction changes the node again. The memory is per transaction, because it covers only
@@ -403,7 +403,7 @@ the lock (W12); more released own chunks kept (W17); one lookup for both memorie
 
 ### O7 — Hash each store page once per write transaction
 
-- **Kind:** changes I3 of [pager-integrity-once.prd.md](../prd/krummi/pager-integrity-once.prd.md), under which the
+- **Kind:** changes I3 of [pager-integrity-once.prd.md](../prd/krummi/pager/pager-integrity-once.prd.md), under which the
   writer checks every page it reads, on every read → PRD amendment first. The lighter form below also changes how
   I3 reads, so it goes in the same amendment.
 - **What:** two forms:
@@ -417,7 +417,7 @@ the lock (W12); more released own chunks kept (W17); one lookup for both memorie
 
 ### O8 — Journal the changed bytes of each page
 
-- **Kind:** changes the journal format and its recovery ([journal.prd.md](../prd/krummi/journal.prd.md): J16 and the
+- **Kind:** changes the journal format and its recovery ([journal.prd.md](../prd/krummi/journal/journal.prd.md): J16 and the
   record format) → PRD first.
 - **What:** as Voron does, journal each changed page as its difference from its version before the transaction:
   runs of changed 8-byte words, then compressed. A new page is journaled as its non-zero runs. Recovery applies the
@@ -428,7 +428,7 @@ the lock (W12); more released own chunks kept (W17); one lookup for both memorie
   - A torn data file page is still restored. The PRD needs the proof: each difference applies over a page whose
     earlier versions are in the journal or in the data file.
 - **Risk:** item 1 (the stored format) and item 3 (the journal format). It is the largest of the four.
-- **Status (2026-11-08):** done in [journal-page-diffs.prd.md](../prd/krummi/journal-page-diffs.prd.md), store
+- **Status (2026-11-08):** done in [journal-page-diffs.prd.md](../prd/krummi/journal/journal-page-diffs.prd.md), store
   format `10`. A page's entry keeps the 8-byte words that differ from the version it was copied from, or a created
   page without its zero parts; recovery applies them over `krummi.data` and checks every applied page at the end.
   Nodes of the variable-size trees leave holes when an entry is removed, so a small change changes few bytes. The
@@ -459,20 +459,20 @@ Each step closes with complete runs on Windows and Linux, so the next diagnosis 
 | Date | Optimization | Commit | Result |
 |---|---|---|---|
 | 2026-11-04 | Diagnosis of reads and writes | — | Profiles of W7, W9, W22, W2 and W21 on WSL 2 (this document) |
-| 2026-11-04 | O1, pager mapping without a lock | `9acf695` | Single-load runs, before → after: W9 +31 % on Windows and WSL 2, W10 +49 % / +116 %, W8 0 % / +21 %; no threshold met yet ([report](../../odd/tasks/pager-mapping-report.md)) |
-| 2026-11-04 | O2, scratch lookup without a lock | `387e758` | Single-load runs, before → after: W9 +26 % to +66 % on Windows, +63 % to +131 % on WSL 2; the other loads within noise; a load after W9 can run slowly on Windows under the same parent process ([report](../../odd/tasks/scratch-lock-report.md)) |
-| 2026-11-05 | O3a, xxh3 picked at run time | `8c80d79` | Single-load runs, before → after: W7 +21 % to +57 %, W8 +15 % to +31 %, W9 +25 % to +52 %, W11 +7 % to +18 %, W12 +3 % to +15 % on Windows and WSL 2; W10 and W13 within noise; checksum values pinned, with the SSE2 and scalar variants checked in CI; no threshold met yet ([report](../../odd/tasks/fast-xxh3-report.md)) |
+| 2026-11-04 | O1, pager mapping without a lock | `9acf695` | Single-load runs, before → after: W9 +31 % on Windows and WSL 2, W10 +49 % / +116 %, W8 0 % / +21 %; no threshold met yet ([report](../../odd/done/pager/pager-mapping-report.md)) |
+| 2026-11-04 | O2, scratch lookup without a lock | `387e758` | Single-load runs, before → after: W9 +26 % to +66 % on Windows, +63 % to +131 % on WSL 2; the other loads within noise; a load after W9 can run slowly on Windows under the same parent process ([report](../../odd/done/pager/scratch-lock-report.md)) |
+| 2026-11-05 | O3a, xxh3 picked at run time | `8c80d79` | Single-load runs, before → after: W7 +21 % to +57 %, W8 +15 % to +31 %, W9 +25 % to +52 %, W11 +7 % to +18 %, W12 +3 % to +15 % on Windows and WSL 2; W10 and W13 within noise; checksum values pinned, with the SSE2 and scalar variants checked in CI; no threshold met yet ([report](../../odd/done/pager/fast-xxh3-report.md)) |
 | 2026-11-05 | Complete runs after O1, O2 and O3a | `3ec8641` | Against the 2026-11-03 reports, Krummi's op/s: every read load rises on both platforms (Windows +14 % to +208 %, Linux +6 % to +128 %; W7 +29 % / +37 %, W9 +208 % / +128 %); writes go from −2 % to +34 % on Windows and from −17 % to +7 % on Linux, where Voron's W1 and W4 fall too. Thresholds met: Windows 6 of 22 (was 5, adds W4), Linux 5 of 22 (was 7, loses W1 and W20). By the 0.05 ratio rule, Windows W5, W6 and W16 and Linux W1, W10, W16 and W20 count as worse, each with Krummi flat or up and Voron up, except Linux W1 (Krummi −17 %, Voron −8 %) and W16 (Krummi −12 %, still 74 times Voron); the unchanged engines moved between the two dates too (Voron −37 % to +50 %, canopydb and fjall up to several times), so the rule is too tight to tell noise and needs calibrating. A first Windows run on 2026-11-05, with other work on the machine, was discarded: the unchanged engines moved −86 % to +445 % ([Windows](../benchmark/2026-11-05-windows.md), [Linux](../benchmark/2026-11-05-linux.md)) |
-| 2026-11-06 | O3, remembered page integrity | `13489d1` | Single-load runs, before → after: W7 +87 % to +126 % on Windows, +104 % to +113 % on WSL 2; W9 +231 % / +163 % to +175 %; W22 +245 % to +261 % / +104 % to +220 %. Codex R1 (a run's length mark can be evicted) left as a user decision ([report](../../odd/tasks/integrity-once-report.md)) |
-| 2026-11-06 | O4, fewer zeroed buffers and allocations in the commit | `d95da27` | Single-load runs, before → after: W21 +17 % to +20 % and W14 +9 % to +10 % on Windows, W2 and W4 +3 % to +9 %; on WSL 2 every write load within noise; journal record bytes pinned ([execution](../../odd/tasks/commit-copies.md)) |
+| 2026-11-06 | O3, remembered page integrity | `13489d1` | Single-load runs, before → after: W7 +87 % to +126 % on Windows, +104 % to +113 % on WSL 2; W9 +231 % / +163 % to +175 %; W22 +245 % to +261 % / +104 % to +220 %. Codex R1 (a run's length mark can be evicted) left as a user decision ([report](../../odd/done/pager/integrity-once-report.md)) |
+| 2026-11-06 | O4, fewer zeroed buffers and allocations in the commit | `d95da27` | Single-load runs, before → after: W21 +17 % to +20 % and W14 +9 % to +10 % on Windows, W2 and W4 +3 % to +9 %; on WSL 2 every write load within noise; journal record bytes pinned ([execution](../../odd/done/journal/commit-copies.md)) |
 | 2026-11-06 | Complete runs after O3 and O4 | `2fdf8e9` | Thresholds met: Windows 10 of 22 (was 6, adds W7, W8, W9 and W22), Linux 10 of 22 (was 5, adds W7, W8, W9, W20 and W22). Ratio Krummi / Voron, W7: 0.50 → 1.23 on Windows, 0.54 → 1.03 on Linux; W22: 0.52 → 1.27, 0.38 → 1.21. By the 0.05 rule, Windows W10, W11 and W20 and Linux W2, W4–W6, W14–W17 count as worse; Krummi's own op/s fall only in Windows W10 (−30 %) and Linux W2, W4–W6, W14–W17 (−4 % to −20 %), and single-load runs against `3ec8641` (before O3) show none of them lower: W10 +5 % / +10 % on Windows; W2, W14, W15 and W17 +0 % to +9 % on WSL 2; W16 +1 % and −32 % with reps from 254 to 606 ([Windows](../benchmark/2026-11-06-windows.md), [Linux](../benchmark/2026-11-06-linux.md)) |
-| 2026-11-07 | O5, part of the commit's page copies removed (the raw payload copy and the copy of a group of several records stay, pending in O5's status; a user decision) | `6794ebc` | Single-load runs, before → after: on Windows W2, W14, W15, W19 and W21 +14 % to +24 %, W17 mixed; on WSL 2 W2 +1 %, W14 +6 %, W15 +9 %, W17 and W21 mixed, W19 −0.4 % / −0.5 %. Journal and data file bytes pinned ([execution](../../odd/tasks/write-path.md)) |
-| 2026-11-07 | O6 and O7, a writer checks a changed node's layout once per change and uses the page integrity remembered while the store is open | `f7b19d8`, `2b11374` | Single-load runs, O5 → O7: W1 +66 % to +95 % on Windows, +15 % to +18 % on WSL 2; W3 +49 % to +51 % on both; W2, W14, W15 and W21 +2 % to +6 % on Windows; on WSL 2 W14 and W15 improve, W2 is mixed and W21 −3 % in both rounds, both improving in a repeat. AC-S8 met as an intermediate step (annotation of 2026-11-07 to the PRD; [execution](../../odd/tasks/write-path.md)) |
+| 2026-11-07 | O5, part of the commit's page copies removed (the raw payload copy and the copy of a group of several records stay, pending in O5's status; a user decision) | `6794ebc` | Single-load runs, before → after: on Windows W2, W14, W15, W19 and W21 +14 % to +24 %, W17 mixed; on WSL 2 W2 +1 %, W14 +6 %, W15 +9 %, W17 and W21 mixed, W19 −0.4 % / −0.5 %. Journal and data file bytes pinned ([execution](../../odd/done/pager/write-path.md)) |
+| 2026-11-07 | O6 and O7, a writer checks a changed node's layout once per change and uses the page integrity remembered while the store is open | `f7b19d8`, `2b11374` | Single-load runs, O5 → O7: W1 +66 % to +95 % on Windows, +15 % to +18 % on WSL 2; W3 +49 % to +51 % on both; W2, W14, W15 and W21 +2 % to +6 % on Windows; on WSL 2 W14 and W15 improve, W2 is mixed and W21 −3 % in both rounds, both improving in a repeat. AC-S8 met as an intermediate step (annotation of 2026-11-07 to the PRD; [execution](../../odd/done/pager/write-path.md)) |
 | 2026-11-07 | Complete runs after O5, O6 and O7 | `c98d8c9` | Thresholds met: Windows 12 of 22 (was 10, adds W1 and W3), Linux 13 of 22 (was 10, adds W1, W3 and W18). Ratio Krummi / Voron, W1: 0.47 → 0.90 on Windows, 0.76 → 1.04 on Linux; W3: 0.53 → 0.82, 0.55 → 0.92. Of the drops beyond 0.05 (Windows W6, W16 and W22, Linux W6 and W8), single-load runs confirm only Windows W22: about −5 %, from O7's code, not the store or O6 (cross tests on one store: O6 +1.3 % over O5, O7 −4.2 % under O6, lower in 6 of 6 rounds). O7 does not change what a read transaction does; the mechanism is unproven (generated code is one hypothesis) and needs a profile. Deferred, user's decision: item 10 of [Order](#order). Last runs with Defender scanning on Windows ([Windows](../benchmark/2026-11-07-windows.md), [Linux](../benchmark/2026-11-07-linux.md)) |
 | 2026-11-07 | Diagnosis of the writes after O5–O7 | — | Profiles of W2, W14, W15, W17, W19 and W21 on Windows (first time) and WSL 2: LZ4 still 24–36 % of the random loads; O6 missed them because scratch-area versions are layout-checked on every read; Windows adds waiting for durability (6–16 %), the journal roll's `CloseHandle` (5–12 %), page faults (10–15 %) and one temporary file per large value (45 % of W17). Nine candidates ranked (this document, *Writes after O5–O7*) |
-| 2026-11-07 | Candidates 3, 4 and 5 of *Writes after O5–O7*: the journal thread closes the old journal file, commits reuse their record buffers and page payloads, and released own chunks serve the next value run of their size | `f4e0e8a`–`f63507f` | Single-load runs, before → after: on Windows every write load improves in both rounds, W2, W14 and W15 +23 % to +27 %, W21 +16 % to +17 %, W19 +8 %, W17 +54 % / +76 %; on WSL 2 W2, W15 and W19 +2 % to +4 %, W17 +1 % / +11 %, W1, W14 and W21 mixed, and W12 lower in both rounds at first, mixed in a repeat with every intermediate commit. Costs: a store on disk can keep up to 32 MiB each of journal payload buffer, spare records, page payloads and own temporary chunks, where it kept about 16 MiB; own chunks are kept only when the store has no maximum size, since the files of `krummi.temp` count against it. The next journal file is still created on the committing thread. Journal record and data file bytes pinned ([execution](../../odd/tasks/write-reuse.md)) |
+| 2026-11-07 | Candidates 3, 4 and 5 of *Writes after O5–O7*: the journal thread closes the old journal file, commits reuse their record buffers and page payloads, and released own chunks serve the next value run of their size | `f4e0e8a`–`f63507f` | Single-load runs, before → after: on Windows every write load improves in both rounds, W2, W14 and W15 +23 % to +27 %, W21 +16 % to +17 %, W19 +8 %, W17 +54 % / +76 %; on WSL 2 W2, W15 and W19 +2 % to +4 %, W17 +1 % / +11 %, W1, W14 and W21 mixed, and W12 lower in both rounds at first, mixed in a repeat with every intermediate commit. Costs: a store on disk can keep up to 32 MiB each of journal payload buffer, spare records, page payloads and own temporary chunks, where it kept about 16 MiB; own chunks are kept only when the store has no maximum size, since the files of `krummi.temp` count against it. The next journal file is still created on the committing thread. Journal record and data file bytes pinned ([execution](../../odd/done/journal/write-reuse.md)) |
 | 2026-11-07 | Complete runs after candidates 3, 4 and 5 | `e0f33f8` | First complete runs with the benchmark power plan (turbo off) and with `work` excluded from Defender; the earlier ones ran with turbo, so every engine moves: reads −14 % to −53 % for all six on both platforms, Linux writes +25 % to +73 % for all. Only the ratios compare. Thresholds met: Windows 11 of 22 (was 12, loses W1: 0.90 → 0.72), Linux 14 of 22 (was 13, adds W13 and W17, loses W18). Ratios that rise with this step: on Windows W2 0.31 → 0.40, W4 0.95 → 1.04, W14 0.38 → 0.47, W15 0.32 → 0.42, W17 0.46 → 0.61, W21 0.50 → 0.65; on Linux W17 0.73 → 1.06. Of the falls, single-load runs before → after under the same power plan show none from the branch: W1 +0.3 % / +1.0 % on Windows (T5); W18 +3.0 % / −11.0 % on Windows and +8.9 % / −11.0 % on WSL 2; W10 mixed on Windows and better on WSL 2; W20 −1.1 % / −1.3 % on Windows and mixed on WSL 2, although the branch changes no read path. Later complete runs should keep the same power plan ([Windows](../benchmark/2026-11-07-windows-write-reuse.md), [Linux](../benchmark/2026-11-07-linux-write-reuse.md)) |
-| 2026-11-08 | Cheap gaps against Voron (the bench's byte sum, scans without prefix, one leaf read per fixed-size insert, temporary files marked temporary on Windows, a one-pass layout check), candidate 2 of *Writes after O5–O7* (remembered layout check of temporary-area versions, shared lock for page reads) and O8 (journal page diffs, holes in slotted nodes) | `d96a92b`, `e08b646`, `7192dc7` | Single-load rotations of the four binaries, first round / second round: W18 ×3.0 / ×2.9 on Windows and ×2.6 / ×2.4 on WSL 2 (byte sum), W1 +25–27 % / +5–14 %, W10 and W11 +15–24 % (cheap gaps); W12 +65 % / +71 % and +32 % / +35 % (versions); W2, W14, W15 and W19 ×2.1–2.5 and ×1.7–2.2, W21 +43–45 % and +18–20 % (O8). Confirmed costs: W21 −1.5 % on Windows from the versions, W3 −3.1 % on WSL 2 over the branch. Store format `10` ([report](../../odd/tasks/cheap-gaps-report.md)) |
+| 2026-11-08 | Cheap gaps against Voron (the bench's byte sum, scans without prefix, one leaf read per fixed-size insert, temporary files marked temporary on Windows, a one-pass layout check), candidate 2 of *Writes after O5–O7* (remembered layout check of temporary-area versions, shared lock for page reads) and O8 (journal page diffs, holes in slotted nodes) | `d96a92b`, `e08b646`, `7192dc7` | Single-load rotations of the four binaries, first round / second round: W18 ×3.0 / ×2.9 on Windows and ×2.6 / ×2.4 on WSL 2 (byte sum), W1 +25–27 % / +5–14 %, W10 and W11 +15–24 % (cheap gaps); W12 +65 % / +71 % and +32 % / +35 % (versions); W2, W14, W15 and W19 ×2.1–2.5 and ×1.7–2.2, W21 +43–45 % and +18–20 % (O8). Confirmed costs: W21 −1.5 % on Windows from the versions, W3 −3.1 % on WSL 2 over the branch. Store format `10` ([report](../../odd/done/pager/cheap-gaps-report.md)) |
 | 2026-11-08 | Complete runs after the cheap gaps, candidate 2 and O8 | `4a3a92e` (Linux: `d679cf3`, the same code) | Same power plan as the 2026-11-07 runs. Thresholds met: Windows 21 of 22 (was 11; misses W17, 0.63), Linux 21 of 22 (was 14; misses W3, 0.82 → 0.78, Krummi −3.1 %, the cost the single-load runs confirmed). Ratio Krummi / Voron, W2: 0.40 → 1.02 on Windows, 0.48 → 1.03 on Linux; W1 0.72 → 1.04 / 0.96 → 1.06; W12 0.37 → 0.87 / 0.63 → 0.85; W13 0.47 → 1.23; W18 0.46 → 1.58 / 0.51 → 1.62; W19 0.37 → 0.88 / 0.55 → 0.97; W21 0.65 → 0.94 / 0.71 → 0.82. Falls beyond 0.05: Linux W10 1.26 → 0.80 with Voron +88 % and Krummi +19 %, and Linux W16 Krummi −11 %, mixed in five alternating single-load rounds (medians 224 and 222 op/s, repetitions from 165 to 353) ([Windows](../benchmark/2026-11-08-windows-cheap-gaps.md), [Linux](../benchmark/2026-11-08-linux-cheap-gaps.md)) |
-| 2026-11-09 | Margin after the cheap gaps: a one-pass layout check for nodes without holes (W3 a), a write never checks the nodes it changed and later transactions check what it committed (W3 b, PRD `pager-commit-checks`), readers skip the version lock for pages without versions (W12), shared temporary chunks grow over few scattered free slots (W17); merged lookups for W11 measured and dropped | `da18e52`, `c5093a5`, `77b57e7`, `f6c8f6a`, `43e6f2a` | Single-load rotations, `22d045a` → `908b65e`, first round / second round: W1 +40 % / +39 % on Windows, +10 % / +1 % on WSL 2; W3 +76 % / +56 % and +53 % / +47 %; W12 +26 % / +55 % and +32 % / +26 %; W17 +59 % / +58 % on Windows. Confirmed cost: W11 −1.9 % on Windows (four rounds). W18 lower on Windows comes from the store copy, not the binary (cross test; the data files differ only in their headers). Debug builds check the nodes a write changed (`11829c6`) ([execution](../../odd/tasks/margin.md)) |
+| 2026-11-09 | Margin after the cheap gaps: a one-pass layout check for nodes without holes (W3 a), a write never checks the nodes it changed and later transactions check what it committed (W3 b, PRD `pager-commit-checks`), readers skip the version lock for pages without versions (W12), shared temporary chunks grow over few scattered free slots (W17); merged lookups for W11 measured and dropped | `da18e52`, `c5093a5`, `77b57e7`, `f6c8f6a`, `43e6f2a` | Single-load rotations, `22d045a` → `908b65e`, first round / second round: W1 +40 % / +39 % on Windows, +10 % / +1 % on WSL 2; W3 +76 % / +56 % and +53 % / +47 %; W12 +26 % / +55 % and +32 % / +26 %; W17 +59 % / +58 % on Windows. Confirmed cost: W11 −1.9 % on Windows (four rounds). W18 lower on Windows comes from the store copy, not the binary (cross test; the data files differ only in their headers). Debug builds check the nodes a write changed (`11829c6`) ([execution](../../odd/done/pager/margin.md)) |
 | 2026-11-09 | Complete runs after the margin changes | `908b65e` (Linux from an identical archive) | Same power plan as the 2026-11-08 runs. Thresholds met: Windows 22 of 22 (was 21; W17 0.63 → 0.91), Linux 22 of 22 (was 21; W3 0.78 → 1.21). Ratio Krummi / Voron, Windows: W1 1.04 → 1.43, W3 0.82 → 1.17, W12 0.87 → 1.16; Linux: W12 0.85 → 1.10, W17 1.20 → 1.49, W21 0.82 → 0.96. Falls where Krummi falls (Windows W9, W18, W22; Linux W9, W16) are not confirmed by alternating single-load rounds, except the W11 cost above ([Windows](../benchmark/2026-11-09-windows-margin.md), [Linux](../benchmark/2026-11-09-linux-margin.md)) |

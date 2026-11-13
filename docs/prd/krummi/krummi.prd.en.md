@@ -28,7 +28,7 @@ modules, and splits the product into child PRDs, each with its own execution and
 *Annotation of 2026-11-03 to objective 2 and D4: exception: Krummi does not reproduce the leaf page compression of
 Voron's trees. That compression spends more memory and CPU to save disk and, with zero-copy reads (D11), would keep
 every leaf that a read transaction reads decompressed in transaction memory until it closes. The reasons are in the
-annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md). The product is still complete when the 16
+annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees/trees.prd.en.md). The product is still complete when the 16
 child PRDs of the split are closed, with module 5 without that compression.*
 
 **Why**: Voron is a design proven for years in production (one writer with concurrent readers that do not block,
@@ -54,61 +54,61 @@ product of its own, without being tied to its on-disk format.
 
 *Annotation of 2026-10-22 to D12: no public operation causes undefined behavior, unless another program modifies the
 store's files while it is open, which is out of scope (decision P16 of
-[pager.prd.en.md](pager.prd.en.md)).*
+[pager.prd.en.md](pager/pager.prd.en.md)).*
 
 *Annotation of 2026-10-22 to D7: an intact store whose format number is lower than the current one is of an older
 format, also with the number `0`, which no version uses and appears only in tests (decision P5 of
-[pager.prd.en.md](pager.prd.en.md)).*
+[pager.prd.en.md](pager/pager.prd.en.md)).*
 
 *Annotation of 2026-10-22 to D11: the reference of a read may also point to the memory where the engine keeps a
 committed version of the page that is not in the data file, never to a copy made for that read (decision T16 of
-[transactions.prd.en.md](transactions.prd.en.md)).*
+[transactions.prd.en.md](transactions/transactions.prd.en.md)).*
 
 *Annotation of 2026-10-23: the product is called Krummi; its packages and the files of a store take the names of R2
 and R3, and this document was updated with the new names (decisions R1–R13 of
-[rename-to-krummi.prd.en.md](rename-to-krummi.prd.en.md)). The file names and format numbers of the earlier
+[rename-to-krummi.prd.en.md](tooling/rename-to-krummi.prd.en.md)). The file names and format numbers of the earlier
 annotations are read according to R3 and R5, and the current format is `3`. A folder with a MuninnDB store does not
 contain a Krummi store (D10, decision R6).*
 
 *Annotation of 2026-10-24 to D7: with free space, the current format version becomes `5` (decision F11 of
-[free-space.prd.en.md](free-space.prd.en.md)).*
+[free-space.prd.en.md](free-space/free-space.prd.en.md)).*
 
-*Annotation of 2026-10-25 to D7: with the tree catalog, the current format version becomes `6` (decision A13 of [trees-keys.prd.en.md](trees-keys.prd.en.md)).*
+*Annotation of 2026-10-25 to D7: with the tree catalog, the current format version becomes `6` (decision A13 of [trees-keys.prd.en.md](trees/trees-keys.prd.en.md)).*
 
-*Annotation of 2026-10-25 to D11: listing the trees returns a copy owned by the application, not references to engine memory (decision A3 of [trees-keys.prd.en.md](trees-keys.prd.en.md)).*
+*Annotation of 2026-10-25 to D11: listing the trees returns a copy owned by the application, not references to engine memory (decision A3 of [trees-keys.prd.en.md](trees/trees-keys.prd.en.md)).*
 
-*Annotation of 2026-10-27 to D7: with large values, the current format version becomes `7` (decision V9 of [trees-large-values.prd.en.md](trees-large-values.prd.en.md)).*
+*Annotation of 2026-10-27 to D7: with large values, the current format version becomes `7` (decision V9 of [trees-large-values.prd.en.md](trees/trees-large-values.prd.en.md)).*
 
-*Annotation of 2026-10-27 to D11: every tree value, also one of up to 256 MiB stored off its leaf page, is returned as a single contiguous sequence of bytes without copying, also in temporary mode (decision V2 of [trees-large-values.prd.en.md](trees-large-values.prd.en.md)).*
+*Annotation of 2026-10-27 to D11: every tree value, also one of up to 256 MiB stored off its leaf page, is returned as a single contiguous sequence of bytes without copying, also in temporary mode (decision V2 of [trees-large-values.prd.en.md](trees/trees-large-values.prd.en.md)).*
 
-*Annotation of 2026-10-29 to D7: with multi-value trees, the current format version becomes `8` (decision M14 of [trees-multivalue.prd.en.md](trees-multivalue.prd.en.md)).*
+*Annotation of 2026-10-29 to D7: with multi-value trees, the current format version becomes `8` (decision M14 of [trees-multivalue.prd.en.md](trees/trees-multivalue.prd.en.md)).*
 
-*Annotation of 2026-11-02 to D7: with fixed-size trees, the current format version becomes `9` (decision X12 of [trees-fixed-size.prd.en.md](trees-fixed-size.prd.en.md)).*
+*Annotation of 2026-11-02 to D7: with fixed-size trees, the current format version becomes `9` (decision X12 of [trees-fixed-size.prd.en.md](trees/trees-fixed-size.prd.en.md)).*
 
-*Annotation of 2026-11-03 to D11: module 5 does not store compressed pages, because leaf page compression is out of scope (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md)); the copy in transaction memory still applies to encrypted pages (module 9).*
+*Annotation of 2026-11-03 to D11: module 5 does not store compressed pages, because leaf page compression is out of scope (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees/trees.prd.en.md)); the copy in transaction memory still applies to encrypted pages (module 9).*
 
-*Annotation of 2026-11-03 to objective 3 and D5: "competitive" means that, in every benchmark workload, Krummi performs at least 80% of what Voron performs. Exception to D5: Voron, which is not a Rust engine, takes part in the benchmark, built from the RavenDB source code, and is the only reference for the thresholds; the other engines give context (decisions K2 and K7 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
+*Annotation of 2026-11-03 to objective 3 and D5: "competitive" means that, in every benchmark workload, Krummi performs at least 80% of what Voron performs. Exception to D5: Voron, which is not a Rust engine, takes part in the benchmark, built from the RavenDB source code, and is the only reference for the thresholds; the other engines give context (decisions K2 and K7 of [benchmark.prd.en.md](benchmark/benchmark.prd.en.md)).*
 
-*Annotation of 2026-11-03 to D2 and D12: the comparative benchmark is a maintainer tool, not part of the product's public surface; its dependencies do not reach the library, and it may use unsafe code only where another engine's interface requires it (decision K14 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
+*Annotation of 2026-11-03 to D2 and D12: the comparative benchmark is a maintainer tool, not part of the product's public surface; its dependencies do not reach the library, and it may use unsafe code only where another engine's interface requires it (decision K14 of [benchmark.prd.en.md](benchmark/benchmark.prd.en.md)).*
 
 *Annotation of 2026-11-06 to D12: the Pager may use the journal compressor in its mode with unsafe code (`lz4_flex` without `safe-encode`). That mode produces the same bytes as the safe mode and compresses 30 % to 50 % faster, measured on pages of a real store. Decompression stays in its safe, checked mode. D12 still governs the engine's own code, and the automatic check covers it as before (user's decision, O5 of the performance plan).*
 
 *Annotations of 2026-11-08 from the journal of the changes of each page
-([journal-page-diffs.prd.en.md](journal-page-diffs.prd.en.md)):*
+([journal-page-diffs.prd.en.md](journal/journal-page-diffs.prd.en.md)):*
 
 - *D7: the current format version is `10` (decision Y5).*
 - *G5: a recovery that finds a damaged page fails after changing the store, and the next opening repeats it
   (decision Y3).*
 
 *Annotations of 2026-11-09 from the check of the write's nodes after the commit
-([pager-commit-checks.prd.en.md](pager-commit-checks.prd.en.md)):*
+([pager-commit-checks.prd.en.md](pager/pager-commit-checks.prd.en.md)):*
 
 - *G6: the exception of I8, widened by S3, widens with H3: inside a write, a read of a node it changed can return
   data that is not what was written, fail with another class or end in a panic if a failure of the engine, the
   hardware or the memory left it inconsistent; the commit stores it, and every read of it by another transaction
   fails with the damage class.*
 
-*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables/tables.prd.md), Spanish, authoritative):*
 
 - *Objective 2 and D4: the product is complete with the modules of the split except 9 (annotation of 2026-11-09 on
   encryption), with 17, 18 and 19, and without dictionary compression, deferred (N2 of tables), although Voron has
@@ -127,7 +127,7 @@ contain a Krummi store (D10, decision R6).*
   17. The item "Bindings for other languages (C API, .NET, Python)" now excludes the other languages: the C
   interface and the .NET binding come into module 18.*
 
-*Annotation of 2026-11-12 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative; child PRD 7.5):*
+*Annotation of 2026-11-12 from tables ([tables.prd.md](tables/tables.prd.md), Spanish, authoritative; child PRD 7.5):*
 
 - *D11 and AC20: from a JSON column, the whole document remains a reference without a copy; a string inside the JSON
   read as text is returned without a copy if it has no escapes, and decoded into a copy the application owns if it
@@ -174,40 +174,40 @@ and annotates this document.
 
 *Annotation of 2026-10-22: exception to G12. As in Voron, a physical disk failure when reading through the
 memory-mapped file projection ends the process instead of returning an error; G12 still holds for writes and for
-what is not read through the projection (decision P17 of [pager.prd.en.md](pager.prd.en.md)).*
+what is not read through the projection (decision P17 of [pager.prd.en.md](pager/pager.prd.en.md)).*
 
 *Annotation of 2026-10-22: G6 is made precise for the store header. If only one of its two copies is damaged, the
 store opens without error with the other one, because no damaged data is returned (decision P6 of
-[pager.prd.en.md](pager.prd.en.md)).*
+[pager.prd.en.md](pager/pager.prd.en.md)).*
 
 *Annotation of 2026-10-22: temporary exception to G1 (only on crashes), G2, G5 and G12 (in what the reopening
 recovers) until module 3. Without a journal, a crash, an input/output failure that the close does not resolve or
 ceasing to use the store without closing it when the write fails may leave the data file without part of what was
 committed since the last opening; after a close without error, what was committed is there, and G6 still holds
-(decision T9 of [transactions.prd.en.md](transactions.prd.en.md)).*
+(decision T9 of [transactions.prd.en.md](transactions/transactions.prd.en.md)).*
 
 *Annotation of 2026-10-22: the previous temporary exception ends with module 3; what was committed durably can no
-longer be missing after reopening (decisions J4 and J13 of [journal.prd.en.md](journal.prd.en.md)).*
+longer be missing after reopening (decisions J4 and J13 of [journal.prd.en.md](journal/journal.prd.en.md)).*
 
 *Annotation of 2026-10-22: G5, G6 and D10 are made precise for the journal. A damaged, incomplete or missing journal
 commit that the journal itself does not record as durable is discarded without error as a commit that did not
 finish; and if the last durable commit is damaged with no later commit, it cannot be told apart from one and is
-also discarded (decision J9 of [journal.prd.en.md](journal.prd.en.md)).*
+also discarded (decision J9 of [journal.prd.en.md](journal/journal.prd.en.md)).*
 
 *Annotation of 2026-10-23: with the group write of the journal, the above holds by groups of commits written
 together: if the last group is damaged with none after it, the damaged commit and the following ones are discarded;
 and the current format version becomes `4` (decisions E9 and E15 of
-[journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
+[journal-group-commit.prd.en.md](journal/journal-group-commit.prd.en.md)).*
 
 *Annotation of 2026-10-30: exception to G6. The layout check of a node of a tree whose integrity has just been verified
 is skipped if that same content (page number and 64-bit integrity code) already passed it while the store stays open.
 An alteration made while the store is open that matches the integrity code of a remembered content may return data that
 is not what was written or end in a panic instead of an error; alterations made while the store is closed are
-detected as until now (decision C7 of [trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)).*
+detected as until now (decision C7 of [trees-node-check-cache.prd.en.md](trees/trees-node-check-cache.prd.en.md)).*
 
-*Annotation of 2026-11-05: exception to G6. In the read transactions, the integrity of a page is checked the first time it is read in each opening and the first time after the engine rewrites it, and it is remembered until closing. A change of a remembered page made while the store is open by something that is not the engine (a hardware or memory failure, or a foreign program) may return data that is not what was written or end in a panic until reopening. The write transactions, backup, compaction, migration and verification still check everything they read, so no write seals a damage (decision I8 of [pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)).*
+*Annotation of 2026-11-05: exception to G6. In the read transactions, the integrity of a page is checked the first time it is read in each opening and the first time after the engine rewrites it, and it is remembered until closing. A change of a remembered page made while the store is open by something that is not the engine (a hardware or memory failure, or a foreign program) may return data that is not what was written or end in a panic until reopening. The write transactions, backup, compaction, migration and verification still check everything they read, so no write seals a damage (decision I8 of [pager-integrity-once.prd.en.md](pager/pager-integrity-once.prd.en.md)).*
 
-*Annotation of 2026-11-06: the previous annotation said that write transactions keep checking everything they read; they now use the remembered pages, as read transactions do. The exception to G6 widens: a write can seal into a new version a change to a remembered page made while the store is open by something other than the engine, and the damage stays stored. AC10 does not change (decisions S2 and S3 of [pager-writer-checks.prd.en.md](pager-writer-checks.prd.en.md)).*
+*Annotation of 2026-11-06: the previous annotation said that write transactions keep checking everything they read; they now use the remembered pages, as read transactions do. The exception to G6 widens: a write can seal into a new version a change to a remembered page made while the store is open by something other than the engine, and the damage stays stored. AC10 does not change (decisions S2 and S3 of [pager-writer-checks.prd.en.md](pager/pager-writer-checks.prd.en.md)).*
 
 *Annotation of 2026-11-09 (the user's decision in the design of the tables,
 [docs/design/tables/README.md](../../design/tables/README.md)): encrypting what the engine writes while the store is
@@ -221,7 +221,7 @@ names encrypted pages; G9 in what it says about asking for encryption in tempora
 messages, step 6 of the checks on opening, AC13 and what D10 says about what is readable without the key no longer
 apply to the store; key management and custody stay out of scope.*
 
-*Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables-row-reads.prd.md), Spanish, authoritative): Exception to G6: reading by the key and traversing the rows of the tables do not check their content. A malformed row in a page whose integrity passed G6 (a failure of the engine, a file altered with the store closed that recalculates the integrity codes, or a remembered page altered with the store open) may return data that is not the one written or end in a panic instead of an error. Update and insert or update keep checking the row they replace; AC10 does not change (decisions L1–L3 of [tables-row-reads.prd.en.md](tables-row-reads.prd.en.md)).*
+*Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables/tables-row-reads.prd.md), Spanish, authoritative): Exception to G6: reading by the key and traversing the rows of the tables do not check their content. A malformed row in a page whose integrity passed G6 (a failure of the engine, a file altered with the store closed that recalculates the integrity codes, or a remembered page altered with the store open) may return data that is not the one written or end in a panic instead of an error. Update and insert or update keep checking the row they replace; AC10 does not change (decisions L1–L3 of [tables-row-reads.prd.en.md](tables/tables-row-reads.prd.en.md)).*
 
 ## Flow
 
@@ -230,7 +230,7 @@ apply to the store; key management and custody stay out of scope.*
    a complete store is left, or the folder is left empty, with no remains of the store.
 
    *Annotation of 2026-10-22: after an interrupted creation a temporary file may remain until the next opening,
-   which deletes it and creates the store (decision P8 of [pager.prd.en.md](pager.prd.en.md)).*
+   which deletes it and creates the store (decision P8 of [pager.prd.en.md](pager/pager.prd.en.md)).*
 2. The opening does the checks in the [fixed order](#order-of-the-checks-on-open) and, if the store was closed by
    a crash, recovers it (G5).
 3. The application opens read transactions from any thread and one write transaction at a time (G3, G4); it
@@ -265,18 +265,18 @@ own errors and messages.
 
 *Annotation of 2026-10-24 to module 4: a long-running read does not prevent reusing freed pages nor make
 `krummi.data` grow; what it retains are page versions in `krummi.temp`, which count toward the maximum size
-(decision F7 of [free-space.prd.en.md](free-space.prd.en.md)).*
+(decision F7 of [free-space.prd.en.md](free-space/free-space.prd.en.md)).*
 
 *Annotation of 2026-10-24 to module 5: it is split into six child PRDs (5.1 to 5.6) under a module PRD with no
 execution of its own, and it counts as closed for objective 2 when all six are; the maximum sizes of a key (2,048
 bytes), a value (256 MiB) and a tree name (1,024 bytes) and their errors are in B4–B8 of
-[trees.prd.en.md](trees.prd.en.md).*
+[trees.prd.en.md](trees/trees.prd.en.md).*
 
 *Annotation of 2026-11-03 to module 5: leaf page compression leaves its content and the scope of the product
 (exception to objective 2 and D4); the module is split into five child PRDs (5.1 to 5.5) and counts as closed for
-objective 2 when the five are (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees.prd.en.md)).*
+objective 2 when the five are (annotation of 2026-11-03 to B2 of [trees.prd.en.md](trees/trees.prd.en.md)).*
 
-*Annotations of 2026-11-10 from tables ([tables.prd.md](tables.prd.md), Spanish, authoritative):*
+*Annotations of 2026-11-10 from tables ([tables.prd.md](tables/tables.prd.md), Spanish, authoritative):*
 
 - *Module 7: it also fixes the column types (N4) and the invalid value error (N10); raw data sections leave it
   (module 13 covers them) and dictionary compression is deferred (N2). It is split into child PRDs 7.1 to 7.4, the
@@ -319,7 +319,7 @@ The tool writes each message on its own line on the error output.
 When several situations hold, the first one in this list wins:
 
 *Annotation of 2026-10-22: before step 1 the opening options are checked; invalid options win over everything else
-and the opening fails without touching anything (flow of [pager.prd.en.md](pager.prd.en.md)).*
+and the opening fails without touching anything (flow of [pager.prd.en.md](pager/pager.prd.en.md)).*
 
 1. The folder can be used.
 2. The store is not already open.
@@ -328,7 +328,7 @@ and the opening fails without touching anything (flow of [pager.prd.en.md](pager
 
    *Annotation of 2026-10-22: for this step and for the not-a-store folder row, the temporary file left by an
    interrupted creation does not count as an entry when it is the only content of the folder (decision P8 of
-   [pager.prd.en.md](pager.prd.en.md)).*
+   [pager.prd.en.md](pager/pager.prd.en.md)).*
 4. What remains readable without a key (G8), including the format version, passes its integrity check (D10).
 5. Its format is that of this version. A store of another format that also needs recovery is rejected without
    recovering (D7 prevails over G5).
@@ -356,7 +356,7 @@ Common conventions of the command-line tool; child PRD 12 sets the exact output 
   Exit code: `1`.
 
 *Annotation of 2026-11-03: the comparative benchmark command also ends with `1` when Krummi misses a threshold,
-even though it wrote its report (decision K13 of [benchmark.prd.en.md](benchmark.prd.en.md)).*
+even though it wrote its report (decision K13 of [benchmark.prd.en.md](benchmark/benchmark.prd.en.md)).*
 
 ## Reuse
 
@@ -416,7 +416,7 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
 
    *Annotation of 2026-10-23 to AC6: in a store on disk, a new read only sees durable commits; after a deferred
    commit, it sees it when it is durable, not on return (decision E3 of
-   [journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
+   [journal-group-commit.prd.en.md](journal/journal-group-commit.prd.en.md)).*
 7. **AC7** — Given several threads that ask at the same time for a write transaction, when they are observed,
    then there are never two open at once and, within the waiting limits set by child PRD 2, all end up
    committed (G4).
@@ -433,16 +433,16 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
     different from what was written (G6, D10). Each child PRD repeats it with the structures it adds.
 
     *Annotation of 2026-10-22 to AC10: an alteration in the last commit of the journal may also cause it to be
-    discarded without error (decision J9 of [journal.prd.en.md](journal.prd.en.md)).*
+    discarded without error (decision J9 of [journal.prd.en.md](journal/journal.prd.en.md)).*
 
     *Annotation of 2026-10-23 to AC10: with the group write, that discard holds for an alteration in the last group
-    of commits written together (decision E9 of [journal-group-commit.prd.en.md](journal-group-commit.prd.en.md)).*
+    of commits written together (decision E9 of [journal-group-commit.prd.en.md](journal/journal-group-commit.prd.en.md)).*
 
     *Annotation of 2026-10-30 to AC10: the criterion does not change, because its alterations are made with the store
     closed and a newly opened store remembers no node; the residual risk of the exception to G6 only affects alterations
-    made while the store is open (decision C7 of [trees-node-check-cache.prd.en.md](trees-node-check-cache.prd.en.md)).*
+    made while the store is open (decision C7 of [trees-node-check-cache.prd.en.md](trees/trees-node-check-cache.prd.en.md)).*
 
-    *Annotation of 2026-11-05 to AC10: the criterion does not change, because a newly opened store remembers no page as intact; the residual risk of the exception to G6 only affects alterations made while the store is open (decision I8 of [pager-integrity-once.prd.en.md](pager-integrity-once.prd.en.md)).*
+    *Annotation of 2026-11-05 to AC10: the criterion does not change, because a newly opened store remembers no page as intact; the residual risk of the exception to G6 only affects alterations made while the store is open (decision I8 of [pager-integrity-once.prd.en.md](pager/pager-integrity-once.prd.en.md)).*
 11. **AC11** — Given a disk with no space, when a write transaction does not fit, then it fails with the
     disk-full error class, applies no change, the store still allows read transactions and, when space is freed,
     a following write commits without reopening (G7).
@@ -472,10 +472,10 @@ module 1, and adds its own. Child PRD 12 also checks at tool level AC8, AC9, AC1
     which Krummi meets the thresholds in force (D5).
 
     *Annotation of 2026-11-03 to AC19: the thresholds in force are those of K7 of
-    [benchmark.prd.en.md](benchmark.prd.en.md); AC19 is required before each product release, not to close module 6
+    [benchmark.prd.en.md](benchmark/benchmark.prd.en.md); AC19 is required before each product release, not to close module 6
     (decision K13).*
 
-    *Annotation of 2026-11-12 to AC19 from the Krummi and Voron only benchmark ([benchmark-krummi-voron.prd.md](benchmark-krummi-voron.prd.md), Spanish, authoritative): a full run with `--solo-krummi-voron` on Windows and on Linux, with only Krummi and Voron, is enough to check the thresholds (B6).*
+    *Annotation of 2026-11-12 to AC19 from the Krummi and Voron only benchmark ([benchmark-krummi-voron.prd.md](benchmark/benchmark-krummi-voron.prd.md), Spanish, authoritative): a full run with `--solo-krummi-voron` on Windows and on Linux, with only Krummi and Voron, is enough to check the thresholds (B6).*
 20. **AC20** — Given a read of any data structure, when it returns a value, then the reference points to engine
     memory (the file projection, or the transaction's memory if the page is encrypted or compressed) and not to a
     copy made for that read; and using the reference after closing the transaction does not compile (D11). Each

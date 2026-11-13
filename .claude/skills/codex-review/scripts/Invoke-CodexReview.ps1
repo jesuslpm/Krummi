@@ -18,7 +18,7 @@
     files (telemetry, best effort).
 
 .EXAMPLE
-    pwsh -NoProfile -File .claude/skills/codex-review/scripts/Invoke-CodexReview.ps1 -Prd docs/prd/krummi/trees-scan.prd.md -Feature trees-scan
+    pwsh -NoProfile -File .claude/skills/codex-review/scripts/Invoke-CodexReview.ps1 -Prd docs/prd/krummi/trees/trees-scan.prd.md -Feature trees-scan
 
 .EXAMPLE
     pwsh -NoProfile -File .claude/skills/codex-review/scripts/Invoke-CodexReview.ps1 -Range main..feat/x -Feature trees-keys

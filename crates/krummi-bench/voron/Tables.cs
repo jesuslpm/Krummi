@@ -1,4 +1,4 @@
-// The table loads W23-W29 on Voron's Table API (E21 and *Cargas del banco* of docs/prd/krummi/tables-schema.prd.md).
+// The table loads W23-W29 on Voron's Table API (E21 and *Cargas del banco* of docs/prd/krummi/tables/tables-schema.prd.md).
 // The data, the orders and the expected checksums come from TableData (Data.cs), a port of
 // crates/krummi-bench/src/table_data.rs; the digests are those of `table_data::digest`. Every load generates them before
 // any timer starts.

@@ -4,15 +4,15 @@ An embedded, transactional storage engine in Rust, inspired by [Voron](https://g
 the storage engine of RavenDB. The name follows Voron's: *voron* is Russian for raven, and *krummi* is the
 Icelandic nickname for the raven.
 
-Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager.prd.en.md)), module 2, the
-**transactions** ([PRD](docs/prd/krummi/transactions.prd.en.md)), and module 3, the **journal and recovery**
-([PRD](docs/prd/krummi/journal.prd.en.md)), with grouped and direct journal writes
-([PRD](docs/prd/krummi/journal-group-commit.prd.en.md)), module 4, **free space**
-([PRD](docs/prd/krummi/free-space.prd.en.md)), and the first five parts of module 5, **trees and key operations**,
+Implemented so far: module 1, the **Pager** ([PRD](docs/prd/krummi/pager/pager.prd.en.md)), module 2, the
+**transactions** ([PRD](docs/prd/krummi/transactions/transactions.prd.en.md)), and module 3, the **journal and recovery**
+([PRD](docs/prd/krummi/journal/journal.prd.en.md)), with grouped and direct journal writes
+([PRD](docs/prd/krummi/journal/journal-group-commit.prd.en.md)), module 4, **free space**
+([PRD](docs/prd/krummi/free-space/free-space.prd.en.md)), and the first five parts of module 5, **trees and key operations**,
 **in-order scan and prefix search**, **large values**, **multi-value trees** and **fixed-size trees**
-([module PRD](docs/prd/krummi/trees.prd.en.md), [PRD](docs/prd/krummi/trees-keys.prd.en.md),
-[PRD](docs/prd/krummi/trees-scan.prd.en.md), [PRD](docs/prd/krummi/trees-large-values.prd.en.md),
-[PRD](docs/prd/krummi/trees-multivalue.prd.en.md), [PRD](docs/prd/krummi/trees-fixed-size.prd.en.md)). An
+([module PRD](docs/prd/krummi/trees/trees.prd.en.md), [PRD](docs/prd/krummi/trees/trees-keys.prd.en.md),
+[PRD](docs/prd/krummi/trees/trees-scan.prd.en.md), [PRD](docs/prd/krummi/trees/trees-large-values.prd.en.md),
+[PRD](docs/prd/krummi/trees/trees-multivalue.prd.en.md), [PRD](docs/prd/krummi/trees/trees-fixed-size.prd.en.md)). An
 application can create, open, inspect and close stores, on disk
 or in memory, and open read transactions from any number of threads and one write transaction at a time, which the
 others wait for in order of arrival. A commit that returns survives a crash or a power cut, and opening a store after
@@ -22,8 +22,8 @@ from both ends, by interval and by prefix, and removes whole intervals. It also 
 key holds a sorted set of values of up to 2,048 bytes, the empty value included, with their own operations and scans,
 and fixed-size trees, whose keys are unsigned 64-bit integers in numeric order and whose values all have the length,
 0 to 2,048 bytes, given when the tree is created; asking for a tree's kind by its name gives that length too.
-Module 7 has its first part, **tables with schema** ([module PRD](docs/prd/krummi/tables.prd.en.md),
-[PRD](docs/prd/krummi/tables-schema.prd.en.md)): named tables of typed columns (integers, floats, `decimal`, text,
+Module 7 has its first part, **tables with schema** ([module PRD](docs/prd/krummi/tables/tables.prd.en.md),
+[PRD](docs/prd/krummi/tables/tables-schema.prd.en.md)): named tables of typed columns (integers, floats, `decimal`, text,
 bytes, dates and times, `uuid`, `ulid` and vectors) with a primary key, created, opened, described, renamed, emptied
 and deleted like trees; rows inserted, updated (only the columns given), read, deleted and scanned from both ends by
 ranges of the primary key; schema changes that never rewrite rows; an atomic bulk load; named sequences; and
@@ -160,7 +160,7 @@ values, which its catalog entry keeps.
 
 ## Comparative benchmark
 
-The benchmark ([PRD](docs/prd/krummi/benchmark.prd.md)) measures Krummi against Voron, LMDB (through heed), redb,
+The benchmark ([PRD](docs/prd/krummi/benchmark/benchmark.prd.md)) measures Krummi against Voron, LMDB (through heed), redb,
 canopydb and fjall with the same 29 loads, every commit durable, and writes a Markdown report in Spanish. In each
 load Krummi must reach at least 80% of Voron's operations per second; the command ends with code `1` when it misses
 one. It needs the .NET 10 SDK and a folder with the RavenDB 7.2.7 source code, from which it builds Voron:
@@ -175,7 +175,7 @@ file (`banco-<fecha>-<hora>.md` in the current folder by default). `--reducido` 
 measures once and evaluates no threshold: it checks that the benchmark works, and CI runs it on both systems. A
 complete run is meant for the maintainer's machine before a release, with the machine otherwise idle.
 `--solo-krummi-voron` measures only Krummi and Voron, which is enough for the thresholds and takes about half an hour
-instead of about four hours ([PRD](docs/prd/krummi/benchmark-krummi-voron.prd.md)). On a processor whose system tells
+instead of about four hours ([PRD](docs/prd/krummi/benchmark/benchmark-krummi-voron.prd.md)). On a processor whose system tells
 performance cores from efficiency cores (Windows on a hybrid Intel processor, for example), every run limits the
 engine processes to the performance cores, and the report's *Núcleos* line says where they were measured.
 

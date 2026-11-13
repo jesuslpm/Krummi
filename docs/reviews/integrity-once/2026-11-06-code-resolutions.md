@@ -110,7 +110,7 @@ resolved.» The 64 TiB question stays open.
     evicts marks. More memory breaks I6.
   - The run header holds only its code and first page number (`crates/krummi-pager/src/format.rs:17-20`). Holding
     the length there would close the gap at no cost, but it is a format change with its own PRD.
-- Record: annotation of 2026-11-06 to I1 of `docs/prd/krummi/pager-integrity-once.prd.md` and its translation. No
+- Record: annotation of 2026-11-06 to I1 of `docs/prd/krummi/pager/pager-integrity-once.prd.md` and its translation. No
   code change: the code stays as `bcb71ce`.
 - Status: closed by the user's decision.
 
@@ -119,6 +119,6 @@ resolved.» The 64 TiB question stays open.
 - Disposition: accepted by the user (option 1 of three: accept and annotate P10; raise the ceiling, at more
   reserved address space per open store; remove it with a remembered map that can move, which needs
   synchronization with readers).
-- Record: annotation of 2026-11-06 to P10 of `docs/prd/krummi/pager.prd.md` and its translation. No code change
+- Record: annotation of 2026-11-06 to P10 of `docs/prd/krummi/pager/pager.prd.md` and its translation. No code change
   (`MAX_FILE_PAGES`, `crates/krummi-pager/src/remembered.rs:22`).
 - Status: closed by the user's decision.

@@ -5,7 +5,7 @@ A claimed fix stays unverified until a follow-up review confirms it.
 
 ## 2026-10-30
 
-Artifact version: uncommitted `docs/prd/krummi/trees-node-check-cache.prd.md`, SHA-256 `20d3582bba08455e6d73b6c44c2270788532b3a0f3e2696dcf6919662108046f`. The annotations in
+Artifact version: uncommitted `docs/prd/krummi/trees/trees-node-check-cache.prd.md`, SHA-256 `20d3582bba08455e6d73b6c44c2270788532b3a0f3e2696dcf6919662108046f`. The annotations in
 `krummi.prd.md`, `trees.prd.md`, `trees-keys.prd.md` and `trees-multivalue.prd.md` are unchanged since the review.
 
 ### R1 — minor: C7 overstates the memory-safety guarantee for external file mutation

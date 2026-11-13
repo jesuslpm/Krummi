@@ -7,9 +7,9 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 
 Artifact versions after the fixes (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/trees-scan.prd.md`: `9ac49e38b02e58b2f12ec29306fa33da008914133e426ae794c13132bc45c333`
-- `docs/prd/krummi/trees.prd.md`: `fc798bd5130df67f0b337ce530d91803252859d97ca527bb21f67e47c31df067`
-- `docs/prd/krummi/trees-keys.prd.md`: `3bf17c869dc3fb89ab9817e4eac210bbd3ae1c2e03f83094a4a3788b7b8fbc99`
+- `docs/prd/krummi/trees/trees-scan.prd.md`: `9ac49e38b02e58b2f12ec29306fa33da008914133e426ae794c13132bc45c333`
+- `docs/prd/krummi/trees/trees.prd.md`: `fc798bd5130df67f0b337ce530d91803252859d97ca527bb21f67e47c31df067`
+- `docs/prd/krummi/trees/trees-keys.prd.md`: `3bf17c869dc3fb89ab9817e4eac210bbd3ae1c2e03f83094a4a3788b7b8fbc99`
 
 ### R1 — minor: AC-R14 does not demonstrate the full compatibility promised by R10
 

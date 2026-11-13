@@ -159,8 +159,8 @@ nearly sequential order because row ids follow insertion order.
    with time. For those, inserts go past the last cell of the rightmost leaf, and the **append split** applies: a node
    that overflows past its last cell keeps its cells and a new sibling starts with the new cell, so keys added in
    increasing order fill their nodes instead of leaving them half full (`crates/krummi-tree/src/lib.rs:14-18`). The
-   execution `trees-append-split` ([plan](../../../odd/tasks/trees-append-split.md),
-   [report](../../../odd/tasks/trees-append-split-report.md); it had no PRD because it changed no product behavior)
+   execution `trees-append-split` ([plan](../../../odd/done/trees/trees-append-split.md),
+   [report](../../../odd/done/trees/trees-append-split-report.md); it had no PRD because it changed no product behavior)
    measured 100,000 `set` in increasing order: pages halve (543 to 272, height 3 to 2) for small keys and values;
    random order is unchanged (+0.6 % with 16-byte keys and 100-byte values). With 500-byte rows a clustered leaf holds
    about 16 and fills completely; a new leaf is opened every 16 inserts without moving a cell. That makes B as cheap
@@ -335,16 +335,16 @@ Voron (`C:\projects\ravendb\src\Voron\Data`):
 Krummi (`C:\projects\Krummi`):
 
 - `docs/prd/krummi/krummi.prd.md` (D1–D12; D11 zero-copy reads at line 52).
-- `docs/prd/krummi/trees.prd.en.md:42-45` (B3, B5, B6); `trees-multivalue.prd.en.md:40-47` (M1, M2, M5–M7);
+- `docs/prd/krummi/trees/trees.prd.en.md:42-45` (B3, B5, B6); `trees-multivalue.prd.en.md:40-47` (M1, M2, M5–M7);
   `trees-fixed-size.prd.en.md:40-46` (X1, X5, X6); `trees-large-values.prd.en.md:42-48` (V1–V7).
-- `docs/prd/krummi/free-space.prd.en.md:39-45` (F2–F8); `transactions.prd.en.md:45` (T14).
+- `docs/prd/krummi/free-space/free-space.prd.en.md:39-45` (F2–F8); `transactions.prd.en.md:45` (T14).
 - `docs/performance/plan.md:109-128` (cost of a write), `418-436` (O8, page diffs).
 - `crates/krummi-tree/src/lib.rs:6-20` (no path copy, append split rule, runs never changed);
   `crates/krummi-tree/src/node.rs:1-47` (slotted node, holes, leaf threshold, `MAX_LEAF_CELL`);
   `crates/krummi-tree/src/fixed.rs:1-30` (dense node, fan-out).
-- `odd/tasks/trees-append-split.md` and `odd/tasks/trees-append-split-report.md` (the append split and its
+- `odd/done/trees/trees-append-split.md` and `odd/done/trees/trees-append-split-report.md` (the append split and its
   measurement; no PRD exists for it).
-- `odd/tasks/trees-large-values.md:42-59` (D2, D6, D7); `odd/tasks/trees-fixed-size-measurements.md:38-50`.
+- `odd/done/trees/trees-large-values.md:42-59` (D2, D6, D7); `odd/done/trees/trees-fixed-size-measurements.md:38-50`.
 
 Other systems:
 

@@ -292,7 +292,7 @@ Decided by the user on 2026-11-09 (README, "Plans": "Me sirven"): 1 (a), 2 (a) w
 Repository (paths under `C:\projects\Krummi`):
 
 - `docs/design/tables/README.md`, `03-keys-and-indexes.md`, `04-query-tree-and-planner.md`, `06-c-interface-and-csharp.md` (read whole); `02`, `01`, `05` are referred to through them.
-- `crates/krummi-pager/src/pager.rs` (`open_temporary`, `TEMPORARY_RESERVATION = 64 << 30`, `Storage::File`/`Storage::Memory`); `crates/krummi-pager/src/sys.rs` (`reserve_range`/`commit_range` at 1152-1210, `create_temp_file` at 384, `reserve`); `docs/prd/krummi/pager.prd.md` (P10, P15, AC14); `docs/prd/krummi/krummi.prd.md` (G8 at line 143, G9 at 144, D11); `docs/performance/plan.md` (W17 and temporary-area file creation, lines 241-244).
+- `crates/krummi-pager/src/pager.rs` (`open_temporary`, `TEMPORARY_RESERVATION = 64 << 30`, `Storage::File`/`Storage::Memory`); `crates/krummi-pager/src/sys.rs` (`reserve_range`/`commit_range` at 1152-1210, `create_temp_file` at 384, `reserve`); `docs/prd/krummi/pager/pager.prd.md` (P10, P15, AC14); `docs/prd/krummi/krummi.prd.md` (G8 at line 143, G9 at 144, D11); `docs/performance/plan.md` (W17 and temporary-area file creation, lines 241-244).
 - Commit `fafb5bf perf(pager): mark temporary-area files as temporary on Windows` (named by the coordinator and present in `git log`).
 
 External, fetched on 2026-11-09:

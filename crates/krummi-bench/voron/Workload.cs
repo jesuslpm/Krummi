@@ -1,6 +1,6 @@
 // The loads and their quantities: a port of crates/krummi-bench/src/workload.rs (workload table, K8, K11). A load is
 // its number: 1 for W1. The protocol names a load by its identifier, `W1` to `W29`; the table loads W23-W29 (E21 of
-// docs/prd/krummi/tables-schema.prd.md) are, by identifier and report name:
+// docs/prd/krummi/tables/tables-schema.prd.md) are, by identifier and report name:
 //
 //   W23 tabla-insercion-en-orden   W24 tabla-insercion-al-azar   W25 tabla-carga-masiva   W26 tabla-lecturas
 //   W27 tabla-intervalos           W28 tabla-actualizacion       W29 tabla-borrado

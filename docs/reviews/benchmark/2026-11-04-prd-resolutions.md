@@ -7,8 +7,8 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 
 Artifact versions after the fixes (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/benchmark.prd.md`: `e375cffbd2a96756d2134a8658a3f9c561d34fc104f8c08f17947bf00d9a04a6`
-- `docs/prd/krummi/benchmark.prd.en.md`: `ecdf815ab4c5d9c7373437ae8df2520601a898571c3a3b15275ff117c646ed24`
+- `docs/prd/krummi/benchmark/benchmark.prd.md`: `e375cffbd2a96756d2134a8658a3f9c561d34fc104f8c08f17947bf00d9a04a6`
+- `docs/prd/krummi/benchmark/benchmark.prd.en.md`: `ecdf815ab4c5d9c7373437ae8df2520601a898571c3a3b15275ff117c646ed24`
 
 ### R1 — major: W12 has no defined result when Voron completes zero reads
 
@@ -45,8 +45,8 @@ on R1), `threadId` `01a1a551-888c-7843-b49e-903fce8b549d`. Telemetry: coordinato
 
 Artifact versions after the fix (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/benchmark.prd.md`: `eb621c145f4d99879148588e81c6bd97acc9be5978b9e23d91f6c98182bdb151`
-- `docs/prd/krummi/benchmark.prd.en.md`: `9b189c30db076344ad0d07a62f68d97744d8e64dcabfcbb1c38e5f793d60a9a5`
+- `docs/prd/krummi/benchmark/benchmark.prd.md`: `eb621c145f4d99879148588e81c6bd97acc9be5978b9e23d91f6c98182bdb151`
+- `docs/prd/krummi/benchmark/benchmark.prd.en.md`: `9b189c30db076344ad0d07a62f68d97744d8e64dcabfcbb1c38e5f793d60a9a5`
 
 ### R1 — major: W12 has no defined result when Voron completes zero reads
 

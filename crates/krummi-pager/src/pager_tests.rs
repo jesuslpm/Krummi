@@ -211,7 +211,7 @@ fn ac_p14_out_of_memory_while_growing_a_store_on_disk_keeps_it_usable() {
     assert_eq!(error.kind(), ErrorKind::OutOfMemory);
     assert_eq!(pager.info().size_bytes, INITIAL_SIZE);
     // Windows cannot shrink a file while it is mapped, and the earlier mappings must stay alive (P15): there the
-    // reserved space stays in the file (recorded as a deviation from P11 in odd/tasks/pager.md).
+    // reserved space stays in the file (recorded as a deviation from P11 in odd/done/pager/pager.md).
     if cfg!(not(windows)) {
         assert_eq!(
             fs::metadata(tmp.path().join(DATA_FILE)).unwrap().len(),

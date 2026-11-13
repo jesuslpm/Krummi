@@ -1,0 +1,263 @@
+# Trees and key operations (5.1) — ODD execution document
+
+Objective: implement `docs/prd/krummi/trees/trees-keys.prd.md` (decisions A1–A15, criteria AC-A1–AC-A20), the
+authoritative specification; its ancestry is `trees.prd.md` (module 5, B1–B12) and `krummi.prd.md` (root), with the
+pager, transactions, journal, journal-group-commit and free-space PRDs inherited.
+Branch: `feat/trees-keys`. Delivery: `ask-on-risk` (single branch, merged into `main` after verification). Test runner:
+`cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 3 h – 5 h. Real start: 2026-10-25 06:31:17 +0000.
+
+## Specs
+
+Each spec quotes an acceptance criterion verbatim; the decisions it names (A#, B#, and the inherited ones) are part
+of it. The parent's criteria are those it assigns to 5.1, in the parts the 5.1 criteria preamble names (AC-B3 with the
+provisional maximum, AC-B4 and AC-B6 in their 5.1 parts, AC-B14 in its same-type part); AC-B18 includes its
+2026-10-25 annotation. The PRD's *Validaciones y mensajes*, *Fuera de alcance* and *Dejado a la implementación* bound
+every task. The parent's "Antes de implementar 5.1" gate (A14) is task T1.
+
+- **S0** — **Annotation (B1 exception)** — una operación a través de una apertura de otra transacción de la misma clase, también de una ya terminada, falla sin efecto con la clase de uso incorrecto y la transacción sigue utilizable (excepción a B1, anotada en el padre). Su precedencia es la de una apertura de un árbol borrado (A7): después del tamaño no válido, gana a todo lo demás. Lo comprueba este criterio: dada una apertura de una escritura ya confirmada, cuando se usa en una escritura nueva del mismo almacén para leer, guardar y consultar el número de entradas, y una apertura de una lectura, cuando se usa en otra lectura para leer y consultar el número de entradas, entonces cada operación falla con la clase de uso incorrecto sin efecto y la escritura nueva se confirma con sus demás cambios. Usar en una escritura una apertura de una lectura, o al revés, no compila.
+- **S1** — **AC-A1** — Dada una escritura, cuando abre en modo Abrir un árbol que no existe, entonces falla con la clase de árbol no encontrado con su nombre; en modo Crear nuevo, lo crea vacío, y otra vez en ese modo falla con árbol ya existente con su nombre; en modo Abrir o crear, lo crea si no existe y, si existe, lo abre con sus entradas; y dada una lectura, cuando abre un árbol que no existe, entonces falla con árbol no encontrado (A1, A6).
+- **S2** — **AC-A2** — Dado un árbol con entradas, cuando se abre en modo Crear o vaciar o Vaciar, entonces queda sin entradas, con número de entradas `0`, y una apertura anterior del mismo árbol lo ve vacío y sigue funcionando; dado un árbol que no existe, Crear o vaciar lo crea y Vaciar falla con árbol no encontrado; y dado un árbol creado y llenado en la misma escritura, Vaciar lo deja vacío y la confirmación lo guarda vacío (A1, A2).
+- **S3** — **AC-A3** — Dada una transacción de lectura, cuando abre un árbol, comprueba si existe, lista, lee entradas y consulta el número de entradas, entonces funciona; y abrirlo en cualquier otro modo, borrarlo, renombrarlo o guardar, añadir o quitar entradas no compila (A1, A3, A4).
+- **S4** — **AC-A4** — Dado un árbol existente, cuando se pregunta si existe, entonces sí, y tras borrarlo, no; dada una escritura en disco que solo borra un árbol que no existe, cuando se confirma, entonces los archivos del almacén quedan idénticos byte a byte; y Existe y Borrar con un nombre vacío o de 1.025 bytes fallan con tamaño no válido (A3, A10, B4).
+- **S5** — **AC-A5** — Dados los árboles `a` y `b`, cuando se renombra `a` a `c`, entonces `c` tiene las entradas de `a`, `a` no existe y una apertura anterior de `a` sigue funcionando; renombrar `c` a `b` falla con árbol ya existente con el nombre `b`, y con sobrescritura deja `b` con las entradas de `c`, sigue valiendo la apertura de `c` y hace fallar con árbol no encontrado, con el nombre `b`, una apertura anterior del `b` original; renombrar un árbol que no existe falla con árbol no encontrado con su nombre, también a su mismo nombre; renombrar `b` a `b` no cambia nada; y dado un árbol `t` abierto, renombrado a `d` y borrado, cuando se usa la apertura de `t`, entonces falla con árbol no encontrado con el nombre `d` (A3, A6).
+- **S6** — **AC-A6** — Dado un árbol `a` renombrado a `c` y otra vez a `a`, cuando se usa su apertura original, entonces sigue funcionando; y dado `a` renombrado a `c`, un árbol nuevo creado como `a` y `c` renombrado a `a` con sobrescritura, cuando se usa la apertura del `a` nuevo, entonces falla con árbol no encontrado (A3, A8).
+- **S7** — **AC-A7** — Dados árboles creados en desorden, incluidos nombres que solo difieren en mayúsculas, cuando se listan en una lectura, entonces salen con su tipo en orden de bytes; en un almacén sin árboles, la lista está vacía; en una escritura, la lista incluye los creados, renombrados y borrados por ella; y la lista obtenida sigue disponible después de borrar un árbol y de terminar la transacción (A3).
+- **S8** — **AC-A8** — Dado un árbol, cuando se guarda una clave nueva y luego la misma clave con otro valor, entonces Leer devuelve el segundo valor; Añadir con esa clave devuelve que no añadió y el valor no cambia; Añadir con una clave nueva devuelve que añadió; Leer una clave que no está devuelve que no está, y Leer una clave guardada con valor vacío devuelve un valor vacío; Quitar devuelve que estaba la primera vez y que no estaba la segunda; y Añadir con una clave que ya está y un valor de 1.025 bytes falla con tamaño no válido (A4).
+- **S9** — **AC-A9** — Dada una escritura en disco que solo hace Añadir sobre claves existentes, Quitar sobre claves que no están, Abrir o crear sobre un árbol existente y operaciones que fallan con árbol no encontrado o árbol ya existente, cuando se confirma, entonces termina sin error y los archivos del almacén quedan idénticos byte a byte; y una escritura en disco que solo vacía un árbol ya vacío sí escribe en el almacén (A10, T10).
+- **S10** — **AC-A10** — Dado un árbol con entradas suficientes para que se dividan y se fusionen páginas, de modo que el árbol gane y pierda niveles, cuando se guardan claves nuevas, se sobrescriben, se añaden claves nuevas y existentes, se quitan claves presentes y ausentes, se quitan todas hasta la última y se vacía, entonces tras cada operación el número de entradas coincide con las claves que Leer encuentra entre todas las que la prueba usó; una lectura abierta antes ve el número de su instantánea; tras abortar una escritura, el número es el de antes; tras confirmar y reabrir, el número se conserva; y con una página propia del árbol dañada, consultarlo no falla (A5, A9).
+- **S11** — **AC-A11** — Dada una escritura con un árbol `t`, cuando repite diez veces, alternando, estos dos pasos: (a) abrir `t`, borrarlo y crearlo otra vez en modo Crear nuevo; (b) abrir `t`, crear un árbol `u` en modo Crear nuevo y renombrar `u` a `t` con sobrescritura; entonces cada apertura de `t` anterior a la última sustitución falla con árbol no encontrado, y solo una apertura de `t` hecha después de la última sustitución ve el árbol vigente (A6, A8).
+- **S12** — **AC-A12** — Dado un árbol con una de sus páginas dañada, cuando se abre, se pregunta si existe, se lista o se renombra sin sobrescritura, entonces no falla; cuando se lee una entrada de esa página, entonces falla con la clase de daño y el número de la página, y vuelve a fallar igual al repetirlo; y cuando una escritura lo borra, lo vacía, lo sobrescribe con Renombrar o guarda en esa página y falla con daño, entonces confirmarla falla con la clase de daño y no aplica nada (A9, T11).
+- **S13** — **AC-A13** — Dadas operaciones que cumplen varias situaciones a la vez, cuando se ejecutan, entonces fallan con la que gana según A7: renombrar con un origen de 1.025 bytes a un destino existente da tamaño no válido; renombrar un origen que no existe a un destino de 1.025 bytes da tamaño no válido; renombrar un origen que no existe a un destino existente da árbol no encontrado, también en un catálogo de varias páginas con la del destino dañada y la página donde estaría el origen intacta; guardar una clave de 2.049 bytes a través de una apertura de un árbol borrado da tamaño no válido; y una apertura de un árbol borrado cuya página está dañada da árbol no encontrado (A7).
+- **S14** — **AC-A14** — Dado un almacén nuevo, cuando se consulta su información antes de crear ningún árbol, entonces su tamaño es como mucho 1 MiB, las páginas libres son las páginas menos las propias del almacén (AC-F15) y la lista de árboles está vacía (A12).
+- **S15** — **AC-A15** — Dado un almacén con un árbol ya creado, que se mantiene dentro de una sola región del espacio libre, y tomando las páginas en uso (las páginas menos las páginas libres que da la información) cuando cada confirmación es durable (en modo temporal, cuando devuelve): cuando dos veces seguidas se crea un árbol `x`, se llena con entradas suficientes para ocupar varias páginas y varios niveles, se confirma, se borra y se confirma, entonces las páginas en uso tras el segundo borrado son las mismas que tras el primero, y las de antes del primer ciclo cuando la entrada de `x` no hizo crecer el catálogo (las pruebas lo saben por la implementación); y cuando se crea un árbol vacío, se confirma, se toma el valor, se llena igual, se confirma, se vacía y se confirma, entonces el valor final es el tomado con el árbol vacío (A2, A3, F10, F12).
+- **S16** — **AC-A16** — Dada una escritura que crea, renombra, vacía y borra árboles, y guarda y quita entradas con divisiones y fusiones de páginas, cuando se provoca una caída del proceso y simulada de corriente en cada punto en que su confirmación escribe o lleva datos al disco, entonces al reabrir la lista de árboles, cada Leer de las claves que la prueba usó y el número de entradas de cada árbol están todos como antes de la escritura o todos como después, nunca a medias, y el número de entradas coincide con las claves que Leer encuentra (G1, G5, A5).
+- **S17** — **AC-A17** — Dada una escritura, cuando guarda un valor de 1.024 bytes con una clave de 2.048 bytes, entonces se guarda; y uno de 1.025 bytes falla con tamaño no válido, con mínimo `0` y máximo `1024` (A11, B6).
+- **S18** — **AC-A18** — Dado un almacén de formato `5`, aunque esté vacío, cuando se abre, entonces falla con la clase de formato distinto como formato anterior (A13, AC-B12).
+- **S19** — **AC-A19** — Dada la medición de A15, cuando se revisa el informe de cierre, entonces contiene sus tiempos, los tamaños del almacén y los datos del equipo en Windows y en Linux (A15).
+- **S20** — **AC-A20** — Dado el código de una aplicación de prueba con una referencia leída de un árbol, cuando la usa después de abrir otro árbol en modo Abrir, de Existe, de Listar o de Leer, entonces compila; cuando la usa después de abrir un árbol en cualquier otro modo, de Borrar o de Renombrar, aunque fallen o no cambien nada, entonces no compila; y una apertura de una transacción de lectura se puede pasar a otro hilo, mientras que pasar a otro hilo una de una escritura no compila (A10, B1).
+- **S21** — **AC-B1** — Dada una escritura, cuando guarda entradas con claves de 1, de 1.025 y de 2.048 bytes, cada una con un valor del máximo vigente, entonces se guardan y se leen idénticas; y cuando intenta guardar, leer o borrar con una clave vacía o de 2.049 bytes, entonces falla con la clase de tamaño no válido sin efecto, con los datos de B8: clave, tamaño recibido `0` o `2049`, mínimo `1` y máximo `2048` (5.1).
+- **S22** — **AC-B2** — Dada una escritura, cuando crea árboles con nombres de 1 byte y de 1.024 bytes, incluido uno de 1.024 bytes formado por caracteres de varios bytes, entonces se crean; y cuando intenta crear uno con un nombre vacío, de 1.025 bytes o de 600 caracteres de dos bytes (1.200 bytes), entonces falla con la clase de tamaño no válido sin crear nada, con el tamaño recibido en bytes (5.1).
+- **S23** — **AC-B3** — Dada una escritura, cuando guarda un valor vacío y otro del máximo vigente, los dos con una clave de 2.048 bytes, entonces se leen idénticos tras confirmar y, en disco, también tras reabrir; y cuando intenta guardar uno de un byte más que el máximo, entonces falla con la clase de tamaño no válido sin guardar nada, con mínimo `0` y el máximo vigente (5.1 con su máximo provisional; 5.3 con 256 MiB).
+- **S24** — **AC-B4** — Dada una escritura con cambios ya hechos, cuando una operación falla por tamaño no válido y otra por tipo de árbol distinto, entonces la escritura se confirma sin error y aplica todos sus cambios anteriores y posteriores a esos fallos; dada una transacción de lectura, cuando una operación falla por tamaño no válido, entonces sigue leyendo; dada una escritura en disco cuyas únicas operaciones fallaron con estas clases, cuando se confirma, entonces los archivos del almacén quedan idénticos byte a byte (T10); y dado un almacén que no acepta escrituras (T12), cuando una operación falla por tamaño no válido, entonces falla con esa clase y no con la de entrada y salida, y confirmar esa escritura sin cambios termina sin error (5.1 el tamaño; 5.4 el tipo).
+- **S25** — **AC-B5** — Dada una escritura que ya tuvo un fallo de tamaño máximo (P10), cuando una operación posterior falla por tamaño no válido y después se confirma, entonces la confirmación falla con la clase de tamaño máximo y no aplica nada; y dada una escritura que primero tuvo un fallo de tamaño no válido y después uno de tamaño máximo, cuando se confirma, entonces falla igual con la clase de tamaño máximo (B7) (5.1).
+- **S26** — **AC-B6** — Dados los árboles `pedidos` y `Pedidos`, y dos árboles cuyos nombres son `é` precompuesta y `e` seguida del acento combinante, cuando se guardan entradas en cada uno, entonces son cuatro árboles distintos y cada uno tiene solo sus entradas (5.1); y dado un árbol normal que se borra, cuando se crea otro con su nombre como multivalor, entonces se crea (5.4).
+- **S27** — **AC-B9** — Dado un almacén en disco cuyo catálogo cabe en una página y esa página está dañada, cuando se abre un árbol con un nombre de 1.025 bytes, entonces falla con la clase de tamaño no válido; y con un nombre válido, con la clase de daño (B7) (5.1).
+- **S28** — **AC-B10** — Dada una escritura con dos árboles abiertos, y uno de ellos abierto dos veces, cuando guarda entradas en cada uno, entonces cada apertura ve los cambios hechos a través de las otras, y la confirmación las aplica todas (B9) (5.1).
+- **S29** — **AC-B11** — Dado el código de una aplicación de prueba, cuando modifica un árbol abierto en una transacción de lectura, usa un árbol después de terminar su transacción o usa una referencia leída después de una operación de modificación que falló sin efecto, entonces no compila (B1, B9) (5.1).
+- **S30** — **AC-B12** — Dado un PRD hijo que declara su cambio de formato incompatible, cuando se abre un almacén de la versión anterior, aunque esté vacío, entonces falla con la clase de formato distinto como formato anterior; y dado uno que lo declara compatible, cuando se abre un almacén creado antes de ese cambio, entonces se abre y se usa sin error (B12) (cada PRD hijo que cambie lo que se guarda en disco, desde 5.1).
+- **S31** — **AC-B13** — Dada una operación con un nombre y una clave fuera de sus tamaños, cuando se ejecuta, entonces el error de tamaño no válido es del nombre; y con una clave y un valor fuera de sus tamaños, de la clave (B7) (5.1).
+- **S32** — **AC-B14** — Dada una escritura con un árbol abierto dos veces, cuando lo borra a través de una apertura y después usa la otra, también tras crear otro árbol con el mismo nombre, entonces la operación falla sin efecto con el error que fije 5.1, el árbol nuevo no cambia y la escritura se confirma sin error; repitiendo tres veces borrar y crear el árbol, con el mismo tipo y con otro, cada apertura anterior falla igual y solo la última ve el árbol vigente; y una transacción de lectura abierta antes de esa escritura sigue viendo el árbol original a través de su apertura, también después de confirmarla (B9, G3) (5.1).
+- **S33** — **AC-B17** — Dada una transacción de lectura abierta y una escritura que, con inserciones y borrados, divide y fusiona páginas de un árbol hasta cambiar su altura, cuando la lectura lee todas las entradas del árbol antes y después de que la escritura se confirme, entonces ve exactamente las de su instantánea; y una lectura nueva ve las de la escritura (G3, T14) (5.1, y cada PRD hijo cuyas operaciones cambian la estructura de un árbol).
+- **S34** — **AC-B18** — Dada una escritura que divide y fusiona páginas de un árbol, cuando se provoca una caída del proceso y simulada de corriente en cada punto en que su confirmación escribe o lleva datos al disco, entonces al reabrir el árbol tiene todas sus entradas de antes o todas las de después, y se puede leer y modificar sin error (G1, G5, AC4 del padre); y cuando una operación falla a mitad de una división por disco lleno o tamaño máximo, entonces la escritura ya no puede confirmarse y, tras abortarla, el árbol queda como estaba (T11) (5.1, y cada PRD hijo cuyas operaciones cambian la estructura de un árbol).
+- **S35** — **AC10 (root)** — Dado un almacén pequeño de prueba, cuando se altera cada uno de sus bytes por separado y se abre y se lee todo el almacén, entonces cada alteración produce un error de la clase de daño o ninguna diferencia observable en los datos leídos, salvo las de la marca de identificación, que producen el error de que no es un almacén; nunca datos distintos de los escritos (G6, D10). Cada PRD hijo lo repite con las estructuras que añade.
+- **S36** — **AC20 (root)** — Dada una lectura de cualquier estructura de datos, cuando devuelve un valor, entonces la referencia apunta a memoria del motor (la proyección del archivo, o la memoria de la transacción si la página está cifrada o comprimida) y no a una copia hecha para esa lectura; y usar la referencia después de cerrar la transacción no compila (D11). Cada PRD hijo con lecturas lo comprueba.
+
+## Design
+
+Decisions of the execution, within *Dejado a la implementación*; workers follow them and record any deviation in the
+Log.
+
+- **D1 — Crate.** A new crate `krummi-tree` (no `unsafe`, AC21 applies) holds the page layout of tree nodes, the
+  B+ tree algorithms and the catalog. It builds on the page API of `krummi-tx` (`page`, `page_mut`, `allocate`,
+  `free`), which keeps page numbers on change (copy into the transaction, T14), so a modified node keeps its number
+  and no path copying is needed. The public `krummi` crate wraps it, as it wraps `krummi-tx` today.
+- **D2 — Roots in the meta page.** `krummi-tx` gains a small set of `u64` slots in its meta page for the layers above
+  (read and set inside transactions, carried by commits like the frontier). Trees use two: the catalog root (`0` =
+  no catalog yet, A12) and the next tree identity (A8, never reused). Format version `6` (A13).
+- **D3 — Catalog.** The catalog is itself a B+ tree keyed by the tree name's UTF-8 bytes; each entry holds the tree
+  identity, its kind, its root page and its number of entries (A5).
+- **D4 — Nodes.** Slotted pages: a header (leaf or branch, cell count, free space), a sorted array of cell offsets and
+  the cells (leaf: key length, value length, key, value; branch: key and child page, plus a leftmost child). With
+  8,176 useful bytes, a leaf holds at least two entries with a 2,048-byte key and a 1,024-byte value (A11), and a
+  branch at least three keys. Split by bytes into halves; merge a node with a sibling when an operation leaves it
+  under a quarter full and the two fit in one page; the root branch with one child is replaced by it (height
+  shrinks). Emptying or deleting a tree reads only its branch pages to free every page (A2, A3, A9).
+- **D5 — Handles and transactions.** Every transaction gets a serial number unique within the open store. A handle
+  carries the store lifetime (it cannot outlive the store), its transaction's serial, the tree identity and kind;
+  using it in another transaction fails with misuse without effect (S0). Read handles also carry the tree's root and
+  count (a snapshot never changes) and are `Send + Sync`; write handles are `!Send` and their state (root, count,
+  name, deleted) lives in a per-transaction table keyed by identity, so every handle of the same tree sees the same
+  state (B9), the count is read without touching pages (A5), a deleted tree's handles fail with tree not found
+  (A6), and changed entries are written into the catalog at commit.
+- **D6 — Public API** (names are proposals; English, Rust conventions). Read transaction: `open_tree(&self, name,
+  kind)` (mode Open), `tree_exists(&self, name)`, `list_trees(&self) -> Vec<(String, TreeKind)>` (owned copy, A3),
+  `get(&self, &tree, key) -> Option<&[u8]>`, `len(&self, &tree)`. Write transaction: the same reads (all `&self`, so
+  they do not end references, A10) plus, all `&mut self`: `open_tree_with(name, kind, mode)` with `OpenMode` =
+  `CreateNew | OpenOrCreate | CreateOrEmpty | Empty` (Open is `open_tree`), `delete_tree`, `rename_tree(from, to,
+  overwrite)`, `set` (Guardar), `try_add` (Añadir, returns `bool`), `remove` (Quitar, returns `bool`). `TreeKind`
+  is `#[non_exhaustive]` with `Normal`.
+- **D7 — Errors.** Four new classes in `krummi-pager`'s `ErrorKind`/`Error`, with the data of T18 plus their own:
+  `InvalidSize { what: name|key|value, received, min, max }`, `DifferentTreeType { name, found, requested }`,
+  `TreeNotFound { name }`, `TreeAlreadyExists { name }`. They are public validation errors: they never become the
+  write's recorded failure (T11), unlike misuse of the page API, which keeps its current behavior; the cross-
+  transaction misuse of S0 does not record a failure either.
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit |
+|---|---|---|---|---|
+| T0 | B1 annotation (S0), execution document | inline | done | (this commit) |
+| T1 | A14 gate: public API skeleton (D5–D7) and compile tests (S20, S29) | delegated (context backstop) | done | (this commit) |
+| T2 | Format 6 and meta slots (D2), nodes and B+ tree algorithms with internal tests (D4): S18, S30 | delegated (context backstop) | done | format, slots and tree commits |
+| T3 | Catalog (D3), handles (D5), public API wiring (D6), errors (D7) and every functional criterion: S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 | delegated (context backstop) | done | catalog and public API commits |
+| T4 | Damage, crashes, faults, snapshots and pages: S12, S15, S16, S33–S35; RDD 1 fixes R1-001 and R3-empty-nonroot-leaf; RDD 2 fixes R1-002, R2-002, R2-003 and the `encode` branch | delegated (context backstop) | done | `4735a47`, `32d4d04` |
+| T5 | Measurement (A15): S19 | inline | done | `5c0ea31` |
+| T6 | Docs, checks, verify, RDD, report | inline | done | `1138169`, report |
+
+Route evidence: no parallel units (each task builds on the previous one); the writer trigger that fires is the
+long-session backstop (the parent context already holds both PRD sessions), so each task goes to one bounded ODD
+Worker in sequence. Risk: item 1 (persisted format change, format `6`) and item 3 (new public API and error classes)
+→ one independent verifier at the feature's end.
+
+## Log
+
+- **L1** (2026-10-25, user): "Adelante con la ejecución ODD"
+- **L2** (2026-10-25, user, before the start): the B1 conflict (transactions as values, several handles, compile-time
+  handle expiry) is resolved by "Comprobarlo al ejecutar": a handle used in another transaction fails with misuse
+  without effect (S0), annotated in `trees.prd.md` and `trees-keys.prd.md`.
+- **L3** (06:31:17): estimate 3 h – 5 h confirmed; branch `feat/trees-keys`.
+- **L4** (2026-10-25, user, during T1): "continúa con la ejecución ODD según lo acordado. No es necesario detenerla
+  ni reconsiderar la decisión de utilizar comprobaciones en ejecución. Solo quiero que durante la verificación
+  independiente se preste especial atención a la interacción entre las referencias zero-copy y las modificaciones de
+  páginas. La comprobación dinámica debe preservar la seguridad de memoria, incluso cuando existen múltiples
+  aperturas del mismo árbol, se producen splits o merges, o se borran y reutilizan páginas. Distingue las garantías
+  que siguen siendo estáticas de las que ahora se comprueban en ejecución. Asegúrate de que los PRD y los criterios
+  de aceptación reflejan la decisión ya tomada. No introduzcas cambios arquitectónicos preventivos ni complejidad
+  adicional. Si encuentras un defecto real de seguridad, trátalo conforme al procedimiento ODD habitual y escálalo
+  únicamente si requiere una nueva decisión de producto." Done: `trees.prd.md` B1 annotation lists the static and
+  run-time guarantees and annotates AC-B11; the 5.1 annotation (and S0) gains a criterion for a handle of another
+  transaction. The final verifier gets this focus explicitly.
+- **L5** T1 (ODD Worker): the A14 gate passes with no `unsafe`. RED: every trybuild case failed with E0432/E0599
+  (API missing); GREEN: 10 must-not-compile cases (`tests/ui/trees/`) and 3 compile-only pass cases
+  (`tests/ui/trees_pass/`), run by `tests/trees_compile.rs`. Deviations accepted by the parent: handle types are
+  strict (`ReadTree` only in reads, `WriteTree` only in writes), so a read handle in a write does not compile, which
+  narrows the S0 run-time exception to handles of another transaction of the same class (annotation and S0 updated,
+  no new product decision: the exception covered only what the compiler cannot prevent); `TreeKind` and the new
+  `SizeSubject` live in `krummi-pager` (errors carry them) and are re-exported; transaction serials are unique in
+  the process (a static counter). Bodies are `todo!("T3")`; the `serial` fields carry `#[expect(dead_code)]` that
+  T3 removes. Checks reported by the worker: fmt, clippy, `cargo test -p krummi`, `-p krummi-pager` pass; parent spot
+  check `cargo test -p krummi --test trees_compile`: 1 passed.
+- **L6** T2 (ODD Worker), three commits: format `6` (S18 `ac_a18_format_5_is_a_previous_format_even_when_empty`,
+  S30 with the `ac9` and AC-F17 updates), meta slots (`META_SLOTS = 4`, `slot`/`set_slot`, `tests/slots.rs`: snapshot,
+  abort, no-op set is not a change, reopen, every crash cut), and the `krummi-tree` crate (`create`, `get`,
+  `for_each`, `set`, `try_add`, `remove` returning `Update { root, count_changed }`, `free_all`; model test against
+  `BTreeMap` reaching 3+ levels and back to one leaf, extreme sizes, free-all returns pages in use, snapshot across
+  splits and merges). RED observed for each (format 5 vs 6; missing slot API; stubbed operations), then GREEN.
+  Deviations accepted: merges only (a non-root branch under a quarter may stay with zero keys and one child when
+  it cannot merge; valid, root collapse loops), merges also after shrinking overwrites, a level byte in the node
+  header, full-key separators. The tree commit is ~1,080 lines, over the 400 heuristic: node layout and algorithms
+  are one unit (dead code otherwise). Worker checks: fmt, clippy, `cargo test --workspace` (exit 0, 190 s); parent
+  spot check `cargo test -p krummi-tree`: 7 passed. For T3: only call `set_slot` and rewrite catalog entries when
+  something changed (AC-A9); README and facade docs still to mention the crate (T6).
+- **L7** RDD review 1 (`2702406..862cff7`, T0–T2; escalated to high, item 1: persisted format), lenses risk and
+  reliability, lineage `review-3cec8f5748714163`: **approved**, acknowledged. Findings, all WARNING: R1-001 node
+  accessors trust the page header and cell offsets, so an inconsistent layout with a valid checksum panics instead of
+  failing with damage (memory stays safe, no `unsafe`) → fix in T4 with AC10; R1-002 and R3-todo-public-api the
+  public tree methods are `todo!()` → T3 implements them; R3-empty-nonroot-leaf a remove can leave an empty non-root
+  leaf under a zero-key branch (data unaffected, breaks the internal invariant) → fix in T4. Reviewed boundary:
+  `862cff7`.
+- **L8** T3 (ODD Worker), two commits: the catalog (`krummi-tree/src/catalog.rs`: a B+ tree keyed by name, 25-byte
+  entries with identity, kind, root and count; meta slot 0 = catalog root, created with the first tree; slot 1 = next
+  identity) and the public API (per-transaction `RefCell` table of tree states keyed by identity; structural catalog
+  changes written at once so Exists and List see them, root and count of key operations written at commit only
+  when dirty and only if the write has not failed; validation order size → other transaction (misuse) → deleted
+  handle → catalog reads → type → not found → already exists → tree pages). 25 public tests in
+  `crates/krummi/tests/trees.rs` cover S0–S11, S13, S14, S17, S21–S28, S31, S32, S36 (disk and temporary, damage and
+  reopen parts on disk), plus `src/tests.rs` for the T12 part of S24 (needs test hooks). RED: all 25 panicked at
+  `todo!`; GREEN after implementation and three test fixes (AC20 pins a version with an older read; damaged pages
+  found through `krummi_tree::leaf_of`; AC-A10 with 2,048-byte keys reaches height 5 in about 1 s). Accepted
+  deviations: structural catalog changes written at once; `ReadTree` and `WriteTree` carry only what they use.
+  S31's "name before key" has no 5.1 operation that takes both (keys go through handles); its key-before-value part
+  is tested. Panics to turn into damage in T4 (with R1-001): unknown kind byte in a catalog entry, inconsistent
+  catalog pages. Worker checks: fmt, clippy, `cargo test -p krummi` pass; full workspace: 272 passed, 1 failed
+  (`krummi-tx` `ac12_ac_t20_...` in one run, `ac_f18_the_maximum_size_in_a_temporary_store` in another), both pass
+  alone. Parent spot check: `cargo test -p krummi --test trees` 25 passed; `ac_f18` fails in its full binary run, 6/6
+  alone; baseline check on `main` in progress.
+- **L9** Baseline check: `ac_f18_the_maximum_size_in_a_temporary_store` also fails on `main` (`2702406`), 1 of 3 runs
+  of the `free_space` binary (MaxSize at `allocate_run` while versions wait in temporary memory under parallel
+  tests), so it is a pre-existing intermittent failure, not caused by this branch; left as a follow-up outside 5.1.
+  `ac12_ac_t20_a_failed_flush_refuses_writes_and_close_retries_it` failed once in a full workspace run and passes
+  alone; same treatment.
+- **L10** RDD review 2 (`862cff7..9e3ad1b`, T3; escalated to high, item 1: catalog format), lenses risk,
+  readability and reliability: **approved**, acknowledged. Findings: R1-001, R2-001 and R3-encode-nonnormal-kind-panics
+  (WARNING) `Entry::encode` has `unimplemented!` for kinds other than normal — not reachable in 5.1, since `TreeKind`
+  has only `Normal` and is `#[non_exhaustive]` (verified); T4 makes it `unreachable!` with its reason. R1-002
+  (WARNING) `Entry::decode` panics on an unknown kind byte in a page with a valid checksum → T4 returns damage (with
+  RDD 1's R1-001). R2-002 (SUGGESTION) the tests repeat the size limits → T4 adds a comment that they pin the spec.
+  R2-003 (SUGGESTION) the fault loop's 8 writes need a reason → T4 comment. R3-unresolved-workspace-test-failures
+  (WARNING) → answered by L9: the failure reproduces on `main`. Reviewed boundary: `9e3ad1b`.
+- **L11** (2026-10-25, user, during T4): "Una cosa no fusiones con main automáticamente, voy a hacer una revisión
+  independiente con Codex." The closing leaves `feat/trees-keys` unmerged, with the report, for the user's review.
+- **L12** T4 (ODD Worker), two commits: `4735a47` fixes (every node read through a validation of kind, level,
+  cell count, offsets, lengths and tiling, plus a child-level guard that stops loops → damage with the page number,
+  RDD 1 R1-001; catalog entries decoded as `Option` → damage, RDD 2 R1-002; `encode` branch `unreachable!`; an
+  emptied leaf is freed with its separator and an empty parent reports upward, RDD 1 R3-empty-nonroot-leaf; R2-002 and
+  R2-003 comments) and `32d4d04` tests (S12 `ac_a12_a_damaged_page_of_a_tree`, S15
+  `ac_a15_deleting_or_emptying_a_tree_gives_its_pages_back`, S16 `ac_a16_crashes_during_a_commit_of_catalog_and_key_operations`,
+  S33 `ac_b17_a_read_keeps_its_snapshot_while_a_write_changes_the_height`, S34
+  `ac_b18_crashes_during_a_commit_with_splits_and_merges` and `ac_b18_a_failure_at_a_sample_of_page_operations_...`
+  with a test-only page fault hook, S35 `ac10_sample_of_altered_bytes_with_trees`, step 397). RED observed for every
+  fix (13 corrupt layouts panicked or returned wrong data; unknown kind byte panicked; an empty non-root leaf
+  reached); the acceptance tests passed at once (no defect found). Acceptance runs, once each: AC10 every byte of a
+  128 KiB store with trees, 6,477.5 s on Windows (opening a just-written file costs ~35 ms here); crashes through
+  the close, 32.3 s; a failure at every page operation, 25.8 s. Worker checks: fmt, clippy, `cargo test --workspace`
+  283 passed, 0 failed, 9 ignored (3 min 19 s). Parent spot check `cargo test -p krummi-tree`: 10 passed. T6: README
+  describes trees; CI gets a step for the tree sweeps (60 min limit).
+- **L13** RDD review 3 (`9e3ad1b..32d4d04`, T4 plus the docs and measurement commits; escalated to high, item 1:
+  reading persisted pages), lenses risk and reliability, lineage `review-52ac120ffe927c92`: **approved**,
+  acknowledged. R3-001 (WARNING): freeing a tree whose level-1 branch names itself or an ancestor as a leaf child freed
+  that page twice (misuse instead of damage) → fixed: a node is freed before its children, so such a child no longer
+  may hold data and is damage; RED (misuse) then GREEN in `freeing_a_tree_whose_branch_names_itself_or_an_ancestor_is_damage`.
+  A leaf child pointing into another tree's pages cannot be detected without reading the leaves (D4); it needs a
+  checksum-valid forged page and is left to the verification tool (module 12). R3-002 (SUGGESTION): the cost of the
+  node validation was not measured before and after; the report gives the absolute A15 times. Reviewed boundary:
+  `32d4d04`. The first version of the fix computed the child level before checking for a leaf and broke 9 public
+  tests; it was committed because the chained command did not stop on the failing test, then corrected and amended
+  (28 public and 11 tree tests pass).
+- **L14** A15 on Windows (release, 1,000,000 entries, durable, writes of 1,000): store in key order 3.52 s (3.52 µs
+  per entry), at random 26.79 s (26.79 µs), read at random 3.69 s (3.69 µs), remove at random 26.82 s (26.82 µs);
+  the store's size after each load, 268,435,456 bytes (the file grows by doubling, P11).
+- **L15** Linux (WSL 2 Ubuntu, ext4, copy of `1138169`, before the `free_subtree` fix `4ab9216`): `cargo test
+  --workspace` 283 passed, 0 failed, 9 ignored; A15 (release, 1,000,000 entries): store in key order 13.11 s (13.11
+  µs per entry), at random 37.50 s (37.50 µs), read at random 3.61 s (3.61 µs), remove at random 36.68 s (36.68 µs);
+  store size after each load 268,435,456 bytes.
+- **L16** Independent verifier (Sonnet, HEAD `4ab9216`): **no blockers, no memory-safety finding**. Every spec
+  covered and passing except S19 (report pending, done at closing), S30's compatible half and S31's name-before-key
+  half (not applicable in 5.1), and S35's full sweep (ignored by default; L12). Static guarantees confirmed with 16
+  compile-fail probes (references end at every `&mut` operation, also failing or no-op ones; a read reference does
+  not outlive its transaction; reads cannot modify; write handles stay on their thread; handles do not outlive the
+  store; read and write handles are not interchangeable; no use after commit); run-time ones (another transaction →
+  misuse, deleted tree → not found) affect only error classes: handles hold integers and every page access goes
+  through the safe page API, `unsafe` only in `krummi-pager` (none added). Probes: references held by reads across
+  removals, merges, frees, growth, tree deletion and page reuse stay equal to their copies (also with 4 reader
+  threads); stale and cross-transaction and cross-store handles; byte-identical files for rejected-only writes; a
+  `BTreeMap` model with random multi-handle operations over 6 seeds; a real format-5 store built at `2702406`
+  rejected and unchanged. Checks: fmt, clippy, `cargo test --workspace` 284 passed, 0 failed, 9 ignored. Scratch
+  removed.
+- **L17** Closing: last-slice RDD review (`32d4d04..5ffa33a`) approved, one SUGGESTION left pending; final checks
+  fmt, clippy and `cargo test --workspace` (284 passed, 0 failed, 9 ignored); report
+  [trees-keys-report.md](trees-keys-report.md). Not merged (L11).
+- **L18** (2026-10-26) Codex code review [2026-10-25-code.md](../../../docs/reviews/trees-keys/2026-10-25-code.md),
+  resolutions in [2026-10-25-code-resolutions.md](../../../docs/reviews/trees-keys/2026-10-25-code-resolutions.md): two
+  major findings, no blocker. R2 (A15 report lacked processor and disk) → fixed in the closing report with the
+  equipment of both environments. R1 (`list_trees` aborts on an allocation failure instead of OutOfMemory, P13/T11)
+  → accepted with a wider scope (every tree allocation on an operation path), fix delegated to an ODD Worker.
+- **L19** (2026-10-26) R1 fixed in `06ec986` (ODD Worker): fallible `try_reserve` through the pager's `Op::Alloc`
+  point for every tree allocation on an operation path; facade table as a sorted `Vec`; `WriteTransaction::fail`
+  records upper-layer failures (T11); `tests/tree_memory.rs` 9 sweeps (RED for 7). RDD review 5 (`5ffa33a..06ec986`,
+  resilience and reliability, lineage `review-99c3098713ed944a`): approved, acknowledged; R3-damaged-return-changed
+  and R3-global-fault-injection refuted by the code (`track()` returns its input; faults are `thread_local!`);
+  R3-weak-sweep-thresholds and R4-001 (O(N²) table insert) left pending. Final checks: fmt, clippy, `cargo test
+  --workspace --no-fail-fast` 293 passed, 0 failed, 9 ignored (an earlier run hit the known `ac_f18` flake, which
+  passes alone). Report and resolutions updated.
+- **L20** (2026-10-26) Codex follow-up review [2026-10-26-code.md](../../../docs/reviews/trees-keys/2026-10-26-code.md):
+  R1 and R2 verified resolved; new major R3 (the R1 fix copied a rename's new name before rejecting an existing
+  destination, so an allocation failure gave OutOfMemory and invalidated the write instead of TreeAlreadyExists).
+  Fixed in `c70bbf1` (destination rejected first), RED then GREEN in
+  `r3_renaming_onto_an_existing_tree_is_rejected_before_any_reservation`; `cargo test --workspace --no-fail-fast`
+  294 passed, 0 failed, 9 ignored. RDD review 6 (`06ec986..c70bbf1`, resilience and reliability, lineage
+  `review-4519b6fb261a6f7c`): approved; its SUGGESTION (record R3 in the resolutions and the report) done here.
+  Resolutions: [2026-10-26-code-resolutions.md](../../../docs/reviews/trees-keys/2026-10-26-code-resolutions.md).
+- **L21** (2026-10-26) Codex verification [2026-10-26-code-02.md](../../../docs/reviews/trees-keys/2026-10-26-code-02.md):
+  "R3 verified resolved in `c70bbf1`. No new findings in this fix". Every external finding (R1, R2, R3) is verified
+  resolved; the branch stays unmerged until the user asks.

@@ -13,7 +13,7 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
   `lscpu` and `df -hT`): 13th Gen Intel Core i9-13980HX (24 cores, 32 threads); NVMe Samsung MZVL22T0HBLB-00B00
   (SSD, 2 TB) for Windows; the WSL 2 ext4 virtual disk (`/dev/sde`), stored as a `.vhdx` on the same NVMe, for
   Linux. They were collected after the measurement, on the same machine and configuration.
-- Fix: `odd/tasks/trees-keys-report.md`, section *Medición (A15)*, now has the equipment table; AC-A19's PASS rests
+- Fix: `odd/done/trees/trees-keys-report.md`, section *Medición (A15)*, now has the equipment table; AC-A19's PASS rests
   on it. Commit: recorded in the next update with the R1 fix.
 
 ### R1 — major: listing trees aborts on allocation failure instead of returning OutOfMemory
@@ -27,7 +27,7 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 
 ### R2 — commit
 
-- Fix commit: `62b1813` (equipment table in `odd/tasks/trees-keys-report.md`).
+- Fix commit: `62b1813` (equipment table in `odd/done/trees/trees-keys-report.md`).
 
 ### R1 — fixed
 

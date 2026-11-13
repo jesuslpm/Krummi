@@ -20,7 +20,7 @@
 //! Markdown tables. There is no threshold (D5 of the root PRD).
 //!
 //! The evaluation of the leaf's threshold (V4) ran this measurement with the half-page threshold the engine keeps
-//! and with a full-page prototype since removed; its data is in `odd/tasks/trees-large-values-measurements.md`.
+//! and with a full-page prototype since removed; its data is in `odd/done/trees/trees-large-values-measurements.md`.
 
 mod timing;
 

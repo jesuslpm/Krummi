@@ -1,7 +1,7 @@
 # Krummi and Voron only benchmark code review resolutions
 
 Resolutions of [2026-11-12-code.md](2026-11-12-code.md), the review of `cac715b..1e9dffc` (the ODD run of
-`docs/prd/krummi/benchmark-krummi-voron.prd.md`). Append-only: each update is dated and keeps the earlier ones. A
+`docs/prd/krummi/benchmark/benchmark-krummi-voron.prd.md`). Append-only: each update is dated and keeps the earlier ones. A
 claimed fix stays unverified until a follow-up review confirms it.
 
 ## 2026-11-12

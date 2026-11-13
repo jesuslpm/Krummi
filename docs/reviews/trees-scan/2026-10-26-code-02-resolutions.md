@@ -36,7 +36,7 @@ Review record: [2026-10-26-code-02.md](2026-10-26-code-02.md), wrapper status `f
   entries from them to the end, and asserts that each scan returns 100 (or every entry, for runs of fewer than 100).
 - Evidence: rerun on 1,000,000 keys, the workload reads exactly 1,000,000 entries on both systems
   (`10000 scans of 100 from random keys | 1000000`): Windows 0.09 s, Linux (WSL 2) 0.10 s. The full tables are in
-  the closing report and in `odd/tasks/trees-scan.md` (L16).
+  the closing report and in `odd/done/trees/trees-scan.md` (L16).
 - Status: claimed fixed, unverified until a follow-up review.
 
 ## 2026-10-27 (verification)

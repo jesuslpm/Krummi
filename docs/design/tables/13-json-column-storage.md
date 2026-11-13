@@ -924,8 +924,8 @@ the same. Corrected in the summary, the matrix, X2, X4 and *The parser*; no deci
 
 ## Sources
 
-Repository (paths under `C:\projects\Krummi`): `docs/prd/krummi/tables.prd.md` (N1-N11, the 7.5 annotation at lines
-107-118, *Salida*), `docs/prd/krummi/tables-schema.prd.md` (E4, E5 and its annotation of 2026-11-11, E7, E10, E18,
+Repository (paths under `C:\projects\Krummi`): `docs/prd/krummi/tables/tables.prd.md` (N1-N11, the 7.5 annotation at lines
+107-118, *Salida*), `docs/prd/krummi/tables/tables-schema.prd.md` (E4, E5 and its annotation of 2026-11-11, E7, E10, E18,
 E20), `docs/prd/krummi/krummi.prd.md` (D11, D12), `docs/design/tables/README.md`, documents 1, 2, 4, 7, 9, 10 and 11
 (read in the parts cited), document 3 (included columns), `docs/benchmark/2026-11-09-windows-margin.md` (operations
 per second on the machine of *Experiments*).

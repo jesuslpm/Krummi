@@ -9,7 +9,7 @@ ones. A claimed fix stays unverified until a follow-up review confirms it.
 
 - Disposition: fixed.
 - Fix: the missing Linux comparisons were measured against `3ec8641` (pre-O3) and the O4 head build, with the
-  binaries and method of L10 of `odd/tasks/commit-copies.md` (`work/o4/full.sh`, two rounds, order swapped).
+  binaries and method of L10 of `odd/done/journal/commit-copies.md` (`work/o4/full.sh`, two rounds, order swapped).
   Ratios head / pre per round:
   - W4: 0.95, 1.03.
   - W5: 1.00, 1.02.

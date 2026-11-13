@@ -1,4 +1,4 @@
-// Test vectors of Krummi's `ulid` and `uuid` generators (E15 of docs/prd/krummi/tables-schema.prd.md, AC12).
+// Test vectors of Krummi's `ulid` and `uuid` generators (E15 of docs/prd/krummi/tables/tables-schema.prd.md, AC12).
 //
 // An independent reference written in C#: it applies the three rules of E15 to fixed clock readings and fixed random
 // bits, lays the values out as E15 says (the sequential `uuid` with the user's .NET layout, `CreateGuid` of

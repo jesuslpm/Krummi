@@ -23,8 +23,8 @@ because code comments change.
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S3, S5 | inline | done (L4) | (this commit) |
-| T2 | S1, S2, S3 | inline | pending | |
+| T1 | S3, S5 | inline | done (L4, L5) | `405e155`, `HEAD~1` of T2 |
+| T2 | S1, S2, S3 | inline | done (L5) | (this commit) |
 | T3 | S4 | inline | pending | |
 | T4 | checks, reviews, closing report, archiving of this execution | inline | pending | |
 
@@ -60,3 +60,12 @@ because code comments change.
   with mutations instead of RED: a full stop as a path character fails the whole-path test, and not recomputing the
   links of a moved file fails two. Baseline of `check` before the move: 37 broken links, all older than this run
   (copies of chicago-crime's methodology, paths of `muninndb`; list in `work/docs-layout-broken-before.txt`).
+- **L5** (2026-11-13): T2. Manifest of 160 moves from L3 (`work/docs-layout-manifest.tsv`): every file of
+  `odd/tasks` but this run's, and every PRD but `krummi.prd.md` and its translation. `move_docs.py move`: «moved 160
+  files, rewrote references in 258 files». `check` after the move: the same 37 broken links as before, each with the
+  same target and its file at its new path (compared by script). Old paths left: an example in the closing report
+  skill (T3), the chicago-crime references (already broken), test fixtures, and one relative link in a Rust doc comment
+  (`crates/krummi-bench/src/lib.rs:1`), which the script did not rewrite because it rewrote links of `.md` files only:
+  fixed by hand, and the script now also rewrites the links of `.rs` files (commit before this one; new test
+  `test_links_in_rust_doc_comments_follow_their_target`, which fails when `.rs` is left out; 7 tests pass).
+  `cargo fmt --all --check` clean.

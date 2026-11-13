@@ -27,7 +27,7 @@ Fix commit on `feat/trees-append-split`: `275ecef` (R1).
   158 points; the base `86614c4`, built from a `git archive` copy in a temporary directory, reaches 156.
 - Checks: `cargo test -p krummi --lib --release -- --include-ignored` 24 passed, 0 failed (the exhaustive and
   sampled AC-B18, AC-R12, AC-V8 and AC-M14 included). The full checks of `CLAUDE.md` and the CI's ignored tree
-  tests are recorded in the execution document (`odd/tasks/trees-append-split.md`).
+  tests are recorded in the execution document (`odd/done/trees/trees-append-split.md`).
 - Status: claimed fixed, unverified until a follow-up review.
 
 ## 2026-10-31 (verification)

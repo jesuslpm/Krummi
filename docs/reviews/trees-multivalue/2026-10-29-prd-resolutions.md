@@ -11,17 +11,17 @@ reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`.
 
 Artifact versions after the fixes (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/trees-multivalue.prd.md`: `a7f1a23af931559f7b8b5980a3b44059aec399124992a4d532f9f3caee49bd66`
+- `docs/prd/krummi/trees/trees-multivalue.prd.md`: `a7f1a23af931559f7b8b5980a3b44059aec399124992a4d532f9f3caee49bd66`
 - `docs/prd/krummi/krummi.prd.md`: `8bf192e547e2e7a82565898d896ae166340342e8d23e98940d34a6a1af79348c`
-- `docs/prd/krummi/pager.prd.md`: `dd9332ad64c2b1ea2278408087c33bd3cc82750662459b07782589feb356fdca`
-- `docs/prd/krummi/journal.prd.md`: `c34578f48fb3e2b61b3190e486fee1a77aa022d99ac27c255e000e0f8b2729b1`
-- `docs/prd/krummi/journal-group-commit.prd.md`: `899833dc5d0123123cd32756ebf91c930585f8eb5a829044fc3628f71e36f95a`
-- `docs/prd/krummi/free-space.prd.md`: `8778c54fe19b2e2cbe961db645a296a91c029695001a6a19bef8da5aeac57bdd`
-- `docs/prd/krummi/transactions.prd.md`: `81a0860fd79afcc0469cf6fed5814aa48d90015e5b0deddcfad2c9c984792e47`
-- `docs/prd/krummi/trees.prd.md`: `aa509af347a0a42946a431f7c84d7cfc6d7b298839de34f4799bcc9df2332da7`
-- `docs/prd/krummi/trees-keys.prd.md`: `5369aa8b6edf88cb5e83106929a67bce15a5441367259578842d7f433f06a635`
-- `docs/prd/krummi/trees-scan.prd.md`: `0ff9ee0e9134a97fb4bc2fa7670262a9b87563f051957f8f4b22cd345cd453c2`
-- `docs/prd/krummi/trees-large-values.prd.md`: `b5adf03c8e831c08732077821f6a53e0fb5c17818fea884bd889d75f355e021e`
+- `docs/prd/krummi/pager/pager.prd.md`: `dd9332ad64c2b1ea2278408087c33bd3cc82750662459b07782589feb356fdca`
+- `docs/prd/krummi/journal/journal.prd.md`: `c34578f48fb3e2b61b3190e486fee1a77aa022d99ac27c255e000e0f8b2729b1`
+- `docs/prd/krummi/journal/journal-group-commit.prd.md`: `899833dc5d0123123cd32756ebf91c930585f8eb5a829044fc3628f71e36f95a`
+- `docs/prd/krummi/free-space/free-space.prd.md`: `8778c54fe19b2e2cbe961db645a296a91c029695001a6a19bef8da5aeac57bdd`
+- `docs/prd/krummi/transactions/transactions.prd.md`: `81a0860fd79afcc0469cf6fed5814aa48d90015e5b0deddcfad2c9c984792e47`
+- `docs/prd/krummi/trees/trees.prd.md`: `aa509af347a0a42946a431f7c84d7cfc6d7b298839de34f4799bcc9df2332da7`
+- `docs/prd/krummi/trees/trees-keys.prd.md`: `5369aa8b6edf88cb5e83106929a67bce15a5441367259578842d7f433f06a635`
+- `docs/prd/krummi/trees/trees-scan.prd.md`: `0ff9ee0e9134a97fb4bc2fa7670262a9b87563f051957f8f4b22cd345cd453c2`
+- `docs/prd/krummi/trees/trees-large-values.prd.md`: `b5adf03c8e831c08732077821f6a53e0fb5c17818fea884bd889d75f355e021e`
 
 ### R1 — minor: Missing annotations in the affected earlier PRDs
 
@@ -59,8 +59,8 @@ reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`.
 
 Artifact versions after the fixes (uncommitted working tree, SHA-256 of the bytes):
 
-- `docs/prd/krummi/trees-keys.prd.md`: `fcc7362ee0d45280946420be8c322487ba071d322dfcc1e626dd1679ef2c37e0`
-- `docs/prd/krummi/trees-multivalue.prd.md`: `d033f823c7e3924f3e1139e867da6879a0e852968e785ca2ca1d3db58d9cce9d`
+- `docs/prd/krummi/trees/trees-keys.prd.md`: `fcc7362ee0d45280946420be8c322487ba071d322dfcc1e626dd1679ef2c37e0`
+- `docs/prd/krummi/trees/trees-multivalue.prd.md`: `d033f823c7e3924f3e1139e867da6879a0e852968e785ca2ca1d3db58d9cce9d`
 
 ### R3 — minor: The new A10 annotation overgeneralizes the conditional-change rule
 
