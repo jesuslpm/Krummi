@@ -136,7 +136,7 @@ because code comments change.
 - **L12** (2026-11-13): R3-mutation-evidence-not-in-candidate (RDD, SUGGESTION, L11) dismissed: by this project's
   convention measurement and probe scripts stay in the ignored `work/` folder (the logs cite them there), and L11
   names each mutation precisely enough to repeat it. Codex code review, round 1, `80027e1..a406e8e`
-  ([report](../../docs/reviews/docs-layout/2026-11-13-code.md), committed `977e8b7`): `findings`, R1 (major: a
+  ([report](../../../docs/reviews/docs-layout/2026-11-13-code.md), committed `977e8b7`): `findings`, R1 (major: a
   destination under a tracked file passed the checks, and the references were rewritten before `mkdir` failed), R2
   (major: destinations between angle brackets were neither rewritten nor checked) and R3 (minor: the new command's
   messages were English, against «CLI messages and PRDs in Spanish»). Thread `01a1d4a1-ef38-7522-a67e-ae13fa7e7ba8`;
@@ -147,7 +147,7 @@ because code comments change.
   help (`USAGE`) are Spanish, printed as UTF-8. 18 tests pass. `check` now also reports four example links of the
   Codex report, written as code (the docstring says links in code count as links).
 - **L13** (2026-11-13): Codex follow-up, round 2, fix range `a406e8e..87c0ce0`
-  ([report](../../docs/reviews/docs-layout/2026-11-13-code-02.md), committed `687caad`): `findings`. R2 and R3
+  ([report](../../../docs/reviews/docs-layout/2026-11-13-code-02.md), committed `687caad`): `findings`. R2 and R3
   verified resolved; R1 still open (a destination spelled `./x.md` escaped the folder check, and the move failed
   half-done); R4 new (major: sharing the inline destination pattern cut a reference definition's destination at a
   parenthesis, `../../guide(v2).md`, which the base handled). Thread `01a1d4a8-7e2c-7b20-8d10-d13e960f0b92`;
@@ -172,7 +172,7 @@ because code comments change.
   two destinations that differ only in case, which the base allowed; kept on purpose (the repository is checked out
   on Windows too, where such a move breaks the copy), and the comment now says so.
 - **L16** (2026-11-13): Codex follow-up, round 3, fix range `87c0ce0..9518704`
-  ([report](../../docs/reviews/docs-layout/2026-11-13-code-03.md), committed `075e2d9`): `findings`. R4 verified
+  ([report](../../../docs/reviews/docs-layout/2026-11-13-code-03.md), committed `075e2d9`): `findings`. R4 verified
   resolved; R1 still open with another alias: on Windows `x.md.` is `x.md`, so `a.md` → `x.md` and `b.md` →
   `x.md./b.md` passed the checks and failed half-done (as at the base). Thread
   `01a1d4af-eeb2-7981-90ba-76bcd20e7bbb`; telemetry: coordinator `gpt-6.1-sol` / high, reviewer `krummi-review`
