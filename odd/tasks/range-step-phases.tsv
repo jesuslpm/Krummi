@@ -19,3 +19,8 @@
 2026-11-13T09:02:24+00:00	bg-end	review	rdd-fix
 2026-11-13T09:02:29+00:00	bg-start	review	codex-R1
 2026-11-13T09:10:11+00:00	bg-end	review	codex-R1
+2026-11-13T09:11:01+00:00	mark	acceptance	T4
+2026-11-13T09:11:01+00:00	bg-start	acceptance	wsl W11 W27
+2026-11-13T09:18:02+00:00	bg-end	acceptance	wsl W11 W27
+2026-11-13T09:18:31+00:00	mark	close	T4
+2026-11-13T09:18:35+00:00	end		

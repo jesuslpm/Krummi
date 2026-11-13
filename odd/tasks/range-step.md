@@ -29,7 +29,7 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
 | T1 | S1, S4 | inline | done (L4) | `fab4085` |
 | T2 | S2, S4 | inline | done (L5) | `05fbba3` |
 | T3 | S3, S4 | inline | done (L6) | `44b1094` |
-| T4 | S5 (complete run, reviews, closing report) | inline | in progress (L7–L10) | `0d99b0e`, `a3527a6` |
+| T4 | S5 (complete run, reviews, closing report) | inline | done (L7–L12) | `0d99b0e`, `a3527a6`, `7cf21b8`, closing report commit |
 
 ## Log
 
@@ -112,3 +112,12 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
   its checks: fmt, clippy, `cargo test --locked --offline --workspace` passed. Thread
   `01a1d425-0c4c-70a1-902b-81dec4e7158f`; telemetry: coordinator `gpt-6.1-sol` / high, reviewer
   `krummi-review-critical` `gpt-6-astra` / xhigh. No resolutions file: nothing to resolve.
+- **L11** (2026-11-13): WSL 2 single loads (S5, L3), `0257204` (k0) against `7cf21b8` (kh, same code as `a3527a6`)
+  and Voron, alternating, three rounds, not pinned (`~/w11prof/wsl-final.out`, 09:13:58–09:18:02). Only round 1 is
+  usable: in rounds 2 and 3 all three binaries fell at once (W11 under 3.4 M, Voron's W27 4.2–8.4 M) while Windows
+  showed 31–41 % processor time with none of this run's work going (another workload on the machine). Round 1,
+  median op/s: W11 k0 18,041,675, kh 21,499,711, Voron 21,653,710 (ratio 0.83 → **0.99**); W27 k0 13,490,968, kh
+  14,533,666, Voron 12,922,036 (1.04 → 1.12). One round on a busy machine: indicative only; the Windows complete run
+  (L7) is the run's measurement.
+- **L12** (2026-11-13): closing report [range-step-report.md](range-step-report.md). Active time 1 h 41 min against
+  the 2–4 h estimate (phase log). Not merged nor pushed: the branch waits for the user's review.
