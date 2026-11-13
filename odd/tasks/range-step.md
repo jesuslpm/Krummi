@@ -27,8 +27,8 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1, S4 | inline | done (L4) | `fab4085` |
-| T2 | S2, S4 | inline | done (L5) | (this commit) |
-| T3 | S3, S4 | inline | pending | |
+| T2 | S2, S4 | inline | done (L5) | `05fbba3` |
+| T3 | S3, S4 | inline | done (L6) | (this commit) |
 | T4 | S5 (complete run, closing report) | inline | pending | |
 
 ## Log
@@ -66,3 +66,17 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
   T2): W11 15,472,810 / 15,633,952 / 15,657,563 against 15,930,359 / 15,788,156 / 15,826,977 (**about +1.5 %**);
   W27 9,487,497 / 9,665,757 / 9,608,505 against 9,797,886 / 9,857,450 / 9,777,343 (**about +2.3 %**). The machine
   ran faster than during L4 (T1's W11 at 15.5 M against 14.8 M), so each step is compared only within its own batch.
+- **L6** (2026-11-13): T2 committed (`05fbba3`); RDD assess `0257204..05fbba3` medium, `under_budget`. T3: a range
+  end that reaches a leaf whose keys are all within its bound asks for the neighbouring leaf of the same branch (the
+  next child for the front, the previous one for the back) to be prefetched: `PageSource::prefetch` (no-op by
+  default; reads through `ReadTransaction`), `krummi_tx::ReadTransaction::prefetch`, `Snapshot::prefetch` (only
+  when the scratch area's filter says the page has no version, as finding the version takes the lock) and
+  `Pager::prefetch` (`_mm_prefetch` on x86-64, nothing elsewhere; the one `unsafe` stays in `krummi-pager`). Three
+  sizes measured against T2 (Windows, pinned, under the plan; medians of rounds): the whole page (128 lines,
+  `work/w11/t3.log`) W11 −10 %, W27 −8.5 %; 64 bytes (`t3ab.log`) W11 +2.4 %, W27 −0.6 %; 256 bytes W11 +4.1 %,
+  W27 −0.5 %. Confirmed with five rounds (`t3b5.log`, median of the round medians): W11 15,783,917 → 16,412,690
+  (**+4.0 %**, every round higher), W27 9,758,634 → 9,670,125 (−0.9 %, ranges overlapping: 9.66–9.77 M against
+  9.58–9.75 M). Kept with 256 bytes (`PREFETCH_BYTES`), as S3 asks for a measured gain and W27's change is within the
+  spread of its rounds; the complete run (T4) checks the other loads. New test
+  `a_prefetch_never_fails_and_changes_nothing` (header pages, pages of the store, past its end and `u64::MAX`, on
+  disk and in memory). Checks: fmt, clippy clean, 831 passed, 0 failed, 34 ignored.

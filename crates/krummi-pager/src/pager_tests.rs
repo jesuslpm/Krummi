@@ -80,6 +80,23 @@ fn ac_p15_and_ac11_disk_full_while_growing_keeps_the_store_usable() {
     assert!(pager.info().size_bytes > size);
 }
 
+/// A prefetch is a hint: it changes nothing and never fails, for the header pages, the pages of the store and pages
+/// past its end, on disk and in memory (S3 of the range step execution).
+#[test]
+fn a_prefetch_never_fails_and_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut on_disk = Pager::open(tmp.path(), &options()).unwrap();
+    let mut in_memory = Pager::open_temporary(&options()).unwrap();
+    for pager in [&mut on_disk, &mut in_memory] {
+        pager.write_page(2, b"kept").unwrap();
+        let pages = pager.info().size_bytes / PAGE_SIZE_U64;
+        for page in [0, 1, 2, pages - 1, pages, pages + 1, u64::MAX] {
+            pager.prefetch(page);
+        }
+        assert_eq!(&pager.page(2).unwrap()[..4], b"kept");
+    }
+}
+
 #[test]
 fn ac12_a_failed_write_refuses_later_writes_until_reopened() {
     let tmp = tempfile::tempdir().unwrap();

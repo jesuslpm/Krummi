@@ -248,6 +248,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             path.push((node, index));
             if node::is_leaf(node) {
                 self.front.clear = leaf_before_upper(&interval, node);
+                self.prefetch_neighbour(true);
                 return Ok(());
             }
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
@@ -266,6 +267,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             path.push((node, index));
             if node::is_leaf(node) {
                 self.back.clear = leaf_after_lower(&interval, node);
+                self.prefetch_neighbour(false);
                 return Ok(());
             }
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
@@ -389,9 +391,32 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                 } else {
                     self.back.clear = leaf_after_lower(&interval, node);
                 }
+                self.prefetch_neighbour(front);
                 return Ok(());
             }
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
+        }
+    }
+
+    /// Asks for the leaf an end reads after its current one, the next child of the same branch for the front and the
+    /// previous one for the back, to be brought into the caches while it reads the current one. Only when every key
+    /// of the current leaf is within the end's bound, as otherwise the scan stops in it.
+    fn prefetch_neighbour(&self, front: bool) {
+        let end = if front { &self.front } else { &self.back };
+        if !end.clear {
+            return;
+        }
+        let Some(&(branch, child)) = end.path.len().checked_sub(2).and_then(|i| end.path.get(i))
+        else {
+            return;
+        };
+        let neighbour = if front {
+            (child < node::count(branch)).then_some(child + 1)
+        } else {
+            child.checked_sub(1)
+        };
+        if let Some(neighbour) = neighbour {
+            self.tx.prefetch(node::child(branch, neighbour));
         }
     }
 

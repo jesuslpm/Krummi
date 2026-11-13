@@ -104,6 +104,12 @@ pub trait PageSource {
     /// freeing a run named in a leaf.
     fn may_hold_run(&self, first: u64, count: u64) -> bool;
 
+    /// Asks for page `page_number` to be brought into the processor's caches, for a read soon after: a hint that
+    /// reads, checks and counts nothing. A source that cannot tell where the page is does nothing.
+    fn prefetch(&self, page_number: u64) {
+        let _ = page_number;
+    }
+
     /// The damage error of page `page_number`, inconsistent although its checksum is valid; in a write it is the
     /// transaction's failure (T11).
     fn damaged(&self, page_number: u64) -> Error;
@@ -131,6 +137,10 @@ impl PageSource for ReadTransaction<'_> {
 
     fn remember_checked(&self, page_number: u64, code: u64) {
         ReadTransaction::remember_checked(self, page_number, code);
+    }
+
+    fn prefetch(&self, page_number: u64) {
+        ReadTransaction::prefetch(self, page_number);
     }
 
     fn run(&self, first: u64, count: u64) -> Result<&[u8]> {

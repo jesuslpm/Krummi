@@ -36,6 +36,11 @@ pub const MAX_GROWTH_STEP: u64 = 1 << 30;
 /// this, so that the store opens whatever address space the system grants, and grows only up to it.
 pub const TEMPORARY_RESERVATION: u64 = 64 << 30;
 
+/// Bytes of a page [`Pager::prefetch`] asks for: the page header and the start of the payload, which a reader looks
+/// at first (a tree node's header and first cell offsets). Asking for the whole page cost more than it saved in the
+/// scans of the range step execution (W11 −10 %); 256 bytes gave W11 +4 %, 64 bytes +2.4 %.
+const PREFETCH_BYTES: usize = 256;
+
 /// The size a store of `len` bytes grows to when it needs `needed` bytes, before any limit: it doubles, by at most
 /// [`MAX_GROWTH_STEP`], or takes what it needs when that is more (P11).
 pub fn growth_target(len: u64, needed: u64) -> u64 {
@@ -397,6 +402,17 @@ impl Pager {
             self.remember_run(first, count, run);
         }
         Ok(run)
+    }
+
+    /// Asks the processor to bring the first bytes of page `page` (`PREFETCH_BYTES`) into its caches without reading
+    /// them, so that a read soon after does not wait for memory. It checks nothing and fails never: a page outside
+    /// the store asks nothing.
+    pub fn prefetch(&self, page: u64) {
+        if page >= HEADER_PAGES
+            && let Some(bytes) = self.raw_pages(page, 1)
+        {
+            prefetch_bytes(&bytes[..PREFETCH_BYTES]);
+        }
     }
 
     /// Whether the `count` pages from page `first`, whose bytes are `run`, passed the integrity check and are still
@@ -1164,6 +1180,21 @@ fn create(folder: &Path, max_size: Option<u64>) -> Result<Created> {
         HeaderState::new(Header::new_store(), 0, Some(Header::new_store())),
     )?)))
 }
+
+/// Asks the processor to bring every cache line of `bytes` into its caches ([`Pager::prefetch`]).
+#[cfg(target_arch = "x86_64")]
+fn prefetch_bytes(bytes: &[u8]) {
+    use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+    for line in bytes.chunks(64) {
+        // SAFETY: SSE, which holds the instruction, is part of every x86-64 processor; a prefetch is only a hint that
+        // reads nothing the program sees and never faults, whatever the address.
+        unsafe { _mm_prefetch::<_MM_HINT_T0>(line.as_ptr().cast()) };
+    }
+}
+
+/// Elsewhere the processor is left to bring the bytes when they are read.
+#[cfg(not(target_arch = "x86_64"))]
+fn prefetch_bytes(_bytes: &[u8]) {}
 
 #[cfg(test)]
 #[path = "pager_tests.rs"]

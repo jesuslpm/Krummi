@@ -1164,6 +1164,15 @@ impl<'a> Snapshot<'a> {
         Ok((page, Origin::Store(code)))
     }
 
+    /// Asks the processor to bring page `page_number` into its caches when this snapshot sees it in the store, so that
+    /// a read soon after finds it there ([`Pager::prefetch`]). A page that may have a version in the scratch area is
+    /// left alone: telling which version this snapshot sees takes the lock, which costs more than the wait it saves.
+    pub fn prefetch(&self, page_number: u64) {
+        if !(self.may_see_versions && self.scratch.shared.filter.may_have(page_number)) {
+            self.scratch.pager().prefetch(page_number);
+        }
+    }
+
     /// Reports that the layers above checked the layout of `node`, the payload of page `page_number` read as a
     /// version of the scratch area, and whether it `passed`. A pass is remembered by that version, for every later
     /// read of it while it stays in the scratch area, by any snapshot; a failure is never remembered (U1 of the

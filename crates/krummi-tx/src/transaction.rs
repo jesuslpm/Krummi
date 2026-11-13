@@ -71,6 +71,12 @@ impl<'e> ReadTransaction<'e> {
         Ok((page, origin.into()))
     }
 
+    /// Asks the processor to bring page `page_number`, as this transaction sees it, into its caches without reading
+    /// it, for a read soon after: a hint that checks and counts nothing.
+    pub fn prefetch(&self, page_number: u64) {
+        self.snapshot.prefetch(page_number);
+    }
+
     /// Records that a layer above checked the layout of `node`, page `page_number` read as a version of the scratch
     /// area, and whether it `passed`: a pass holds for every later read of that version (U1 of the version checks
     /// PRD).
