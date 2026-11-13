@@ -49,3 +49,40 @@ module docstring now says that links in code count as links.
 Review record: [2026-11-13-code.md](2026-11-13-code.md), wrapper status `findings`, thread
 `01a1d4a1-ef38-7522-a67e-ae13fa7e7ba8`; telemetry: coordinator `gpt-6.1-sol` / high, reviewer `krummi-review`
 `gpt-6.1-sol` / high.
+
+## 2026-11-13 (verification)
+
+Follow-up report: [2026-11-13-code-02.md](2026-11-13-code-02.md), fix range `a406e8e..87c0ce0`, thread
+`01a1d4a8-7e2c-7b20-8d10-d13e960f0b92`, wrapper status `findings`; telemetry: coordinator `gpt-6.1-sol` / high,
+reviewer `krummi-review` `gpt-6.1-sol` / high. Per-ID outcome, quoted: R1 «still open, partially corrected by
+`ec5011b`»; R2 «Verified resolved: angle-delimited Markdown destinations»; R3 «Verified resolved: explicit CLI
+messages and help»; R4 new, «the angle-link fix breaks reference destinations containing parentheses».
+
+## 2026-11-13 (round 2)
+
+Artifact versions: fixes in commit `349fb94`, on branch `feat/docs-layout`.
+
+### R1 — major: destination aliases still allow a rejected move to leave partial changes
+
+- Disposition: fixed.
+- Evidence: reproduced by the new test `test_paths_of_a_move_are_compared_normalized` (the report's manifest,
+  `a.md` → `./x.md` and `b.md` → `x.md/b.md`), which fails on `87c0ce0` with the `FileExistsError` of the report.
+- Fix (`349fb94`): `move` normalizes every path of the move before any check (forward slashes, no `.` or `..`
+  steps), so the folder and duplicate checks compare one spelling; a source given twice under two spellings
+  (`El archivo a.md aparece dos veces`) and a path that leaves the repository (`La ruta ../a.md queda fuera del
+  repositorio`) are refused. The test asserts that the referencing file and the tracked files are unchanged, and that a
+  valid move written with `./` steps moves the file and rewrites its link.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R4 — major: the angle-link fix breaks reference destinations containing parentheses
+
+- Disposition: fixed.
+- Evidence: reproduced by the new test `test_reference_destinations_keep_their_parentheses` (the report's
+  `[g]: ../../guide(v2).md`, archived), which fails on `87c0ce0`.
+- Fix (`349fb94`): a Markdown reference definition's destination is again everything up to a space, as at the base,
+  or one between angle brackets; inline links keep the destination pattern of `ec5011b`, which ends at a `)` as at
+  the base.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Checks after the fixes: `python -m unittest discover -s scripts/docs` 20 tests pass; `check` lists the same 41 links
+as the follow-up counted (37 earlier ones and four examples written as code in the first report).
