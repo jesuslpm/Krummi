@@ -29,7 +29,7 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
 | T1 | S1, S4 | inline | done (L4) | `fab4085` |
 | T2 | S2, S4 | inline | done (L5) | `05fbba3` |
 | T3 | S3, S4 | inline | done (L6) | `44b1094` |
-| T4 | S5 (complete run, closing report) | inline | pending | |
+| T4 | S5 (complete run, reviews, closing report) | inline | in progress (L7–L10) | `0d99b0e`, `a3527a6` |
 
 ## Log
 
@@ -101,3 +101,14 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
   so there is no current harm.» Fixed: `const _: () = assert!(PREFETCH_BYTES <= PAGE_SIZE);` (with 9,000 the build
   fails with «assertion failed: PREFETCH_BYTES <= PAGE_SIZE»; with 256 it builds). Envelopes in
   `work/w11/rdd-rs-*.json`. Checks after the fix: fmt, clippy clean, 831 passed, 0 failed, 34 ignored.
+- **L9** (2026-11-13): RDD fix committed (`a3527a6`), reviewed alone from the reviewed boundary `0d99b0e` (assess
+  medium, `under_budget`, 14 lines), lens `review-reliability`, lineage `review-4148cf1268b680aa`: **approved**, no
+  findings, acknowledged. The branch also holds `03cf21f` (docs(tables): rename the JSON multi-valued index to
+  multi-entry index), committed at 08:13 by the other session that works on the JSON design documents in this copy,
+  while this branch was checked out: not part of this run, left as is; RDD and Codex reviewed it within the range.
+- **L10** (2026-11-13): Codex code review of the run, round 1, `0257204..a3527a6`
+  ([report](../../docs/reviews/range-step/2026-11-13-code.md)): `approved`, no findings, no product questions
+  («No findings. No introduced defect or substantive unmet requirement was established in the requested range.»);
+  its checks: fmt, clippy, `cargo test --locked --offline --workspace` passed. Thread
+  `01a1d425-0c4c-70a1-902b-81dec4e7158f`; telemetry: coordinator `gpt-6.1-sol` / high, reviewer
+  `krummi-review-critical` `gpt-6-astra` / xhigh. No resolutions file: nothing to resolve.
