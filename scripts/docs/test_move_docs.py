@@ -185,5 +185,22 @@ class MoveTests(unittest.TestCase):
                          ['src/lib.rs:1: ../docs/z.md', 'src/lib.rs:2: ../nowhere.md'])
 
 
+    def test_markdown_reference_definitions_keep_their_rules(self):
+        # A definition may name a file without an extension; one indented four spaces is a code block, not a link.
+        repo = self.repo({
+            'LICENSE': 'l\n',
+            'docs/a.md': '[l]: ../LICENSE\n   [m]: ../LICENSE\n    [code]: ../LICENSE\n\n    [gone]: missing.md\n',
+        })
+        self.assertEqual(move_docs.broken_links(repo.root), [])
+        move_docs.move(repo.root, {'LICENSE': 'legal/LICENSE'})
+        self.assertEqual(repo.read('docs/a.md'), ('[l]: ../legal/LICENSE\n   [m]: ../legal/LICENSE\n'
+                                                  '    [code]: ../LICENSE\n\n    [gone]: missing.md\n'))
+
+    def test_reopening_refuses_an_execution_archived_twice(self):
+        repo = self.repo({'odd/done/trees/f.md': 'x\n', 'odd/done/pager/f.md': 'y\n'})
+        with self.assertRaisesRegex(SystemExit, 'no single archived execution f'):
+            move_docs.reopen_moves(repo.root, 'f')
+
+
 if __name__ == '__main__':
     unittest.main()

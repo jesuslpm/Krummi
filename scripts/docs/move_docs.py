@@ -18,7 +18,7 @@ A move rewrites, in every tracked text file:
 - relative Markdown links, inline (``[text](path#anchor)``) and reference definitions (``[id]: path``, also after
   ``///`` or ``//!``), of Markdown files and of Rust files (whose doc comments are Markdown), whose target or whose
   own file moves; a link whose target did not exist before is left to the next rule only;
-- paths written from the repository root (``docs/prd/krummi/pager.prd.md``) of the moved files, in any text file and
+- paths written from the repository root (``docs/prd/krummi/pager/pager.prd.md``) of the moved files, in any text file and
   wherever they are, link targets included, when no path character comes right before or after them (a full stop
   that ends a sentence is none).
 
@@ -35,11 +35,11 @@ from pathlib import Path
 
 # An inline Markdown link: the target, then an optional title. Targets with spaces or angle brackets are not used here.
 INLINE = re.compile(r'(\]\()([^)\s<>]+)((?:\s+"[^"]*")?\))')
-# A reference definition at the start of a line, or after the `///` or `//!` of a Rust doc comment.
-REFERENCE = re.compile(r'^(\s*(?://[/!]\s?)?\s{0,3}\[[^\]]+\]:\s*)(\S+)', re.MULTILINE)
-# A reference definition names a file only when its target has a `/` or a `.`: in a Rust doc comment, a line of
-# prose may start like one ("[`Store::open`]: when it fails"), and rustdoc's own targets (`crate::x`) are no files.
-LOOKS_LIKE_A_PATH = re.compile(r'[/.]')
+# A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block).
+MD_REFERENCE = re.compile(r'^( {0,3}\[[^\]]+\]:[ \t]*)(\S+)', re.MULTILINE)
+# One of a Rust doc comment, after its `///` or `//!`. A line of prose may start like one ("[`Store::open`]: when it
+# fails"), and rustdoc's own targets (`crate::x`) are no files, so only a target with a `/` or a `.` counts.
+RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[[^\]]+\]:[ \t]*)(\S*[/.]\S*)', re.MULTILINE)
 # Files whose links are Markdown: documents, and Rust's doc comments.
 MARKDOWN = ('.md', '.rs')
 # A target with a scheme (http:, mailto:) or a pure anchor is not a path.
@@ -84,6 +84,11 @@ def split_target(target):
     return target[:cut], target[cut:]
 
 
+def reference_pattern(source):
+    """The pattern of the reference definitions of `source`, by its kind."""
+    return RS_REFERENCE if source.endswith('.rs') else MD_REFERENCE
+
+
 def link_path(source, target):
     """The path from the root that a link target of `source` names, with the target's path part and what follows it;
     None for a target that names no file of the repository (a scheme, an anchor alone, an absolute path)."""
@@ -125,12 +130,10 @@ def rewrite_text(source, text, moves, files, dirs, root):
             return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root) + m[3]
 
         def reference(m):
-            if not LOOKS_LIKE_A_PATH.search(m[2]):
-                return m[0]
             return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root)
 
         text = INLINE.sub(inline, text)
-        text = REFERENCE.sub(reference, text)
+        text = reference_pattern(source).sub(reference, text)
     for old in sorted(moves, key=len, reverse=True):
         if old in text:
             text = re.sub(BEFORE + re.escape(old) + AFTER, lambda _, new=moves[old]: new, text)
@@ -225,7 +228,7 @@ def broken_links(root):
             continue
         for number, line in enumerate(text.splitlines(), 1):
             targets = [m[2] for m in INLINE.finditer(line)]
-            targets += [m[2] for m in REFERENCE.finditer(line) if LOOKS_LIKE_A_PATH.search(m[2])]
+            targets += [m[2] for m in reference_pattern(f).finditer(line)]
             for target in targets:
                 named = link_path(f, target)
                 if named is not None and not exists(root, known, dirs, named[0]):

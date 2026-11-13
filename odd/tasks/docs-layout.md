@@ -100,3 +100,16 @@ because code comments change.
   - R2-005 and R3-manifest-malformed-line (SUGGESTION): a malformed manifest line raised a bare `ValueError`: now a
     message names it (`test_a_malformed_manifest_line_is_named`).
   13 tests pass; `check` gives the same 37 broken links.
+- **L8** (2026-11-13): fixes committed (`c8b751a`). RDD of `2503b38..c8b751a` (255 lines: `reopen`, the
+  instructions and those fixes), lenses `review-readability` and `review-reliability`, lineage
+  `review-144db57e6b9df6e1`: **approved**, acknowledged, with findings handled in the next commit:
+  - R2-reference-indent-bound-dead and R3-reference-indent-unbounded (WARNING): the leading `\s*` added for Rust made
+    the three-space bound of Markdown dead and could cross lines: one pattern per kind of file, `MD_REFERENCE` (at
+    most three spaces) and `RS_REFERENCE` (after `///` or `//!`), with `[ 	]` instead of `\s`.
+  - R3-reference-filter-applies-to-markdown (WARNING): the `/`-or-`.` filter also skipped Markdown definitions of a
+    file without an extension: it applies to Rust only. Test `test_markdown_reference_definitions_keep_their_rules`
+    (a definition of `../LICENSE` is rewritten, one indented four spaces is not), failing on `c8b751a`.
+  - R2-docstring-example-old-layout (SUGGESTION): the docstring's example shows a PRD in its module folder again.
+  - R3-reopen-ambiguity-untested (SUGGESTION): test `test_reopening_refuses_an_execution_archived_twice` (it passes on
+    `c8b751a` too: the guard was there, untested).
+  15 tests pass; `check` gives the same 37 broken links.
