@@ -1,0 +1,218 @@
+"""Moves documents of the repository and rewrites every reference to them, so that no working link breaks.
+
+Commands, run from anywhere inside the repository with `python -I scripts/docs/move_docs.py <command> ...`:
+
+- ``archive <feature> <module>``: moves a finished execution, every ``odd/tasks/<feature>.md``,
+  ``<feature>-report.md``, ``<feature>-phases.tsv`` and ``<feature>-measurements.md`` that exists, to
+  ``odd/done/<module>/``.
+- ``move <manifest>``: moves the files a manifest lists, one ``<old path>\\t<new path>`` per line, paths from the
+  repository root; blank lines and lines starting with ``#`` are skipped.
+- ``check``: lists the relative Markdown links of tracked files whose target does not exist, one
+  ``<file>:<line>: <target>`` per line, and exits with 1 when there is any.
+
+A move rewrites, in every tracked text file:
+
+- relative Markdown links, inline (``[text](path#anchor)``) and reference definitions (``[id]: path``), whose
+  target or whose own file moves; a link whose target did not exist before is left as it is;
+- paths written from the repository root (``docs/prd/krummi/pager.prd.md``) of the moved files, in any text file,
+  when no path character comes right before or after them (a full stop that ends a sentence is none).
+
+Then it moves the files with ``git mv``, so that their history follows them.
+"""
+
+import os
+import posixpath
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# An inline Markdown link: the target, then an optional title. Targets with spaces or angle brackets are not used here.
+INLINE = re.compile(r'(\]\()([^)\s<>]+)((?:\s+"[^"]*")?\))')
+# A reference definition at the start of a line.
+REFERENCE = re.compile(r'^(\s{0,3}\[[^\]]+\]:\s*)(\S+)', re.MULTILINE)
+# A target with a scheme (http:, mailto:) or a pure anchor is not a path.
+NOT_A_PATH = re.compile(r'^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|#)')
+# What may come right before and after a path from the root for it to be that path and not part of a longer one: no
+# path character before it, and after it no path character but a full stop that ends a sentence.
+BEFORE = r'(?<![\w./-])'
+AFTER = r'(?![\w/-]|\.\w)'
+
+
+def git(root, *args):
+    return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True).stdout
+
+
+def repo_root():
+    return Path(git(Path.cwd(), 'rev-parse', '--show-toplevel').strip())
+
+
+def tracked(root):
+    return [line for line in git(root, 'ls-files', '-z').split('\0') if line]
+
+
+def read_text(root, path):
+    """The file's text, or None for a file that is not UTF-8 text."""
+    try:
+        data = (root / path).read_bytes()
+    except OSError:
+        return None
+    if b'\0' in data:
+        return None
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+
+
+def split_target(target):
+    """The path of a link target and what follows it (an anchor or a query), apart."""
+    cut = min((i for i in (target.find('#'), target.find('?')) if i >= 0), default=len(target))
+    return target[:cut], target[cut:]
+
+
+def exists(root, files, dirs, path):
+    return path in files or path in dirs or (root / path).exists()
+
+
+def rewrite_link(source, new_source, target, moves, files, dirs, root):
+    """The target of a link of `source` (moving to `new_source`), rewritten for the moves; unchanged when neither the
+    link's file nor its target moves, or when the target did not exist."""
+    if NOT_A_PATH.match(target) or target.startswith('/'):
+        return target
+    path, rest = split_target(target)
+    if not path:
+        return target
+    old = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
+    if old not in moves and source == new_source:
+        return target
+    if not exists(root, files, dirs, old):
+        return target
+    new = moves.get(old, old)
+    rel = posixpath.relpath(new, posixpath.dirname(new_source) or '.')
+    if path.endswith('/') and not rel.endswith('/'):
+        rel += '/'
+    return rel + rest
+
+
+def rewrite_text(source, text, moves, files, dirs, root):
+    """`text` of `source` with its references to the moves rewritten."""
+    new_source = moves.get(source, source)
+    if source.endswith('.md'):
+        def inline(m):
+            return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root) + m[3]
+
+        def reference(m):
+            return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root)
+
+        text = INLINE.sub(inline, text)
+        text = REFERENCE.sub(reference, text)
+    for old in sorted(moves, key=len, reverse=True):
+        if old in text:
+            text = re.sub(BEFORE + re.escape(old) + AFTER, lambda _, new=moves[old]: new, text)
+    return text
+
+
+def directories(files):
+    out = set()
+    for f in files:
+        parts = f.split('/')[:-1]
+        for i in range(1, len(parts) + 1):
+            out.add('/'.join(parts[:i]))
+    return out
+
+
+def move(root, moves):
+    """Moves `moves` (old path to new path, from the root) and rewrites the references to them; returns the number of
+    files whose text changed."""
+    files = tracked(root)
+    known = set(files)
+    for old, new in moves.items():
+        if old not in known:
+            raise SystemExit(f'not a tracked file: {old}')
+        if new in known or (root / new).exists():
+            raise SystemExit(f'the destination already exists: {new}')
+    dirs = directories(files)
+    changed = 0
+    for f in files:
+        text = read_text(root, f)
+        if text is None:
+            continue
+        new_text = rewrite_text(f, text, moves, known, dirs, root)
+        if new_text != text:
+            (root / f).write_bytes(new_text.encode('utf-8'))
+            changed += 1
+    for old, new in moves.items():
+        (root / new).parent.mkdir(parents=True, exist_ok=True)
+        git(root, 'mv', old, new)
+    return changed
+
+
+def archive_moves(root, feature, module):
+    moves = {}
+    for suffix in ('.md', '-report.md', '-phases.tsv', '-measurements.md'):
+        old = f'odd/tasks/{feature}{suffix}'
+        if (root / old).exists():
+            moves[old] = f'odd/done/{module}/{feature}{suffix}'
+    if f'odd/tasks/{feature}.md' not in moves:
+        raise SystemExit(f'no execution document odd/tasks/{feature}.md')
+    return moves
+
+
+def manifest_moves(path):
+    moves = {}
+    for line in Path(path).read_text(encoding='utf-8').splitlines():
+        if not line.strip() or line.startswith('#'):
+            continue
+        old, new = line.split('\t')
+        moves[old.strip()] = new.strip()
+    return moves
+
+
+def broken_links(root):
+    files = tracked(root)
+    known = set(files)
+    dirs = directories(files)
+    out = []
+    for f in files:
+        if not f.endswith('.md'):
+            continue
+        text = read_text(root, f)
+        if text is None:
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            targets = [m[2] for m in INLINE.finditer(line)] + [m[2] for m in REFERENCE.finditer(line)]
+            for target in targets:
+                if NOT_A_PATH.match(target) or target.startswith('/'):
+                    continue
+                path, _ = split_target(target)
+                if not path:
+                    continue
+                full = posixpath.normpath(posixpath.join(posixpath.dirname(f), path))
+                if not exists(root, known, dirs, full):
+                    out.append(f'{f}:{number}: {target}')
+    return out
+
+
+def main(argv):
+    root = repo_root()
+    os.chdir(root)
+    match argv:
+        case ['archive', feature, module]:
+            moves = archive_moves(root, feature, module)
+        case ['move', manifest]:
+            moves = manifest_moves(manifest)
+        case ['check']:
+            broken = broken_links(root)
+            print('\n'.join(broken) if broken else 'no broken links')
+            return 1 if broken else 0
+        case _:
+            print(__doc__)
+            return 2
+    changed = move(root, moves)
+    print(f'moved {len(moves)} files, rewrote references in {changed} files')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
