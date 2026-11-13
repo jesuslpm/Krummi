@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -182,6 +183,7 @@ class MoveTests(unittest.TestCase):
                 ({'a.md': 'docs /a.md'}, 'La ruta docs /a.md tiene un nombre que Windows no admite: docs '),
                 ({'a.md': 'nul.md'}, 'La ruta nul.md tiene un nombre que Windows no admite: nul.md'),
                 ({'a.md': 'Com1/a.md'}, 'La ruta Com1/a.md tiene un nombre que Windows no admite: Com1'),
+                ({'a.md': 'conout$.md'}, r'La ruta conout\$\.md tiene un nombre que Windows no admite: conout\$\.md'),
                 ({'a.md': 'a?.md'}, r'La ruta a\?.md tiene un nombre que Windows no admite: a\?.md')):
             with self.assertRaisesRegex(SystemExit, message):
                 move_docs.move(repo.root, moves)
@@ -209,6 +211,40 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'README.md'})
         self.assertEqual(move_docs.git(repo.root, 'status', '--porcelain'), '')
         self.assertFalse((repo.root / 'docs').exists())
+
+    def test_a_folder_that_fails_midway_is_undone_with_the_folders_it_made(self):
+        # RDD R3-mkdir-partial-dirs and R3-oserror-path-untested: `mkdir` makes `p` and `p/q`, then fails on `p/q/r`.
+        repo = self.repo({'a.md': 'a\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        real_mkdir = os.mkdir
+
+        def failing_mkdir(path, *args, **kwargs):
+            # Only once its parent exists, that is after `mkdir` made `p` and `p/q`.
+            if os.path.basename(os.fspath(path)) == 'r' and os.path.isdir(os.path.dirname(os.fspath(path))):
+                raise OSError('no room for r')
+            return real_mkdir(path, *args, **kwargs)
+
+        with mock.patch('os.mkdir', failing_mkdir):
+            with self.assertRaisesRegex(SystemExit, r'no room for r.*se deshicieron sus cambios'):
+                move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'p/q/r/b.md'})
+        self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
+        self.assertEqual(move_docs.git(repo.root, 'status', '--porcelain'), '')
+        self.assertFalse((repo.root / 'docs').exists() or (repo.root / 'p').exists())
+
+    def test_a_rollback_that_fails_restores_every_text_where_its_file_is(self):
+        # RDD R3-rollback-not-failure-safe: the second move fails, and so does undoing the first one.
+        repo = self.repo({'a.md': '[b](b.md)\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        real_git = move_docs.git
+
+        def failing_git(root, *args):
+            if args[:1] == ('mv',) and args[1:] in (('b.md', 'docs/b.md'), ('docs/a.md', 'a.md')):
+                raise subprocess.CalledProcessError(128, ['git', *args])
+            return real_git(root, *args)
+
+        with mock.patch.object(move_docs, 'git', failing_git):
+            with self.assertRaisesRegex(SystemExit, 'ni deshacerlo del todo: docs/a.md → a.md'):
+                move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'docs/b.md'})
+        self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
+        self.assertEqual(repo.read('docs/a.md'), '[b](b.md)\n')
 
     def test_reference_destinations_keep_their_parentheses(self):
         # Codex R4: a reference definition's destination may hold parentheses, as it did before angle brackets.

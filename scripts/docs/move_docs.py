@@ -183,8 +183,10 @@ def directories(files):
 
 
 # A name Windows does not keep as written: one that ends in a dot or a space (`x.md.` is `x.md` there), a reserved
-# device name with or without an extension (`nul.md`), or one with a character it refuses.
-WINDOWS_ALIAS = re.compile(r'.*[. ]$|(?i:(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?)$|.*[<>:"|?*\x00-\x1f].*')
+# device name with or without an extension (`nul.md`: CON, PRN, AUX, NUL, CONIN$, CONOUT$, COM1-COM9 and LPT1-LPT9,
+# with the superscript digits ¹, ² and ³ too), or one with a character it refuses.
+WINDOWS_ALIAS = re.compile(r'.*[. ]$|(?i:(?:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:\..*)?)$'
+                           r'|.*[<>:"|?*\x00-\x1f].*')
 
 
 def normalize(path):
@@ -247,22 +249,44 @@ def move(root, moves):
                 originals[f] = text
                 (root / f).write_bytes(new_text.encode('utf-8'))
         for old, new in moves.items():
-            missing = [d for d in reversed((root / new).parents) if not d.exists()]
+            # Recorded before `mkdir`, which may make some of them and then fail on a deeper one.
+            created.extend(d for d in reversed((root / new).parents) if not d.exists())
             (root / new).parent.mkdir(parents=True, exist_ok=True)
-            created.extend(missing)
             git(root, 'mv', old, new)
             done.append((old, new))
     except (OSError, subprocess.CalledProcessError) as error:
-        # Back to the start: the moves done, in reverse, then the texts, then the folders made for them.
-        for old, new in reversed(done):
-            git(root, 'mv', new, old)
-        for f, text in originals.items():
-            (root / f).write_bytes(text.encode('utf-8'))
-        for folder in reversed(created):
-            if folder.is_dir() and not any(folder.iterdir()):
-                folder.rmdir()
+        problems = undo(root, done, originals, created)
+        if problems:
+            raise SystemExit(f'No se pudo completar el movimiento ({error}) ni deshacerlo del todo: '
+                             + '; '.join(problems)) from error
         raise SystemExit(f'No se pudo completar el movimiento ({error}); se deshicieron sus cambios') from error
     return len(originals)
+
+
+def undo(root, done, originals, created):
+    """Undoes a move that failed midway: the `git mv` done, in reverse, then the original texts, each where its file
+    is now (at its destination when undoing its move failed), then the empty folders it made. Each step goes on when
+    another fails; returns what could not be undone."""
+    problems = []
+    where = {old: new for old, new in done}
+    for old, new in reversed(done):
+        try:
+            git(root, 'mv', new, old)
+            del where[old]
+        except (OSError, subprocess.CalledProcessError) as error:
+            problems.append(f'{new} → {old} ({error})')
+    for f, text in originals.items():
+        try:
+            (root / where.get(f, f)).write_bytes(text.encode('utf-8'))
+        except OSError as error:
+            problems.append(f'{where.get(f, f)} ({error})')
+    for folder in reversed(created):
+        try:
+            if folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
+        except OSError:
+            pass
+    return problems
 
 
 def archive_moves(root, feature, module):

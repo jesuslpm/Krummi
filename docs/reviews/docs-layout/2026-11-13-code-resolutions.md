@@ -120,3 +120,10 @@ limit of automatic rounds: its verification needs a further round authorized by 
 
 Checks after the fix: `python -m unittest discover -s scripts/docs` 22 tests pass; `check` lists 45 links: the 37
 earlier ones and eight example links written as code in the three review reports.
+
+Addendum (2026-11-13, after the RDD review of `b2674f1`): commit after `bf74160` makes the undo itself
+failure-safe (each step goes on when another fails; a text is restored where its file is; the folders `mkdir` made
+before failing are removed) and narrows the reserved names to Windows' exact set. Tests
+`test_a_rollback_that_fails_restores_every_text_where_its_file_is` and
+`test_a_folder_that_fails_midway_is_undone_with_the_folders_it_made`; 24 tests pass. Status unchanged: claimed
+fixed, unverified until a follow-up review.

@@ -183,3 +183,16 @@ because code comments change.
   (`test_a_move_that_fails_midway_is_undone`, which makes the second `git mv` fail and finds the repository clean).
   Codex's exact reproduction now exits 1 before writing, with a clean status. 22 tests pass; `check` 45 (the 37
   earlier ones and eight example links written as code in the three Codex reports).
+- **L17** (2026-11-13): round 3 fix committed (`b2674f1`) and recorded (`bf74160`). RDD of `780c08a..bf74160` (234
+  lines), lenses `review-readability` and `review-reliability`, lineage `review-e059736b6e56f71a`: **approved**,
+  acknowledged. Fixed in the next commit, test first (three tests failing before it):
+  R3-rollback-not-failure-safe (WARNING: a failing reverse `git mv` escaped and left the texts rewritten; `undo` now
+  goes on step by step, restores each text where its file is, and names what it could not undo:
+  `test_a_rollback_that_fails_restores_every_text_where_its_file_is`); R3-mkdir-partial-dirs (WARNING) and
+  R3-oserror-path-untested (SUGGESTION: the folders are recorded before `mkdir`, and a `mkdir` that makes `p` and
+  `p/q` and fails on `p/q/r` is undone with them: `test_a_folder_that_fails_midway_is_undone_with_the_folders_it_made`,
+  whose first version passed without the fix because its stub failed before any parent existed); R2-001 and
+  R3-reserved-name-set (SUGGESTION: the exact reserved set, COM1-9 and LPT1-9 with ¹²³, CONIN$ and CONOUT$; `com0` is
+  accepted). R2-002 (SUGGESTION, the rollback catches only `OSError` and `CalledProcessError`) dismissed with
+  evidence: the real `git` helper runs `subprocess.run(..., check=True)`, which raises `CalledProcessError`, the
+  exception the test injects. 24 tests pass; `check` 45.
