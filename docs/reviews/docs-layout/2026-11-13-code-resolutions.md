@@ -86,3 +86,37 @@ Artifact versions: fixes in commit `349fb94`, on branch `feat/docs-layout`.
 
 Checks after the fixes: `python -m unittest discover -s scripts/docs` 20 tests pass; `check` lists the same 41 links
 as the follow-up counted (37 earlier ones and four examples written as code in the first report).
+
+## 2026-11-13 (verification, round 2)
+
+Follow-up report: [2026-11-13-code-03.md](2026-11-13-code-03.md), fix range `87c0ce0..9518704`, thread
+`01a1d4af-eeb2-7981-90ba-76bcd20e7bbb`, wrapper status `findings`; telemetry: coordinator `gpt-6.1-sol` / high,
+reviewer `krummi-review` `gpt-6.1-sol` / high. Per-ID outcome, quoted: R1 «still open, partially corrected by
+`349fb94` and `780c08a`» («Windows destination aliases still permit partial changes before rejection»); R4
+«Verified resolved: reference destinations containing parentheses».
+
+## 2026-11-13 (round 3)
+
+Artifact versions: fix in commit `b2674f1`, on branch `feat/docs-layout`. This follows the third Codex round, the
+limit of automatic rounds: its verification needs a further round authorized by the user.
+
+### R1 — major: Windows destination aliases still permit partial changes before rejection
+
+- Disposition: fixed.
+- Evidence: the report's manifest (`a.md` → `x.md`, `b.md` → `x.md./b.md`) reproduced the half-done move on Windows;
+  the new tests `test_windows_spellings_are_refused` and `test_a_move_that_fails_midway_is_undone` fail on
+  `9518704`.
+- Fix (`b2674f1`), at the root rather than for this alias alone:
+  - `normalize` refuses any name Windows does not keep as written: one ending in a dot or a space, a reserved device
+    name with or without an extension (`nul.md`, `Com1`), or one with a character Windows refuses (`La ruta x.md./b.md
+    tiene un nombre que Windows no admite: x.md.`).
+  - `move` is undone when it fails midway for a reason the checks could not foresee: the `git mv` already done are
+    reversed, the rewritten texts restored and the empty folders it made removed, and it exits with `No se pudo
+    completar el movimiento (...); se deshicieron sus cambios`. The test makes the second `git mv` fail and finds the
+    texts, the tracked files and `git status` as before.
+  - The report's exact reproduction, rerun through the CLI in a disposable repository: exit 1 before any write,
+    `git status --porcelain` empty, README unchanged.
+- Status: claimed fixed, unverified until a follow-up review (a fourth round needs the user's authorization).
+
+Checks after the fix: `python -m unittest discover -s scripts/docs` 22 tests pass; `check` lists 45 links: the 37
+earlier ones and eight example links written as code in the three review reports.
