@@ -28,7 +28,7 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
 |---|---|---|---|---|
 | T1 | S1, S4 | inline | done (L4) | `fab4085` |
 | T2 | S2, S4 | inline | done (L5) | `05fbba3` |
-| T3 | S3, S4 | inline | done (L6) | (this commit) |
+| T3 | S3, S4 | inline | done (L6) | `44b1094` |
 | T4 | S5 (complete run, closing report) | inline | pending | |
 
 ## Log
@@ -80,3 +80,16 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
   spread of its rounds; the complete run (T4) checks the other loads. New test
   `a_prefetch_never_fails_and_changes_nothing` (header pages, pages of the store, past its end and `u64::MAX`, on
   disk and in memory). Checks: fmt, clippy clean, 831 passed, 0 failed, 34 ignored.
+- **L7** (2026-11-13): T3 committed (`44b1094`); RDD assess `0257204..44b1094` medium, `under_budget`. T4: complete
+  Krummi-and-Voron run on Windows at `44b1094` under the bench power plan, 08:22:43–08:46:17
+  ([report](../../docs/benchmark/2026-11-13-windows-range-step.md); its header says «con cambios sin confirmar»
+  because this document and the phase log were uncommitted: the code is `44b1094`'s). **29 of 29** thresholds.
+  Against the previous final run at `6ffad00` (Krummi then, Krummi now, ratio then → now): `intervalos` 14,766,825 →
+  16,400,071 (+11.1 %, 0.90 → **0.98**); `tabla-intervalos` 9,060,425 → 9,763,295 (+7.8 %, 0.86 → **0.91**);
+  `recorrido` 17,721,447 → 22,933,518 (+29.4 %, 1.88 → 2.22). Drops over 5 %: `lecturas-al-azar-16` −19.0 % (Voron
+  −10.7 % in the same run), `escrituras-sueltas` −6.5 %, `escrituras-concurrentes-4` −5.7 %,
+  `escrituras-concurrentes-16` −5.0 %, `apertura` −12.5 % (64 → 56 op/s). None of them scans; they read through
+  `node::value`, now `entry(..).1`. Checked with single loads, `0257204` against `44b1094`, three rounds, pinned,
+  under the plan (`work/w11/w4w9.log`, round medians): W4 8,372 / 8,507 / 8,586 against 8,488 / 8,494 / 8,708; W9
+  3,173,957 / 3,334,675 / 3,571,172 against 3,341,116 / 3,442,158 / 3,641,233: no loss, so the drops of the complete
+  run are its variation between runs.
