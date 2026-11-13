@@ -339,6 +339,96 @@ fn ac_r3_prefixes() {
     });
 }
 
+/// Scans with both bounds and a prefix, over a tree of three levels, read whole from the front, from the back and
+/// alternating both ends at random: the bounds fall inside leaves, so each scan stops in the middle of one (S4 of the
+/// range step execution, which checks the bounds once per leaf).
+#[test]
+fn bounded_scans_stop_inside_a_leaf_from_both_ends() {
+    stores(|store, _| {
+        // Three groups of keys, `a`, `b` and `c`, of 200 bytes: about twenty to a leaf, three levels.
+        let all: Vec<Vec<u8>> = (0..6000)
+            .map(|i| {
+                let mut key = format!("{}{i:05}", ["a", "b", "c"][i % 3]).into_bytes();
+                key.resize(200, b'.');
+                key
+            })
+            .collect();
+        let model = fill(store, "t", &all);
+        let read = store.read().unwrap();
+        let tree = tree_t(&read);
+        let mut sorted = all.clone();
+        sorted.sort();
+        let mut random = Lcg(11);
+        // A bound at an existing key or just after it, so that it can fall anywhere in a leaf.
+        let probe = |random: &mut Lcg| {
+            let mut key = sorted[random.next() as usize % sorted.len()].clone();
+            if random.next().is_multiple_of(2) {
+                key.push(0x01);
+            }
+            key
+        };
+        for case in 0..300 {
+            let (low, high) = (probe(&mut random), probe(&mut random));
+            let (low, high) = if low <= high {
+                (low, high)
+            } else {
+                (high, low)
+            };
+            let bound = |key: &[u8], pick: u64| match pick % 3 {
+                0 => Included(key.to_vec()),
+                1 => Excluded(key.to_vec()),
+                _ => Unbounded,
+            };
+            let lower = bound(&low, random.next());
+            let upper = bound(&high, random.next());
+            let prefix: &[u8] = [&b""[..], b"a", b"b", b"c"][random.next() as usize % 4];
+            let bounds = (
+                lower.as_ref().map(Vec::as_slice),
+                upper.as_ref().map(Vec::as_slice),
+            );
+            let want = expected(&model, prefix, bounds);
+            // The keys without their padding, for a readable message.
+            let show = |key: &Vec<u8>| {
+                String::from_utf8_lossy(key)
+                    .trim_end_matches('.')
+                    .to_string()
+            };
+            let context = format!(
+                "case {case}: prefix {:?}, bounds {:?}",
+                String::from_utf8_lossy(prefix),
+                (lower.as_ref().map(show), upper.as_ref().map(show))
+            );
+            assert_eq!(
+                forward(read_scan(&read, &tree, prefix, bounds)),
+                want,
+                "{context}"
+            );
+            let mut reversed = keys(&want);
+            reversed.reverse();
+            assert_eq!(
+                backward_keys(read_scan(&read, &tree, prefix, bounds)),
+                reversed,
+                "{context}"
+            );
+            let mut scan = read_scan(&read, &tree, prefix, bounds);
+            let (mut front, mut back) = (Vec::new(), Vec::new());
+            loop {
+                let entry = if random.next().is_multiple_of(2) {
+                    scan.next().map(|e| front.push(e.unwrap().0.to_vec()))
+                } else {
+                    scan.next_back().map(|e| back.push(e.unwrap().0.to_vec()))
+                };
+                if entry.is_none() {
+                    break;
+                }
+            }
+            back.reverse();
+            front.extend(back);
+            assert_eq!(front, keys(&want), "{context}, alternating");
+        }
+    });
+}
+
 /// AC-B7 (5.2 part): keys stored in random order, with bytes from `0x00` to `0xFF` and keys that are prefixes of
 /// others, come out in unsigned byte order, each prefix before its extensions.
 #[test]

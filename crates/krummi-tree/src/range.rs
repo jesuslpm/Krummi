@@ -171,6 +171,9 @@ struct End<'t> {
     finished: bool,
     /// The last key this end returned.
     last: Option<&'t [u8]>,
+    /// Whether every key of the current leaf is within the interval's bound on this end's side (the upper one for
+    /// the front, the lower one for the back), so that its steps need not compare each key with it.
+    clear: bool,
 }
 
 impl End<'_> {
@@ -180,8 +183,22 @@ impl End<'_> {
             started: false,
             finished: false,
             last: None,
+            clear: false,
         }
     }
+}
+
+/// Whether every key of `leaf` is not after the upper bound and not after the keys with the prefix. The keys that
+/// pass form a prefix of the key order, so the leaf's last key decides for all of them.
+fn leaf_before_upper(interval: &Interval<'_>, leaf: &[u8]) -> bool {
+    let count = node::count(leaf);
+    count > 0 && interval.before_upper(node::key(leaf, count - 1))
+}
+
+/// Whether every key of `leaf` is not before the lower bound and not before the prefix. The keys that pass form a
+/// suffix of the key order, so the leaf's first key decides for all of them.
+fn leaf_after_lower(interval: &Interval<'_>, leaf: &[u8]) -> bool {
+    node::count(leaf) > 0 && interval.after_lower(node::key(leaf, 0))
 }
 
 /// A double-ended scan of the entries of an interval of a tree, in key order, borrowed from the transaction
@@ -230,6 +247,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             let index = node::partition(node, |key| !interval.after_lower(key));
             path.push((node, index));
             if node::is_leaf(node) {
+                self.front.clear = leaf_before_upper(&interval, node);
                 return Ok(());
             }
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
@@ -247,6 +265,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             let index = node::partition(node, |key| interval.before_upper(key));
             path.push((node, index));
             if node::is_leaf(node) {
+                self.back.clear = leaf_after_lower(&interval, node);
                 return Ok(());
             }
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
@@ -265,8 +284,9 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             };
             if index < node::count(leaf) {
                 let key = node::key(leaf, index);
-                let interval = self.interval.borrow();
-                if !interval.before_upper(key) || self.back.last.is_some_and(|last| key >= last) {
+                if (!self.front.clear && !self.interval.borrow().before_upper(key))
+                    || self.back.last.is_some_and(|last| key >= last)
+                {
                     return Ok(None);
                 }
                 let value = resolve(self.tx, node::value(leaf, index))?;
@@ -313,8 +333,9 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             if end > 0 {
                 let index = end - 1;
                 let key = node::key(leaf, index);
-                let interval = self.interval.borrow();
-                if !interval.after_lower(key) || self.front.last.is_some_and(|last| key <= last) {
+                if (!self.back.clear && !self.interval.borrow().after_lower(key))
+                    || self.front.last.is_some_and(|last| key <= last)
+                {
                     return Ok(None);
                 }
                 let value = resolve(self.tx, node::value(leaf, index))?;
@@ -362,6 +383,12 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             let index = if front { 0 } else { node::count(node) };
             path.push((node, index));
             if node::is_leaf(node) {
+                let interval = self.interval.borrow();
+                if front {
+                    self.front.clear = leaf_before_upper(&interval, node);
+                } else {
+                    self.back.clear = leaf_after_lower(&interval, node);
+                }
                 return Ok(());
             }
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
