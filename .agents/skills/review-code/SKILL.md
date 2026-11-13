@@ -24,10 +24,11 @@ same rubric inline and report the limitation when applicable.
    `gpt-6.1-sol` / `high`; reviews affecting critical storage invariants use `gpt-6-astra` / `xhigh`.
    Apply these settings to the delegated reviewer, not to the coordinator's running session.
 2. Find what the change implements:
-   - **ODD.** The execution document is `odd/tasks/<feature>.md`. Read it up to `## Log`, then read the `## Log`
+   - **ODD.** The execution document is `odd/tasks/<feature>.md`, or `odd/done/<module>/<feature>.md` once the run
+     is closed. Read it up to `## Log`, then read the `## Log`
      for corrections and decisions made during the run.
    - **Vibe coding.** There is no execution document. Use the PRD and, when it exists, the closing report
-     `odd/tasks/<feature>-report.md`.
+     `docs/reports/<YYYY-MM-DD>-<change-name>.md`.
    - **The PRD itself and its ancestry**, following **Parent document** up to `krummi.prd.md`.
 3. Find the diff. For a branch, use `git merge-base main HEAD`. For commits, use the range you are given. Read
    whole functions around each hunk, not only the changed lines.

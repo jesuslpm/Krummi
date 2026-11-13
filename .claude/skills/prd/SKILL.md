@@ -24,7 +24,8 @@ their time as agent time.
   numbers — those belong to the execution and the code.
 - Language: match the project's existing PRDs; with no precedent, ask the user once.
 - Location: reuse the project's PRD convention (search `**/*.prd.md`). With none, use
-  `docs/prd/<domain>/<domain>.prd.md` (root) and `docs/prd/<domain>/<name>.prd.md` (module or change).
+  `docs/prd/<domain>/<domain>.prd.md` (root) and `docs/prd/<domain>/<module>/<name>.prd.md` (a module's PRD and
+  the PRDs below it, in one folder per module; a change to the repository's tooling goes in `tooling/`).
 - PRDs form a hierarchy: the root PRD of the product has no parent; every other PRD (a module, a change to a
   module, a change to a change) names its direct parent in the `Parent document` header field. The number of
   levels is the project's choice; do not force one.

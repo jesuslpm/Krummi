@@ -31,11 +31,17 @@ record a reader opens to learn what changed, how long it took, what was verified
 
 | Approach | Report path |
 |---|---|
-| ODD | Next to the feature document: `odd/tasks/<feature>-report.md` |
+| ODD | Next to the feature document: `odd/tasks/<feature>-report.md`, archived with it when the run closes |
 | SDD | Next to the change's artifacts (the change folder) as `report.md` |
 | Vibe coding or no execution document | `docs/reports/<YYYY-MM-DD>-<change-name>.md` |
 
 Link the report from the execution document's closing section and the execution document from the report.
+
+`odd/tasks/` holds only the executions in progress; a finished one lives in `odd/done/<module>/`, where `<module>`
+is the folder under `docs/prd/krummi/` of the PRD it implements (`tooling` for repository tooling with no product
+module; without a PRD, the module of the code it changes). `scripts/docs/move_docs.py` moves an execution's files
+together and rewrites every link and path to them: `archive <feature> <module>` when the run closes (step 6), and
+`reopen <feature>` before working again on an archived one.
 
 ## Phase log
 
@@ -85,6 +91,10 @@ foreground phase runs at a time; a foreground acceptance run is `mark acceptance
    not apply, and say why in one line.
 5. Save it at the path from the Location table, link it as described, and commit it with the change when the
    change is being committed (`docs: add the <feature> closing report`).
+6. ODD only, as the run's last commit, after the report's: archive the execution with
+   `python -I scripts/docs/move_docs.py archive <feature> <module>`, check that `python -I scripts/docs/move_docs.py
+   check` lists no link that was not broken before, and commit (`docs: archive the <feature> execution`). Later
+   phase marks of the same run go to the archived log.
 
 ## Output Contract
 
@@ -100,4 +110,6 @@ Return the report path, the real-versus-estimated time line and the list of pend
   show `—`.
 - `scripts/phase_times.py` — phase log during the run and, at its end, the time by phase and by commit.
 - Tests of both scripts: `python -m unittest discover -s .claude/skills/closing-report/scripts`.
-- Example: `odd/tasks/btree-report.md`.
+- `scripts/docs/move_docs.py` (repository root) — archives and reopens executions; tests:
+  `python -m unittest discover -s scripts/docs`.
+- Example: `odd/done/trees/range-step-report.md`.

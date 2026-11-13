@@ -30,7 +30,7 @@ ranges of the primary key; schema changes that never rewrite rows; an atomic bul
 generators of `ulid`, version 7 `uuid` and SQL Server sequential `uuid` values.
 The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
-Every product change starts with a PRD in `docs/prd/krummi/` (see `CLAUDE.md`).
+Every product change starts with a PRD in `docs/prd/krummi/<module>/` (see `CLAUDE.md`).
 
 ```rust
 use std::time::Duration;
@@ -145,7 +145,8 @@ values, which its catalog entry keeps.
 | `crates/krummi-bench/` | The comparative benchmark (module 6): the `krummi-bench` command, its Rust worker and engine adapters, and in `voron/` the .NET program that measures Voron; not part of the engine |
 | `docs/benchmark/` | Reports of the complete benchmark runs |
 | `docs/performance/` | Performance plan: diagnosis and optimizations to meet the benchmark thresholds |
-| `odd/tasks/` | ODD execution documents, phase logs and closing reports |
+| `odd/tasks/` | ODD executions in progress: execution document, phase log and closing report |
+| `odd/done/` | Finished ODD executions, one folder per module |
 | `.github/workflows/` | Continuous integration: the engine checks and the reduced benchmark on Linux and Windows |
 | `CLAUDE.md` | Agent instructions: workflow, checks, closing and worktree rules |
 | `.claude/skills/` | Project skills: `prd`, `vibe-coding`, `closing-report`, `worktree` |
@@ -153,7 +154,8 @@ values, which its catalog entry keeps.
 | `AGENTS.md` | Instructions for review-only agents such as Codex: their role and a map of how Claude works here |
 | `.agents/skills/` | Review skills for those agents: `review-prd`, `review-code` |
 | `docs/methodology/` | The working method (PRD, vibe coding, ODD, SDD) and its slides |
-| `docs/prd/krummi/` | Product PRDs (Spanish authoritative, `*.prd.en.md` translations) |
+| `docs/prd/krummi/` | Product PRDs (Spanish authoritative, `*.prd.en.md` translations): the root PRD, then one folder per module |
+| `scripts/docs/` | `move_docs.py`: moves documents and rewrites the links to them (archives and reopens executions) |
 | `docs/worktrees.md` | Guide to working on several changes at once in worktree copies |
 | `scripts/worktree/` | Scripts behind the `worktree` skill, with their tests |
 | `scripts/slides/` | Speaker-notes audio for the methodology slides |

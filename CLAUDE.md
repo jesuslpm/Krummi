@@ -6,7 +6,7 @@ and `docs/methodology/` for the working method, which comes from the chicago-cri
 ## Workflow
 
 - **PRD first.** Every change to product behavior starts with a PRD written with the `prd` skill, in
-  `docs/prd/krummi/`. The Spanish PRDs are authoritative; `*.prd.en.md` are translations. A PRD does
+  `docs/prd/krummi/<module>/` (the root PRD in `docs/prd/krummi/`). The Spanish PRDs are authoritative; `*.prd.en.md` are translations. A PRD does
   not authorize implementation; wait for the user to ask for it.
 - **Execution after the PRD.** ODD by default. Use vibe coding or SDD only when the user asks for it. Bug
   fixes, refactors and tooling with no product change need no PRD.
@@ -54,8 +54,7 @@ These apply to every flow (ODD, SDD, vibe coding) and to any code change.
    the whole run and the question whether to start, then stop and wait. Nothing else goes in that message (no
    plan, map or progress), so the estimate does not get lost in the agent's activity. After the user confirms,
    record the estimate and the real start time from `date`, and mark it in the phase log with `--start`. Past runs finished in about half the estimated
-   time; calibrate with the earlier closing reports in `odd/tasks/*-report.md` (until this repository has its
-   own, use those of `C:\rust\chicago-crime\odd\tasks`).
+   time; calibrate with the earlier closing reports in `odd/done/*/*-report.md`.
 3. **Always verify.** Never ask whether to run tests, verifiers or reviews (RDD and Codex): run them. Automated
    review consent is always granted.
 
@@ -118,7 +117,9 @@ Claude ODD assignment table into the global `CLAUDE.md`.
   through its source.
 
 - Write the closing report with the `closing-report` skill and save it in the repository next to the
-  execution document (for ODD, `odd/tasks/<feature>-report.md`).
+  execution document (for ODD, `odd/tasks/<feature>-report.md`). The ODD run's last commit archives it in
+  `odd/done/<module>/` with `scripts/docs/move_docs.py` (`closing-report` skill, step 6), so `odd/tasks/` holds only
+  the executions in progress; reopen an archived one with `move_docs.py reopen <feature>` before working on it.
 - **Never merge automatically.** Close the run on its feature branch, fully verified and with its report, and
   leave it unmerged: the user reviews it first (for example with an independent review). Merge into `main` only
   when the user asks (in a worktree copy, see *Working in a worktree*). Do not push until the user asks.

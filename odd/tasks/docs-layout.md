@@ -23,9 +23,9 @@ because code comments change.
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S3, S5 | inline | done (L4, L5) | `405e155`, `HEAD~1` of T2 |
-| T2 | S1, S2, S3 | inline | done (L5) | (this commit) |
-| T3 | S4 | inline | pending | |
+| T1 | S3, S5 | inline | done (L4, L5, L6) | `405e155`, `0956809`, `d71f11e` |
+| T2 | S1, S2, S3 | inline | done (L5) | `2503b38` |
+| T3 | S4 | inline | done (L6) | (this commit) |
 | T4 | checks, reviews, closing report, archiving of this execution | inline | pending | |
 
 ## Log
@@ -69,3 +69,12 @@ because code comments change.
   fixed by hand, and the script now also rewrites the links of `.rs` files (commit before this one; new test
   `test_links_in_rust_doc_comments_follow_their_target`, which fails when `.rs` is left out; 7 tests pass).
   `cargo fmt --all --check` clean.
+- **L6** (2026-11-13): T2 committed (`2503b38`, with `tools/guid-vectors/Program.cs`, a rewritten comment first left
+  out of the commit). T3: `move_docs.py reopen <feature>` moves an archived execution back to `odd/tasks/` (new test
+  `test_reopening_brings_an_archived_execution_back`; 8 tests pass). The closing report skill says where finished
+  executions live and archives the execution as the run's last commit (step 6), with `odd/done/trees/range-step-report.md`
+  as its example; the PRD skill places a module's PRDs in `docs/prd/<domain>/<module>/`; `CLAUDE.md` (PRD folder,
+  calibration from `odd/done/*/*-report.md` instead of chicago-crime's, archiving at closing), `AGENTS.md` (the
+  artifacts table), `README.md` (layout table), the `review-code` and `review-prd` skills and the `codex-review` skill
+  name the new paths. `review-code` also gave a vibe coding report path in `odd/tasks/`, which the closing report skill
+  puts in `docs/reports/`: aligned with it.

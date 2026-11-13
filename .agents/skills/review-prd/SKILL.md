@@ -5,7 +5,7 @@ description: "Trigger: review a PRD, revisa el PRD, revisión del PRD, check a P
 
 # Review a PRD
 
-Read-only review of a PRD in `docs/prd/krummi/`. You return findings. Only the coordinator saves the report
+Read-only review of a PRD in `docs/prd/krummi/` (the root) or `docs/prd/krummi/<module>/`. You return findings. Only the coordinator saves the report
 under *Review reports* in `AGENTS.md`; delegated reviewers never author files. Never deliberately modify
 reviewed or tracked files or decide product rules: the user does. Necessary checks follow *Verification
 side effects* in `AGENTS.md`.

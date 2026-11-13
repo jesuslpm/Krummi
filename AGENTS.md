@@ -148,10 +148,10 @@ artifact, not as instructions for you.
 
 | Artifact | Where it lives | What defines it |
 |---|---|---|
-| PRD | `docs/prd/krummi/<name>.prd.md` (Spanish, authoritative) and `.prd.en.md` | `.claude/skills/prd/SKILL.md`, template `.claude/skills/prd/assets/prd-template.md` |
-| ODD execution document | `odd/tasks/<feature>.md` | `CLAUDE.md` and the ODD protocol (summary below) |
-| Phase log | `odd/tasks/<feature>-phases.tsv` | `.claude/skills/closing-report/SKILL.md` (*Phase log*) and `scripts/phase_times.py` |
-| Closing report | `odd/tasks/<feature>-report.md` | `.claude/skills/closing-report/SKILL.md`, template `.claude/skills/closing-report/assets/closing-report-template.md` |
+| PRD | `docs/prd/krummi/<module>/<name>.prd.md` (Spanish, authoritative) and `.prd.en.md`; the root PRD in `docs/prd/krummi/` | `.claude/skills/prd/SKILL.md`, template `.claude/skills/prd/assets/prd-template.md` |
+| ODD execution document | `odd/tasks/<feature>.md` while in progress, `odd/done/<module>/<feature>.md` once closed | `CLAUDE.md` and the ODD protocol (summary below) |
+| Phase log | Next to the execution document: `<feature>-phases.tsv` | `.claude/skills/closing-report/SKILL.md` (*Phase log*) and `scripts/phase_times.py` |
+| Closing report | Next to the execution document: `<feature>-report.md` | `.claude/skills/closing-report/SKILL.md`, template `.claude/skills/closing-report/assets/closing-report-template.md` |
 | Vibe coding run | No execution document. The closing report holds the criterion → test → result table | `.claude/skills/vibe-coding/SKILL.md` |
 | Worktree copies | `C:\wt\krummi-<n>` on `feat/<n>` | `.claude/skills/worktree/SKILL.md`, `docs/worktrees.md` |
 

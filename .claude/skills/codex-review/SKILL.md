@@ -31,7 +31,7 @@ python -I .claude/skills/closing-report/scripts/phase_times.py bg-end <log> revi
 
 | Target | Arguments |
 |---|---|
-| PRD | `-Prd docs/prd/krummi/<name>.prd.md -Feature <slug>` |
+| PRD | `-Prd docs/prd/krummi/<module>/<name>.prd.md -Feature <slug>` |
 | Code | `-Range <base>..<head> -Feature <slug>` |
 | Follow-up of a PRD review | `-FollowUp docs/reviews/<slug>/<date>-prd.md` (always the chain's original report), plus `-FixRange <base>..<head>` when the fixes are committed |
 | Follow-up of a code review | `-FollowUp docs/reviews/<slug>/<date>-code.md -FixRange <last reviewed head>..HEAD`, where the last reviewed head is the head the previous round reviewed, never the chain's base |
