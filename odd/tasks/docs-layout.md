@@ -119,3 +119,9 @@ because code comments change.
   definition whose target is its first word. Fixed in the next commit: a label that starts with `^` is no definition,
   in both patterns (`test_footnotes_are_no_links`, failing on `8bb718f`). 16 tests pass; `check` gives the same 37
   broken links.
+- **L10** (2026-11-13): footnote fix committed (`700e276`), reviewed alone from `8bb718f` (23 lines), lens
+  `review-reliability`, lineage `review-939756838c9a509e`: **approved**, acknowledged; two suggestions on the test,
+  R3-rust-footnote-lookahead-unproved (its Rust footnote had no path-like first word, so it passed without the
+  exclusion) and R3-footnote-rewrite-path-untested (no move kept a footnote): both footnotes now start with a path
+  and the test also moves a file they cite; it fails on `8bb718f`'s script, and removing only the Rust exclusion
+  fails it too. 16 tests pass.
