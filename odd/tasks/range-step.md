@@ -26,8 +26,8 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1, S4 | inline | done (L4) | (this commit) |
-| T2 | S2, S4 | inline | pending | |
+| T1 | S1, S4 | inline | done (L4) | `fab4085` |
+| T2 | S2, S4 | inline | done (L5) | (this commit) |
 | T3 | S3, S4 | inline | pending | |
 | T4 | S5 (complete run, closing report) | inline | pending | |
 
@@ -59,3 +59,10 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
   and 2; round 3 dropped: both binaries fell at once, W27 `k0` 4.8 M and `kT1` 0.9 M, a disturbance of the machine):
   W11 `0257204` 13,851,262 / 13,995,254, T1 14,806,901 / 14,840,970 (**+6.5 %**); W27 8,898,024 / 9,125,206, T1
   9,360,482 / 9,369,700 (**+4.2 %**).
+- **L5** (2026-11-13): T1 committed (`fab4085`); RDD assess `0257204..fab4085` medium, `under_budget` (pending in
+  the slice). T2: `node::entry` gives the key and the value of a leaf cell from one read of its offset and header;
+  `node::value` is now `entry(..).1`, and both ends of a range step with it. Checks: fmt, clippy clean, 830 passed,
+  0 failed, 34 ignored. Windows, pinned, under the plan (`work/w11/t2.log`, medians of three rounds, T1 against
+  T2): W11 15,472,810 / 15,633,952 / 15,657,563 against 15,930,359 / 15,788,156 / 15,826,977 (**about +1.5 %**);
+  W27 9,487,497 / 9,665,757 / 9,608,505 against 9,797,886 / 9,857,450 / 9,777,343 (**about +2.3 %**). The machine
+  ran faster than during L4 (T1's W11 at 15.5 M against 14.8 M), so each step is compared only within its own batch.

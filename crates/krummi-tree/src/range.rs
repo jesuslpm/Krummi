@@ -283,13 +283,13 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                 return Ok(None);
             };
             if index < node::count(leaf) {
-                let key = node::key(leaf, index);
+                let (key, value) = node::entry(leaf, index);
                 if (!self.front.clear && !self.interval.borrow().before_upper(key))
                     || self.back.last.is_some_and(|last| key >= last)
                 {
                     return Ok(None);
                 }
-                let value = resolve(self.tx, node::value(leaf, index))?;
+                let value = resolve(self.tx, value)?;
                 self.front.path.last_mut().expect("a leaf").1 += 1;
                 self.front.last = Some(key);
                 return Ok(Some((key, value)));
@@ -332,13 +332,13 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             };
             if end > 0 {
                 let index = end - 1;
-                let key = node::key(leaf, index);
+                let (key, value) = node::entry(leaf, index);
                 if (!self.back.clear && !self.interval.borrow().after_lower(key))
                     || self.front.last.is_some_and(|last| key <= last)
                 {
                     return Ok(None);
                 }
-                let value = resolve(self.tx, node::value(leaf, index))?;
+                let value = resolve(self.tx, value)?;
                 self.back.path.last_mut().expect("a leaf").1 = index;
                 self.back.last = Some(key);
                 return Ok(Some((key, value)));

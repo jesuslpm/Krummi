@@ -301,15 +301,22 @@ pub(crate) fn key(node: &[u8], index: usize) -> &[u8] {
 
 /// The value of entry `index` of a leaf.
 pub(crate) fn value(node: &[u8], index: usize) -> Value<'_> {
+    entry(node, index).1
+}
+
+/// The key and the value of entry `index` of a leaf, from one read of its cell's offset and header.
+pub(crate) fn entry(node: &[u8], index: usize) -> (&[u8], Value<'_>) {
     let at = offset(node, index);
-    let start = at + LEAF_CELL_HEADER + u16_at(node, at);
-    match u16_at(node, at + 2) {
+    let start = at + LEAF_CELL_HEADER;
+    let end = start + u16_at(node, at);
+    let value = match u16_at(node, at + 2) {
         OFF_LEAF => Value::Run {
-            first: u64_at(node, start),
-            len: u64_at(node, start + 8),
+            first: u64_at(node, end),
+            len: u64_at(node, end + 8),
         },
-        len => Value::Inline(&node[start..start + len]),
-    }
+        len => Value::Inline(&node[end..end + len]),
+    };
+    (&node[start..end], value)
 }
 
 /// The value of entry `index` of a leaf, kept in its leaf, to change it in place.
