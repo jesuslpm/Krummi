@@ -125,3 +125,11 @@ because code comments change.
   exclusion) and R3-footnote-rewrite-path-untested (no move kept a footnote): both footnotes now start with a path
   and the test also moves a file they cite; it fails on `8bb718f`'s script, and removing only the Rust exclusion
   fails it too. 16 tests pass.
+- **L11** (2026-11-13): stronger test committed (`c20308b`), reviewed alone from `700e276` (19 lines), lens
+  `review-reliability`, lineage `review-52d682c98601b663`: **approved**, acknowledged, with two findings that correct
+  L10: R3-footnote-move-assertion-vacuous (WARNING; the moved file was not the first word of either footnote, so the
+  move assertions could not fail) and R3-l10-overstates-rewrite-coverage (SUGGESTION; L10's failures came from
+  `check`, not from the move). Fixed in the next commit: each kind of file has one footnote that starts with a
+  missing path (for `check`) and one that starts with the moved file (for `move`). Mutations
+  (`work/docs-layout/mutate.py`), each failing the test: no exclusion in `MD_REFERENCE`, or in `RS_REFERENCE`, each
+  once with `check` and once with `check` stubbed so that only the move assertion can fail. 16 tests pass.

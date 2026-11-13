@@ -197,16 +197,14 @@ class MoveTests(unittest.TestCase):
                                                   '    [code]: ../LICENSE\n\n    [gone]: missing.md\n'))
 
     def test_footnotes_are_no_links(self):
-        # Both footnotes start with something path-like, so only the excluded `^` label keeps them out.
-        repo = self.repo({
-            'docs/b.md': 'b\n',
-            'docs/a.md': 'Text.[^1]\n\n[^1]: ../zz.md is gone, and b.md moves.\n',
-            'src/lib.rs': '//! [^n]: ../zz.md, and ../docs/b.md moves.\n',
-        })
+        # Each footnote starts with a path, which a definition would take as its target: the first ones name a missing
+        # file, which `check` would report; the second ones the file that moves, which `move` would rewrite.
+        a = 'Text.[^1][^2]\n\n[^1]: ../zz.md is gone.\n[^2]: ../../outside/b.md\n'
+        rs = '//! [^n]: ../zz.md is gone.\n//! [^m]: ../outside/b.md\n'
+        repo = self.repo({'outside/b.md': 'b\n', 'docs/sub/a.md': a, 'src/lib.rs': rs})
         self.assertEqual(move_docs.broken_links(repo.root), [])
-        move_docs.move(repo.root, {'docs/b.md': 'docs/m/b.md'})
-        self.assertEqual(repo.read('docs/a.md'), 'Text.[^1]\n\n[^1]: ../zz.md is gone, and b.md moves.\n')
-        self.assertEqual(repo.read('src/lib.rs'), '//! [^n]: ../zz.md, and ../docs/b.md moves.\n')
+        move_docs.move(repo.root, {'outside/b.md': 'outside/m/b.md'})
+        self.assertEqual((repo.read('docs/sub/a.md'), repo.read('src/lib.rs')), (a, rs))
 
     def test_reopening_refuses_an_execution_archived_twice(self):
         repo = self.repo({'odd/done/trees/f.md': 'x\n', 'odd/done/pager/f.md': 'y\n'})
