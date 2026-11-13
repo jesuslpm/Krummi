@@ -5,6 +5,8 @@ Commands, run from anywhere inside the repository with `python -I scripts/docs/m
 - ``archive <feature> <module>``: moves a finished execution, every ``odd/tasks/<feature>.md``,
   ``<feature>-report.md``, ``<feature>-phases.tsv`` and ``<feature>-measurements.md`` that exists, to
   ``odd/done/<module>/``.
+- ``reopen <feature>``: moves an archived execution back, from ``odd/done/<module>/`` to ``odd/tasks/``, to work on it
+  again.
 - ``move <manifest>``: moves the files a manifest lists, one ``<old path>\\t<new path>`` per line, paths from the
   repository root; blank lines and lines starting with ``#`` are skipped.
 - ``check``: lists the relative Markdown links of tracked files whose target does not exist, one
@@ -39,6 +41,10 @@ NOT_A_PATH = re.compile(r'^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|#)')
 # path character before it, and after it no path character but a full stop that ends a sentence.
 BEFORE = r'(?<![\w./-])'
 AFTER = r'(?![\w/-]|\.\w)'
+
+
+# The files of an execution: its document, closing report, phase log and measurements.
+SUFFIXES = ('.md', '-report.md', '-phases.tsv', '-measurements.md')
 
 
 def git(root, *args):
@@ -152,12 +158,25 @@ def move(root, moves):
 
 def archive_moves(root, feature, module):
     moves = {}
-    for suffix in ('.md', '-report.md', '-phases.tsv', '-measurements.md'):
+    for suffix in SUFFIXES:
         old = f'odd/tasks/{feature}{suffix}'
         if (root / old).exists():
             moves[old] = f'odd/done/{module}/{feature}{suffix}'
     if f'odd/tasks/{feature}.md' not in moves:
         raise SystemExit(f'no execution document odd/tasks/{feature}.md')
+    return moves
+
+
+def reopen_moves(root, feature):
+    found = sorted((root / 'odd/done').glob(f'*/{feature}.md'))
+    if len(found) != 1:
+        raise SystemExit(f'no single archived execution {feature}: {[str(f) for f in found]}')
+    module = found[0].parent.name
+    moves = {}
+    for suffix in SUFFIXES:
+        old = f'odd/done/{module}/{feature}{suffix}'
+        if (root / old).exists():
+            moves[old] = f'odd/tasks/{feature}{suffix}'
     return moves
 
 
@@ -202,6 +221,8 @@ def main(argv):
     match argv:
         case ['archive', feature, module]:
             moves = archive_moves(root, feature, module)
+        case ['reopen', feature]:
+            moves = reopen_moves(root, feature)
         case ['move', manifest]:
             moves = manifest_moves(manifest)
         case ['check']:

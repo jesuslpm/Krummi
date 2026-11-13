@@ -94,6 +94,17 @@ class MoveTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             move_docs.archive_moves(repo.root, 'missing', 'pager')
 
+    def test_reopening_brings_an_archived_execution_back(self):
+        repo = self.repo({
+            'odd/done/trees/f.md': '[report](f-report.md)\n', 'odd/done/trees/f-report.md': 'x\n',
+            'docs/r.md': '[f](../odd/done/trees/f.md)\n',
+        })
+        move_docs.move(repo.root, move_docs.reopen_moves(repo.root, 'f'))
+        self.assertEqual(repo.tracked(), {'odd/tasks/f.md', 'odd/tasks/f-report.md', 'docs/r.md'})
+        self.assertEqual(repo.read('docs/r.md'), '[f](../odd/tasks/f.md)\n')
+        with self.assertRaises(SystemExit):
+            move_docs.reopen_moves(repo.root, 'f')
+
     def test_paths_from_the_root_are_rewritten_only_as_whole_paths(self):
         repo = self.repo({
             'odd/tasks/f.md': 'x\n',
