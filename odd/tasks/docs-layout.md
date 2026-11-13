@@ -26,7 +26,7 @@ because code comments change.
 | T1 | S3, S5 | inline | done (L4, L5, L6) | `405e155`, `0956809`, `d71f11e` |
 | T2 | S1, S2, S3 | inline | done (L5) | `2503b38` |
 | T3 | S4 | inline | done (L6) | (this commit) |
-| T4 | checks, reviews, closing report, archiving of this execution | inline | in progress (L7–) | |
+| T4 | checks, reviews, closing report, archiving of this execution | inline | done (L7–L20) | `c8b751a`…`ddff0e1`, report and archive commits |
 
 ## Log
 
@@ -208,3 +208,7 @@ because code comments change.
   `review-reliability`, lineage `review-03ce4adc925b4db6`: **approved**, acknowledged; one suggestion,
   R3-folder-left-test-partial-assertions: the test now also asserts that `a.md` is back with its text and that the
   reported folder is still there. 25 tests pass.
+- **L20** (2026-11-13): closing report [docs-layout-report.md](docs-layout-report.md). Active time 1 h 38 min against
+  the 1–2 h estimate (phase log). Codex R1's last fix (`b2674f1`, `240d1a6`) stays unverified by Codex: the three
+  automatic rounds are used. Last commit: this execution archived in `odd/done/tooling/` with
+  `move_docs.py archive docs-layout tooling` (closing report skill, step 6). Not merged nor pushed.
