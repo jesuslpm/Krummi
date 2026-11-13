@@ -40,6 +40,8 @@ pub const TEMPORARY_RESERVATION: u64 = 64 << 30;
 /// at first (a tree node's header and first cell offsets). Asking for the whole page cost more than it saved in the
 /// scans of the range step execution (W11 −10 %); 256 bytes gave W11 +4 %, 64 bytes +2.4 %.
 const PREFETCH_BYTES: usize = 256;
+// A prefetch slices the first page bytes, so they must fit in a page (RDD R3-prefetch-slice-bound).
+const _: () = assert!(PREFETCH_BYTES <= PAGE_SIZE);
 
 /// The size a store of `len` bytes grows to when it needs `needed` bytes, before any limit: it doubles, by at most
 /// [`MAX_GROWTH_STEP`], or takes what it needs when that is more (P11).

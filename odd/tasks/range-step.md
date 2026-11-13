@@ -93,3 +93,11 @@ the performance cores under the bench power plan (`work/w11/win-ceiling.ps1` pat
   under the plan (`work/w11/w4w9.log`, round medians): W4 8,372 / 8,507 / 8,586 against 8,488 / 8,494 / 8,708; W9
   3,173,957 / 3,334,675 / 3,571,172 against 3,341,116 / 3,442,158 / 3,641,233: no loss, so the drops of the complete
   run are its variation between runs.
+- **L8** (2026-11-13): RDD review of the last slice `0257204..0d99b0e` (assess medium, `under_budget`, 501 lines;
+  requested as the run's last slice, CLAUDE.md), lenses `review-risk` and `review-reliability`, lineage
+  `review-8fd0dd68fb12ca45`: **approved**, acknowledged (authority burned). Findings: risk none; reliability one,
+  R3-prefetch-slice-bound (SUGGESTION, `pager.rs:414`): «Pager::prefetch slices the page bytes up to PREFETCH_BYTES
+  (256) without a check. [...] A compile-time assertion would make the promise hold by construction. It holds today,
+  so there is no current harm.» Fixed: `const _: () = assert!(PREFETCH_BYTES <= PAGE_SIZE);` (with 9,000 the build
+  fails with «assertion failed: PREFETCH_BYTES <= PAGE_SIZE»; with 256 it builds). Envelopes in
+  `work/w11/rdd-rs-*.json`. Checks after the fix: fmt, clippy clean, 831 passed, 0 failed, 34 ignored.
