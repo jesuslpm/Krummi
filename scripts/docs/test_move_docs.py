@@ -153,6 +153,30 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
         self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'blocked', 'README.md'})
 
+    def test_paths_of_a_move_are_compared_normalized(self):
+        # Codex R1, round 2: `./x.md` is `x.md`, so it is the folder of the other destination; and no path may leave
+        # the repository.
+        repo = self.repo({'a.md': 'a\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        for moves, message in (
+                ({'a.md': './x.md', 'b.md': 'x.md/b.md'}, 'El destino x.md/b.md queda dentro de x.md, otro destino'),
+                ({'./a.md': 'c.md', 'a.md': 'd.md'}, 'El archivo a.md aparece dos veces'),
+                ({'a.md': '../a.md'}, 'La ruta ../a.md queda fuera del repositorio')):
+            with self.assertRaisesRegex(SystemExit, message):
+                move_docs.move(repo.root, moves)
+        self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
+        self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'README.md'})
+        move_docs.move(repo.root, {'./a.md': 'docs/./a.md'})
+        self.assertEqual(repo.read('README.md'), '[a](docs/a.md) [b](b.md)\n')
+        self.assertIn('docs/a.md', repo.tracked())
+
+    def test_reference_destinations_keep_their_parentheses(self):
+        # Codex R4: a reference definition's destination may hold parentheses, as it did before angle brackets.
+        repo = self.repo({'guide(v2).md': 'g\n', 'odd/tasks/f.md': 'See [the guide][g].\n\n[g]: ../../guide(v2).md\n'})
+        self.assertEqual(move_docs.broken_links(repo.root), [])
+        move_docs.move(repo.root, move_docs.archive_moves(repo.root, 'f', 'tooling'))
+        self.assertEqual(repo.read('odd/done/tooling/f.md'), 'See [the guide][g].\n\n[g]: ../../../guide(v2).md\n')
+        self.assertEqual(move_docs.broken_links(repo.root), [])
+
     def test_angle_bracket_destinations_follow_their_target(self):
         # Codex R2: `<...>` destinations, with a space inside, inline and in reference definitions.
         repo = self.repo({

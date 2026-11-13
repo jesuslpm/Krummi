@@ -22,7 +22,8 @@ A move rewrites, in every tracked text file:
   wherever they are, link targets included, when no path character comes right before or after them (a full stop
   that ends a sentence is none).
 
-It checks the whole move before writing anything: every file must be tracked, and every destination new and
+It checks the whole move before writing anything, with every path in one spelling (`./x.md` is `x.md`) and none
+leaving the repository: every file must be tracked, and every destination new and
 different from the others, and no folder of a destination may be a file or another destination. Then it moves the
 files with ``git mv``, so that their history follows them.
 
@@ -43,7 +44,8 @@ DESTINATION = r'<[^<>\n]*>|[^\s<>)]+'
 INLINE = re.compile(r'(\]\()(' + DESTINATION + r')((?:\s+"[^"]*")?\))')
 # A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block);
 # a label that starts with `^` is a footnote (`[^1]: text`), not a link.
-MD_REFERENCE = re.compile(r'^( {0,3}\[(?!\^)[^\]]+\]:[ \t]*)(' + DESTINATION + ')', re.MULTILINE)
+# Its destination, unlike an inline one, ends only at a space, so it keeps any parentheses (`guide(v2).md`).
+MD_REFERENCE = re.compile(r'^( {0,3}\[(?!\^)[^\]]+\]:[ \t]*)(<[^<>\n]*>|\S+)', re.MULTILINE)
 # One of a Rust doc comment, after its `///` or `//!`. A line of prose may start like one ("[`Store::open`]: when it
 # fails"), and rustdoc's own targets (`crate::x`) are no files, so only a destination with a `/` or a `.` counts.
 RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[(?!\^)[^\]]+\]:[ \t]*)(<[^<>\n]*[/.][^<>\n]*>|[^\s<>]*[/.]\S*)',
@@ -179,9 +181,26 @@ def directories(files):
     return out
 
 
+def normalize(path):
+    """`path`, from the root, in its one spelling: forward slashes, no `.` or `..` steps. A path that leaves the
+    repository is refused."""
+    norm = posixpath.normpath(path.replace('\\', '/'))
+    if norm == '..' or norm.startswith('../') or norm.startswith('/') or re.match(r'^[A-Za-z]:', norm):
+        raise SystemExit(f'La ruta {path} queda fuera del repositorio')
+    return norm
+
+
 def move(root, moves):
     """Moves `moves` (old path to new path, from the root) and rewrites the references to them; returns the number of
     files whose text changed. Nothing is written when the move is not valid."""
+    # One spelling per path (`./x.md` is `x.md`), so that the checks below compare like with like (Codex R1, round 2).
+    normalized = {}
+    for old, new in moves.items():
+        old = normalize(old)
+        if old in normalized:
+            raise SystemExit(f'El archivo {old} aparece dos veces')
+        normalized[old] = normalize(new)
+    moves = normalized
     files = tracked(root)
     known = set(files)
     destinations = set(moves.values())

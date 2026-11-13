@@ -146,3 +146,14 @@ because code comments change.
   inside) in inline links and both kinds of definitions, and a rewritten one keeps its brackets; messages and the
   help (`USAGE`) are Spanish, printed as UTF-8. 18 tests pass. `check` now also reports four example links of the
   Codex report, written as code (the docstring says links in code count as links).
+- **L13** (2026-11-13): Codex follow-up, round 2, fix range `a406e8e..87c0ce0`
+  ([report](../../docs/reviews/docs-layout/2026-11-13-code-02.md), committed `687caad`): `findings`. R2 and R3
+  verified resolved; R1 still open (a destination spelled `./x.md` escaped the folder check, and the move failed
+  half-done); R4 new (major: sharing the inline destination pattern cut a reference definition's destination at a
+  parenthesis, `../../guide(v2).md`, which the base handled). Thread `01a1d4a8-7e2c-7b20-8d10-d13e960f0b92`;
+  telemetry: coordinator `gpt-6.1-sol` / high, reviewer `krummi-review` `gpt-6.1-sol` / high. Fixed in the next
+  commit, test first (both new tests failing): every path of a move is normalized before the checks (forward
+  slashes, no `.` or `..` steps), a source given twice and a path leaving the repository are refused
+  (`test_paths_of_a_move_are_compared_normalized`); a Markdown definition's destination is again everything up to a
+  space, or one between angle brackets (`test_reference_destinations_keep_their_parentheses`). 20 tests pass;
+  `check` 41, as before.
