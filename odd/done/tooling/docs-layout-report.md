@@ -29,12 +29,12 @@ usuario. Su último commit archiva esta misma ejecución en `odd/done/tooling/` 
   - **RDD:** la revisión de todo el tramo se detuvo con `lens_context_budget_exceeded`, porque la migración son unas
     59.700 líneas. Se revisó en candidatos más pequeños (tabla de abajo); el commit de la migración, `2503b38`, se
     verificó mecánicamente (S3) y lo revisó Codex dentro del rango completo.
-  - **Codex:** tres rondas.
+  - **Codex:** cuatro rondas; la cuarta, autorizada por el usuario tras el cierre.
     - Ronda 1: R1 (mayor), R2 (mayor) y R3 (menor).
     - Ronda 2: R2 y R3 verificados; R1 seguía abierto y apareció R4 (mayor), una regresión de la corrección de R2.
     - Ronda 3: R4 verificado; R1 seguía abierto con otra variante.
-    - La corrección final de R1, `b2674f1` y `240d1a6`, no tiene verificación de Codex: se llegó al límite de tres
-      rondas.
+    - Ronda 4: R1 verificado sobre `9518704..438889a` (`b2674f1`, `240d1a6`, `82b1a85`, `ddff0e1`); aprobado, sin
+      hallazgos abiertos ([informe](../../../docs/reviews/docs-layout/2026-11-13-code-04.md)).
 - **Hallazgos corregidos por el camino:** un enlace de un comentario de Rust que el script no reescribía (L5), y las
   correcciones de RDD y Codex de L7–L19, cada una con un test que falla sin ella.
 
@@ -197,9 +197,6 @@ sus resoluciones suman unas 400 líneas de `docs`, y el documento de ejecución 
 
 ## Pending (non-blocking)
 
-- **R1 de Codex sin verificar:** la corrección de raíz (`b2674f1`, `240d1a6`) tiene sus tests y la aprobó RDD, pero
-  una cuarta ronda de Codex necesita la autorización del usuario. No bloquea: el caso afecta a manifiestos inválidos,
-  y la reversión cubre los alias que no se prevean.
 - **`check` y los ejemplos en código:** `check` no distingue el código y lista 8 ejemplos de los informes de Codex.
   Para comparar antes y después de un archivo basta con el recuento.
 - **La otra sesión:** usa los PRD de tablas, que ahora están en `docs/prd/krummi/tables/`. Encontrará los archivos en

@@ -127,3 +127,12 @@ before failing are removed) and narrows the reserved names to Windows' exact set
 `test_a_rollback_that_fails_restores_every_text_where_its_file_is` and
 `test_a_folder_that_fails_midway_is_undone_with_the_folders_it_made`; 24 tests pass. Status unchanged: claimed
 fixed, unverified until a follow-up review.
+
+## 2026-11-13 (verification, round 3)
+
+Follow-up report: [2026-11-13-code-04.md](2026-11-13-code-04.md), fix range `9518704..438889a`, a fourth round
+authorized by the user; thread `01a1d51a-094a-72f2-aadb-e938ff7d71c9`, wrapper status `approved`; telemetry:
+coordinator `gpt-6.1-sol` / high, reviewer `krummi-review` `gpt-6.1-sol` / high. Checks before it:
+`python -m unittest discover -s scripts/docs` 25 tests pass; `check` lists the same 45 links. Per-ID outcome, quoted:
+R1 «Verified resolved: invalid moves leave partial changes»; verdict «R1 is verified resolved. No finding remains
+open in the requested scope.»

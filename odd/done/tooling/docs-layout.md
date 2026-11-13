@@ -212,3 +212,5 @@ because code comments change.
   the 1–2 h estimate (phase log). Codex R1's last fix (`b2674f1`, `240d1a6`) stays unverified by Codex: the three
   automatic rounds are used. Last commit: this execution archived in `odd/done/tooling/` with
   `move_docs.py archive docs-layout tooling` (closing report skill, step 6). Not merged nor pushed.
+- **L21** (2026-11-13): fourth Codex round, authorized by the user: [2026-11-13-code-04.md](../../../docs/reviews/docs-layout/2026-11-13-code-04.md)
+  over `9518704..438889a`, status `approved`; R1 verified resolved, no finding open.
