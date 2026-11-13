@@ -204,3 +204,7 @@ because code comments change.
   `test_a_folder_left_by_the_undo_is_named`, failing on `240d1a6`); R3-mkdir-stub-python-version (SUGGESTION: the
   folder test patches `Path.mkdir` itself, whatever the version; recording the folders after `mkdir` fails it).
   25 tests pass; `check` 45.
+- **L19** (2026-11-13): those fixes committed (`82b1a85`). RDD of `240d1a6..82b1a85` (54 lines), lens
+  `review-reliability`, lineage `review-03ce4adc925b4db6`: **approved**, acknowledged; one suggestion,
+  R3-folder-left-test-partial-assertions: the test now also asserts that `a.md` is back with its text and that the
+  reported folder is still there. 25 tests pass.

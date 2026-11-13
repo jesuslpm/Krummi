@@ -265,6 +265,8 @@ class MoveTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, r'ni deshacerlo del todo: docs \(locked\)'):
                 move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'b2.md'})
         self.assertEqual(repo.tracked(), {'a.md', 'b.md'})
+        self.assertEqual(repo.read('a.md'), 'a\n')
+        self.assertTrue((repo.root / 'docs').is_dir(), 'the folder the report names is still there')
 
     def test_reference_destinations_keep_their_parentheses(self):
         # Codex R4: a reference definition's destination may hold parentheses, as it did before angle brackets.
