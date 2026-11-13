@@ -284,8 +284,8 @@ def undo(root, done, originals, created):
         try:
             if folder.is_dir() and not any(folder.iterdir()):
                 folder.rmdir()
-        except OSError:
-            pass
+        except OSError as error:
+            problems.append(f'{folder.relative_to(root).as_posix()} ({error})')
     return problems
 
 

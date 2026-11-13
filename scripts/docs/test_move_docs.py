@@ -215,15 +215,16 @@ class MoveTests(unittest.TestCase):
     def test_a_folder_that_fails_midway_is_undone_with_the_folders_it_made(self):
         # RDD R3-mkdir-partial-dirs and R3-oserror-path-untested: `mkdir` makes `p` and `p/q`, then fails on `p/q/r`.
         repo = self.repo({'a.md': 'a\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
-        real_mkdir = os.mkdir
+        real_mkdir = Path.mkdir
 
-        def failing_mkdir(path, *args, **kwargs):
-            # Only once its parent exists, that is after `mkdir` made `p` and `p/q`.
-            if os.path.basename(os.fspath(path)) == 'r' and os.path.isdir(os.path.dirname(os.fspath(path))):
+        def failing_mkdir(self, mode=0o777, parents=False, exist_ok=False):
+            # Patched on `Path` itself, whatever the Python version: it makes `p` and `p/q`, then fails on `p/q/r`.
+            if self.name == 'r':
+                real_mkdir(self.parent, parents=True, exist_ok=True)
                 raise OSError('no room for r')
-            return real_mkdir(path, *args, **kwargs)
+            return real_mkdir(self, mode, parents, exist_ok)
 
-        with mock.patch('os.mkdir', failing_mkdir):
+        with mock.patch.object(Path, 'mkdir', failing_mkdir):
             with self.assertRaisesRegex(SystemExit, r'no room for r.*se deshicieron sus cambios'):
                 move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'p/q/r/b.md'})
         self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
@@ -231,8 +232,9 @@ class MoveTests(unittest.TestCase):
         self.assertFalse((repo.root / 'docs').exists() or (repo.root / 'p').exists())
 
     def test_a_rollback_that_fails_restores_every_text_where_its_file_is(self):
-        # RDD R3-rollback-not-failure-safe: the second move fails, and so does undoing the first one.
-        repo = self.repo({'a.md': '[b](b.md)\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        # RDD R3-rollback-not-failure-safe: the second move fails, and so does undoing the first one. `a.md`'s link to
+        # the README changes with its move, so its text must be restored at `docs/a.md`, where the file stays.
+        repo = self.repo({'a.md': '[r](README.md)\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
         real_git = move_docs.git
 
         def failing_git(root, *args):
@@ -244,7 +246,25 @@ class MoveTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, 'ni deshacerlo del todo: docs/a.md → a.md'):
                 move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'docs/b.md'})
         self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
-        self.assertEqual(repo.read('docs/a.md'), '[b](b.md)\n')
+        self.assertEqual(repo.read('docs/a.md'), '[r](README.md)\n')
+
+    def test_a_folder_left_by_the_undo_is_named(self):
+        # RDD R3-folder-cleanup-failure-silenced: a folder the undo cannot remove is reported, not silenced.
+        repo = self.repo({'a.md': 'a\n', 'b.md': 'b\n'})
+        real_git = move_docs.git
+
+        def failing_git(root, *args):
+            if args[:1] == ('mv',) and args[1] == 'b.md':
+                raise subprocess.CalledProcessError(128, ['git', *args])
+            return real_git(root, *args)
+
+        def failing_rmdir(self):
+            raise OSError('locked')
+
+        with mock.patch.object(move_docs, 'git', failing_git), mock.patch.object(Path, 'rmdir', failing_rmdir):
+            with self.assertRaisesRegex(SystemExit, r'ni deshacerlo del todo: docs \(locked\)'):
+                move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'b2.md'})
+        self.assertEqual(repo.tracked(), {'a.md', 'b.md'})
 
     def test_reference_destinations_keep_their_parentheses(self):
         # Codex R4: a reference definition's destination may hold parentheses, as it did before angle brackets.

@@ -196,3 +196,11 @@ because code comments change.
   accepted). R2-002 (SUGGESTION, the rollback catches only `OSError` and `CalledProcessError`) dismissed with
   evidence: the real `git` helper runs `subprocess.run(..., check=True)`, which raises `CalledProcessError`, the
   exception the test injects. 24 tests pass; `check` 45.
+- **L18** (2026-11-13): those fixes committed (`240d1a6`). RDD of `bf74160..240d1a6` (106 lines), lens
+  `review-reliability`, lineage `review-834aa9c11e321ef5`: **approved**, acknowledged. Fixed in the next commit:
+  R3-rollback-where-mapping-unproved (WARNING: the rollback test's `a.md` did not change with its move, so it never
+  proved where its text is restored; now it links to the README, and restoring at the old path fails it);
+  R3-folder-cleanup-failure-silenced (WARNING: a folder the undo cannot remove is now reported,
+  `test_a_folder_left_by_the_undo_is_named`, failing on `240d1a6`); R3-mkdir-stub-python-version (SUGGESTION: the
+  folder test patches `Path.mkdir` itself, whatever the version; recording the folders after `mkdir` fails it).
+  25 tests pass; `check` 45.
