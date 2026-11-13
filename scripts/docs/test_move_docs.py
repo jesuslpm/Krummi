@@ -196,6 +196,10 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(repo.read('docs/a.md'), ('[l]: ../legal/LICENSE\n   [m]: ../legal/LICENSE\n'
                                                   '    [code]: ../LICENSE\n\n    [gone]: missing.md\n'))
 
+    def test_footnotes_are_no_links(self):
+        repo = self.repo({'a.md': 'Text.[^1]\n\n[^1]: Some text, see a.md.\n', 'src/lib.rs': '//! [^n]: in a/b.md\n'})
+        self.assertEqual(move_docs.broken_links(repo.root), [])
+
     def test_reopening_refuses_an_execution_archived_twice(self):
         repo = self.repo({'odd/done/trees/f.md': 'x\n', 'odd/done/pager/f.md': 'y\n'})
         with self.assertRaisesRegex(SystemExit, 'no single archived execution f'):

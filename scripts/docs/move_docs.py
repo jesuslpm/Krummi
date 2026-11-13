@@ -35,11 +35,12 @@ from pathlib import Path
 
 # An inline Markdown link: the target, then an optional title. Targets with spaces or angle brackets are not used here.
 INLINE = re.compile(r'(\]\()([^)\s<>]+)((?:\s+"[^"]*")?\))')
-# A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block).
-MD_REFERENCE = re.compile(r'^( {0,3}\[[^\]]+\]:[ \t]*)(\S+)', re.MULTILINE)
+# A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block);
+# a label that starts with `^` is a footnote (`[^1]: text`), not a link.
+MD_REFERENCE = re.compile(r'^( {0,3}\[(?!\^)[^\]]+\]:[ \t]*)(\S+)', re.MULTILINE)
 # One of a Rust doc comment, after its `///` or `//!`. A line of prose may start like one ("[`Store::open`]: when it
 # fails"), and rustdoc's own targets (`crate::x`) are no files, so only a target with a `/` or a `.` counts.
-RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[[^\]]+\]:[ \t]*)(\S*[/.]\S*)', re.MULTILINE)
+RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[(?!\^)[^\]]+\]:[ \t]*)(\S*[/.]\S*)', re.MULTILINE)
 # Files whose links are Markdown: documents, and Rust's doc comments.
 MARKDOWN = ('.md', '.rs')
 # A target with a scheme (http:, mailto:) or a pure anchor is not a path.

@@ -105,7 +105,7 @@ because code comments change.
   `review-144db57e6b9df6e1`: **approved**, acknowledged, with findings handled in the next commit:
   - R2-reference-indent-bound-dead and R3-reference-indent-unbounded (WARNING): the leading `\s*` added for Rust made
     the three-space bound of Markdown dead and could cross lines: one pattern per kind of file, `MD_REFERENCE` (at
-    most three spaces) and `RS_REFERENCE` (after `///` or `//!`), with `[ 	]` instead of `\s`.
+    most three spaces) and `RS_REFERENCE` (after `///` or `//!`), with `[ \t]` instead of `\s`.
   - R3-reference-filter-applies-to-markdown (WARNING): the `/`-or-`.` filter also skipped Markdown definitions of a
     file without an extension: it applies to Rust only. Test `test_markdown_reference_definitions_keep_their_rules`
     (a definition of `../LICENSE` is rewritten, one indented four spaces is not), failing on `c8b751a`.
@@ -113,3 +113,9 @@ because code comments change.
   - R3-reopen-ambiguity-untested (SUGGESTION): test `test_reopening_refuses_an_execution_archived_twice` (it passes on
     `c8b751a` too: the guard was there, untested).
   15 tests pass; `check` gives the same 37 broken links.
+- **L9** (2026-11-13): those fixes committed (`8bb718f`), reviewed alone from `c8b751a` (57 lines), lens
+  `review-reliability`, lineage `review-849d614c0293a1e6`: **approved**, acknowledged; one finding,
+  R3-markdown-footnote-reported-broken (WARNING): without the filter, a GFM footnote (`[^1]: Some text`) read as a
+  definition whose target is its first word. Fixed in the next commit: a label that starts with `^` is no definition,
+  in both patterns (`test_footnotes_are_no_links`, failing on `8bb718f`). 16 tests pass; `check` gives the same 37
+  broken links.
