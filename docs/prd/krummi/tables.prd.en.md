@@ -198,12 +198,15 @@ the previous annotation:
 - **Outside 7.5**:
   - updating or removing a property by its path inside the engine: the application reads the document, changes it and
     stores it. User: «no en 7.5»;
-  - indexes over JSON, over expressions, multivalue and inverted, which are designed in [design document
+  - indexes over JSON, over expressions, multi-entry and inverted, which are designed in [design document
     14](../../design/tables/14-json-indexes.md) (user, on designing them in a document of their own: «documento
-    propio»). Except for the multivalue index over several properties of the same element, which is a requirement of
-    module 17 (below), their product questions, including which PRD each class of index enters, stay open until they are
-    planned (user: «Sí»); until then, N2 and the split do not change, and whether those indexes change the definition of
-    a secondary index (a list of columns, N7) is decided by the PRD that introduces them.
+    propio»). A multi-entry index gives one row several entries, one per element of an array; it was called
+    "multivalue" until 2026-11-13, the name that in Krummi belongs to the tree with one key and several values (user:
+    «Sí, creo que es un nombre mucho más adecuado índice multientrada (multi-entry index)»). Except for the multi-entry
+    index over several properties of the same element, which is a requirement of module 17 (below), their product
+    questions, including which PRD each class of index enters, stay open until they are planned (user: «Sí»); until
+    then, N2 and the split do not change, and whether those indexes change the definition of a secondary index (a list
+    of columns, N7) is decided by the PRD that introduces them.
 - **For module 17**, without changing this PRD, document 13 leaves as requirements of its queries:
   - paths inside a JSON as lists of steps, each a property name or an array position, with no text to parse; a step that
     expects an array or an object and finds something else gives "not there";
@@ -211,7 +214,7 @@ the previous annotation:
     same element satisfies the whole condition, for example the orders with a line of a product P and a quantity greater
     than C; "all" is true on an empty array; an element whose condition is unknown does not count for "some", and makes
     "all" unknown unless another element makes it false. User: «sí»;
-  - the multivalue index over several properties of the same element, which resolves those conditions (design document
+  - the multi-entry index over several properties of the same element, which resolves those conditions (design document
     14), with the same «sí», to be annotated together with them;
   - the typed reading above, also for dates and instants;
   - a benchmark load that filters by a path, with which it is decided whether a property is read without walking the

@@ -367,7 +367,7 @@ que tenga una cantidad mayor que C del producto P." To recording it as a require
 - **Execution without an index**: navigate to the array, evaluate the element predicate on each element, stop at the
   first that decides. Cost grows with the array's bytes; document 13's navigation index reaches the array, not its
   elements' members.
-- **Indexes**: [document 14](14-json-indexes.md), the multi-valued index over several members of the same element,
+- **Indexes**: [document 14](14-json-indexes.md), the multi-entry index over several members of the same element,
   which answers this example exactly.
 - **Later**: counting elements that satisfy a predicate (`count(lineas where ...) > 2`) and other aggregates over
   arrays.
@@ -777,7 +777,7 @@ and a writer. Two ways:
   evaluates them as residual filters until expression indexes exist. **Pending by decision of 2026-11-11 (product
   question 6):** its PRD adds the path filter load JB3 and decides from it whether to build D1, the navigation index
   that 7.5 leaves reserved. **Requirement of 2026-11-11:** its PRD includes the quantifiers `JsonAny` and `JsonAll` of
-  *Quantifiers over arrays*, with the multi-valued index over several members of one element from document 14, and
+  *Quantifiers over arrays*, with the multi-entry index over several members of one element from document 14, and
   the temporal extraction `JsonAs(date, ...)` and `JsonAs(timestamp, ...)` of *Dates and instants*.
 - **18**: text span in C and C#; the C# binding sets `MaxDepth` to 128 when it parses Krummi's documents.
 - **19**: JSON lines import writes the normalized text of each line.

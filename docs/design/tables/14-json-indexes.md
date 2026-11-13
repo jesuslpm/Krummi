@@ -11,7 +11,7 @@ Status: architecture approved by the external review of 2026-11-11 (*Review hist
 X5, and the two rules of *Queries*) to be kept when the indexes are designed in detail. Nothing here is implemented,
 built or measured in the engine; the compression figures come from
 small simulations outside the repository. No PRD takes these indexes yet; the tables PRD's annotation of 7.5
-(2026-11-12) records where they stand and that the multi-valued index over one element is a requirement of module
+(2026-11-12) records where they stand and that the multi-entry index over one element is a requirement of module
 17. The product questions at the end stay open until
 this work is planned, after module 14, when real documents can measure terms per row (decided 2026-11-11; the user, to
 leaving them for then: "Sí").
@@ -25,7 +25,8 @@ source tree, with the path); **[K]** Krummi's own documents; **[S]** simulated h
 1. **Two kinds of index over JSON, for two kinds of question.**
    - An **expression index** indexes one typed value extracted from a path (`customer.city` as a `string`): a
      secondary index of 7.2 whose column is an expression. It answers equality, ranges and order on that path, and can
-     be unique. A **multi-valued** variant indexes every element of an array path (`tags[*]`), one entry per element;
+     be unique. A **multi-entry** variant indexes every element of an array path (`tags[*]`), one entry per element
+     (one row, several index entries; MySQL calls it a multi-valued index);
      over several members of the same element (`lineas[*]/producto`, `lineas[*]/cantidad`) it answers document 13's
      quantifiers exactly, such as the orders with a line of product P and a quantity over C.
    - An **inverted index** indexes every path and value of the document, in the style of PostgreSQL's GIN: a
@@ -120,7 +121,10 @@ scan, extracting a member near the start of a 4 KB document costs about 0.1 µs,
 **Too long a value.** An extracted string whose entry passes the 2,048-byte key limit cannot be indexed. 7.2 already
 fails such a write with size not valid (N7); the same rule applies (product question 1).
 
-**Multi-valued.** Its definition has the shape of document 13's `JsonAny`: a typed path to an array, then a typed path
+**Multi-entry.** The name says that one row gives several entries of the index, as IndexedDB's `multiEntry` option
+(renamed 2026-11-13 from *multi-valued*, MySQL's name). It is not a multi-value tree of module 5, where one key holds
+several values: its entries are those of a normal tree, as for every index of 7.2 (document 3, option B). Its
+definition has the shape of document 13's `JsonAny`: a typed path to an array, then a typed path
 relative to each element (empty for the element itself). This document writes it `tags[*]` or `lineas[*]/producto` for
 short; `[*]` is not a step of a typed path, which has only member names and array indexes, but the boundary between the
 two paths (aligned 2026-11-11 while checking review RJ5). With `JsonAs(string, payload, tags[*])`, the index has one
@@ -129,7 +133,7 @@ old and new element sets. It is the right index for arrays of a few values (tags
 it is what the discussion found an inverted index would do no better (*Row identifiers*: below about 3 terms per row,
 posting lists save nothing).
 
-**Multi-valued over several members of one element** (requirement for module 17, decided 2026-11-11, with document
+**Multi-entry over several members of one element** (requirement for module 17, decided 2026-11-11, with document
 13's *Quantifiers over arrays*). The index's columns are extractions relative to the elements of one array:
 `(JsonAs(string, pedido, lineas[*]/producto), JsonAs(i64, pedido, lineas[*]/cantidad))`, all with the same array
 step. It has one entry per element: `tuple(producto, cantidad) ‖ tuple(primary key)`, so the columns of an entry
@@ -251,7 +255,7 @@ Two rules decide how a predicate uses the index (corrected 2026-11-11, reviews R
 
 The invariant behind the rules is X3: the rows a plan returns are exactly those whose document satisfies the
 predicate; the candidates never miss a row that satisfies it, and a row they propose is either proved by rule 2 or
-rechecked. When a multi-valued index over
+rechecked. When a multi-entry index over
 the same element exists, the planner prefers it for `JsonAny`: it answers ranges and keeps the correlation.
 
 A recheck reads the row by its primary key (one descent; the bench reads about 1,000,000 values of about 100 bytes
@@ -366,7 +370,7 @@ the sequential `uuid` share the structure; `uuid` v4 does not compress.
 
 ## Costs
 
-| | Expression index | Multi-valued | Inverted |
+| | Expression index | Multi-entry | Inverted |
 |---|---|---|---|
 | Entries per row | 1 | Distinct elements of the array | About 2 per scalar (M: ~400) |
 | Bytes per entry | Value + primary key + 6 of cell | Same | 1 to 13 by key type (above); inline lists add the term once |
@@ -403,7 +407,7 @@ For the PRDs that build these indexes:
 
 - **Plans against a full scan** (X3): a property test generates random documents (every kind, arrays of objects,
   repeated values, members named `*`, numbers written as `1`, `1.0` and `1e0`) and random predicates of *Queries*;
-  every plan through an expression, multi-valued or inverted index returns exactly the rows that evaluating the
+  every plan through an expression, multi-entry or inverted index returns exactly the rows that evaluating the
   predicate on every document returns.
 - **The review's counterexamples**, as fixed cases: `status` as a string in one row and as a number in another, both
   found by `JsonExists(status)` through one term (RJ1); `{"items":[{"sku":"A"},{}]}` and `{"items":[{},{"sku":"A"}]}`,
@@ -450,9 +454,14 @@ term has no kind, so `JsonContains({"a":{}})` would have returned `{"a":1}` as e
 proves a containment. The reviewer approved the architecture of documents 13 and 14 once these are corrected.
 
 Also aligned: the first version of *Queries* named `JsonHasPath` and `JsonPathEquals`, which document 13 does not
-define; it now uses document 13's nodes. The `[*]` notation of multi-valued indexes is now defined as the boundary
+define; it now uses document 13's nodes. The `[*]` notation of multi-entry indexes is now defined as the boundary
 between a path to an array and a path inside each element, as document 13's `JsonAny`, since typed paths have no such
 step. No product question changed.
+
+Renamed 2026-11-13: the *multi-valued* index is now the **multi-entry** index. In Krummi a multi-value tree is one key
+with several values (module 5), while this index gives one row several keys, so the old name read as the opposite
+(user: «Sí, creo que es un nombre mucho más adecuado índice multientrada (multi-entry index)»). The name follows
+IndexedDB's `multiEntry`; the structure and every rule are unchanged.
 
 ## Product questions
 
@@ -466,11 +475,11 @@ step. No product question changed.
 5. **Maintenance.** Recommended: synchronous, in the write's transaction. Alternative: deferred, as 7.6.
 6. **Primary keys in module 14's first version.** Recommended: `i64` and 16-byte keys, variable keys later.
    Alternative: every key type from the start.
-7. **Multi-valued expression indexes.** Recommended: yes, with expression indexes. Alternative: leave arrays to the
+7. **Multi-entry expression indexes.** Recommended: yes, with expression indexes. Alternative: leave arrays to the
    inverted index.
-8. **Where they land.** Expression and multi-valued indexes after 7.2 and module 17; inverted indexes after module 14.
+8. **Where they land.** Expression and multi-entry indexes after 7.2 and module 17; inverted indexes after module 14.
    Whether each is a child PRD of module 7 or part of module 14 is the user's numbering. Already decided, and outside
-   this question: the multi-valued index over several members of one element is a requirement of module 17's PRD,
+   this question: the multi-entry index over several members of one element is a requirement of module 17's PRD,
    with document 13's quantifiers (2026-11-11; aligned 2026-11-12 with the tables PRD's annotation of 7.5).
 
 ## Sources
@@ -488,6 +497,11 @@ External, fetched 2026-11-11: PostgreSQL GIN (definition, posting trees, fast up
 https://www.postgresql.org/docs/current/gin.html ; PostgreSQL `jsonb` indexing (operator classes, jsonpath clauses,
 expression indexes): https://www.postgresql.org/docs/current/datatype-json.html ; MySQL JSON (generated-column and
 multi-valued indexes): https://dev.mysql.com/doc/refman/8.0/en/json.html
+
+External, fetched 2026-11-13: MySQL `CREATE INDEX` ("A multi-valued index can have multiple index records for a single
+data record (N:1)"): https://dev.mysql.com/doc/refman/8.0/en/create-index.html ; IndexedDB `createIndex`, option
+`multiEntry` ("the index will add an entry in the index for each array element"):
+https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore/createIndex
 
 From knowledge, not fetched: FastPFor (Lemire and Boytsov, "Decoding billions of integers per second through
 vectorization", 2015); front coding of sorted string lists.

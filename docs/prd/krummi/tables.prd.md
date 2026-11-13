@@ -201,12 +201,15 @@ precisa la anotación anterior:
 - **Fuera de 7.5**:
   - actualizar o quitar una propiedad por su ruta dentro del motor: la aplicación lee el documento, lo cambia y lo
     guarda. Usuario: «no en 7.5»;
-  - los índices sobre JSON, sobre expresiones, multivalor e invertidos, que se diseñan en el
+  - los índices sobre JSON, sobre expresiones, multientrada e invertidos, que se diseñan en el
     [documento de diseño 14](../../design/tables/14-json-indexes.md) (usuario, a diseñarlos en un documento propio:
-    «documento propio»). Salvo el índice multivalor sobre varias propiedades de un mismo elemento, que es requisito
-    del módulo 17 (abajo), sus preguntas de producto, incluido en qué PRD entra cada clase de índice, quedan abiertas
-    hasta que se planifiquen (usuario: «Sí»); hasta entonces, N2 y el reparto no cambian, y si esos índices cambian
-    la definición de índice secundario (una lista de columnas, N7) lo decide el PRD que los introduzca.
+    «documento propio»). Un índice multientrada da varias entradas a una misma fila, una por elemento de un array;
+    se llamaba «multivalor» hasta el 2026-11-13, nombre que en Krummi es el del árbol de una clave con varios valores
+    (usuario: «Sí, creo que es un nombre mucho más adecuado índice multientrada (multi-entry index)»). Salvo el índice
+    multientrada sobre varias propiedades de un mismo elemento, que es requisito del módulo 17 (abajo), sus preguntas
+    de producto, incluido en qué PRD entra cada clase de índice, quedan abiertas hasta que se planifiquen (usuario:
+    «Sí»); hasta entonces, N2 y el reparto no cambian, y si esos índices cambian la definición de índice secundario
+    (una lista de columnas, N7) lo decide el PRD que los introduzca.
 - **Para el módulo 17**, sin cambiar este PRD, el documento 13 deja como requisitos de sus consultas:
   - las rutas dentro de un JSON como listas de pasos, cada uno un nombre de propiedad o una posición de array, sin un
     texto que analizar; un paso que espera un array o un objeto y encuentra otra cosa da «no está»;
@@ -215,7 +218,7 @@ precisa la anotación anterior:
     producto P y una cantidad mayor que C; «todos» es verdadero en un array vacío; un elemento cuya condición es
     desconocida no cuenta para «alguno», y hace desconocido «todos» salvo que otro elemento la haga falsa. Usuario:
     «sí»;
-  - el índice multivalor sobre varias propiedades de un mismo elemento, que resuelve esas condiciones (documento de
+  - el índice multientrada sobre varias propiedades de un mismo elemento, que resuelve esas condiciones (documento de
     diseño 14), con el mismo «sí», a anotarlo junto con ellas;
   - la lectura tipada de arriba, también para fechas e instantes;
   - una carga del banco que filtre por una ruta, con la que decide si se lee una propiedad sin recorrer el texto.
