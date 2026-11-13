@@ -157,3 +157,12 @@ because code comments change.
   (`test_paths_of_a_move_are_compared_normalized`); a Markdown definition's destination is again everything up to a
   space, or one between angle brackets (`test_reference_destinations_keep_their_parentheses`). 20 tests pass;
   `check` 41, as before.
+- **L14** (2026-11-13): round 2 fixes committed (`349fb94`) and recorded (`e62cc4f`). RDD of `a406e8e..e62cc4f` (502
+  lines), lenses `review-readability` and `review-reliability`, lineage `review-5fa68e0f7b624933`: **approved**,
+  acknowledged, with findings fixed in the next commit: R3-case-alias-ancestor (WARNING: on a case-insensitive file
+  system `X.md` and `x.md/b.md` are one path; the duplicate and folder checks now compare without case, test cases
+  failing before the fix), R3-normalize-untested-branches (SUGGESTION: the backslash, leading slash and drive letter
+  branches now tested), R2-001 (WARNING: the angle-bracket destination written three times: one `ANGLE` and one
+  `LABEL` compose the three patterns), R2-002 (SUGGESTION: `link_path` returns whether the destination had brackets,
+  instead of a second `unwrap`), R2-003 (SUGGESTION: the folder comment names the other-destination rule). 20 tests
+  pass; `check` 41.

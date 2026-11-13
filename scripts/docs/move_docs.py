@@ -38,18 +38,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-# A link destination: between angle brackets, where it may hold spaces (`<my notes.md>`), or without them and spaces.
-DESTINATION = r'<[^<>\n]*>|[^\s<>)]+'
-# An inline Markdown link: the destination, then an optional title.
-INLINE = re.compile(r'(\]\()(' + DESTINATION + r')((?:\s+"[^"]*")?\))')
-# A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block);
-# a label that starts with `^` is a footnote (`[^1]: text`), not a link.
+# A link destination between angle brackets, where it may hold spaces (`<my notes.md>`).
+ANGLE = r'<[^<>\n]*>'
+# The label of a reference definition; one that starts with `^` is a footnote (`[^1]: text`), not a link.
+LABEL = r'\[(?!\^)[^\]]+\]:[ \t]*'
+# An inline Markdown link: the destination (between angle brackets, or up to a space or a `)`), then an optional title.
+INLINE = re.compile(r'(\]\()(' + ANGLE + r'|[^\s<>)]+)((?:\s+"[^"]*")?\))')
+# A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block).
 # Its destination, unlike an inline one, ends only at a space, so it keeps any parentheses (`guide(v2).md`).
-MD_REFERENCE = re.compile(r'^( {0,3}\[(?!\^)[^\]]+\]:[ \t]*)(<[^<>\n]*>|\S+)', re.MULTILINE)
+MD_REFERENCE = re.compile(r'^( {0,3}' + LABEL + r')(' + ANGLE + r'|\S+)', re.MULTILINE)
 # One of a Rust doc comment, after its `///` or `//!`. A line of prose may start like one ("[`Store::open`]: when it
 # fails"), and rustdoc's own targets (`crate::x`) are no files, so only a destination with a `/` or a `.` counts.
-RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[(?!\^)[^\]]+\]:[ \t]*)(<[^<>\n]*[/.][^<>\n]*>|[^\s<>]*[/.]\S*)',
-                          re.MULTILINE)
+RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}' + LABEL + r')((?=<[^<>\n]*[/.])' + ANGLE
+                          + r'|[^\s<>]*[/.]\S*)', re.MULTILINE)
 # Files whose links are Markdown: documents, and Rust's doc comments.
 MARKDOWN = ('.md', '.rs')
 # A target with a scheme (http:, mailto:) or a pure anchor is not a path.
@@ -120,15 +121,16 @@ def unwrap(target):
 
 
 def link_path(source, target):
-    """The path from the root that a link target of `source` names, with the target's path part and what follows it;
-    None for a target that names no file of the repository (a scheme, an anchor alone, an absolute path)."""
-    target, _ = unwrap(target)
+    """The path from the root that a link target of `source` names, with the target's path part, what follows it and
+    whether it was between angle brackets; None for a target that names no file of the repository (a scheme, an
+    anchor alone, an absolute path)."""
+    target, wrapped = unwrap(target)
     if NOT_A_PATH.match(target) or target.startswith('/'):
         return None
     path, rest = split_target(target)
     if not path:
         return None
-    return posixpath.normpath(posixpath.join(posixpath.dirname(source), path)), path, rest
+    return posixpath.normpath(posixpath.join(posixpath.dirname(source), path)), path, rest, wrapped
 
 
 def exists(root, files, dirs, path):
@@ -141,8 +143,7 @@ def rewrite_link(source, new_source, target, moves, files, dirs, root):
     named = link_path(source, target)
     if named is None:
         return target
-    wrapped = unwrap(target)[1]
-    old, path, rest = named
+    old, path, rest, wrapped = named
     if old not in moves and source == new_source:
         return target
     if not exists(root, files, dirs, old):
@@ -203,22 +204,24 @@ def move(root, moves):
     moves = normalized
     files = tracked(root)
     known = set(files)
-    destinations = set(moves.values())
+    # Compared without case: Windows and macOS file systems take `X.md` and `x.md` for one path.
+    destinations = {new.casefold() for new in moves.values()}
     seen = set()
     for old, new in moves.items():
         if old not in known:
             raise SystemExit(f'No es un archivo bajo control de versiones: {old}')
         if new in known or (root / new).exists():
             raise SystemExit(f'El destino ya existe: {new}')
-        if new in seen:
+        if new.casefold() in seen:
             raise SystemExit(f'Dos archivos se mueven a {new}')
-        seen.add(new)
-        # Every folder of the destination must be a folder, or one the move creates (Codex R1).
+        seen.add(new.casefold())
+        # Every folder of the destination must be an existing folder or a new one, never a file, and never the
+        # destination of another file of the move (Codex R1).
         for folder in Path(new).parents:
             folder = folder.as_posix()
             if folder == '.':
                 continue
-            if folder in destinations:
+            if folder.casefold() in destinations:
                 raise SystemExit(f'El destino {new} queda dentro de {folder}, otro destino')
             if (root / folder).is_file():
                 raise SystemExit(f'El destino {new} queda dentro de {folder}, que es un archivo')

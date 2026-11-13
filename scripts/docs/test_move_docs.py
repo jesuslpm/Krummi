@@ -160,14 +160,19 @@ class MoveTests(unittest.TestCase):
         for moves, message in (
                 ({'a.md': './x.md', 'b.md': 'x.md/b.md'}, 'El destino x.md/b.md queda dentro de x.md, otro destino'),
                 ({'./a.md': 'c.md', 'a.md': 'd.md'}, 'El archivo a.md aparece dos veces'),
-                ({'a.md': '../a.md'}, 'La ruta ../a.md queda fuera del repositorio')):
+                ({'a.md': '../a.md'}, 'La ruta ../a.md queda fuera del repositorio'),
+                ({'a.md': '/a.md'}, 'La ruta /a.md queda fuera del repositorio'),
+                ({'a.md': 'C:/a.md'}, 'La ruta C:/a.md queda fuera del repositorio'),
+                # RDD R3-case-alias-ancestor: Windows and macOS take these for one path.
+                ({'a.md': 'X.md', 'b.md': 'x.md/b.md'}, 'El destino x.md/b.md queda dentro de x.md, otro destino'),
+                ({'a.md': 'C.md', 'b.md': 'c.md'}, 'Dos archivos se mueven a c.md')):
             with self.assertRaisesRegex(SystemExit, message):
                 move_docs.move(repo.root, moves)
         self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
         self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'README.md'})
-        move_docs.move(repo.root, {'./a.md': 'docs/./a.md'})
-        self.assertEqual(repo.read('README.md'), '[a](docs/a.md) [b](b.md)\n')
-        self.assertIn('docs/a.md', repo.tracked())
+        move_docs.move(repo.root, {'./a.md': 'docs/./a.md', 'b.md': 'docs\\b.md'})
+        self.assertEqual(repo.read('README.md'), '[a](docs/a.md) [b](docs/b.md)\n')
+        self.assertEqual(repo.tracked(), {'docs/a.md', 'docs/b.md', 'README.md'})
 
     def test_reference_destinations_keep_their_parentheses(self):
         # Codex R4: a reference definition's destination may hold parentheses, as it did before angle brackets.

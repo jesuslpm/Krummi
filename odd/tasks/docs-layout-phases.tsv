@@ -31,3 +31,7 @@
 2026-11-13T11:26:10+00:00	bg-start	review	codex-R2
 2026-11-13T11:29:14+00:00	bg-end	review	codex-R2
 2026-11-13T11:29:47+00:00	mark	fix	T4
+2026-11-13T11:30:47+00:00	mark	review	T4
+2026-11-13T11:30:47+00:00	bg-start	review	rdd-codex-fixes
+2026-11-13T11:32:11+00:00	bg-end	review	rdd-codex-fixes
+2026-11-13T11:32:21+00:00	mark	fix	T4
