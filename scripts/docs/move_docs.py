@@ -204,7 +204,8 @@ def move(root, moves):
     moves = normalized
     files = tracked(root)
     known = set(files)
-    # Compared without case: Windows and macOS file systems take `X.md` and `x.md` for one path.
+    # Compared without case on every system, on purpose: the repository is also checked out on Windows and macOS,
+    # whose file systems take `X.md` and `x.md` for one path, so a move must not rely on telling them apart.
     destinations = {new.casefold() for new in moves.values()}
     seen = set()
     for old, new in moves.items():

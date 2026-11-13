@@ -166,3 +166,8 @@ because code comments change.
   `LABEL` compose the three patterns), R2-002 (SUGGESTION: `link_path` returns whether the destination had brackets,
   instead of a second `unwrap`), R2-003 (SUGGESTION: the folder comment names the other-destination rule). 20 tests
   pass; `check` 41.
+- **L15** (2026-11-13): those fixes committed (`780c08a`). RDD of `e62cc4f..780c08a` (69 lines), lenses
+  `review-readability` and `review-reliability`, lineage `review-ac10c3b0dc80e6f7`: **approved**, acknowledged.
+  R3-001 (WARNING) and R2-casefold-unconditional (SUGGESTION): the case-insensitive checks also refuse, on Linux,
+  two destinations that differ only in case, which the base allowed; kept on purpose (the repository is checked out
+  on Windows too, where such a move breaks the copy), and the comment now says so.
