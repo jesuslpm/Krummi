@@ -12,9 +12,9 @@ Commands, run from anywhere inside the repository with `python -I scripts/docs/m
 
 A move rewrites, in every tracked text file:
 
-- relative Markdown links, inline (``[text](path#anchor)``) and reference definitions (``[id]: path``), whose
-  target or whose own file moves; a link whose target did not exist before is left as it is;
-- paths written from the repository root (``docs/prd/krummi/pager.prd.md``) of the moved files, in any text file,
+- relative Markdown links, inline (``[text](path#anchor)``) and reference definitions (``[id]: path``), of Markdown
+  files and of Rust files (whose doc comments are Markdown), whose target or whose own file moves; a link whose target did not exist before is left as it is;
+- paths written from the repository root (``docs/prd/krummi/pager/pager.prd.md``) of the moved files, in any text file,
   when no path character comes right before or after them (a full stop that ends a sentence is none).
 
 Then it moves the files with ``git mv``, so that their history follows them.
@@ -31,6 +31,8 @@ from pathlib import Path
 INLINE = re.compile(r'(\]\()([^)\s<>]+)((?:\s+"[^"]*")?\))')
 # A reference definition at the start of a line.
 REFERENCE = re.compile(r'^(\s{0,3}\[[^\]]+\]:\s*)(\S+)', re.MULTILINE)
+# Files whose links are Markdown: documents, and Rust's doc comments.
+MARKDOWN = ('.md', '.rs')
 # A target with a scheme (http:, mailto:) or a pure anchor is not a path.
 NOT_A_PATH = re.compile(r'^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|#)')
 # What may come right before and after a path from the root for it to be that path and not part of a longer one: no
@@ -98,7 +100,7 @@ def rewrite_link(source, new_source, target, moves, files, dirs, root):
 def rewrite_text(source, text, moves, files, dirs, root):
     """`text` of `source` with its references to the moves rewritten."""
     new_source = moves.get(source, source)
-    if source.endswith('.md'):
+    if source.endswith(MARKDOWN):
         def inline(m):
             return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root) + m[3]
 

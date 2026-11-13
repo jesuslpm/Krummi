@@ -61,6 +61,15 @@ class MoveTests(unittest.TestCase):
         self.assertIn('docs/prd/mod/a.prd.md', repo.tracked())
         self.assertNotIn('docs/prd/a.prd.md', repo.tracked())
 
+    def test_links_in_rust_doc_comments_follow_their_target(self):
+        repo = self.repo({
+            'docs/prd/a.prd.md': '# A\n',
+            'crates/x/src/lib.rs': '//! Module 6 ([a.prd.md](../../../docs/prd/a.prd.md#k1)).\nfn f() { v[0](1) }\n',
+        })
+        move_docs.move(repo.root, {'docs/prd/a.prd.md': 'docs/prd/m/a.prd.md'})
+        self.assertEqual(repo.read('crates/x/src/lib.rs'),
+                         '//! Module 6 ([a.prd.md](../../../docs/prd/m/a.prd.md#k1)).\nfn f() { v[0](1) }\n')
+
     def test_files_moved_together_keep_their_links(self):
         repo = self.repo({
             'odd/tasks/f.md': '[report](f-report.md)\n',
