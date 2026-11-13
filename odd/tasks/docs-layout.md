@@ -26,7 +26,7 @@ because code comments change.
 | T1 | S3, S5 | inline | done (L4, L5, L6) | `405e155`, `0956809`, `d71f11e` |
 | T2 | S1, S2, S3 | inline | done (L5) | `2503b38` |
 | T3 | S4 | inline | done (L6) | (this commit) |
-| T4 | checks, reviews, closing report, archiving of this execution | inline | pending | |
+| T4 | checks, reviews, closing report, archiving of this execution | inline | in progress (L7–) | |
 
 ## Log
 
@@ -78,3 +78,25 @@ because code comments change.
   artifacts table), `README.md` (layout table), the `review-code` and `review-prd` skills and the `codex-review` skill
   name the new paths. `review-code` also gave a vibe coding report path in `odd/tasks/`, which the closing report skill
   puts in `docs/reports/`: aligned with it.
+- **L7** (2026-11-13): T3 committed (`d71f11e`, `e3a390c`). Checks at `e3a390c`: fmt, clippy clean, 831 passed, 0
+  failed, 34 ignored; script tests 8 pass; closing report scripts' tests pass; the Codex wrapper's Pester tests 20
+  passed, 0 failed. RDD of the whole slice `80027e1..e3a390c` stopped at START with `lens_context_budget_exceeded`
+  (59,711 lines: the migration) and created no authority («review this change as smaller candidates that each fit
+  under it»). Split: the script commits `80027e1..0956809` (416 lines), lenses `review-reliability` and
+  `review-readability`, lineage `review-0d938d1b24126f81`: **approved**, acknowledged, with warnings and suggestions,
+  all handled in the next commit (each with a test that fails on `e3a390c`'s script, run from a temporary copy):
+  - R2-001 and R3-manifest-path-after-chdir (WARNING): a relative manifest path was read from the root: now from the
+    current folder (`test_a_relative_manifest_is_read_from_the_current_folder`).
+  - R2-002 (WARNING) and R2-004 (SUGGESTION): `check` scanned only `.md` files and repeated the resolution of a
+    target: it scans `.md` and `.rs`, through one `link_path` helper (`test_check_reports_broken_links_of_rust_doc_comments`).
+  - R2-003 (WARNING): the pass of root paths also rewrites link targets left by the link pass (a broken link whose text
+    is a moved root path): dismissed as a behavior, the docstring now says so (the link stays broken either way).
+  - R3-partial-move-on-duplicate-destination (WARNING): two entries with one destination left a half-done move: the
+    move is checked before anything is written (`test_two_files_moving_to_one_place_change_nothing`).
+  - R3-rust-reference-definitions-unhandled (WARNING): reference definitions after `///` or `//!` were not rewritten:
+    now they are (`test_rust_reference_definitions_follow_their_target`). Scanning Rust files then reported three
+    lines of prose that start like a definition ("[`Store::write_with_timeout`]: when it expires"): a definition
+    names a file only when its target has a `/` or a `.` (part of the same test of `check`, which fails without it).
+  - R2-005 and R3-manifest-malformed-line (SUGGESTION): a malformed manifest line raised a bare `ValueError`: now a
+    message names it (`test_a_malformed_manifest_line_is_named`).
+  13 tests pass; `check` gives the same 37 broken links.

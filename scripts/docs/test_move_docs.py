@@ -3,6 +3,9 @@
 Run with `python -m unittest discover -s scripts/docs`.
 """
 
+import contextlib
+import io
+import os
 import subprocess
 import sys
 import tempfile
@@ -137,6 +140,49 @@ class MoveTests(unittest.TestCase):
                 move_docs.move(repo.root, moves)
         self.assertEqual(repo.read('a.md'), '[b](b.md)\n')
         self.assertEqual(repo.tracked(), {'a.md', 'b.md'})
+
+
+    def test_a_relative_manifest_is_read_from_the_current_folder(self):
+        repo = self.repo({'docs/a.md': 'a\n', 'tools/m.tsv': 'docs/a.md\tdocs/b/a.md\n'})
+        here = os.getcwd()
+        self.addCleanup(os.chdir, here)
+        os.chdir(repo.root / 'tools')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(move_docs.main(['move', 'm.tsv']), 0)
+        self.assertEqual(repo.tracked(), {'docs/b/a.md', 'tools/m.tsv'})
+
+    def test_a_malformed_manifest_line_is_named(self):
+        repo = self.repo({'a.md': 'a\n'})
+        manifest = repo.root / 'm.tsv'
+        manifest.write_text('# moves\na.md\tb.md\na.md b.md\n', encoding='utf-8')
+        with self.assertRaisesRegex(SystemExit, r'm\.tsv:3: expected an old path, a tab and a new path'):
+            move_docs.manifest_moves(manifest)
+
+    def test_two_files_moving_to_one_place_change_nothing(self):
+        repo = self.repo({'a.md': '[b](b.md)\n', 'b.md': '[a](a.md)\n'})
+        with self.assertRaisesRegex(SystemExit, 'two files move to c.md'):
+            move_docs.move(repo.root, {'a.md': 'c.md', 'b.md': 'c.md'})
+        self.assertEqual((repo.read('a.md'), repo.read('b.md')), ('[b](b.md)\n', '[a](a.md)\n'))
+        self.assertEqual(repo.tracked(), {'a.md', 'b.md'})
+
+    def test_rust_reference_definitions_follow_their_target(self):
+        repo = self.repo({
+            'docs/a.md': 'a\n',
+            'src/lib.rs': '//! See [the PRD].\n//!\n//! [the PRD]: ../docs/a.md#s1\n/// [doc]: ../docs/a.md\n',
+        })
+        move_docs.move(repo.root, {'docs/a.md': 'docs/m/a.md'})
+        self.assertEqual(repo.read('src/lib.rs'),
+                         '//! See [the PRD].\n//!\n//! [the PRD]: ../docs/m/a.md#s1\n/// [doc]: ../docs/m/a.md\n')
+
+    def test_check_reports_broken_links_of_rust_doc_comments(self):
+        repo = self.repo({
+            'docs/a.md': 'a\n',
+            # The last two doc lines start like reference definitions but name no file: prose, and a rustdoc path.
+            'src/lib.rs': ('//! [ok](../docs/a.md) [gone](../docs/z.md)\n//! [ref]: ../nowhere.md\n'
+                           '/// [`Store::open`]: when it fails, see a\n/// [x]: crate::y\nfn f() {}\n'),
+        })
+        self.assertEqual(move_docs.broken_links(repo.root),
+                         ['src/lib.rs:1: ../docs/z.md', 'src/lib.rs:2: ../nowhere.md'])
 
 
 if __name__ == '__main__':

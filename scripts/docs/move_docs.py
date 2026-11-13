@@ -8,18 +8,22 @@ Commands, run from anywhere inside the repository with `python -I scripts/docs/m
 - ``reopen <feature>``: moves an archived execution back, from ``odd/done/<module>/`` to ``odd/tasks/``, to work on it
   again.
 - ``move <manifest>``: moves the files a manifest lists, one ``<old path>\\t<new path>`` per line, paths from the
-  repository root; blank lines and lines starting with ``#`` are skipped.
-- ``check``: lists the relative Markdown links of tracked files whose target does not exist, one
+  repository root; blank lines and lines starting with ``#`` are skipped. A relative manifest path is taken from the
+  current folder.
+- ``check``: lists the relative Markdown links of tracked Markdown and Rust files whose target does not exist, one
   ``<file>:<line>: <target>`` per line, and exits with 1 when there is any.
 
 A move rewrites, in every tracked text file:
 
-- relative Markdown links, inline (``[text](path#anchor)``) and reference definitions (``[id]: path``), of Markdown
-  files and of Rust files (whose doc comments are Markdown), whose target or whose own file moves; a link whose target did not exist before is left as it is;
-- paths written from the repository root (``docs/prd/krummi/pager/pager.prd.md``) of the moved files, in any text file,
-  when no path character comes right before or after them (a full stop that ends a sentence is none).
+- relative Markdown links, inline (``[text](path#anchor)``) and reference definitions (``[id]: path``, also after
+  ``///`` or ``//!``), of Markdown files and of Rust files (whose doc comments are Markdown), whose target or whose
+  own file moves; a link whose target did not exist before is left to the next rule only;
+- paths written from the repository root (``docs/prd/krummi/pager.prd.md``) of the moved files, in any text file and
+  wherever they are, link targets included, when no path character comes right before or after them (a full stop
+  that ends a sentence is none).
 
-Then it moves the files with ``git mv``, so that their history follows them.
+It checks the whole move before writing anything: every file must be tracked, and every destination new and
+different from the others. Then it moves the files with ``git mv``, so that their history follows them.
 """
 
 import os
@@ -31,8 +35,11 @@ from pathlib import Path
 
 # An inline Markdown link: the target, then an optional title. Targets with spaces or angle brackets are not used here.
 INLINE = re.compile(r'(\]\()([^)\s<>]+)((?:\s+"[^"]*")?\))')
-# A reference definition at the start of a line.
-REFERENCE = re.compile(r'^(\s{0,3}\[[^\]]+\]:\s*)(\S+)', re.MULTILINE)
+# A reference definition at the start of a line, or after the `///` or `//!` of a Rust doc comment.
+REFERENCE = re.compile(r'^(\s*(?://[/!]\s?)?\s{0,3}\[[^\]]+\]:\s*)(\S+)', re.MULTILINE)
+# A reference definition names a file only when its target has a `/` or a `.`: in a Rust doc comment, a line of
+# prose may start like one ("[`Store::open`]: when it fails"), and rustdoc's own targets (`crate::x`) are no files.
+LOOKS_LIKE_A_PATH = re.compile(r'[/.]')
 # Files whose links are Markdown: documents, and Rust's doc comments.
 MARKDOWN = ('.md', '.rs')
 # A target with a scheme (http:, mailto:) or a pure anchor is not a path.
@@ -41,8 +48,6 @@ NOT_A_PATH = re.compile(r'^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|#)')
 # path character before it, and after it no path character but a full stop that ends a sentence.
 BEFORE = r'(?<![\w./-])'
 AFTER = r'(?![\w/-]|\.\w)'
-
-
 # The files of an execution: its document, closing report, phase log and measurements.
 SUFFIXES = ('.md', '-report.md', '-phases.tsv', '-measurements.md')
 
@@ -79,6 +84,17 @@ def split_target(target):
     return target[:cut], target[cut:]
 
 
+def link_path(source, target):
+    """The path from the root that a link target of `source` names, with the target's path part and what follows it;
+    None for a target that names no file of the repository (a scheme, an anchor alone, an absolute path)."""
+    if NOT_A_PATH.match(target) or target.startswith('/'):
+        return None
+    path, rest = split_target(target)
+    if not path:
+        return None
+    return posixpath.normpath(posixpath.join(posixpath.dirname(source), path)), path, rest
+
+
 def exists(root, files, dirs, path):
     return path in files or path in dirs or (root / path).exists()
 
@@ -86,12 +102,10 @@ def exists(root, files, dirs, path):
 def rewrite_link(source, new_source, target, moves, files, dirs, root):
     """The target of a link of `source` (moving to `new_source`), rewritten for the moves; unchanged when neither the
     link's file nor its target moves, or when the target did not exist."""
-    if NOT_A_PATH.match(target) or target.startswith('/'):
+    named = link_path(source, target)
+    if named is None:
         return target
-    path, rest = split_target(target)
-    if not path:
-        return target
-    old = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
+    old, path, rest = named
     if old not in moves and source == new_source:
         return target
     if not exists(root, files, dirs, old):
@@ -111,6 +125,8 @@ def rewrite_text(source, text, moves, files, dirs, root):
             return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root) + m[3]
 
         def reference(m):
+            if not LOOKS_LIKE_A_PATH.search(m[2]):
+                return m[0]
             return m[1] + rewrite_link(source, new_source, m[2], moves, files, dirs, root)
 
         text = INLINE.sub(inline, text)
@@ -132,14 +148,18 @@ def directories(files):
 
 def move(root, moves):
     """Moves `moves` (old path to new path, from the root) and rewrites the references to them; returns the number of
-    files whose text changed."""
+    files whose text changed. Nothing is written when the move is not valid."""
     files = tracked(root)
     known = set(files)
+    seen = set()
     for old, new in moves.items():
         if old not in known:
             raise SystemExit(f'not a tracked file: {old}')
         if new in known or (root / new).exists():
             raise SystemExit(f'the destination already exists: {new}')
+        if new in seen:
+            raise SystemExit(f'two files move to {new}')
+        seen.add(new)
     dirs = directories(files)
     changed = 0
     for f in files:
@@ -182,11 +202,13 @@ def reopen_moves(root, feature):
 
 def manifest_moves(path):
     moves = {}
-    for line in Path(path).read_text(encoding='utf-8').splitlines():
+    for number, line in enumerate(Path(path).read_text(encoding='utf-8').splitlines(), 1):
         if not line.strip() or line.startswith('#'):
             continue
-        old, new = line.split('\t')
-        moves[old.strip()] = new.strip()
+        parts = line.split('\t')
+        if len(parts) != 2:
+            raise SystemExit(f'{path}:{number}: expected an old path, a tab and a new path')
+        moves[parts[0].strip()] = parts[1].strip()
     return moves
 
 
@@ -196,27 +218,24 @@ def broken_links(root):
     dirs = directories(files)
     out = []
     for f in files:
-        if not f.endswith('.md'):
+        if not f.endswith(MARKDOWN):
             continue
         text = read_text(root, f)
         if text is None:
             continue
         for number, line in enumerate(text.splitlines(), 1):
-            targets = [m[2] for m in INLINE.finditer(line)] + [m[2] for m in REFERENCE.finditer(line)]
+            targets = [m[2] for m in INLINE.finditer(line)]
+            targets += [m[2] for m in REFERENCE.finditer(line) if LOOKS_LIKE_A_PATH.search(m[2])]
             for target in targets:
-                if NOT_A_PATH.match(target) or target.startswith('/'):
-                    continue
-                path, _ = split_target(target)
-                if not path:
-                    continue
-                full = posixpath.normpath(posixpath.join(posixpath.dirname(f), path))
-                if not exists(root, known, dirs, full):
+                named = link_path(f, target)
+                if named is not None and not exists(root, known, dirs, named[0]):
                     out.append(f'{f}:{number}: {target}')
     return out
 
 
 def main(argv):
     root = repo_root()
+    here = Path.cwd()
     os.chdir(root)
     match argv:
         case ['archive', feature, module]:
@@ -224,7 +243,7 @@ def main(argv):
         case ['reopen', feature]:
             moves = reopen_moves(root, feature)
         case ['move', manifest]:
-            moves = manifest_moves(manifest)
+            moves = manifest_moves(here / manifest)
         case ['check']:
             broken = broken_links(root)
             print('\n'.join(broken) if broken else 'no broken links')
