@@ -174,6 +174,42 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(repo.read('README.md'), '[a](docs/a.md) [b](docs/b.md)\n')
         self.assertEqual(repo.tracked(), {'docs/a.md', 'docs/b.md', 'README.md'})
 
+    def test_windows_spellings_are_refused(self):
+        # Codex R1, round 3: Windows drops a final dot or space (`x.md.` is `x.md`) and reserves some names.
+        repo = self.repo({'a.md': 'a\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        for moves, message in (
+                ({'a.md': 'x.md', 'b.md': 'x.md./b.md'}, 'La ruta x.md./b.md tiene un nombre que Windows no admite: x.md.'),
+                ({'a.md': 'docs /a.md'}, 'La ruta docs /a.md tiene un nombre que Windows no admite: docs '),
+                ({'a.md': 'nul.md'}, 'La ruta nul.md tiene un nombre que Windows no admite: nul.md'),
+                ({'a.md': 'Com1/a.md'}, 'La ruta Com1/a.md tiene un nombre que Windows no admite: Com1'),
+                ({'a.md': 'a?.md'}, r'La ruta a\?.md tiene un nombre que Windows no admite: a\?.md')):
+            with self.assertRaisesRegex(SystemExit, message):
+                move_docs.move(repo.root, moves)
+        self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
+        self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'README.md'})
+
+    def test_a_move_that_fails_midway_is_undone(self):
+        # Codex R1, round 3: whatever alias the checks miss, a failed move leaves the repository as it was.
+        repo = self.repo({'a.md': '[b](b.md)\n', 'b.md': 'b\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        real_git, calls = move_docs.git, []
+
+        def failing_git(root, *args):
+            if args[:1] == ('mv',):
+                calls.append(args)
+                if len(calls) == 2:
+                    raise subprocess.CalledProcessError(128, ['git', *args])
+            return real_git(root, *args)
+
+        move_docs.git = failing_git
+        self.addCleanup(setattr, move_docs, 'git', real_git)
+        with self.assertRaisesRegex(SystemExit, 'se deshicieron sus cambios'):
+            move_docs.move(repo.root, {'a.md': 'docs/a.md', 'b.md': 'docs/b.md'})
+        move_docs.git = real_git
+        self.assertEqual((repo.read('a.md'), repo.read('README.md')), ('[b](b.md)\n', '[a](a.md) [b](b.md)\n'))
+        self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'README.md'})
+        self.assertEqual(move_docs.git(repo.root, 'status', '--porcelain'), '')
+        self.assertFalse((repo.root / 'docs').exists())
+
     def test_reference_destinations_keep_their_parentheses(self):
         # Codex R4: a reference definition's destination may hold parentheses, as it did before angle brackets.
         repo = self.repo({'guide(v2).md': 'g\n', 'odd/tasks/f.md': 'See [the guide][g].\n\n[g]: ../../guide(v2).md\n'})

@@ -171,3 +171,15 @@ because code comments change.
   R3-001 (WARNING) and R2-casefold-unconditional (SUGGESTION): the case-insensitive checks also refuse, on Linux,
   two destinations that differ only in case, which the base allowed; kept on purpose (the repository is checked out
   on Windows too, where such a move breaks the copy), and the comment now says so.
+- **L16** (2026-11-13): Codex follow-up, round 3, fix range `87c0ce0..9518704`
+  ([report](../../docs/reviews/docs-layout/2026-11-13-code-03.md), committed `075e2d9`): `findings`. R4 verified
+  resolved; R1 still open with another alias: on Windows `x.md.` is `x.md`, so `a.md` → `x.md` and `b.md` →
+  `x.md./b.md` passed the checks and failed half-done (as at the base). Thread
+  `01a1d4af-eeb2-7981-90ba-76bcd20e7bbb`; telemetry: coordinator `gpt-6.1-sol` / high, reviewer `krummi-review`
+  `gpt-6.1-sol` / high. This is the third round, the limit of automatic rounds. Fixed in the next commit, test first
+  (both new tests failing), at the root instead of one alias at a time: a name Windows does not keep as written (a
+  final dot or space, a reserved device name, a refused character) is refused (`test_windows_spellings_are_refused`),
+  and a move that fails midway is undone, the moves in reverse, then the texts, then the new empty folders
+  (`test_a_move_that_fails_midway_is_undone`, which makes the second `git mv` fail and finds the repository clean).
+  Codex's exact reproduction now exits 1 before writing, with a clean status. 22 tests pass; `check` 45 (the 37
+  earlier ones and eight example links written as code in the three Codex reports).

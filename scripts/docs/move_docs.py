@@ -182,18 +182,27 @@ def directories(files):
     return out
 
 
+# A name Windows does not keep as written: one that ends in a dot or a space (`x.md.` is `x.md` there), a reserved
+# device name with or without an extension (`nul.md`), or one with a character it refuses.
+WINDOWS_ALIAS = re.compile(r'.*[. ]$|(?i:(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?)$|.*[<>:"|?*\x00-\x1f].*')
+
+
 def normalize(path):
     """`path`, from the root, in its one spelling: forward slashes, no `.` or `..` steps. A path that leaves the
-    repository is refused."""
+    repository, or with a name Windows would read as another one, is refused."""
     norm = posixpath.normpath(path.replace('\\', '/'))
     if norm == '..' or norm.startswith('../') or norm.startswith('/') or re.match(r'^[A-Za-z]:', norm):
         raise SystemExit(f'La ruta {path} queda fuera del repositorio')
+    for name in norm.split('/'):
+        if WINDOWS_ALIAS.fullmatch(name):
+            raise SystemExit(f'La ruta {path} tiene un nombre que Windows no admite: {name}')
     return norm
 
 
 def move(root, moves):
     """Moves `moves` (old path to new path, from the root) and rewrites the references to them; returns the number of
-    files whose text changed. Nothing is written when the move is not valid."""
+    files whose text changed. Nothing is written when the move is not valid, and a move that fails midway (a folder
+    or a `git mv` the checks could not foresee) is undone before it exits."""
     # One spelling per path (`./x.md` is `x.md`), so that the checks below compare like with like (Codex R1, round 2).
     normalized = {}
     for old, new in moves.items():
@@ -227,19 +236,33 @@ def move(root, moves):
             if (root / folder).is_file():
                 raise SystemExit(f'El destino {new} queda dentro de {folder}, que es un archivo')
     dirs = directories(files)
-    changed = 0
-    for f in files:
-        text = read_text(root, f)
-        if text is None:
-            continue
-        new_text = rewrite_text(f, text, moves, known, dirs, root)
-        if new_text != text:
-            (root / f).write_bytes(new_text.encode('utf-8'))
-            changed += 1
-    for old, new in moves.items():
-        (root / new).parent.mkdir(parents=True, exist_ok=True)
-        git(root, 'mv', old, new)
-    return changed
+    originals, done, created = {}, [], []
+    try:
+        for f in files:
+            text = read_text(root, f)
+            if text is None:
+                continue
+            new_text = rewrite_text(f, text, moves, known, dirs, root)
+            if new_text != text:
+                originals[f] = text
+                (root / f).write_bytes(new_text.encode('utf-8'))
+        for old, new in moves.items():
+            missing = [d for d in reversed((root / new).parents) if not d.exists()]
+            (root / new).parent.mkdir(parents=True, exist_ok=True)
+            created.extend(missing)
+            git(root, 'mv', old, new)
+            done.append((old, new))
+    except (OSError, subprocess.CalledProcessError) as error:
+        # Back to the start: the moves done, in reverse, then the texts, then the folders made for them.
+        for old, new in reversed(done):
+            git(root, 'mv', new, old)
+        for f, text in originals.items():
+            (root / f).write_bytes(text.encode('utf-8'))
+        for folder in reversed(created):
+            if folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
+        raise SystemExit(f'No se pudo completar el movimiento ({error}); se deshicieron sus cambios') from error
+    return len(originals)
 
 
 def archive_moves(root, feature, module):
