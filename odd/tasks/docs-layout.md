@@ -133,3 +133,16 @@ because code comments change.
   missing path (for `check`) and one that starts with the moved file (for `move`). Mutations
   (`work/docs-layout/mutate.py`), each failing the test: no exclusion in `MD_REFERENCE`, or in `RS_REFERENCE`, each
   once with `check` and once with `check` stubbed so that only the move assertion can fail. 16 tests pass.
+- **L12** (2026-11-13): R3-mutation-evidence-not-in-candidate (RDD, SUGGESTION, L11) dismissed: by this project's
+  convention measurement and probe scripts stay in the ignored `work/` folder (the logs cite them there), and L11
+  names each mutation precisely enough to repeat it. Codex code review, round 1, `80027e1..a406e8e`
+  ([report](../../docs/reviews/docs-layout/2026-11-13-code.md), committed `977e8b7`): `findings`, R1 (major: a
+  destination under a tracked file passed the checks, and the references were rewritten before `mkdir` failed), R2
+  (major: destinations between angle brackets were neither rewritten nor checked) and R3 (minor: the new command's
+  messages were English, against «CLI messages and PRDs in Spanish»). Thread `01a1d4a1-ef38-7522-a67e-ae13fa7e7ba8`;
+  telemetry: coordinator `gpt-6.1-sol` / high, reviewer `krummi-review` `gpt-6.1-sol` / high. All three fixed in the
+  next commit, test first (eight tests failing on `a406e8e`, RED observed): every folder of a destination must be a
+  folder or one the move creates, and not another destination; `DESTINATION` takes `<...>` destinations (spaces
+  inside) in inline links and both kinds of definitions, and a rewritten one keeps its brackets; messages and the
+  help (`USAGE`) are Spanish, printed as UTF-8. 18 tests pass. `check` now also reports four example links of the
+  Codex report, written as code (the docstring says links in code count as links).

@@ -23,7 +23,11 @@ A move rewrites, in every tracked text file:
   that ends a sentence is none).
 
 It checks the whole move before writing anything: every file must be tracked, and every destination new and
-different from the others. Then it moves the files with ``git mv``, so that their history follows them.
+different from the others, and no folder of a destination may be a file or another destination. Then it moves the
+files with ``git mv``, so that their history follows them.
+
+Links and paths inside code (spans and fenced blocks) count as links and paths too: an example of a link in code is
+rewritten, and reported by ``check`` when its target does not exist.
 """
 
 import os
@@ -33,14 +37,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-# An inline Markdown link: the target, then an optional title. Targets with spaces or angle brackets are not used here.
-INLINE = re.compile(r'(\]\()([^)\s<>]+)((?:\s+"[^"]*")?\))')
+# A link destination: between angle brackets, where it may hold spaces (`<my notes.md>`), or without them and spaces.
+DESTINATION = r'<[^<>\n]*>|[^\s<>)]+'
+# An inline Markdown link: the destination, then an optional title.
+INLINE = re.compile(r'(\]\()(' + DESTINATION + r')((?:\s+"[^"]*")?\))')
 # A reference definition of a Markdown file: at the start of a line, at most three spaces in (four make a code block);
 # a label that starts with `^` is a footnote (`[^1]: text`), not a link.
-MD_REFERENCE = re.compile(r'^( {0,3}\[(?!\^)[^\]]+\]:[ \t]*)(\S+)', re.MULTILINE)
+MD_REFERENCE = re.compile(r'^( {0,3}\[(?!\^)[^\]]+\]:[ \t]*)(' + DESTINATION + ')', re.MULTILINE)
 # One of a Rust doc comment, after its `///` or `//!`. A line of prose may start like one ("[`Store::open`]: when it
-# fails"), and rustdoc's own targets (`crate::x`) are no files, so only a target with a `/` or a `.` counts.
-RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[(?!\^)[^\]]+\]:[ \t]*)(\S*[/.]\S*)', re.MULTILINE)
+# fails"), and rustdoc's own targets (`crate::x`) are no files, so only a destination with a `/` or a `.` counts.
+RS_REFERENCE = re.compile(r'^([ \t]*//[/!][ \t]?[ \t]{0,3}\[(?!\^)[^\]]+\]:[ \t]*)(<[^<>\n]*[/.][^<>\n]*>|[^\s<>]*[/.]\S*)',
+                          re.MULTILINE)
 # Files whose links are Markdown: documents, and Rust's doc comments.
 MARKDOWN = ('.md', '.rs')
 # A target with a scheme (http:, mailto:) or a pure anchor is not a path.
@@ -51,6 +58,19 @@ BEFORE = r'(?<![\w./-])'
 AFTER = r'(?![\w/-]|\.\w)'
 # The files of an execution: its document, closing report, phase log and measurements.
 SUFFIXES = ('.md', '-report.md', '-phases.tsv', '-measurements.md')
+
+
+# The help the command prints, in Spanish like every message of the repository's commands (`CLAUDE.md`).
+USAGE = """Uso: python -I scripts/docs/move_docs.py <orden> ...
+
+  archive <funcionalidad> <módulo>  archiva una ejecución terminada: mueve sus archivos de odd/tasks/ a
+                                    odd/done/<módulo>/
+  reopen <funcionalidad>            devuelve una ejecución archivada a odd/tasks/ para seguir trabajando en ella
+  move <manifiesto>                 mueve los archivos del manifiesto: una línea <ruta antigua><tab><ruta nueva>
+                                    por archivo, rutas desde la raíz del repositorio
+  check                             lista los enlaces relativos cuyo destino no existe
+
+Cada movimiento reescribe los enlaces y las rutas que apuntan a los archivos movidos y usa git mv."""
 
 
 def git(root, *args):
@@ -90,9 +110,17 @@ def reference_pattern(source):
     return RS_REFERENCE if source.endswith('.rs') else MD_REFERENCE
 
 
+def unwrap(target):
+    """A link destination without its angle brackets, and whether it had them."""
+    if len(target) >= 2 and target[0] == '<' and target[-1] == '>':
+        return target[1:-1], True
+    return target, False
+
+
 def link_path(source, target):
     """The path from the root that a link target of `source` names, with the target's path part and what follows it;
     None for a target that names no file of the repository (a scheme, an anchor alone, an absolute path)."""
+    target, _ = unwrap(target)
     if NOT_A_PATH.match(target) or target.startswith('/'):
         return None
     path, rest = split_target(target)
@@ -107,10 +135,11 @@ def exists(root, files, dirs, path):
 
 def rewrite_link(source, new_source, target, moves, files, dirs, root):
     """The target of a link of `source` (moving to `new_source`), rewritten for the moves; unchanged when neither the
-    link's file nor its target moves, or when the target did not exist."""
+    link's file nor its target moves, or when the target did not exist. Angle brackets around it are kept."""
     named = link_path(source, target)
     if named is None:
         return target
+    wrapped = unwrap(target)[1]
     old, path, rest = named
     if old not in moves and source == new_source:
         return target
@@ -120,7 +149,7 @@ def rewrite_link(source, new_source, target, moves, files, dirs, root):
     rel = posixpath.relpath(new, posixpath.dirname(new_source) or '.')
     if path.endswith('/') and not rel.endswith('/'):
         rel += '/'
-    return rel + rest
+    return f'<{rel}{rest}>' if wrapped else rel + rest
 
 
 def rewrite_text(source, text, moves, files, dirs, root):
@@ -155,15 +184,25 @@ def move(root, moves):
     files whose text changed. Nothing is written when the move is not valid."""
     files = tracked(root)
     known = set(files)
+    destinations = set(moves.values())
     seen = set()
     for old, new in moves.items():
         if old not in known:
-            raise SystemExit(f'not a tracked file: {old}')
+            raise SystemExit(f'No es un archivo bajo control de versiones: {old}')
         if new in known or (root / new).exists():
-            raise SystemExit(f'the destination already exists: {new}')
+            raise SystemExit(f'El destino ya existe: {new}')
         if new in seen:
-            raise SystemExit(f'two files move to {new}')
+            raise SystemExit(f'Dos archivos se mueven a {new}')
         seen.add(new)
+        # Every folder of the destination must be a folder, or one the move creates (Codex R1).
+        for folder in Path(new).parents:
+            folder = folder.as_posix()
+            if folder == '.':
+                continue
+            if folder in destinations:
+                raise SystemExit(f'El destino {new} queda dentro de {folder}, otro destino')
+            if (root / folder).is_file():
+                raise SystemExit(f'El destino {new} queda dentro de {folder}, que es un archivo')
     dirs = directories(files)
     changed = 0
     for f in files:
@@ -187,14 +226,14 @@ def archive_moves(root, feature, module):
         if (root / old).exists():
             moves[old] = f'odd/done/{module}/{feature}{suffix}'
     if f'odd/tasks/{feature}.md' not in moves:
-        raise SystemExit(f'no execution document odd/tasks/{feature}.md')
+        raise SystemExit(f'No existe el documento de ejecución odd/tasks/{feature}.md')
     return moves
 
 
 def reopen_moves(root, feature):
     found = sorted((root / 'odd/done').glob(f'*/{feature}.md'))
     if len(found) != 1:
-        raise SystemExit(f'no single archived execution {feature}: {[str(f) for f in found]}')
+        raise SystemExit(f'No hay una única ejecución archivada {feature}: {[str(f) for f in found]}')
     module = found[0].parent.name
     moves = {}
     for suffix in SUFFIXES:
@@ -211,7 +250,7 @@ def manifest_moves(path):
             continue
         parts = line.split('\t')
         if len(parts) != 2:
-            raise SystemExit(f'{path}:{number}: expected an old path, a tab and a new path')
+            raise SystemExit(f'{path}:{number}: se esperaba una ruta antigua, un tabulador y una ruta nueva')
         moves[parts[0].strip()] = parts[1].strip()
     return moves
 
@@ -238,6 +277,9 @@ def broken_links(root):
 
 
 def main(argv):
+    # The messages are Spanish: UTF-8 also where the console's code page would mangle them (Windows).
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     root = repo_root()
     here = Path.cwd()
     os.chdir(root)
@@ -250,13 +292,13 @@ def main(argv):
             moves = manifest_moves(here / manifest)
         case ['check']:
             broken = broken_links(root)
-            print('\n'.join(broken) if broken else 'no broken links')
+            print('\n'.join(broken) if broken else 'No hay enlaces rotos.')
             return 1 if broken else 0
         case _:
-            print(__doc__)
+            print(USAGE)
             return 2
     changed = move(root, moves)
-    print(f'moved {len(moves)} files, rewrote references in {changed} files')
+    print(f'Se movieron {len(moves)} archivos y se reescribieron referencias en {changed} archivos.')
     return 0
 
 

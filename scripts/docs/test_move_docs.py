@@ -94,7 +94,7 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(repo.tracked(), {'odd/done/pager/f.md', 'odd/done/pager/f-report.md',
                                           'odd/done/pager/f-phases.tsv', 'odd/done/pager/f-measurements.md',
                                           'odd/tasks/fg.md'})
-        with self.assertRaises(SystemExit):
+        with self.assertRaisesRegex(SystemExit, 'No existe el documento de ejecución odd/tasks/missing.md'):
             move_docs.archive_moves(repo.root, 'missing', 'pager')
 
     def test_reopening_brings_an_archived_execution_back(self):
@@ -135,32 +135,71 @@ class MoveTests(unittest.TestCase):
 
     def test_a_move_onto_an_existing_file_or_of_an_untracked_one_changes_nothing(self):
         repo = self.repo({'a.md': '[b](b.md)\n', 'b.md': 'b\n'})
-        for moves in ({'a.md': 'b.md'}, {'c.md': 'd.md'}):
-            with self.assertRaises(SystemExit):
+        for moves, message in (({'a.md': 'b.md'}, 'El destino ya existe: b.md'),
+                               ({'c.md': 'd.md'}, 'No es un archivo bajo control de versiones: c.md')):
+            with self.assertRaisesRegex(SystemExit, message):
                 move_docs.move(repo.root, moves)
         self.assertEqual(repo.read('a.md'), '[b](b.md)\n')
         self.assertEqual(repo.tracked(), {'a.md', 'b.md'})
 
+    def test_a_destination_inside_a_file_changes_nothing(self):
+        # Codex R1: a folder of the destination that is a file, or another destination.
+        repo = self.repo({'a.md': 'a\n', 'b.md': 'b\n', 'blocked': 'x\n', 'README.md': '[a](a.md) [b](b.md)\n'})
+        for moves, message in (
+                ({'a.md': 'blocked/a.md'}, 'El destino blocked/a.md queda dentro de blocked, que es un archivo'),
+                ({'a.md': 'x.md', 'b.md': 'x.md/b.md'}, 'El destino x.md/b.md queda dentro de x.md, otro destino')):
+            with self.assertRaisesRegex(SystemExit, message):
+                move_docs.move(repo.root, moves)
+        self.assertEqual(repo.read('README.md'), '[a](a.md) [b](b.md)\n')
+        self.assertEqual(repo.tracked(), {'a.md', 'b.md', 'blocked', 'README.md'})
+
+    def test_angle_bracket_destinations_follow_their_target(self):
+        # Codex R2: `<...>` destinations, with a space inside, inline and in reference definitions.
+        repo = self.repo({
+            'README.md': 'r\n', 'my notes.md': 'n\n',
+            'odd/tasks/f.md': ('[readme](<../../README.md>) [notes](<../../my notes.md#top> "Notes")\n\n'
+                               '[root]: <../../README.md>\n'),
+            'src/lib.rs': '//! [f](<../odd/tasks/f.md>)\n//! [g]: <../odd/tasks/f.md>\n',
+        })
+        self.assertEqual(move_docs.broken_links(repo.root), [])
+        move_docs.move(repo.root, move_docs.archive_moves(repo.root, 'f', 'tooling'))
+        self.assertEqual(repo.read('odd/done/tooling/f.md'),
+                         '[readme](<../../../README.md>) [notes](<../../../my notes.md#top> "Notes")\n\n'
+                         '[root]: <../../../README.md>\n')
+        self.assertEqual(repo.read('src/lib.rs'),
+                         '//! [f](<../odd/done/tooling/f.md>)\n//! [g]: <../odd/done/tooling/f.md>\n')
+        self.assertEqual(move_docs.broken_links(repo.root), [])
 
     def test_a_relative_manifest_is_read_from_the_current_folder(self):
         repo = self.repo({'docs/a.md': 'a\n', 'tools/m.tsv': 'docs/a.md\tdocs/b/a.md\n'})
         here = os.getcwd()
         self.addCleanup(os.chdir, here)
         os.chdir(repo.root / 'tools')
-        with contextlib.redirect_stdout(io.StringIO()):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
             self.assertEqual(move_docs.main(['move', 'm.tsv']), 0)
         self.assertEqual(repo.tracked(), {'docs/b/a.md', 'tools/m.tsv'})
+        # Codex R3: the messages of the command are in Spanish.
+        self.assertEqual(out.getvalue(), 'Se movieron 1 archivos y se reescribieron referencias en 1 archivos.\n')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(move_docs.main(['check']), 0)
+        self.assertEqual(out.getvalue(), 'No hay enlaces rotos.\n')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(move_docs.main(['otra']), 2)
+        self.assertIn('Uso: python -I scripts/docs/move_docs.py', out.getvalue())
 
     def test_a_malformed_manifest_line_is_named(self):
         repo = self.repo({'a.md': 'a\n'})
         manifest = repo.root / 'm.tsv'
         manifest.write_text('# moves\na.md\tb.md\na.md b.md\n', encoding='utf-8')
-        with self.assertRaisesRegex(SystemExit, r'm\.tsv:3: expected an old path, a tab and a new path'):
+        with self.assertRaisesRegex(SystemExit, r'm\.tsv:3: se esperaba una ruta antigua, un tabulador y una ruta nueva'):
             move_docs.manifest_moves(manifest)
 
     def test_two_files_moving_to_one_place_change_nothing(self):
         repo = self.repo({'a.md': '[b](b.md)\n', 'b.md': '[a](a.md)\n'})
-        with self.assertRaisesRegex(SystemExit, 'two files move to c.md'):
+        with self.assertRaisesRegex(SystemExit, 'Dos archivos se mueven a c.md'):
             move_docs.move(repo.root, {'a.md': 'c.md', 'b.md': 'c.md'})
         self.assertEqual((repo.read('a.md'), repo.read('b.md')), ('[b](b.md)\n', '[a](a.md)\n'))
         self.assertEqual(repo.tracked(), {'a.md', 'b.md'})
@@ -208,7 +247,7 @@ class MoveTests(unittest.TestCase):
 
     def test_reopening_refuses_an_execution_archived_twice(self):
         repo = self.repo({'odd/done/trees/f.md': 'x\n', 'odd/done/pager/f.md': 'y\n'})
-        with self.assertRaisesRegex(SystemExit, 'no single archived execution f'):
+        with self.assertRaisesRegex(SystemExit, 'No hay una única ejecución archivada f'):
             move_docs.reopen_moves(repo.root, 'f')
 
 
