@@ -1,3 +1,12 @@
 2026-11-15T17:51:53+00:00	start	explore	
 2026-11-15T17:55:25+00:00	mark	implement	T1
 2026-11-15T18:05:14+00:00	mark	implement	T3
+2026-11-15T18:27:59+00:00	mark	review	RDD a7043fc..4774ba4
+2026-11-15T18:28:43+00:00	bg-start	review	rdd-1
+2026-11-15T18:29:33+00:00	bg-start	acceptance	ab w26 w27
+2026-11-15T18:29:57+00:00	bg-end	review	rdd-1
+2026-11-15T18:32:56+00:00	bg-end	acceptance	ab w26 w27
+2026-11-15T18:33:23+00:00	mark	implement	T4
+2026-11-15T18:34:48+00:00	bg-start	acceptance	ab2 opt
+2026-11-15T18:36:03+00:00	bg-end	acceptance	ab2 opt
+2026-11-15T18:36:47+00:00	bg-start	acceptance	full windows

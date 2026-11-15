@@ -48,8 +48,8 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
 |---|---|---|---|---|
 | T1 | S4 (M2): short byte sum in Rust and C#, equivalence tests | inline | done (equivalence: `the_short_byte_sum_equals_the_sum_of_every_byte` and the Voron selftest `byteSum(0..33 bytes) ok`) | `0175298` |
 | T2 | S3 (M1): run pool in the store | inline | done (RED: `run_pool_tests` did not compile without the pool; GREEN 4 of 4; mutation without zeroing fails `a_commit_keeps_its_run_buffers_and_the_next_run_gets_one_zeroed`; krummi-tx and krummi-pager suites pass) | `bee2dcb` |
-| T3 | S1: projections in the library (prepare, cache, prepared columns, bind, read) with AC-PY1–AC-PY10, AC-PY12 | inline | pending | |
-| T4 | S2: W26 and W27 read with a projection, test hook, W27 without it | inline | pending | |
+| T3 | S1: projections in the library (prepare, cache, prepared columns, bind, read) with AC-PY1–AC-PY10, AC-PY12 | inline | done (RED: the tests did not compile without the API; GREEN: `table_projections` 10 of 10 and `projection_tests` 2 of 2 in debug and release; mutations without the schema check and with the current plan on older rows fail AC-PY5, AC-PY10 and AC-PY2; workspace suite passed) | `9c9cba6`, `2277110` |
+| T4 | S2: W26 and W27 read with a projection, test hook, W27 without it | inline | done (`w26_and_w27_read_with_a_projection`) | `5b17ff0`, `2277110`, `c00f2dc` |
 | T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | pending | |
 | T6 | S5: final checks, RDD of the last slice, Codex review, closing report | inline | pending | |
 
@@ -77,3 +77,23 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   element and dimension. Binding fails with the new `SchemaDifference::Projection`; an empty list with the new
   `ValueRule::EmptyProjection`. The typed reads of `TableRow` now use the same `ReadAs` decoders (DRY). Test hooks:
   `Projection::is_kept`, `Projection::same_as`, `Store::kept_projections`.
+- **L6** (2026-11-15) — T4: W26 and W27 read through `read_by_key` and `read_ranges`, which prepare the projection
+  inside the measured time; `KRUMMI_BENCH_PROJECTION=off` reads by position (diagnostic hook for AC-PY11). Risk of
+  T3: item 3 (the typed reads of `TableRow`, which every existing column read uses, now go through the projection
+  decoders) and item 4 (a store-wide cache behind a mutex, older plans in `OnceLock`).
+- **L7** (2026-11-15) — RDD of `a7043fc..4774ba4` (M2, M1, the projection, the benchmark; assessed `high` by the item 3
+  escalation), lenses risk, readability and reliability: approved, lineage `review-4976a6e6cdfe7836`, acknowledged
+  (authority burned). Advisory findings: R2-001 (WARNING, this document listed T3 and T4 as pending): updated here.
+  R2-002 (SUGGESTION, `key` meant both the list and the row key in `ProjectedRow::get`): renamed `list`. R2-003
+  (SUGGESTION, the benchmark's prepared columns by literal index): taken by the position of their names. R3-001
+  (WARNING, a kept projection prepared again after a rename named the old table in its errors): RED in
+  `ac_py5_rows_of_another_table_store_or_schema_do_not_bind` (`left: "t"`, `right: "renamed"`), fixed by keeping the
+  name in each handle. All in `2277110`. Risk lens found nothing.
+- **L8** (2026-11-15) — A/B of W26 and W27, both engines, two rounds pinned to the performance cores under the bench
+  power plan (`work/tp/ab.sh`, `work/tp/ab-*.tsv`): with the first plan W27 read **slower** with the projection,
+  8.89 M rows/s against 9.20 M by position in both rounds (−3.4 %); W26 even. Cause: each read followed the list to the
+  reader's columns for the type and matched the slot's place again. `c00f2dc` puts the type, the live position and,
+  for a fixed-width column, its byte range and null bit in each column's plan. A/B of Krummi alone after it, three
+  alternated rounds (`work/tp/ab2.py`, `work/tp/ab2-opt.out`): W27 95.2 ns per row with the projection against
+  106.1 by position (−10.3 %, all three rounds); W26 1,351 against 1,372 ns (−1.6 %). Tests: `table_projections` 10 of
+  10, `projection_tests` 2 of 2; clippy clean.
