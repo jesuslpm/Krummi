@@ -28,7 +28,7 @@ pub use pager::{
 pub use random::fill_random;
 pub use scratch::{
     Memory, Origin, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged, alloc_payload,
-    alloc_run, reuse_payload, try_reserve,
+    alloc_run, reuse_payload, reuse_run, try_reserve,
 };
 pub use temp::TEMP_DIR;
 

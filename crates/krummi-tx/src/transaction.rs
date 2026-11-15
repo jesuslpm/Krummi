@@ -11,9 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
-use krummi_pager::{
-    PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, alloc_run, growth_target,
-};
+use krummi_pager::{PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, growth_target};
 
 #[cfg(feature = "test-hooks")]
 use crate::LayoutEvent;
@@ -547,8 +545,10 @@ impl<'e> WriteTransaction<'e> {
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
         let committed = self.writer.commit(&pages, &created, &runs);
-        // The pages are in the temporary area now, or the commit failed: their payloads serve the next copies.
+        // The pages and the runs are copied into the temporary area now, or the commit failed: their buffers serve
+        // the next copies and runs.
         self.engine.keep_payloads(pages);
+        self.engine.keep_runs(runs);
         let txid = self.track(committed)?;
         // The point of no return (E2): the commit is in the journal's queue and the next writer sees it, and the
         // pages it freed (F6).
@@ -642,7 +642,7 @@ impl<'e> WriteTransaction<'e> {
         if !value_run {
             return self.add_zeroed(first..first + count);
         }
-        self.runs.insert(first, alloc_run(count)?);
+        self.runs.insert(first, self.engine.run_for(count)?);
         self.run_pages += count;
         Ok(())
     }

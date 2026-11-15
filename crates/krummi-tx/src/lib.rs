@@ -14,6 +14,8 @@ mod transaction;
 mod bytes_tests;
 #[cfg(test)]
 mod payload_tests;
+#[cfg(test)]
+mod run_pool_tests;
 
 use std::collections::VecDeque;
 use std::io;
@@ -30,7 +32,7 @@ use krummi_pager::format::{HEADER_PAGES, PAGE_PAYLOAD_SIZE};
 pub use krummi_pager::{
     Error, ErrorKind, Info, Memory, OpenOptions, Result, TreeKind, try_reserve,
 };
-use krummi_pager::{Pager, PayloadBuf, Scratch};
+use krummi_pager::{Pager, PayloadBuf, RunBuf, Scratch};
 pub use space::REGION_PAGES;
 use space::Space;
 pub use transaction::{ReadTransaction, WriteTransaction};
@@ -134,6 +136,9 @@ pub struct Engine {
     /// diagnosis, performance plan). Only a store on disk keeps them: a temporary store's memory all counts against
     /// its maximum size (P10, T14).
     payloads: Mutex<Vec<PayloadBuf>>,
+    /// The buffers of value runs of earlier commits, for the runs of the next transactions (M1 of the 2026-11-15
+    /// performance diagnostic), only in a store on disk as `payloads`.
+    runs: Mutex<SpareRuns>,
     #[cfg(feature = "test-hooks")]
     hook: Mutex<Option<Hook>>,
     /// The page operation of write transactions that fails next, counting down, with the failure it gets (tests).
@@ -143,6 +148,17 @@ pub struct Engine {
 
 /// The most page payloads a store keeps for the next copies: 32 MiB, as the journal keeps for its records.
 const SPARE_PAYLOADS: usize = (32 << 20) / PAGE_PAYLOAD_SIZE;
+
+/// The most bytes of value run buffers a store keeps for the next runs: 32 MiB, as for the page payloads (decided by
+/// the user on 2026-11-15).
+const SPARE_RUN_BYTES: usize = 32 << 20;
+
+/// The value run buffers a store keeps, and their bytes, at most [`SPARE_RUN_BYTES`].
+#[derive(Default)]
+struct SpareRuns {
+    bytes: usize,
+    runs: Vec<RunBuf>,
+}
 
 struct Turns {
     queue: Mutex<Queue>,
@@ -237,6 +253,7 @@ impl Engine {
             turns,
             space: Space::new(frontier, free, !fresh),
             payloads: Mutex::new(Vec::new()),
+            runs: Mutex::default(),
             #[cfg(feature = "test-hooks")]
             hook: Mutex::new(None),
             #[cfg(feature = "test-hooks")]
@@ -262,6 +279,46 @@ impl Engine {
         let mut spare = self.payloads.lock().unwrap_or_else(PoisonError::into_inner);
         let room = SPARE_PAYLOADS.saturating_sub(spare.len());
         spare.extend(pages.into_iter().take(room).map(|(_, payload)| payload));
+    }
+
+    /// A zeroed buffer for a value run of `pages` pages: one of that length kept from an earlier commit, or a new one.
+    fn run_for(&self, pages: u64) -> Result<RunBuf> {
+        let len = pages.saturating_mul(krummi_pager::format::PAGE_SIZE_U64);
+        let spare = {
+            let mut spare = self.runs.lock().unwrap_or_else(PoisonError::into_inner);
+            let at = spare.runs.iter().position(|run| run.len() as u64 == len);
+            at.map(|at| {
+                let run = spare.runs.swap_remove(at);
+                spare.bytes -= run.len();
+                run
+            })
+        };
+        krummi_pager::reuse_run(spare, pages)
+    }
+
+    /// Keeps the buffers of a commit's value runs for the next runs while they fit in [`SPARE_RUN_BYTES`], in a store
+    /// on disk. Keeping one never fails: a buffer that does not fit, or whose place in the list the system does not
+    /// provide, is freed.
+    fn keep_runs(&self, runs: Vec<(u64, RunBuf)>) {
+        if self.folder.is_none() || runs.is_empty() {
+            return;
+        }
+        let mut spare = self.runs.lock().unwrap_or_else(PoisonError::into_inner);
+        for (_, run) in runs {
+            if run.len() <= SPARE_RUN_BYTES - spare.bytes && spare.runs.try_reserve(1).is_ok() {
+                spare.bytes += run.len();
+                spare.runs.push(run);
+            }
+        }
+    }
+
+    /// The bytes of the value run buffers kept for the next runs (tests).
+    #[cfg(test)]
+    pub(crate) fn spare_run_bytes(&self) -> usize {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .bytes
     }
 
     /// Page payloads kept for the next copies (tests).

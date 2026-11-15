@@ -100,6 +100,23 @@ pub fn reuse_payload(spare: Option<PayloadBuf>) -> Result<PayloadBuf> {
     }
 }
 
+/// A zeroed run of `pages` pages: `spare`, kept from an earlier commit with that length and zeroed here, or a new one
+/// (M1 of the 2026-11-15 performance diagnostic). The out-of-memory class if the system does not provide it (P13); it
+/// is the fault point of [`alloc_run`] either way, so a reused run fails where a new one would.
+pub fn reuse_run(spare: Option<RunBuf>, pages: u64) -> Result<RunBuf> {
+    match spare {
+        Some(mut run) => {
+            sys::alloc_point().map_err(|_| Error::OutOfMemory {
+                requested: pages.saturating_mul(PAGE_SIZE_U64),
+            })?;
+            debug_assert_eq!(run.len() as u64, pages.saturating_mul(PAGE_SIZE_U64));
+            run.fill(0);
+            Ok(run)
+        }
+        None => alloc_run(pages),
+    }
+}
+
 /// A zeroed run of `pages` pages, or the out-of-memory class if the system does not provide it (P13).
 pub fn alloc_run(pages: u64) -> Result<RunBuf> {
     let requested = pages.saturating_mul(PAGE_SIZE_U64);
