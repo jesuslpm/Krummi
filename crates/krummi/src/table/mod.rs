@@ -7,6 +7,9 @@ mod identity;
 pub mod key;
 #[cfg(test)]
 mod malformed_tests;
+pub mod projection;
+#[cfg(test)]
+mod projection_tests;
 mod ranges;
 pub mod row;
 #[cfg(test)]
@@ -20,6 +23,8 @@ pub mod value;
 
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
+pub(crate) use projection::Projections;
+pub use projection::{ProjectedColumn, ProjectedRow, Projection};
 pub use ranges::{ReadRows, WriteRows};
 pub(crate) use rows::Readers;
 pub use rows::{TableRow, Upserted};

@@ -127,6 +127,8 @@ pub enum ValueRule {
     SequenceExhausted,
     /// A generator millisecond that does not fit in 48 bits (E15).
     MillisecondOutOfRange,
+    /// A projection of no columns (PY1 of the projection PRD).
+    EmptyProjection,
 }
 
 /// The rule an [`Error::InvalidSchema`] reports, in the order of E5: when a schema breaks several, the first one in
@@ -180,6 +182,9 @@ pub enum SchemaDifference {
     MissingColumn,
     /// The primary key columns or their order.
     PrimaryKey,
+    /// A row bound to a projection of another table, another store or another schema of its table (PY3 of the
+    /// projection PRD).
+    Projection,
 }
 
 /// An engine error.
@@ -665,6 +670,7 @@ fn value_rule_text(rule: ValueRule) -> &'static str {
         ValueRule::InvalidRange => "a malformed range",
         ValueRule::SequenceExhausted => "the sequence is at its maximum",
         ValueRule::MillisecondOutOfRange => "the millisecond does not fit in 48 bits",
+        ValueRule::EmptyProjection => "a projection without columns",
     }
 }
 
@@ -701,6 +707,7 @@ fn difference_text(difference: SchemaDifference) -> &'static str {
         SchemaDifference::Default => "default value",
         SchemaDifference::MissingColumn => "column",
         SchemaDifference::PrimaryKey => "primary key",
+        SchemaDifference::Projection => "projection",
     }
 }
 

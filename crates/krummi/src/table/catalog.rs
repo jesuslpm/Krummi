@@ -175,7 +175,7 @@ impl TableState {
 
     /// Makes `schema` the table's current one, for every handle (E4, B9).
     fn set_schema(&mut self, schema: TableSchema) {
-        self.reader = Arc::new(Reader::new(&schema));
+        self.reader = Arc::new(Reader::new(&schema, self.reader.schema.store));
         self.schema = schema;
     }
 }
@@ -266,7 +266,9 @@ impl<'s> ReadTransaction<'s> {
             reader: Arc::clone(
                 &self
                     .readers
-                    .keep(found.history, || Arc::new(Reader::new(&found.schema)))
+                    .keep(found.history, || {
+                        Arc::new(Reader::new(&found.schema, self.projections.serial()))
+                    })
                     .reader,
             ),
             schema: found.schema,
@@ -505,7 +507,7 @@ impl<'s> WriteTransaction<'s> {
                     rows_root: found.entry.root,
                     count: found.entry.count,
                     history: found.history,
-                    reader: Arc::new(Reader::new(&found.schema)),
+                    reader: Arc::new(Reader::new(&found.schema, self.projections.serial())),
                     schema: found.schema,
                     deleted: false,
                     dirty: false,

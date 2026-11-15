@@ -12,14 +12,14 @@ use crate::table::schema::version_key;
 use crate::table::value::{ColumnType, Value};
 use crate::{Column, Error, ErrorKind, Result, Schema, Store, StoreOptions, TableMode, TableRow};
 
-type Row = Vec<(&'static str, Value<'static>)>;
+pub(super) type Row = Vec<(&'static str, Value<'static>)>;
 
 /// A change of a row's stored bytes.
 type Change<'a> = &'a dyn Fn(&mut Vec<u8>);
 
 /// The rows of every table here are `0..ROWS`; the one made malformed is `BAD`.
-const ROWS: i64 = 10;
-const BAD: i64 = 5;
+pub(super) const ROWS: i64 = 10;
+pub(super) const BAD: i64 = 5;
 
 /// A temporary store with the table `t` of `schema` and `rows`, committed.
 fn store_with(schema: &Schema, rows: impl IntoIterator<Item = Row>) -> Store {
@@ -95,7 +95,7 @@ fn row_page(store: &Store, key: &[u8]) -> u64 {
     krummi_tree::leaf_of(&read.inner, rows, key).unwrap()
 }
 
-fn damaged_page<T: std::fmt::Debug>(outcome: Result<T>) -> u64 {
+pub(super) fn damaged_page<T: std::fmt::Debug>(outcome: Result<T>) -> u64 {
     match outcome.unwrap_err() {
         Error::Damaged {
             page: Some(page), ..
@@ -105,12 +105,12 @@ fn damaged_page<T: std::fmt::Debug>(outcome: Result<T>) -> u64 {
 }
 
 /// Whether `read` panics.
-fn panics<T>(read: impl FnOnce() -> T) -> bool {
+pub(super) fn panics<T>(read: impl FnOnce() -> T) -> bool {
     catch_unwind(AssertUnwindSafe(read)).is_err()
 }
 
 /// `id i64 not null, n i32, s string`, primary key `id`: the text is the last stored byte of a row.
-fn texts() -> Schema {
+pub(super) fn texts() -> Schema {
     Schema::new(
         vec![
             Column::new("id", ColumnType::I64).not_null(),
@@ -121,7 +121,7 @@ fn texts() -> Schema {
     )
 }
 
-fn text_row(id: i64) -> Row {
+pub(super) fn text_row(id: i64) -> Row {
     vec![
         ("id", Value::I64(id)),
         ("n", Value::I32(i32::try_from(id).unwrap() * 10)),
@@ -130,7 +130,7 @@ fn text_row(id: i64) -> Row {
 }
 
 /// A store of [`texts`] whose row `BAD` has a text that is not UTF-8, `"row\xFF"`.
-fn bad_text_store() -> Store {
+pub(super) fn bad_text_store() -> Store {
     let store = store_with(&texts(), (0..ROWS).map(text_row));
     alter(&store, &id_key(BAD), |bytes| {
         *bytes.last_mut().unwrap() = 0xFF

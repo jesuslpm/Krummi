@@ -69,6 +69,9 @@ let id = Value::Ulid(krummi::ids::ulid()?); // increasing in the process, also w
 write.insert_row(&people, &[("id", id.clone()), ("name", Value::String("Huginn".into()))])?;
 let row = write.get_row(&people, &[id])?.unwrap(); // the text borrowed from the engine, not copied
 println!("{:?}", row.get("name")); // Some(String("Huginn"))
+let projection = write.projection(&people, &["name"])?; // prepared once per schema, kept by the store
+let name = projection.column::<krummi::table::projection::Text>(0)?; // its type checked once, not per row
+println!("{:?}", projection.bind(&row)?.get(&name)); // Some("Huginn"), as row.text(1) reads it
 drop(row); // a borrowed row ends before the commit
 write.commit()?;
 drop(read);

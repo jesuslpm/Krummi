@@ -142,24 +142,25 @@ use super::catalog::{ReadTable, WriteTable};
 use super::key::{
     KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
 };
-use super::row::{MAX_ROW, Row, RowDamaged, RowLayout, Slot, row_version, slot_array};
+use super::projection::{Bytes, Date, Duration, ReadAs, Text, TextBytes, Time, Timestamp};
+use super::row::{MAX_ROW, Row, RowDamaged, RowLayout, Slot, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
-use super::value::{ColumnType, NANOS_PER_MICRO, Value, key_text, normalize};
+use super::value::{ColumnType, Value, key_text, normalize};
 use crate::ids::{Ulid, Uuid};
 use crate::{Folder, ReadTransaction, WriteTransaction};
 
 /// A live column of a table, as its rows need it.
-struct LiveColumn {
+pub(super) struct LiveColumn {
     id: u64,
-    name: String,
-    ty: ColumnType,
+    pub(super) name: String,
+    pub(super) ty: ColumnType,
     nullable: bool,
     /// Its default value, [`Value::Null`] when it has none: what a row that does not give it stores, and what a
     /// row written before it was added reads (N3).
-    default: Value<'static>,
+    pub(super) default: Value<'static>,
     /// Its place in the primary key when it is a fixed-width key column, which the rows do not store: it is read
     /// from the key (document 1).
-    in_key: Option<usize>,
+    pub(super) in_key: Option<usize>,
 }
 
 impl LiveColumn {
@@ -180,25 +181,37 @@ impl LiveColumn {
 /// What reading and writing the rows of a table's current schema needs, built once per schema version and shared by
 /// the handles of the table and the rows they read.
 pub(crate) struct Reader {
+    /// The schema it reads, which a projection's rows must have (PY3 of the projection PRD).
+    pub(crate) schema: SchemaId,
     /// The live columns, in schema order.
-    columns: Vec<LiveColumn>,
+    pub(super) columns: Vec<LiveColumn>,
     /// The position in `columns` of each column name.
-    names: HashMap<String, usize>,
+    pub(super) names: HashMap<String, usize>,
     /// The positions in `columns` of the primary key columns, in key order.
     key_columns: Vec<usize>,
     /// The types of the primary key columns, in key order.
     key_types: Vec<ColumnType>,
     /// The layout of the rows of the current version, whose columns are `columns`, in the same order.
-    layout: RowLayout,
+    pub(super) layout: RowLayout,
     /// Each live column as the typed reads need it in rows of the current version.
-    fast: Vec<FastColumn>,
+    pub(super) fast: Vec<FastColumn>,
     /// The live columns that checking a row of the current version reads, those it can reject, with their types: the
     /// check of the row that an update replaces (L3 of the row reads PRD).
     checks: Vec<(Slot, ColumnType)>,
 }
 
+/// The schema of a table in an open store, which identifies it among every schema of every table of every open store
+/// (PY1 of the projection PRD): the store's serial, unique in the process, the table's identity and its schema state
+/// (P12), random and drawn again at each new version, so that an abandoned write's never equals another's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct SchemaId {
+    pub(crate) store: u64,
+    table: u64,
+    state: u64,
+}
+
 /// A failure of public validation of a row or a key, before it knows the table's name and the store's folder.
-enum Fault {
+pub(super) enum Fault {
     /// A column that the table does not have (E6).
     Unknown(String),
     /// A value that breaks `rule`, in the column when there is one (E17).
@@ -208,7 +221,7 @@ enum Fault {
 }
 
 impl Fault {
-    fn error(self, folder: Folder<'_>, table: &str) -> Error {
+    pub(super) fn error(self, folder: Folder<'_>, table: &str) -> Error {
         match self {
             Fault::Unknown(column) => folder.different_schema(
                 table,
@@ -257,7 +270,8 @@ struct Checked<'v> {
 }
 
 impl Reader {
-    pub(crate) fn new(schema: &TableSchema) -> Reader {
+    /// The reader of `schema` in the store whose serial is `store`.
+    pub(crate) fn new(schema: &TableSchema, store: u64) -> Reader {
         let key = schema.primary_key();
         let columns: Vec<LiveColumn> = schema
             .columns()
@@ -313,6 +327,11 @@ impl Reader {
             })
             .collect();
         Reader {
+            schema: SchemaId {
+                store,
+                table: schema.table_id(),
+                state: schema.schema_state(),
+            },
             columns,
             names,
             key_columns,
@@ -765,9 +784,9 @@ pub(super) struct Versions<'t> {
 
 /// A live column as the typed reads and the update patch need it, together so that they touch one small record.
 #[derive(Clone, Copy)]
-struct FastColumn {
+pub(super) struct FastColumn {
     /// Where it is in rows of the current version.
-    slot: Slot,
+    pub(super) slot: Slot,
     ty: ColumnType,
     /// Whether the key holds it instead of the row: a fixed-width primary key column.
     in_key: bool,
@@ -777,7 +796,7 @@ struct FastColumn {
 
 /// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes or
 /// vector one.
-fn needs_stored(default: &Value<'_>) -> bool {
+pub(super) fn needs_stored(default: &Value<'_>) -> bool {
     matches!(
         default,
         Value::String(_) | Value::Bytes(_) | Value::Vector(_)
@@ -860,9 +879,9 @@ pub(super) struct At<'a> {
 }
 
 /// The layout of an older row version, and the place in it of each live column (`None` for one added after it).
-struct OldVersion {
-    layout: RowLayout,
-    places: Vec<Option<usize>>,
+pub(super) struct OldVersion {
+    pub(super) layout: RowLayout,
+    pub(super) places: Vec<Option<usize>>,
 }
 
 /// The damage error of the page that holds the row of `key` in the rows tree at `rows_root`: the first page of its value
@@ -886,12 +905,12 @@ fn row_damage<S: PageSource + ?Sized>(tx: &S, rows_root: u64, key: &[u8]) -> Err
 /// vectors borrow the transaction's pages without copying them (D11), so the row and its values live until the next
 /// operation that may modify the transaction.
 pub struct TableRow<'t> {
-    reader: RowReader<'t>,
-    stored: Stored<'t>,
+    pub(super) reader: RowReader<'t>,
+    pub(super) stored: Stored<'t>,
 }
 
 /// The reader of a [`TableRow`]: the one its transaction keeps, or its own once the row is owned.
-enum RowReader<'t> {
+pub(super) enum RowReader<'t> {
     /// The reader, and the `Arc` that holds it, for [`TableRow::into_owned`].
     Kept(&'t Reader, &'t Arc<Reader>),
     Owned(Arc<Reader>),
@@ -910,7 +929,7 @@ impl Deref for RowReader<'_> {
 }
 
 /// What a [`TableRow`] holds.
-enum Stored<'t> {
+pub(super) enum Stored<'t> {
     /// The stored row: its encoded primary key and its bytes, the layout of its version when it is an older one, and
     /// the defaults borrowed from the catalog when it needs them.
     Row {
@@ -1004,32 +1023,32 @@ impl<'t> TableRow<'t> {
 }
 
 impl<'t> TableRow<'t> {
-    /// The live column at `position` read as `T` without building a [`Value`]: the column's stored bytes, through
-    /// `stored`, for a column of the current version outside the key; otherwise its value, through `value`. `None`
-    /// for a null or a position past the live columns. Panics when `matches` rejects the column's type.
+    /// The live column at `position` read as `T` without building a [`Value`]: the column's stored bytes for a column
+    /// of the row outside the key; otherwise its value. `None` for a null or a position past the live columns. Panics
+    /// when `T` is not read from the column's type.
     #[inline]
-    fn typed<T>(
-        &self,
-        position: usize,
-        type_name: &str,
-        matches: impl Fn(&ColumnType) -> bool,
-        stored: impl Fn(&'t [u8]) -> T,
-        value: impl Fn(Value<'t>) -> T,
-    ) -> Option<T> {
+    fn typed<T: ReadAs>(&self, position: usize) -> Option<T::Output<'t>> {
         let reader = &*self.reader;
         let column = reader.fast.get(position)?;
-        if !matches(&column.ty) {
+        if !T::accepts(&column.ty) {
             let column = &reader.columns[position];
             panic!(
-                "the column {} is a {}, not a {type_name}",
-                column.name, column.ty
+                "the column {} is a {}, not a {}",
+                column.name,
+                column.ty,
+                T::NAME
             );
         }
         if let Stored::Row { bytes, old, .. } = &self.stored
             && !column.in_key
         {
             match old {
-                None => return reader.layout.slot_bytes(bytes, column.slot).map(stored),
+                None => {
+                    return reader
+                        .layout
+                        .slot_bytes(bytes, column.slot)
+                        .map(|b| T::stored(&column.ty, b));
+                }
                 // An older row reads the column's bytes with its version's layout, without decoding them, as a row
                 // of the current version does; a column added after it reads its default as a value.
                 Some(old) => {
@@ -1042,14 +1061,14 @@ impl<'t> TableRow<'t> {
                             .unwrap_or_else(|RowDamaged| {
                                 panic!("a malformed row: a column outside it")
                             })
-                            .map(stored);
+                            .map(|b| T::stored(&column.ty, b));
                     }
                 }
             }
         }
         match self.value(position)? {
             Value::Null => None,
-            other => Some(value(other)),
+            other => Some(T::value(other)),
         }
     }
 }
@@ -1068,42 +1087,22 @@ impl<'t> TableRow<'t> {
             let start = starts.as_ref().map_or(0, |starts| {
                 usize::from(starts[reader.columns[position].in_key.expect("a key column")])
             });
-            return Some(Ulid(slot_array(&key[start + 1..start + 17])));
+            return Some(<Ulid as ReadAs>::key(&column.ty, &key[start..]));
         }
-        self.typed(
-            position,
-            "ulid",
-            |ty| matches!(ty, ColumnType::Ulid),
-            |b: &[u8]| Ulid(slot_array(b)),
-            |value| match value {
-                Value::Ulid(v) => v,
-                _ => unreachable!("a value of its column's type"),
-            },
-        )
+        self.typed::<Ulid>(position)
     }
 
     /// The stored bytes of the `string` column at `position`, the UTF-8 of its text (see the typed reads): as
     /// [`text`](Self::text) without checking them, so a malformed text is returned as it is stored.
     #[inline]
     pub fn text_bytes(&self, position: usize) -> Option<Cow<'t, [u8]>> {
-        self.typed(
-            position,
-            "string",
-            |ty| matches!(ty, ColumnType::String),
-            |b: &'t [u8]| Cow::Borrowed(b),
-            |value| match value {
-                Value::String(Cow::Borrowed(text)) => Cow::Borrowed(text.as_bytes()),
-                Value::String(Cow::Owned(text)) => Cow::Owned(text.into_bytes()),
-                _ => unreachable!("a value of its column's type"),
-            },
-        )
+        self.typed::<TextBytes>(position)
     }
 }
 
-/// Typed accessors of [`TableRow`]: `$method` reads a column of `$ty`, stored as `$stored` decodes it, as the
-/// `Value::$variant` that [`TableRow::value`] would give.
+/// Typed accessors of [`TableRow`]: `$method` reads a column as `$read`, the [`ReadAs`] type of the projections.
 macro_rules! typed_accessors {
-    ($($method:ident, $name:literal, $ty:pat, $variant:ident, $out:ty, $stored:expr;)*) => {
+    ($($method:ident, $name:literal, $read:ty, $out:ty;)*) => {
         /// Typed reads of a column: each returns the column's value as its Rust type, without building a [`Value`],
         /// which costs less in a scan that reads every column; `None` for a null or a position past the live
         /// columns. Each panics on a column of another type; [`TableRow::value`] reads any column.
@@ -1112,10 +1111,7 @@ macro_rules! typed_accessors {
                 #[doc = concat!("The value of the `", $name, "` column at `position` (see the typed reads).")]
                 #[inline]
                 pub fn $method(&self, position: usize) -> Option<$out> {
-                    self.typed(position, $name, |ty| matches!(ty, $ty), $stored, |value| match value {
-                        Value::$variant(v) => v,
-                        _ => unreachable!("a value of its column's type"),
-                    })
+                    self.typed::<$read>(position)
                 }
             )*
         }
@@ -1123,32 +1119,24 @@ macro_rules! typed_accessors {
 }
 
 typed_accessors! {
-    bool, "bool", ColumnType::Bool, Bool, bool, |b: &[u8]| b == [1];
-    i8, "i8", ColumnType::I8, I8, i8, |b: &[u8]| i8::from_le_bytes(slot_array(b));
-    i16, "i16", ColumnType::I16, I16, i16, |b: &[u8]| i16::from_le_bytes(slot_array(b));
-    i32, "i32", ColumnType::I32, I32, i32, |b: &[u8]| i32::from_le_bytes(slot_array(b));
-    i64, "i64", ColumnType::I64, I64, i64, |b: &[u8]| i64::from_le_bytes(slot_array(b));
-    u8, "u8", ColumnType::U8, U8, u8, |b: &[u8]| u8::from_le_bytes(slot_array(b));
-    u16, "u16", ColumnType::U16, U16, u16, |b: &[u8]| u16::from_le_bytes(slot_array(b));
-    u32, "u32", ColumnType::U32, U32, u32, |b: &[u8]| u32::from_le_bytes(slot_array(b));
-    u64, "u64", ColumnType::U64, U64, u64, |b: &[u8]| u64::from_le_bytes(slot_array(b));
-    f32, "f32", ColumnType::F32, F32, f32, |b: &[u8]| f32::from_le_bytes(slot_array(b));
-    f64, "f64", ColumnType::F64, F64, f64, |b: &[u8]| f64::from_le_bytes(slot_array(b));
-    date, "date", ColumnType::Date, Date, i32, |b: &[u8]| i32::from_le_bytes(slot_array(b));
-    time, "time", ColumnType::Time, Time, i64, |b: &[u8]| {
-        i64::from_le_bytes(slot_array(b)) * i64::try_from(NANOS_PER_MICRO).expect("1,000")
-    };
-    timestamp, "timestamp", ColumnType::Timestamp, Timestamp, i128, |b: &[u8]| {
-        i128::from(i64::from_le_bytes(slot_array(b))) * NANOS_PER_MICRO
-    };
-    duration, "duration", ColumnType::Duration, Duration, i128, |b: &[u8]| {
-        i128::from(i64::from_le_bytes(slot_array(b))) * NANOS_PER_MICRO
-    };
-    uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |b: &[u8]| Uuid(slot_array(b));
-    text, "string", ColumnType::String, String, Cow<'t, str>, |b: &'t [u8]| {
-        Cow::Borrowed(std::str::from_utf8(b).expect("a malformed row: a text that is not UTF-8"))
-    };
-    bytes, "bytes", ColumnType::Bytes, Bytes, Cow<'t, [u8]>, |b: &'t [u8]| Cow::Borrowed(b);
+    bool, "bool", bool, bool;
+    i8, "i8", i8, i8;
+    i16, "i16", i16, i16;
+    i32, "i32", i32, i32;
+    i64, "i64", i64, i64;
+    u8, "u8", u8, u8;
+    u16, "u16", u16, u16;
+    u32, "u32", u32, u32;
+    u64, "u64", u64, u64;
+    f32, "f32", f32, f32;
+    f64, "f64", f64, f64;
+    date, "date", Date, i32;
+    time, "time", Time, i64;
+    timestamp, "timestamp", Timestamp, i128;
+    duration, "duration", Duration, i128;
+    uuid, "uuid", Uuid, Uuid;
+    text, "string", Text, Cow<'t, str>;
+    bytes, "bytes", Bytes, Cow<'t, [u8]>;
 }
 
 impl fmt::Debug for TableRow<'_> {

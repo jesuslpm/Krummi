@@ -81,8 +81,9 @@ pub mod ids;
 pub mod table;
 
 pub use table::{
-    BulkLoadError, Column, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn, SequenceMode,
-    TableMode, TableRow, TableSchema, Upserted, WriteRows, WriteSequence, WriteTable,
+    BulkLoadError, Column, ProjectedColumn, ProjectedRow, Projection, ReadRows, ReadSequence,
+    ReadTable, Schema, SchemaColumn, SequenceMode, TableMode, TableRow, TableSchema, Upserted,
+    WriteRows, WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
@@ -122,6 +123,8 @@ pub struct StoreOptions {
 /// at once; it cannot be closed while a transaction is open.
 pub struct Store {
     engine: krummi_tx::Engine,
+    /// The projections of its tables it keeps until it closes (PY5 of the projection PRD).
+    projections: table::Projections,
 }
 
 impl Store {
@@ -131,13 +134,26 @@ impl Store {
     /// journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a clean close removes them.
     pub fn open(folder: impl AsRef<Path>, options: &StoreOptions) -> Result<Store> {
         let engine = krummi_tx::Engine::open(folder, &engine_options(options))?;
-        Ok(Store { engine })
+        Ok(Store::with(engine))
     }
 
     /// Opens a store that lives only in memory and keeps nothing when it closes.
     pub fn open_temporary(options: &StoreOptions) -> Result<Store> {
         let engine = krummi_tx::Engine::open_temporary(&engine_options(options))?;
-        Ok(Store { engine })
+        Ok(Store::with(engine))
+    }
+
+    fn with(engine: krummi_tx::Engine) -> Store {
+        Store {
+            engine,
+            projections: table::Projections::new(next_serial()),
+        }
+    }
+
+    /// A test hook, not part of the interface: how many projections the store keeps (PY5 of the projection PRD).
+    #[doc(hidden)]
+    pub fn kept_projections(&self) -> usize {
+        self.projections.kept()
     }
 
     /// Information about the store.
@@ -153,6 +169,7 @@ impl Store {
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
             readers: table::Readers::default(),
+            projections: &self.projections,
         })
     }
 
@@ -196,6 +213,7 @@ impl Store {
             tables: RefCell::default(),
             sequences: RefCell::default(),
             readers: table::Readers::default(),
+            projections: &self.projections,
         })
     }
 }
@@ -208,6 +226,8 @@ pub struct ReadTransaction<'s> {
     serial: u64,
     /// The readers of the tables it reads rows from, which its rows borrow.
     readers: table::Readers,
+    /// The store's projections.
+    projections: &'s table::Projections,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing
@@ -224,6 +244,8 @@ pub struct WriteTransaction<'s> {
     sequences: RefCell<table::Sequences>,
     /// The readers of the tables it reads rows from, which its rows borrow.
     readers: table::Readers,
+    /// The store's projections.
+    projections: &'s table::Projections,
 }
 
 /// How [`WriteTransaction::open_tree_with`], [`WriteTransaction::open_multi_tree_with`] and
