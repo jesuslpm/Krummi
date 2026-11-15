@@ -823,6 +823,12 @@ fn ac_py5_rows_of_another_table_store_or_schema_do_not_bind() {
     );
     let (t, ..) = different(projection.column::<i64>(0).unwrap_err(), Some(&first));
     assert_eq!(t, "t");
+    // The same list prepared again after the rename is the kept projection, with the name of this preparation in its
+    // errors (R3-001 of the first RDD review).
+    let again = write.projection(&table, &["name", "id"]).unwrap();
+    assert!(again.same_as(&projection));
+    let (t, ..) = different(again.column::<i64>(0).unwrap_err(), Some(&first));
+    assert_eq!(t, "renamed");
     drop(row);
     let emptied = write.open_table_with("renamed", TableMode::Empty).unwrap();
     write

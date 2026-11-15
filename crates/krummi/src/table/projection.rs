@@ -135,8 +135,7 @@ struct ListKey {
 /// A projection as it is prepared once, shared by every handle of it.
 struct Prepared {
     key: Arc<ListKey>,
-    /// The table's name when it was prepared, and the store's folder, for its errors (PY1).
-    table: String,
+    /// The store's folder, for the errors.
     folder: Option<PathBuf>,
     /// The reader of the schema it was prepared with: its columns, its layout and their defaults.
     reader: Arc<Reader>,
@@ -162,11 +161,6 @@ enum Access {
 }
 
 impl Prepared {
-    /// The [`Error::DifferentSchema`] of the projection's table.
-    fn different(&self, different: Different) -> Error {
-        Folder(self.folder.as_deref()).different_schema(&self.table, different)
-    }
-
     /// How the columns at `positions` are read from the rows of `old`, or of the current version without it.
     fn plan(reader: &Reader, positions: &[usize], old: Option<&OldVersion>) -> Box<[Access]> {
         positions
@@ -197,6 +191,9 @@ impl Prepared {
 /// store, which may keep it (PY5), and cannot outlive the store.
 pub struct Projection<'s> {
     prepared: Arc<Prepared>,
+    /// The table's name when this handle was prepared, for its errors (PY1): a kept projection prepared again after
+    /// the table was renamed names it as it is now.
+    table: Arc<str>,
     _store: PhantomData<&'s Store>,
 }
 
@@ -204,6 +201,7 @@ impl Clone for Projection<'_> {
     fn clone(&self) -> Self {
         Projection {
             prepared: Arc::clone(&self.prepared),
+            table: Arc::clone(&self.table),
             _store: PhantomData,
         }
     }
@@ -213,7 +211,7 @@ impl fmt::Debug for Projection<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let reader = &self.prepared.reader;
         f.debug_struct("Projection")
-            .field("table", &self.prepared.table)
+            .field("table", &self.table)
             .field(
                 "columns",
                 &self
@@ -267,7 +265,7 @@ pub struct ProjectedRow<'p, 't> {
 impl fmt::Debug for ProjectedRow<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProjectedRow")
-            .field("table", &self.prepared.table)
+            .field("columns", &self.plan.len())
             .finish_non_exhaustive()
     }
 }
@@ -285,6 +283,11 @@ enum Bound<'p, 't> {
 }
 
 impl<'s> Projection<'s> {
+    /// The [`Error::DifferentSchema`] of the projection's table.
+    fn different(&self, different: Different) -> Error {
+        Folder(self.prepared.folder.as_deref()).different_schema(&self.table, different)
+    }
+
     /// The column at `position` of the list, prepared to be read as `T`, which must be read from the column's type
     /// ([`ReadAs`]). Fails with [`Error::DifferentSchema`] with the table, the column and the difference otherwise,
     /// without effect (PY2). Panics if `position` is past the list: a fault of the program.
@@ -298,7 +301,7 @@ impl<'s> Projection<'s> {
         );
         let column = &prepared.reader.columns[positions[position]];
         if !T::accepts(&column.ty) {
-            return Err(prepared.different(Different {
+            return Err(self.different(Different {
                 column: Some(column.name.clone()),
                 difference: SchemaDifference::Type,
                 expected: T::NAME.to_owned(),
@@ -319,7 +322,7 @@ impl<'s> Projection<'s> {
     pub fn bind<'p, 't>(&'p self, row: &'p TableRow<'t>) -> Result<ProjectedRow<'p, 't>> {
         let prepared = &*self.prepared;
         if row.reader.schema != prepared.key.schema {
-            return Err(prepared.different(Different {
+            return Err(self.different(Different {
                 column: None,
                 difference: SchemaDifference::Projection,
                 expected: "a row of the projection's table and schema".to_owned(),
@@ -383,12 +386,12 @@ impl<'t> ProjectedRow<'_, 't> {
     /// of the program.
     #[inline]
     pub fn get<T: ReadAs>(&self, column: &ProjectedColumn<T>) -> Option<T::Output<'t>> {
-        let key = &self.prepared.key;
-        if !Arc::ptr_eq(&column.key, key) && *column.key != **key {
+        let list = &self.prepared.key;
+        if !Arc::ptr_eq(&column.key, list) && *column.key != **list {
             panic!("the prepared column is of another projection");
         }
         let at = column.at;
-        let i = key.positions[at];
+        let i = list.positions[at];
         let ty = &self.prepared.reader.columns[i].ty;
         let value = match self.row {
             Bound::Row {
@@ -501,13 +504,13 @@ fn prepare<'s>(
             .map(|_| OnceLock::new())
             .collect(),
         key,
-        table: name.to_owned(),
         folder: folder.owned(),
         reader: Arc::clone(reader),
         kept,
     });
     Ok(Projection {
         prepared,
+        table: name.into(),
         _store: PhantomData,
     })
 }

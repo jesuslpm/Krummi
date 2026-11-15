@@ -288,16 +288,22 @@ impl<'s> Columns<'s> {
         if !projected {
             return Ok(None);
         }
-        let projection = tx
-            .projection(table, &["id", "n", "x", "ts", "flag", "name"])
-            .map_err(cause)?;
+        const NAMES: [&str; COLUMNS] = ["id", "n", "x", "ts", "flag", "name"];
+        let projection = tx.projection(table, &NAMES).map_err(cause)?;
+        // Each field takes the position of its own name in the list.
+        let at = |name| {
+            NAMES
+                .iter()
+                .position(|n| *n == name)
+                .expect("a listed column")
+        };
         Ok(Some(Columns {
-            id: projection.column(0).map_err(cause)?,
-            n: projection.column(1).map_err(cause)?,
-            x: projection.column(2).map_err(cause)?,
-            ts: projection.column(3).map_err(cause)?,
-            flag: projection.column(4).map_err(cause)?,
-            name: projection.column(5).map_err(cause)?,
+            id: projection.column(at("id")).map_err(cause)?,
+            n: projection.column(at("n")).map_err(cause)?,
+            x: projection.column(at("x")).map_err(cause)?,
+            ts: projection.column(at("ts")).map_err(cause)?,
+            flag: projection.column(at("flag")).map_err(cause)?,
+            name: projection.column(at("name")).map_err(cause)?,
             projection,
         }))
     }
