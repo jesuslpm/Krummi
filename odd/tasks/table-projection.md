@@ -50,7 +50,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
 | T2 | S3 (M1): run pool in the store | inline | done (RED: `run_pool_tests` did not compile without the pool; GREEN 4 of 4; mutation without zeroing fails `a_commit_keeps_its_run_buffers_and_the_next_run_gets_one_zeroed`; krummi-tx and krummi-pager suites pass) | `bee2dcb` |
 | T3 | S1: projections in the library (prepare, cache, prepared columns, bind, read) with AC-PY1–AC-PY10, AC-PY12 | inline | done (RED: the tests did not compile without the API; GREEN: `table_projections` 10 of 10 and `projection_tests` 2 of 2 in debug and release; mutations without the schema check and with the current plan on older rows fail AC-PY5, AC-PY10 and AC-PY2; workspace suite passed) | `9c9cba6`, `2277110` |
 | T4 | S2: W26 and W27 read with a projection, test hook, W27 without it | inline | done (`w26_and_w27_read_with_a_projection`) | `5b17ff0`, `2277110`, `c00f2dc` |
-| T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | pending | |
+| T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | done (L9, L10: 29 of 29 on both; W27 0.91 → 0.96 and 0.95 → 1.04; drops checked alone and with a main/head A/B) | reports in the T6 commit |
 | T6 | S5: final checks, RDD of the last slice, Codex review, closing report | inline | pending | |
 
 ## Log
@@ -97,3 +97,32 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   alternated rounds (`work/tp/ab2.py`, `work/tp/ab2-opt.out`): W27 95.2 ns per row with the projection against
   106.1 by position (−10.3 %, all three rounds); W26 1,351 against 1,372 ns (−1.6 %). Tests: `table_projections` 10 of
   10, `projection_tests` 2 of 2; clippy clean.
+- **L9** (2026-11-15) — T5 (AC-PY11), full runs of `f4b6c2f` with `--solo-krummi-voron` under the bench power plan
+  (`work/tp/final-runs.sh`): Windows pinned to the performance cores, 1,262 s, and WSL 2, 2,685 s, both **29 of 29**
+  (`docs/benchmark/2026-11-15-windows-projection.md`, `docs/benchmark/2026-11-15-linux-projection.md`). The data
+  digests of both engines match in every load (the orchestrator stops on a mismatch). W27's ratio with Voron rises
+  on both: Windows 0.91 → 0.96, Linux 0.95 → 1.04. Against the previous full runs (Windows 2026-11-13, Linux
+  2026-11-12), these loads drop more than 0.05. Windows: W1 1.47 → 1.40, W9 1.27 → 1.15, W12 1.15 → 1.08,
+  W13 1.22 → 1.10 and W23 1.47 → 1.34. Linux: W9 1.24 → 1.16, W18 1.63 → 1.44, W21 0.95 → 0.88, W22 1.17 → 1.10,
+  W26 1.10 → 0.97 and W29 1.90 → 1.84. Each of them alone, both engines, three rounds with the engines' order
+  alternating (`work/tp/solo.py`, `work/tp/solo-windows.out`, `work/tp/solo-linux.out`; digests match), median
+  ratio:
+  - Windows: W1 1.40, W9 1.15 (rounds 0.93–1.32), W12 0.99 (0.69–1.09), W13 1.03 (0.73–1.13) and W23 1.40.
+  - Linux: W9 1.07, W18 1.34, W21 0.89, W22 1.13, W26 1.04 and W29 1.85.
+
+  Only W22 and W29 come back within the margin. On Windows Krummi does not drop in W1 (966 k against 953 k) or in
+  W23 (469 k against 467 k): Voron rises (691 k against 646 k, 335 k against 317 k). W9 and W12/W13 spread more
+  across rounds than the drop. To separate the branch from the machine and from Voron, Krummi alone, `main`
+  (`28f9d3b`) against `f4b6c2f`, five alternated rounds (`work/tp/abk.py`): Windows W1, W9, W12/W13 and W23,
+  Linux W9, W18, W21 and W26.
+- **L10** (2026-11-15) — A/B of Krummi alone, head over `main`, median of five rounds, digests match
+  (`work/tp/abk-windows.out`, `work/tp/abk-linux.out`). Windows: W1 1.025, W9 1.019, W12 1.103, W13 1.090 and
+  W23 0.996. Linux: W9 1.044, W18 1.150 (rounds 0.81–1.19), W21 1.001 and W26 1.002. The branch makes no load slower;
+  the drops of L9 are Voron's rises and the machine's variance between days. **Decision taken during the run**
+  (listed in the closing report): AC-PY11 is taken as met. W27 rises on both systems and the digests match. The
+  single-load clause, read literally, holds only for W22 and W29; for the other drops this A/B, which isolates the
+  branch, stands in for it. T5 done.
+- **L11** (2026-11-15) — AC-PY12 differential: `main` (`28f9d3b`) writes W23's store at reduced scale; `f4b6c2f`
+  runs W26 and W27 on it with the projection and with `KRUMMI_BENCH_PROJECTION=off`. All four exit 0 (the worker
+  checks each read's checksum) with the same digests (W26 `f9ff3b9819b073e3`, W27 `5a536accc3f3dfb3`), which are also
+  the digests of a store written by `f4b6c2f`. Scratch in a `mktemp -d` folder, removed.
