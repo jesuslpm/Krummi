@@ -150,6 +150,7 @@ static class Program
             ("splitmix(1)", $"{Data.Splitmix(1):x16}", "910a2dec89025cc1"),
             ("permutation(8,42)", string.Join(' ', Data.Permutation(8, 42)), "0 1 4 7 3 6 2 5"),
             ("digest(key(0),value(3,100))", d.Hex, "95a8df032a8a94d0"),
+            ("byteSum(0..33 bytes)", ByteSumCheck(), "ok"),
             .. Loads.TableSelfTest().Zip(TableAnswers, (a, e) => (a.Name, a.Got, e)),
         ];
         foreach (var (name, got, _) in answers)
@@ -157,5 +158,29 @@ static class Program
         foreach (var (name, got, expected) in answers)
             if (got != expected)
                 throw new BenchFailure($"{name} es {got} y se esperaba {expected}");
+    }
+
+    /// "ok" when ByteSum, with its short paths, gives the sum of every byte at each length from 0 to 33 and two
+    /// offsets, with random bytes, zeros and every byte at its largest (as data.rs tests); otherwise the first case
+    /// that differs.
+    static string ByteSumCheck()
+    {
+        var random = new byte[64];
+        for (int i = 0; i < random.Length; i++)
+            random[i] = (byte)(Data.Splitmix((ulong)i ^ 0x5157UL) >> 56);
+        var full = new byte[64];
+        Array.Fill(full, (byte)0xFF);
+        foreach (var pattern in new[] { random, new byte[64], full })
+            for (int len = 0; len <= 33; len++)
+                foreach (int offset in new[] { 0, 3 })
+                {
+                    var bytes = new ReadOnlySpan<byte>(pattern, offset, len);
+                    ulong naive = 0;
+                    foreach (byte b in bytes)
+                        naive += b;
+                    if (Data.ByteSum(bytes) != naive)
+                        return $"length {len}, offset {offset}";
+                }
+        return "ok";
     }
 }

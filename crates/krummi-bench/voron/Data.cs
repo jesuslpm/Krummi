@@ -97,9 +97,25 @@ static class Data
     }
 
     /// The sum of the bytes of `bytes`, the checksum of a read (K8). SSE2 sums 16 bytes per step, as the compiled
-    /// Rust loop does with its vector instructions.
+    /// Rust loop does with its vector instructions. Up to 16 bytes, the most a key or a column of the table loads
+    /// has, it takes a short path as data.rs does (M2 of the 2026-11-15 performance diagnostic): one SSE2 step for
+    /// exactly 16 bytes, which Voron already took, and a scalar sum below.
     public static ulong ByteSum(ReadOnlySpan<byte> bytes)
     {
+        if (bytes.Length == 16 && Sse2.IsSupported)
+        {
+            ref byte first = ref MemoryMarshal.GetReference(bytes);
+            var sums = Sse2.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref first), Vector128<byte>.Zero).AsUInt64();
+            return sums.GetElement(0) + sums.GetElement(1);
+        }
+        if (bytes.Length <= 16)
+        {
+            // At most 16 × 255, far from the largest uint.
+            uint shortSum = 0;
+            foreach (byte b in bytes)
+                shortSum += b;
+            return shortSum;
+        }
         ulong sum = 0;
         int i = 0;
         if (Sse2.IsSupported && bytes.Length >= 16)

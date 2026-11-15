@@ -94,8 +94,16 @@ pub fn read_order(load: Load, thread: u64, n: u64) -> Vec<u32> {
 /// into the total every 256 chunks, before a lane can overflow (256 × 255 < 65,536). Adding the bytes one by one
 /// as `u64` ran at a third of the speed and capped every Rust engine in W18, while the .NET program sums with SSE2
 /// (`Data.cs`); this runs within about 10 % of it.
+///
+/// Up to 16 bytes, the most a key or a column of the table loads has, a scalar sum in `u32` costs less than setting
+/// up the lanes (M2 of the 2026-11-15 performance diagnostic); `Data.cs` takes the same short path.
+#[inline]
 pub fn byte_sum(bytes: &[u8]) -> u64 {
     const LANES: usize = 16;
+    if bytes.len() <= LANES {
+        // At most 16 × 255, far from the largest `u32`.
+        return u64::from(bytes.iter().map(|&b| u32::from(b)).sum::<u32>());
+    }
     fn lanes(chunks: &[[u8; LANES]]) -> u64 {
         let mut acc = [0u16; LANES];
         for chunk in chunks {
@@ -215,6 +223,24 @@ mod tests {
         }
         // Every lane at its largest: 256 chunks of 0xFF per block must not overflow a lane.
         assert_eq!(byte_sum(&[0xFF; 3 * 4_096 + 5]), 255 * (3 * 4_096 + 5));
+    }
+
+    /// The short path of up to 16 bytes gives the sum of the general one at every length around its limit, with
+    /// random bytes, zeros and every byte at its largest.
+    #[test]
+    fn the_short_byte_sum_equals_the_sum_of_every_byte() {
+        let random: Vec<u8> = (0..64u32)
+            .map(|i| (splitmix(u64::from(i) ^ 0x5157) >> 56) as u8)
+            .collect();
+        let naive = |b: &[u8]| b.iter().map(|&x| u64::from(x)).sum::<u64>();
+        for pattern in [random, vec![0; 64], vec![0xFF; 64]] {
+            for len in 0..=33 {
+                for offset in [0, 3] {
+                    let b = &pattern[offset..offset + len];
+                    assert_eq!(byte_sum(b), naive(b), "length {len}, offset {offset}");
+                }
+            }
+        }
     }
 
     #[test]
