@@ -1,0 +1,354 @@
+[
+  {
+    "label": "r3-verified-baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\0-r3-verified-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.192198991775513,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1484241100\nrep 1 W26 1000000 1375534800\nrep 2 W26 1000000 1370172900\nrep 3 W26 1000000 1365126900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1484241100,
+        "ns_op": 1484.2411
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1375534800,
+        "ns_op": 1375.5348
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1370172900,
+        "ns_op": 1370.1729
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1365126900,
+        "ns_op": 1365.1269
+      }
+    ],
+    "median_ns_op": 1370.1729
+  },
+  {
+    "label": "r3-verified-handles",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-handles.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\0-r3-verified-handles-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.076276063919067,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1422586200\nrep 1 W26 1000000 1340215000\nrep 2 W26 1000000 1371073200\nrep 3 W26 1000000 1348339400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1422586200,
+        "ns_op": 1422.5862
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1340215000,
+        "ns_op": 1340.215
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1371073200,
+        "ns_op": 1371.0732
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1348339400,
+        "ns_op": 1348.3394
+      }
+    ],
+    "median_ns_op": 1348.3394
+  },
+  {
+    "label": "r3-verified-handles",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-handles.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\1-r3-verified-handles-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.089810371398926,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1423228800\nrep 1 W26 1000000 1339860700\nrep 2 W26 1000000 1345843300\nrep 3 W26 1000000 1377730500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1423228800,
+        "ns_op": 1423.2288
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1339860700,
+        "ns_op": 1339.8607
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1345843300,
+        "ns_op": 1345.8433
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1377730500,
+        "ns_op": 1377.7305
+      }
+    ],
+    "median_ns_op": 1345.8433
+  },
+  {
+    "label": "r3-verified-baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\1-r3-verified-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.243494987487793,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1468663400\nrep 1 W26 1000000 1397624600\nrep 2 W26 1000000 1368086400\nrep 3 W26 1000000 1396749200\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1468663400,
+        "ns_op": 1468.6634
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1397624600,
+        "ns_op": 1397.6246
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1368086400,
+        "ns_op": 1368.0864
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1396749200,
+        "ns_op": 1396.7492
+      }
+    ],
+    "median_ns_op": 1396.7492
+  },
+  {
+    "label": "r3-verified-baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\2-r3-verified-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.237248182296753,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1462375400\nrep 1 W26 1000000 1391455700\nrep 2 W26 1000000 1388763300\nrep 3 W26 1000000 1386765000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1462375400,
+        "ns_op": 1462.3754
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1391455700,
+        "ns_op": 1391.4557
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1388763300,
+        "ns_op": 1388.7633
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1386765000,
+        "ns_op": 1386.765
+      }
+    ],
+    "median_ns_op": 1388.7633
+  },
+  {
+    "label": "r3-verified-handles",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-handles.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\2-r3-verified-handles-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.273349761962891,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1469049000\nrep 1 W26 1000000 1372722500\nrep 2 W26 1000000 1395073400\nrep 3 W26 1000000 1407289800\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1469049000,
+        "ns_op": 1469.049
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1372722500,
+        "ns_op": 1372.7225
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1395073400,
+        "ns_op": 1395.0734
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1407289800,
+        "ns_op": 1407.2898
+      }
+    ],
+    "median_ns_op": 1395.0734
+  },
+  {
+    "label": "r3-verified-handles",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-handles.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\3-r3-verified-handles-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.1486124992370605,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1447777300\nrep 1 W26 1000000 1360331400\nrep 2 W26 1000000 1371157000\nrep 3 W26 1000000 1377695000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1447777300,
+        "ns_op": 1447.7773
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1360331400,
+        "ns_op": 1360.3314
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1371157000,
+        "ns_op": 1371.157
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1377695000,
+        "ns_op": 1377.695
+      }
+    ],
+    "median_ns_op": 1371.157
+  },
+  {
+    "label": "r3-verified-baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r3-w26-validation\\3-r3-verified-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.281297445297241,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1463394500\nrep 1 W26 1000000 1388801500\nrep 2 W26 1000000 1402712200\nrep 3 W26 1000000 1428009500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1463394500,
+        "ns_op": 1463.3945
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1388801500,
+        "ns_op": 1388.8015
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1402712200,
+        "ns_op": 1402.7122
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1428009500,
+        "ns_op": 1428.0095
+      }
+    ],
+    "median_ns_op": 1402.7122
+  }
+]

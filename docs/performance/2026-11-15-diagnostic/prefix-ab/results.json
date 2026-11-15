@@ -1,0 +1,178 @@
+[
+  {
+    "label": "baseline",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-ab\\0-baseline-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 43.465179443359375,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 9300817900\nrep 1 W28 1000000 9105133200\nrep 2 W28 1000000 9103496900\nrep 3 W28 1000000 9169368300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 9300817900,
+        "ns_op": 9300.8179
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9105133200,
+        "ns_op": 9105.1332
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9103496900,
+        "ns_op": 9103.4969
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9169368300,
+        "ns_op": 9169.3683
+      }
+    ],
+    "median_ns_op": 9105.1332
+  },
+  {
+    "label": "prefix",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\prefix.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-ab\\0-prefix-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 42.99417304992676,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 8911635400\nrep 1 W28 1000000 9016033500\nrep 2 W28 1000000 9231287100\nrep 3 W28 1000000 9068698200\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8911635400,
+        "ns_op": 8911.6354
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9016033500,
+        "ns_op": 9016.0335
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9231287100,
+        "ns_op": 9231.2871
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9068698200,
+        "ns_op": 9068.6982
+      }
+    ],
+    "median_ns_op": 9068.6982
+  },
+  {
+    "label": "prefix",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\prefix.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-ab\\1-prefix-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 43.089505672454834,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 8916360800\nrep 1 W28 1000000 8914967600\nrep 2 W28 1000000 9073580700\nrep 3 W28 1000000 9331543700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8916360800,
+        "ns_op": 8916.3608
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8914967600,
+        "ns_op": 8914.9676
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9073580700,
+        "ns_op": 9073.5807
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9331543700,
+        "ns_op": 9331.5437
+      }
+    ],
+    "median_ns_op": 9073.5807
+  },
+  {
+    "label": "baseline",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-ab\\1-baseline-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 43.296966314315796,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 9261845000\nrep 1 W28 1000000 9011034300\nrep 2 W28 1000000 8979256900\nrep 3 W28 1000000 9306251900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 9261845000,
+        "ns_op": 9261.845
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9011034300,
+        "ns_op": 9011.0343
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8979256900,
+        "ns_op": 8979.2569
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9306251900,
+        "ns_op": 9306.2519
+      }
+    ],
+    "median_ns_op": 9011.0343
+  }
+]

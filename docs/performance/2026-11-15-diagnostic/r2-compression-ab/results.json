@@ -1,0 +1,346 @@
+[
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\0-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.3820695877075195,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 814525700\nrep 1 W17 4096 820702700\nrep 2 W17 4096 805905100\nrep 3 W17 4096 800770700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 814525700,
+        "ns_op": 198858.8134765625
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 820702700,
+        "ns_op": 200366.8701171875
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 805905100,
+        "ns_op": 196754.1748046875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 800770700,
+        "ns_op": 195500.6591796875
+      }
+    ],
+    "median_ns_op": 196754.1748046875
+  },
+  {
+    "label": "r2-compression-sample",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r2-compression-sample.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\0-r2-compression-sample-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.568607807159424,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 891618400\nrep 1 W17 4096 889657200\nrep 2 W17 4096 856328600\nrep 3 W17 4096 807255600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 891618400,
+        "ns_op": 217680.2734375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 889657200,
+        "ns_op": 217201.46484375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 856328600,
+        "ns_op": 209064.599609375
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 807255600,
+        "ns_op": 197083.88671875
+      }
+    ],
+    "median_ns_op": 209064.599609375
+  },
+  {
+    "label": "r2-compression-sample",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r2-compression-sample.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\1-r2-compression-sample-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.368504762649536,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 777828600\nrep 1 W17 4096 818488100\nrep 2 W17 4096 833400000\nrep 3 W17 4096 808069400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 777828600,
+        "ns_op": 189899.560546875
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 818488100,
+        "ns_op": 199826.1962890625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 833400000,
+        "ns_op": 203466.796875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 808069400,
+        "ns_op": 197282.568359375
+      }
+    ],
+    "median_ns_op": 199826.1962890625
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\1-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.621234893798828,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 1038342000\nrep 1 W17 4096 835566500\nrep 2 W17 4096 871758900\nrep 3 W17 4096 806219800\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 1038342000,
+        "ns_op": 253501.46484375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 835566500,
+        "ns_op": 203995.7275390625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 871758900,
+        "ns_op": 212831.7626953125
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 806219800,
+        "ns_op": 196831.005859375
+      }
+    ],
+    "median_ns_op": 203995.7275390625
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\2-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.298031806945801,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 803272600\nrep 1 W17 4096 807753500\nrep 2 W17 4096 804108300\nrep 3 W17 4096 835004700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 803272600,
+        "ns_op": 196111.474609375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 807753500,
+        "ns_op": 197205.4443359375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 804108300,
+        "ns_op": 196315.5029296875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 835004700,
+        "ns_op": 203858.5693359375
+      }
+    ],
+    "median_ns_op": 197205.4443359375
+  },
+  {
+    "label": "r2-compression-sample",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r2-compression-sample.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\2-r2-compression-sample-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.420388221740723,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 816253800\nrep 1 W17 4096 837564000\nrep 2 W17 4096 828127200\nrep 3 W17 4096 795752700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 816253800,
+        "ns_op": 199280.712890625
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 837564000,
+        "ns_op": 204483.3984375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 828127200,
+        "ns_op": 202179.4921875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 795752700,
+        "ns_op": 194275.5615234375
+      }
+    ],
+    "median_ns_op": 202179.4921875
+  },
+  {
+    "label": "r2-compression-sample",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r2-compression-sample.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\3-r2-compression-sample-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.648784875869751,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 780760400\nrep 1 W17 4096 825263400\nrep 2 W17 4096 799996900\nrep 3 W17 4096 1142056000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 780760400,
+        "ns_op": 190615.33203125
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 825263400,
+        "ns_op": 201480.322265625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 799996900,
+        "ns_op": 195311.7431640625
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 1142056000,
+        "ns_op": 278822.265625
+      }
+    ],
+    "median_ns_op": 201480.322265625
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-ab\\3-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.501859188079834,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 795152100\nrep 1 W17 4096 937012100\nrep 2 W17 4096 808620300\nrep 3 W17 4096 801276300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 795152100,
+        "ns_op": 194128.9306640625
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 937012100,
+        "ns_op": 228762.7197265625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 808620300,
+        "ns_op": 197417.0654296875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 801276300,
+        "ns_op": 195624.0966796875
+      }
+    ],
+    "median_ns_op": 197417.0654296875
+  }
+]

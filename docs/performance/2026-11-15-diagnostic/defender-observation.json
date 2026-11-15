@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-15",
+  "machine": "MSI-W11-01",
+  "query": "Get-MpPreference -ErrorAction Stop",
+  "sandbox_escalation_requested": true,
+  "windows_administrative_elevation_verified_at_original_query": false,
+  "DisableRealtimeMonitoring": false,
+  "matching_exclusion_paths_for_C_projects_Krummi_work_diag_20261115": [],
+  "matching_excluded_processes_for_krummi_voron_dotnet_baseline_cargo": [],
+  "settings_modified": false,
+  "limitation": "The empty exclusion enumeration did not establish that exclusions were absent. The previous claim of a Defender configuration difference from the historical benchmark is withdrawn.",
+  "correction": {
+    "date": "2026-11-15",
+    "user_supplied_exclusion": "C:\\projects\\Krummi\\work",
+    "follow_up_HideExclusionsFromLocalUsers": true,
+    "follow_up_AdministratorToken": false,
+    "explanation": "The querying session cannot see exclusions hidden from local non-administrative users. Sandbox escalation was incorrectly described as verified Windows administrative elevation. The user's exclusion list includes the parent directory of all diagnostic artifacts. No Defender configuration change is established by these observations.",
+    "reference": "https://learn.microsoft.com/windows/client-management/mdm/defender-csp#hideexclusionsfromlocalusers"
+  }
+}

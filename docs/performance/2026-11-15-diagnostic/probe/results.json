@@ -1,0 +1,352 @@
+[
+  {
+    "label": "probe",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\probe.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-probe-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 42.53352642059326,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 8955517500\nrep 1 W28 1000000 8969453800\nrep 2 W28 1000000 9080629100\nrep 3 W28 1000000 8949669100\n",
+    "stderr": "diag row_check 1000000 15625 9859600\ndiag row_patch 1000000 15625 3142500\ndiag row_decode 1000000 15625 3921700\ndiag row_content_check 1000000 15625 1822100\ndiag get_located 1000000 15625 48294000\ndiag overwrite 1000000 15625 21181500\ndiag copy_for_write 969186 15143 14272200\ndiag commit 1000 1000 3690201800\ndiag finish_space 1000 1000 265000\ndiag seal_runs 1000 1000 288800\ndiag scratch_commit 1000 1000 3248745100\ndiag stage 1000 1000 1682366600\ndiag publish 1000 1000 129514700\ndiag encode_record 1000 1000 1248485900\ndiag page_diff 969186 15143 16840000\ndiag temp_allocate_and_fill 969186 15143 25545100\ndiag descend 1001000 15640 46402600\ndiag compress 1000 1000 91091500\ndiag durable_wait 1000 1000 224073000\ncounts [37322092, 27389420, 969186, 969186, 28672000, 0, 0, 0]\ndiag row_check 1000000 15625 9741700\ndiag row_patch 1000000 15625 3131300\ndiag row_decode 1000000 15625 3905900\ndiag row_content_check 1000000 15625 1802000\ndiag get_located 1000000 15625 47775400\ndiag overwrite 1000000 15625 21507500\ndiag copy_for_write 969186 15143 14628400\ndiag commit 1000 1000 3694626100\ndiag finish_space 1000 1000 273500\ndiag seal_runs 1000 1000 320100\ndiag scratch_commit 1000 1000 3238386900\ndiag stage 1000 1000 1689510900\ndiag publish 1000 1000 136630500\ndiag encode_record 1000 1000 1228804000\ndiag page_diff 969186 15143 16460800\ndiag temp_allocate_and_fill 969186 15143 25669000\ndiag descend 1001000 15640 44899400\ndiag compress 1000 1000 90930800\ndiag durable_wait 1000 1000 227969600\ncounts [37322092, 27389420, 969186, 969186, 28672000, 0, 0, 0]\ndiag row_check 1000000 15625 9764400\ndiag row_patch 1000000 15625 3289100\ndiag row_decode 1000000 15625 3970900\ndiag row_content_check 1000000 15625 1856700\ndiag get_located 1000000 15625 46972500\ndiag overwrite 1000000 15625 21684400\ndiag copy_for_write 969186 15143 14827600\ndiag commit 1000 1000 3761790800\ndiag finish_space 1000 1000 278200\ndiag seal_runs 1000 1000 314700\ndiag scratch_commit 1000 1000 3308149300\ndiag stage 1000 1000 1731556000\ndiag publish 1000 1000 137754900\ndiag encode_record 1000 1000 1252753500\ndiag page_diff 969186 15143 16853100\ndiag temp_allocate_and_fill 969186 15143 26556200\ndiag descend 1001000 15640 45158500\ndiag compress 1000 1000 90348000\ndiag durable_wait 1000 1000 227258400\ncounts [37322092, 27389420, 969186, 969186, 28672000, 0, 0, 0]\ndiag row_check 1000000 15625 9668000\ndiag row_patch 1000000 15625 3270100\ndiag row_decode 1000000 15625 3993300\ndiag row_content_check 1000000 15625 1800600\ndiag get_located 1000000 15625 45125800\ndiag overwrite 1000000 15625 22620400\ndiag copy_for_write 969186 15143 15388900\ndiag commit 1000 1000 3651717400\ndiag finish_space 1000 1000 270500\ndiag seal_runs 1000 1000 309100\ndiag scratch_commit 1000 1000 3228072000\ndiag stage 1000 1000 1694085900\ndiag publish 1000 1000 124095700\ndiag encode_record 1000 1000 1229358400\ndiag page_diff 969186 15143 16540900\ndiag temp_allocate_and_fill 969186 15143 25738200\ndiag descend 1001000 15640 45908800\ndiag compress 1000 1000 90767300\ndiag durable_wait 1000 1000 217813800\ncounts [37322092, 27389420, 969186, 969186, 28672000, 0, 0, 0]\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8955517500,
+        "ns_op": 8955.5175
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8969453800,
+        "ns_op": 8969.4538
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9080629100,
+        "ns_op": 9080.6291
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8949669100,
+        "ns_op": 8949.6691
+      }
+    ],
+    "median_ns_op": 8969.4538
+  },
+  {
+    "label": "v-probe",
+    "load": "W28",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-probe\\VoronBench.dll",
+      "run",
+      "voron",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-v-probe-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 36.07487440109253,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 9055586300\nrep 1 W28 1000000 7797536100\nrep 2 W28 1000000 7853785400\nrep 3 W28 1000000 7705500100\n",
+    "stderr": "phase 1000000 31062300 4548899500 4437392400 969186 69791744\nphase 1000000 27932300 3751784900 3982661000 969186 69726208\nphase 1000000 41712800 3748048100 4029828500 969186 69697536\nphase 1000000 26183400 3690001300 3952330700 969186 69832704\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 9055586300,
+        "ns_op": 9055.5863
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 7797536100,
+        "ns_op": 7797.5361
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 7853785400,
+        "ns_op": 7853.7854
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 7705500100,
+        "ns_op": 7705.5001
+      }
+    ],
+    "median_ns_op": 7797.5361
+  },
+  {
+    "label": "probe",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\probe.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-probe-W24"
+    ],
+    "exit": 0,
+    "wall_s": 44.3449912071228,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10910733700\nrep 1 W24 1000000 10468979600\nrep 2 W24 1000000 10668351900\nrep 3 W24 1000000 10422288100\n",
+    "stderr": "diag row_check 1000000 15625 14449100\ndiag row_encode 1000000 15625 6390400\ndiag tree_update 1001009 15640 69854600\ndiag copy_for_write 924713 14448 14506200\ndiag reserve_run 22938 358 1289200\ndiag commit 1000 1000 4982494900\ndiag finish_space 1000 1000 487300\ndiag seal_runs 1000 1000 312000\ndiag scratch_commit 1000 1000 4542499600\ndiag stage 1000 1000 1646558600\ndiag publish 1000 1000 120975900\ndiag encode_record 1000 1000 2096149400\ndiag page_diff 947641 14806 16345000\ndiag temp_allocate_and_fill 947641 14806 25108400\ndiag descend 999 15 27000\ndiag compress 1000 1000 693976200\ndiag durable_wait 1000 1000 240425400\ncounts [395928678, 354847859, 947641, 924713, 356982784, 0, 0, 0]\ndiag row_check 1000000 15625 14531900\ndiag row_encode 1000000 15625 6060300\ndiag tree_update 1001009 15640 71037100\ndiag copy_for_write 924713 14448 16026200\ndiag reserve_run 22938 358 1143900\ndiag commit 1000 1000 4551033300\ndiag finish_space 1000 1000 476300\ndiag seal_runs 1000 1000 316700\ndiag scratch_commit 1000 1000 4099866600\ndiag stage 1000 1000 1660618900\ndiag publish 1000 1000 123890200\ndiag encode_record 1000 1000 2088645200\ndiag page_diff 947641 14806 16059600\ndiag temp_allocate_and_fill 947641 14806 26363400\ndiag descend 999 15 26300\ndiag compress 1000 1000 693083900\ndiag durable_wait 1000 1000 253141100\ncounts [395928678, 354847853, 947641, 924713, 356982784, 0, 0, 0]\ndiag row_check 1000000 15625 14336600\ndiag row_encode 1000000 15625 6241600\ndiag tree_update 1001009 15640 71206500\ndiag copy_for_write 924713 14448 15059000\ndiag reserve_run 22938 358 1067900\ndiag commit 1000 1000 4672862600\ndiag finish_space 1000 1000 486600\ndiag seal_runs 1000 1000 314400\ndiag scratch_commit 1000 1000 4224907500\ndiag stage 1000 1000 1686967300\ndiag publish 1000 1000 127231900\ndiag encode_record 1000 1000 2044289200\ndiag page_diff 947641 14806 16707300\ndiag temp_allocate_and_fill 947641 14806 26203700\ndiag descend 999 15 31800\ndiag compress 1000 1000 696927300\ndiag durable_wait 1000 1000 242943700\ncounts [395928678, 354847854, 947641, 924713, 356982784, 0, 0, 0]\ndiag row_check 1000000 15625 14247300\ndiag row_encode 1000000 15625 6054000\ndiag tree_update 1001009 15640 71884600\ndiag copy_for_write 924713 14448 14819900\ndiag reserve_run 22938 358 1047300\ndiag commit 1000 1000 4530783400\ndiag finish_space 1000 1000 477100\ndiag seal_runs 1000 1000 351300\ndiag scratch_commit 1000 1000 4076837100\ndiag stage 1000 1000 1675093200\ndiag publish 1000 1000 125958000\ndiag encode_record 1000 1000 2049604000\ndiag page_diff 947641 14806 15894200\ndiag temp_allocate_and_fill 947641 14806 25767500\ndiag descend 999 15 28300\ndiag compress 1000 1000 691797400\ndiag durable_wait 1000 1000 249111800\ncounts [395928678, 354847843, 947641, 924713, 356982784, 0, 0, 0]\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10910733700,
+        "ns_op": 10910.7337
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10468979600,
+        "ns_op": 10468.9796
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10668351900,
+        "ns_op": 10668.3519
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10422288100,
+        "ns_op": 10422.2881
+      }
+    ],
+    "median_ns_op": 10468.9796
+  },
+  {
+    "label": "v-probe",
+    "load": "W24",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-probe\\VoronBench.dll",
+      "run",
+      "voron",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-v-probe-W24"
+    ],
+    "exit": 0,
+    "wall_s": 40.48659682273865,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10864894600\nrep 1 W24 1000000 9388146500\nrep 2 W24 1000000 9400289400\nrep 3 W24 1000000 9480136400\n",
+    "stderr": "phase 1000000 36320200 6076385700 4679129600 835122 451522560\nphase 1000000 29447300 5088453300 4205785600 835122 454483968\nphase 1000000 34548400 5115989400 4183993400 835178 454496256\nphase 1000000 33867300 5138118200 4241946000 835122 455114752\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10864894600,
+        "ns_op": 10864.8946
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9388146500,
+        "ns_op": 9388.1465
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9400289400,
+        "ns_op": 9400.2894
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9480136400,
+        "ns_op": 9480.1364
+      }
+    ],
+    "median_ns_op": 9400.2894
+  },
+  {
+    "label": "probe",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\probe.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-probe-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.6881444454193115,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 922077300\nrep 1 W17 4096 919048800\nrep 2 W17 4096 886111100\nrep 3 W17 4096 822705100\n",
+    "stderr": "diag tree_update 4113 64 3735900\ndiag copy_for_write 254 3 4100\ndiag reserve_run 4129 64 3380900\ndiag commit 16 16 662543400\ndiag finish_space 16 16 10600\ndiag seal_runs 16 16 25476800\ndiag scratch_commit 16 16 525825400\ndiag stage 16 16 140148700\ndiag publish 16 16 8441600\ndiag encode_record 16 16 315742200\ndiag page_diff 37152 580 867800\ndiag store_run 4096 4096 134870700\ndiag temp_allocate_and_fill 4384 68 2054000\ndiag descend 15 0 0\ndiag compress 16 16 71507600\ndiag durable_wait 16 16 70308800\ncounts [269427844, 269427844, 37152, 254, 269463552, 0, 0, 0]\ndiag tree_update 4113 64 3514300\ndiag copy_for_write 254 3 4400\ndiag reserve_run 4129 64 3212500\ndiag commit 16 16 651226000\ndiag finish_space 16 16 10700\ndiag seal_runs 16 16 26096500\ndiag scratch_commit 16 16 518036700\ndiag stage 16 16 137607500\ndiag publish 16 16 8559300\ndiag encode_record 16 16 311235000\ndiag page_diff 37152 580 929300\ndiag store_run 4096 4096 132370000\ndiag temp_allocate_and_fill 4384 68 1880700\ndiag descend 15 0 0\ndiag compress 16 16 69664100\ndiag durable_wait 16 16 67188200\ncounts [269427844, 269427844, 37152, 254, 269463552, 0, 0, 0]\ndiag tree_update 4113 64 3527800\ndiag copy_for_write 254 3 4100\ndiag reserve_run 4129 64 2971400\ndiag commit 16 16 623922500\ndiag finish_space 16 16 10100\ndiag seal_runs 16 16 26530000\ndiag scratch_commit 16 16 478884600\ndiag stage 16 16 137831200\ndiag publish 16 16 8202500\ndiag encode_record 16 16 276857400\ndiag page_diff 37152 580 900800\ndiag store_run 4096 4096 132738900\ndiag temp_allocate_and_fill 4384 68 1789800\ndiag descend 15 0 0\ndiag compress 16 16 62621500\ndiag durable_wait 16 16 77714100\ncounts [269427844, 269427844, 37152, 254, 269463552, 0, 0, 0]\ndiag tree_update 4113 64 3249200\ndiag copy_for_write 254 3 6600\ndiag reserve_run 4129 64 2698200\ndiag commit 16 16 593186700\ndiag finish_space 16 16 12400\ndiag seal_runs 16 16 26333300\ndiag scratch_commit 16 16 459937000\ndiag stage 16 16 139916100\ndiag publish 16 16 8200300\ndiag encode_record 16 16 252421200\ndiag page_diff 37152 580 834600\ndiag store_run 4096 4096 134885700\ndiag temp_allocate_and_fill 4384 68 2124700\ndiag descend 15 0 0\ndiag compress 16 16 55542500\ndiag durable_wait 16 16 65783900\ncounts [269427844, 269427844, 37152, 254, 269463552, 0, 0, 0]\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 922077300,
+        "ns_op": 225116.5283203125
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 919048800,
+        "ns_op": 224377.1484375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 886111100,
+        "ns_op": 216335.7177734375
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 822705100,
+        "ns_op": 200855.7373046875
+      }
+    ],
+    "median_ns_op": 216335.7177734375
+  },
+  {
+    "label": "v-probe",
+    "load": "W17",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-probe\\VoronBench.dll",
+      "run",
+      "voron",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-v-probe-W17"
+    ],
+    "exit": 0,
+    "wall_s": 4.245784044265747,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 794434800\nrep 1 W17 4096 748211600\nrep 2 W17 4096 654379700\nrep 3 W17 4096 625264900\n",
+    "stderr": "phase 4096 2644900 250479600 516499800 37060 270200832\nphase 4096 1469300 226969500 497326200 37060 270200832\nphase 4096 630700 211783700 415940000 37060 270200832\nphase 4096 654500 187776500 411679500 37060 270200832\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 794434800,
+        "ns_op": 193953.80859375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 748211600,
+        "ns_op": 182668.84765625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 654379700,
+        "ns_op": 159760.6689453125
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 625264900,
+        "ns_op": 152652.5634765625
+      }
+    ],
+    "median_ns_op": 159760.6689453125
+  },
+  {
+    "label": "probe",
+    "load": "W19",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\probe.exe",
+      "run",
+      "krummi",
+      "W19",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-probe-W19"
+    ],
+    "exit": 0,
+    "wall_s": 35.3099262714386,
+    "output": "data W19 ba02fd8484868a2f\nrep 0 W19 1000000 8617878900\nrep 1 W19 1000000 8855116100\nrep 2 W19 1000000 8711816700\nrep 3 W19 1000000 8595213000\n",
+    "stderr": "diag tree_update 1000101 15626 32861900\ndiag multi_entry 1000000 15625 35989400\ndiag multi_encode 1000000 15625 3894100\ndiag multi_store 1000000 15625 33489700\ndiag copy_for_write 733394 11459 11185300\ndiag reserve_run 3801 59 1743600\ndiag commit 1000 1000 4081498700\ndiag finish_space 1000 1000 356600\ndiag seal_runs 1000 1000 274500\ndiag scratch_commit 1000 1000 3670459700\ndiag stage 1000 1000 1258610700\ndiag publish 1000 1000 71496900\ndiag encode_record 1000 1000 2078605800\ndiag page_diff 737194 11518 12564600\ndiag temp_allocate_and_fill 737194 11518 19366600\ndiag descend 1000999 15640 31544700\ndiag compress 1000 1000 1021427500\ndiag durable_wait 1000 1000 343480100\ncounts [671973252, 647691393, 737194, 733394, 649760768, 0, 0, 0]\ndiag tree_update 1000101 15626 32455100\ndiag multi_entry 1000000 15625 35526800\ndiag multi_encode 1000000 15625 3810300\ndiag multi_store 1000000 15625 33121900\ndiag copy_for_write 733394 11459 10951900\ndiag reserve_run 3801 59 1762300\ndiag commit 1000 1000 4309799700\ndiag finish_space 1000 1000 346800\ndiag seal_runs 1000 1000 284700\ndiag scratch_commit 1000 1000 3928107000\ndiag stage 1000 1000 1258980200\ndiag publish 1000 1000 73064200\ndiag encode_record 1000 1000 2108287600\ndiag page_diff 737194 11518 12675600\ndiag temp_allocate_and_fill 737194 11518 19356200\ndiag descend 1000999 15640 32016900\ndiag compress 1000 1000 1038377300\ndiag durable_wait 1000 1000 307856200\ncounts [671973252, 647691393, 737194, 733394, 649760768, 0, 0, 0]\ndiag tree_update 1000101 15626 32869200\ndiag multi_entry 1000000 15625 35964400\ndiag multi_encode 1000000 15625 3862100\ndiag multi_store 1000000 15625 35531100\ndiag copy_for_write 733394 11459 10769500\ndiag reserve_run 3801 59 1710300\ndiag commit 1000 1000 4134840300\ndiag finish_space 1000 1000 367500\ndiag seal_runs 1000 1000 273600\ndiag scratch_commit 1000 1000 3741855400\ndiag stage 1000 1000 1269505200\ndiag publish 1000 1000 72003300\ndiag encode_record 1000 1000 2152469100\ndiag page_diff 737194 11518 12867100\ndiag temp_allocate_and_fill 737194 11518 19458200\ndiag descend 1000999 15640 32000900\ndiag compress 1000 1000 1032557100\ndiag durable_wait 1000 1000 326201000\ncounts [671973252, 647691393, 737194, 733394, 649760768, 0, 0, 0]\ndiag tree_update 1000101 15626 32745200\ndiag multi_entry 1000000 15625 34245100\ndiag multi_encode 1000000 15625 3763000\ndiag multi_store 1000000 15625 33163800\ndiag copy_for_write 733394 11459 10965600\ndiag reserve_run 3801 59 1713900\ndiag commit 1000 1000 4109049100\ndiag finish_space 1000 1000 380300\ndiag seal_runs 1000 1000 266400\ndiag scratch_commit 1000 1000 3701035300\ndiag stage 1000 1000 1260223900\ndiag publish 1000 1000 72086800\ndiag encode_record 1000 1000 2125419100\ndiag page_diff 737194 11518 12691400\ndiag temp_allocate_and_fill 737194 11518 19329500\ndiag descend 1000999 15640 31162600\ndiag compress 1000 1000 1023877900\ndiag durable_wait 1000 1000 340302900\ncounts [671973252, 647691393, 737194, 733394, 649760768, 0, 0, 0]\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8617878900,
+        "ns_op": 8617.8789
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8855116100,
+        "ns_op": 8855.1161
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8711816700,
+        "ns_op": 8711.8167
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8595213000,
+        "ns_op": 8595.213
+      }
+    ],
+    "median_ns_op": 8711.8167
+  },
+  {
+    "label": "v-probe",
+    "load": "W19",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-probe\\VoronBench.dll",
+      "run",
+      "voron",
+      "W19",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\probe\\0-v-probe-W19"
+    ],
+    "exit": 0,
+    "wall_s": 35.03125476837158,
+    "output": "data W19 ba02fd8484868a2f\nrep 0 W19 1000000 9550960300\nrep 1 W19 1000000 8156164800\nrep 2 W19 1000000 8301863300\nrep 3 W19 1000000 8324448000\n",
+    "stderr": "phase 1000000 41148900 4447295100 5008747200 907897 395943936\nphase 1000000 28524700 3577049400 4500541500 907897 396804096\nphase 1000000 46456000 3641869600 4566200900 907897 394977280\nphase 1000000 35769200 3660622400 4579670400 907897 398176256\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 9550960300,
+        "ns_op": 9550.9603
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8156164800,
+        "ns_op": 8156.1648
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8301863300,
+        "ns_op": 8301.8633
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8324448000,
+        "ns_op": 8324.448
+      }
+    ],
+    "median_ns_op": 8301.8633
+  }
+]

@@ -1,0 +1,1070 @@
+[
+  {
+    "label": "baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.226310729980469,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1470964900\nrep 1 W26 1000000 1377089300\nrep 2 W26 1000000 1377478800\nrep 3 W26 1000000 1361172000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1470964900,
+        "ns_op": 1470.9649
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1377089300,
+        "ns_op": 1377.0893
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1377478800,
+        "ns_op": 1377.4788
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1361172000,
+        "ns_op": 1361.172
+      }
+    ],
+    "median_ns_op": 1377.0893
+  },
+  {
+    "label": "byte-count",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\byte-count.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-byte-count-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.038414239883423,
+    "output": "data W26 c044948378b60fde\nrep 0 W26 1000000 1439684600\nrep 1 W26 1000000 1355886300\nrep 2 W26 1000000 1331786200\nrep 3 W26 1000000 1380923400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1439684600,
+        "ns_op": 1439.6846
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1355886300,
+        "ns_op": 1355.8863
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1331786200,
+        "ns_op": 1331.7862
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1380923400,
+        "ns_op": 1380.9234
+      }
+    ],
+    "median_ns_op": 1355.8863
+  },
+  {
+    "label": "voron",
+    "load": "W26",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-baseline\\VoronBench.dll",
+      "run",
+      "voron",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-voron-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 7.194540739059448,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1609210800\nrep 1 W26 1000000 1300606800\nrep 2 W26 1000000 1261675100\nrep 3 W26 1000000 1421433800\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1609210800,
+        "ns_op": 1609.2108
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1300606800,
+        "ns_op": 1300.6068
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1261675100,
+        "ns_op": 1261.6751
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1421433800,
+        "ns_op": 1421.4338
+      }
+    ],
+    "median_ns_op": 1300.6068
+  },
+  {
+    "label": "v-byte-count",
+    "load": "W26",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-byte-count\\VoronBench.dll",
+      "run",
+      "voron",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-v-byte-count-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 7.38872504234314,
+    "output": "data W26 c044948378b60fde\nrep 0 W26 1000000 1626530100\nrep 1 W26 1000000 1293886300\nrep 2 W26 1000000 1316629800\nrep 3 W26 1000000 1448888300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1626530100,
+        "ns_op": 1626.5301
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1293886300,
+        "ns_op": 1293.8863
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1316629800,
+        "ns_op": 1316.6298
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1448888300,
+        "ns_op": 1448.8883
+      }
+    ],
+    "median_ns_op": 1316.6298
+  },
+  {
+    "label": "baseline",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-baseline-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.808123588562012,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 1116413700\nrep 1 W27 9999205 1027275800\nrep 2 W27 9999205 1048057500\nrep 3 W27 9999205 1037888400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1116413700,
+        "ns_op": 111.65024619457247
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 1027275800,
+        "ns_op": 102.73574749192561
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 1048057500,
+        "ns_op": 104.8140827195762
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 1037888400,
+        "ns_op": 103.79709186880358
+      }
+    ],
+    "median_ns_op": 103.79709186880358
+  },
+  {
+    "label": "byte-count",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\byte-count.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-byte-count-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.136847496032715,
+    "output": "data W27 836f31b0a032b821\nrep 0 W27 9999205 949638500\nrep 1 W27 9999205 869898400\nrep 2 W27 9999205 872777600\nrep 3 W27 9999205 870400200\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 949638500,
+        "ns_op": 94.971400226318
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 869898400,
+        "ns_op": 86.99675624212125
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 872777600,
+        "ns_op": 87.28469913358111
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 870400200,
+        "ns_op": 87.04694023174842
+      }
+    ],
+    "median_ns_op": 87.04694023174842
+  },
+  {
+    "label": "voron",
+    "load": "W27",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-baseline\\VoronBench.dll",
+      "run",
+      "voron",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-voron-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.707947254180908,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 1374838700\nrep 1 W27 9999205 930588900\nrep 2 W27 9999205 932949000\nrep 3 W27 9999205 935863900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1374838700,
+        "ns_op": 137.4948008366665
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 930588900,
+        "ns_op": 93.06628876995721
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 932949000,
+        "ns_op": 93.30231753424397
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 935863900,
+        "ns_op": 93.59383070954141
+      }
+    ],
+    "median_ns_op": 93.30231753424397
+  },
+  {
+    "label": "v-byte-count",
+    "load": "W27",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-byte-count\\VoronBench.dll",
+      "run",
+      "voron",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-v-byte-count-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.39574933052063,
+    "output": "data W27 836f31b0a032b821\nrep 0 W27 9999205 1314111700\nrep 1 W27 9999205 871728600\nrep 2 W27 9999205 845023500\nrep 3 W27 9999205 864238600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1314111700,
+        "ns_op": 131.42161801863247
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 871728600,
+        "ns_op": 87.17979079336807
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 845023500,
+        "ns_op": 84.50906847094345
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 864238600,
+        "ns_op": 86.43073124313383
+      }
+    ],
+    "median_ns_op": 86.43073124313383
+  },
+  {
+    "label": "baseline",
+    "load": "W11",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-baseline-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-base"
+    ],
+    "exit": 0,
+    "wall_s": 3.1657779216766357,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 735026800\nrep 1 W11 9999571 606411600\nrep 2 W11 9999571 615793500\nrep 3 W11 9999571 598862600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 735026800,
+        "ns_op": 73.50583340025287
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 606411600,
+        "ns_op": 60.643761617373386
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 615793500,
+        "ns_op": 61.581991867451116
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 598862600,
+        "ns_op": 59.888829230774
+      }
+    ],
+    "median_ns_op": 60.643761617373386
+  },
+  {
+    "label": "byte-count",
+    "load": "W11",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\byte-count.exe",
+      "run",
+      "krummi",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-byte-count-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-base"
+    ],
+    "exit": 0,
+    "wall_s": 2.42018461227417,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 530229500\nrep 1 W11 9999571 416410300\nrep 2 W11 9999571 447304100\nrep 3 W11 9999571 418032200\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 530229500,
+        "ns_op": 53.025224782143155
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 416410300,
+        "ns_op": 41.64281647682686
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 447304100,
+        "ns_op": 44.732329016914825
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 418032200,
+        "ns_op": 41.80501343507636
+      }
+    ],
+    "median_ns_op": 41.80501343507636
+  },
+  {
+    "label": "voron",
+    "load": "W11",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-baseline\\VoronBench.dll",
+      "run",
+      "voron",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-voron-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-base"
+    ],
+    "exit": 0,
+    "wall_s": 5.8750996589660645,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 1143707900\nrep 1 W11 9999571 584788600\nrep 2 W11 9999571 592692000\nrep 3 W11 9999571 584684700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 1143707900,
+        "ns_op": 114.37569671738918
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 584788600,
+        "ns_op": 58.4813688507237
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 592692000,
+        "ns_op": 59.27174275776431
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 584684700,
+        "ns_op": 58.47097840497357
+      }
+    ],
+    "median_ns_op": 58.4813688507237
+  },
+  {
+    "label": "v-byte-count",
+    "load": "W11",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-byte-count\\VoronBench.dll",
+      "run",
+      "voron",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\0-v-byte-count-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-base"
+    ],
+    "exit": 0,
+    "wall_s": 5.443876028060913,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 1047161100\nrep 1 W11 9999571 537550700\nrep 2 W11 9999571 527761900\nrep 3 W11 9999571 520517800\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 1047161100,
+        "ns_op": 104.72060251384785
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 537550700,
+        "ns_op": 53.75737619143861
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 527761900,
+        "ns_op": 52.77845419568499
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 520517800,
+        "ns_op": 52.054013117162725
+      }
+    ],
+    "median_ns_op": 52.77845419568499
+  },
+  {
+    "label": "v-byte-count",
+    "load": "W26",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-byte-count\\VoronBench.dll",
+      "run",
+      "voron",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-v-byte-count-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 7.463371276855469,
+    "output": "data W26 c044948378b60fde\nrep 0 W26 1000000 1654964700\nrep 1 W26 1000000 1358275500\nrep 2 W26 1000000 1358532100\nrep 3 W26 1000000 1508680300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1654964700,
+        "ns_op": 1654.9647
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1358275500,
+        "ns_op": 1358.2755
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1358532100,
+        "ns_op": 1358.5321
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1508680300,
+        "ns_op": 1508.6803
+      }
+    ],
+    "median_ns_op": 1358.5321
+  },
+  {
+    "label": "voron",
+    "load": "W26",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-baseline\\VoronBench.dll",
+      "run",
+      "voron",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-voron-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 7.445554256439209,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1627441100\nrep 1 W26 1000000 1377324100\nrep 2 W26 1000000 1349317400\nrep 3 W26 1000000 1477740000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1627441100,
+        "ns_op": 1627.4411
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1377324100,
+        "ns_op": 1377.3241
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1349317400,
+        "ns_op": 1349.3174
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1477740000,
+        "ns_op": 1477.74
+      }
+    ],
+    "median_ns_op": 1377.3241
+  },
+  {
+    "label": "byte-count",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\byte-count.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-byte-count-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.905172348022461,
+    "output": "data W26 c044948378b60fde\nrep 0 W26 1000000 1415395000\nrep 1 W26 1000000 1326797100\nrep 2 W26 1000000 1307298100\nrep 3 W26 1000000 1333261900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1415395000,
+        "ns_op": 1415.395
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1326797100,
+        "ns_op": 1326.7971
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1307298100,
+        "ns_op": 1307.2981
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1333261900,
+        "ns_op": 1333.2619
+      }
+    ],
+    "median_ns_op": 1326.7971
+  },
+  {
+    "label": "baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.246124267578125,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1473466100\nrep 1 W26 1000000 1399706900\nrep 2 W26 1000000 1381245000\nrep 3 W26 1000000 1379151000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1473466100,
+        "ns_op": 1473.4661
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1399706900,
+        "ns_op": 1399.7069
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1381245000,
+        "ns_op": 1381.245
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1379151000,
+        "ns_op": 1379.151
+      }
+    ],
+    "median_ns_op": 1381.245
+  },
+  {
+    "label": "v-byte-count",
+    "load": "W27",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-byte-count\\VoronBench.dll",
+      "run",
+      "voron",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-v-byte-count-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.332422256469727,
+    "output": "data W27 836f31b0a032b821\nrep 0 W27 9999205 1300383800\nrep 1 W27 9999205 842493700\nrep 2 W27 9999205 817303200\nrep 3 W27 9999205 821846300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1300383800,
+        "ns_op": 130.04871887315042
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 842493700,
+        "ns_op": 84.25606835743442
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 817303200,
+        "ns_op": 81.73681807703713
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 821846300,
+        "ns_op": 82.1911641975537
+      }
+    ],
+    "median_ns_op": 82.1911641975537
+  },
+  {
+    "label": "voron",
+    "load": "W27",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-baseline\\VoronBench.dll",
+      "run",
+      "voron",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-voron-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.639030933380127,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 1361484200\nrep 1 W27 9999205 930959100\nrep 2 W27 9999205 949516900\nrep 3 W27 9999205 954994600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1361484200,
+        "ns_op": 136.15924465995047
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 930959100,
+        "ns_op": 93.1033117132812
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 949516900,
+        "ns_op": 94.95923925952113
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 954994600,
+        "ns_op": 95.50705281069845
+      }
+    ],
+    "median_ns_op": 94.95923925952113
+  },
+  {
+    "label": "byte-count",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\byte-count.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-byte-count-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.084818124771118,
+    "output": "data W27 836f31b0a032b821\nrep 0 W27 9999205 947165100\nrep 1 W27 9999205 860616200\nrep 2 W27 9999205 865958900\nrep 3 W27 9999205 868279300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 947165100,
+        "ns_op": 94.72404056122461
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 860616200,
+        "ns_op": 86.0684624427642
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 865958900,
+        "ns_op": 86.6027749206062
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 868279300,
+        "ns_op": 86.83483336925286
+      }
+    ],
+    "median_ns_op": 86.6027749206062
+  },
+  {
+    "label": "baseline",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-baseline-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.796387195587158,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 1122081600\nrep 1 W27 9999205 1035186300\nrep 2 W27 9999205 1032893000\nrep 3 W27 9999205 1031078800\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1122081600,
+        "ns_op": 112.21708125796
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 1035186300,
+        "ns_op": 103.52686038540064
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 1032893000,
+        "ns_op": 103.2975121522161
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 1031078800,
+        "ns_op": 103.11607772817939
+      }
+    ],
+    "median_ns_op": 103.2975121522161
+  },
+  {
+    "label": "v-byte-count",
+    "load": "W11",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-byte-count\\VoronBench.dll",
+      "run",
+      "voron",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-v-byte-count-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-base"
+    ],
+    "exit": 0,
+    "wall_s": 5.248750925064087,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 1057008200\nrep 1 W11 9999571 520210600\nrep 2 W11 9999571 518337800\nrep 3 W11 9999571 522058400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 1057008200,
+        "ns_op": 105.70535475971919
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 520210600,
+        "ns_op": 52.023291799218185
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 518337800,
+        "ns_op": 51.8360037645615
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 522058400,
+        "ns_op": 52.20807972662027
+      }
+    ],
+    "median_ns_op": 52.023291799218185
+  },
+  {
+    "label": "voron",
+    "load": "W11",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-baseline\\VoronBench.dll",
+      "run",
+      "voron",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-voron-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-base"
+    ],
+    "exit": 0,
+    "wall_s": 5.766566514968872,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 1148639700\nrep 1 W11 9999571 617356100\nrep 2 W11 9999571 617363700\nrep 3 W11 9999571 619054500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 1148639700,
+        "ns_op": 114.86889787571887
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 617356100,
+        "ns_op": 61.73825857129271
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 617363700,
+        "ns_op": 61.73901860389811
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 619054500,
+        "ns_op": 61.9081058577413
+      }
+    ],
+    "median_ns_op": 61.73901860389811
+  },
+  {
+    "label": "byte-count",
+    "load": "W11",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\byte-count.exe",
+      "run",
+      "krummi",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-byte-count-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-base"
+    ],
+    "exit": 0,
+    "wall_s": 2.343569755554199,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 545533600\nrep 1 W11 9999571 420460300\nrep 2 W11 9999571 439186500\nrep 3 W11 9999571 424021600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 545533600,
+        "ns_op": 54.55570043954886
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 420460300,
+        "ns_op": 42.04783385207225
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 439186500,
+        "ns_op": 43.92053419091679
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 424021600,
+        "ns_op": 42.403979130704705
+      }
+    ],
+    "median_ns_op": 42.403979130704705
+  },
+  {
+    "label": "baseline",
+    "load": "W11",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W11",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\byte-count-ab\\1-baseline-W11",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-base"
+    ],
+    "exit": 0,
+    "wall_s": 3.135981321334839,
+    "output": "data W11 b8e5a57912ef29d1\nrep 0 W11 9999571 742338200\nrep 1 W11 9999571 626627300\nrep 2 W11 9999571 622471100\nrep 3 W11 9999571 617463600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999571,
+        "ns": 742338200,
+        "ns_op": 74.23700476750453
+      },
+      {
+        "index": 1,
+        "ops": 9999571,
+        "ns": 626627300,
+        "ns_op": 62.66541834644706
+      },
+      {
+        "index": 2,
+        "ops": 9999571,
+        "ns": 622471100,
+        "ns_op": 62.24978051558412
+      },
+      {
+        "index": 3,
+        "ops": 9999571,
+        "ns": 617463600,
+        "ns_op": 61.74900903248749
+      }
+    ],
+    "median_ns_op": 62.24978051558412
+  }
+]

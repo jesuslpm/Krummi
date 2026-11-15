@@ -1,0 +1,12 @@
+   Compiling krummi-pager v0.1.0 (C:\projects\Krummi\work\diag-20261115\followup-01\src\crates\krummi-pager)
+   Compiling krummi-tx v0.1.0 (C:\projects\Krummi\work\diag-20261115\followup-01\src\crates\krummi-tx)
+   Compiling krummi-tree v0.1.0 (C:\projects\Krummi\work\diag-20261115\followup-01\src\crates\krummi-tree)
+   Compiling krummi v0.1.0 (C:\projects\Krummi\work\diag-20261115\followup-01\src\crates\krummi)
+    Finished `release` profile [optimized + debuginfo] target(s) in 13.08s
+     Running tests\diagnostic_run_pool.rs (work\diag-20261115\target\release\deps\diagnostic_run_pool-5b83f728c5597da0.exe)
+
+running 1 test
+test diagnostic_pool_keeps_old_snapshot_and_accepts_large_transaction ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+

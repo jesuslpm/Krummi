@@ -65,6 +65,19 @@ annotation (*Annotations to other PRDs*):
 *Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables-row-reads.prd.md), Spanish, authoritative): E19: Reads by the key and traversals no longer check the content of the row (its values, its offsets, its null bits and its key); a malformed row in a page whose integrity passed G6 is returned without error, and reading one of its columns may return a value that is not the one written or end with a panic; a text that is not UTF-8 read as text always ends with a panic. The unknown schema version or one missing from the history, the header that Krummi does not write and the row that does not reach the end of its fixed part keep failing with damage; update and insert or update keep checking the row they replace (decisions L1–L3 of [tables-row-reads.prd.en.md](tables-row-reads.prd.en.md)).*
 
 
+*Annotations of 2026-11-15 from the projections ([tables-projection.prd.md](tables-projection.prd.md), Spanish, authoritative):*
+
+- *E6: also failing with different schema are preparing a projection with a name that is not that of a live column (with
+  the table and the column), obtaining a prepared column with a type of another class (with the table, the column and
+  the difference) and tying to a projection a row of another table, of another store or of another schema (with the
+  table) (PY1–PY3 of [tables-projection.prd.en.md](tables-projection.prd.en.md)).*
+- *E17: the list of invalid value rules adds at the end projection without columns, and the precedence holds for
+  preparing a projection as PY1 of [tables-projection.prd.en.md](tables-projection.prd.en.md) says.*
+- *E19: preparing a projection, obtaining its prepared columns, tying a row to it and reading with it do not fail with
+  damage: the damage of the row and of the history appears in the read or in the step of the traversal that returns it
+  (PY3 of [tables-projection.prd.en.md](tables-projection.prd.en.md)).*
+
+
 #### Benchmark loads
 
 All of them use a table with primary key `id` and the columns `n` (`i64`), `x` (`f64`), `ts` (`timestamp`), `flag`
@@ -94,6 +107,11 @@ bytes per row. W26 and W27 compute in both engines the same checksum of the valu
 measured time because it is the way of reading the values, and when they finish they compare it with the expected one.
 The reproducibility rules of the benchmark apply (K4, K8, K13): durable operations, the same conditions, three
 repetitions and the median.
+
+*Annotation of 2026-11-15 from the projections ([tables-projection.prd.md](tables-projection.prd.md), Spanish, authoritative): W26 and W27:
+Krummi reads the columns of the rows with a projection, and preparing the projection counts in the measured time of each
+repetition; so will the loads of future tables that read column values, unless their PRD says otherwise. The loads, their
+checksums and their thresholds do not change (PY7).*
 
 ### Starting state
 
@@ -168,7 +186,9 @@ W23, W24, W25 and W29.
 - Secondary indexes (7.2), statistics (7.3) and JSON columns (7.5), except what E3, E5 and E17 say about them.
 - Insert or ignore, and any other variant of insert that does not fail with a duplicate key.
 - An operation to change the primary key of a row (E10).
-- Reading only some columns of a row (projections): module 17.
+- Reading only some columns of a row (projections): module 17. *Annotation of 2026-11-15: column projections come
+  earlier, in [tables-projection.prd.en.md](tables-projection.prd.en.md): a list of columns prepared once per schema,
+  kept in the store, with which the rows are read; the queries of module 17 will decide whether they use them.*
 - Generated or autonumeric columns, computed default values (such as the current time), generators as default value,
   and default values in the primary key (simplification of this version, E4); changing the default value of a column
   (as in the parent).

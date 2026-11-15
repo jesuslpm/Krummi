@@ -74,6 +74,9 @@ found.
 - *Out of scope: "Updating part of a row: update replaces the whole row (N6)" no longer holds, and "Resetting or setting
   the counter of an autonumeric column" becomes resetting or setting a sequence after creating it.*
 
+*Annotation of 2026-11-15 from the projections ([tables-projection.prd.md](tables-projection.prd.md), Spanish, authoritative): N10: different
+schema also covers the uses of a projection that depend on the schema (PY1–PY3).*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

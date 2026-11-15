@@ -1,0 +1,127 @@
+diff --git a/crates/krummi-bench/src/lib.rs b/crates/krummi-bench/src/lib.rs
+index 9fa125b..dfe5386 100644
+--- a/crates/krummi-bench/src/lib.rs
++++ b/crates/krummi-bench/src/lib.rs
+@@ -1,4 +1,4 @@
+-//! Krummi comparative benchmark (module 6, [benchmark.prd.md](../../../docs/prd/krummi/benchmark.prd.md)).
++//! Krummi comparative benchmark (module 6, [benchmark.prd.md](../../../docs/prd/krummi/benchmark/benchmark.prd.md)).
+ //!
+ //! The library holds what the orchestrator (`krummi-bench`, the command of K10) and the Rust worker (the same
+ //! executable started with `KRUMMI_BENCH_ROLE=worker`) share: the loads and their quantities, the data, the worker protocol, the metrics and
+diff --git a/crates/krummi-bench/voron/Loads.cs b/crates/krummi-bench/voron/Loads.cs
+index b72bb81..1dcd64e 100644
+--- a/crates/krummi-bench/voron/Loads.cs
++++ b/crates/krummi-bench/voron/Loads.cs
+@@ -1,4 +1,4 @@
+-// The 22 loads on Voron, exactly as design D10 of odd/tasks/benchmark.md (the table loads W23-W29 are in Tables.cs), and the stores of the worker protocol
++// The 22 loads on Voron, exactly as design D10 of odd/done/benchmark/benchmark.md (the table loads W23-W29 are in Tables.cs), and the stores of the worker protocol
+ // (crates/krummi-bench/src/protocol.rs). Every load generates its data, its digest and its expected sums before any
+ // timer starts; a repetition's time goes from its first operation to its last commit or read (K8).
+ 
+diff --git a/crates/krummi-bench/voron/Tables.cs b/crates/krummi-bench/voron/Tables.cs
+index 97b756c..0533c7c 100644
+--- a/crates/krummi-bench/voron/Tables.cs
++++ b/crates/krummi-bench/voron/Tables.cs
+@@ -1,4 +1,4 @@
+-// The table loads W23-W29 on Voron's Table API (E21 and *Cargas del banco* of docs/prd/krummi/tables-schema.prd.md).
++// The table loads W23-W29 on Voron's Table API (E21 and *Cargas del banco* of docs/prd/krummi/tables/tables-schema.prd.md).
+ // The data, the orders and the expected checksums come from TableData (Data.cs), a port of
+ // crates/krummi-bench/src/table_data.rs; the digests are those of `table_data::digest`. Every load generates them before
+ // any timer starts.
+diff --git a/crates/krummi-bench/voron/VoronBench.csproj b/crates/krummi-bench/voron/VoronBench.csproj
+index 02d757b..8e001fd 100644
+--- a/crates/krummi-bench/voron/VoronBench.csproj
++++ b/crates/krummi-bench/voron/VoronBench.csproj
+@@ -1,6 +1,6 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+   <!--
+-    The Voron worker of the benchmark (K2, design D1 of odd/tasks/benchmark.md). RavenDbRoot is the folder with the
++    The Voron worker of the benchmark (K2, design D1 of odd/done/benchmark/benchmark.md). RavenDbRoot is the folder with the
+     RavenDB 7.2.7 source, passed on the command line (each option is written here with one dash, because an XML
+     comment cannot hold two in a row; the command line takes two, as build_voron in src/orchestrator.rs passes them):
+ 
+diff --git a/crates/krummi-bench/voron/Workload.cs b/crates/krummi-bench/voron/Workload.cs
+index 6ba6a58..603db90 100644
+--- a/crates/krummi-bench/voron/Workload.cs
++++ b/crates/krummi-bench/voron/Workload.cs
+@@ -1,6 +1,6 @@
+ // The loads and their quantities: a port of crates/krummi-bench/src/workload.rs (workload table, K8, K11). A load is
+ // its number: 1 for W1. The protocol names a load by its identifier, `W1` to `W29`; the table loads W23-W29 (E21 of
+-// docs/prd/krummi/tables-schema.prd.md) are, by identifier and report name:
++// docs/prd/krummi/tables/tables-schema.prd.md) are, by identifier and report name:
+ //
+ //   W23 tabla-insercion-en-orden   W24 tabla-insercion-al-azar   W25 tabla-carga-masiva   W26 tabla-lecturas
+ //   W27 tabla-intervalos           W28 tabla-actualizacion       W29 tabla-borrado
+diff --git a/crates/krummi-pager/src/pager.rs b/crates/krummi-pager/src/pager.rs
+index 62c788b..f37c9d8 100644
+--- a/crates/krummi-pager/src/pager.rs
++++ b/crates/krummi-pager/src/pager.rs
+@@ -40,6 +40,8 @@ pub const TEMPORARY_RESERVATION: u64 = 64 << 30;
+ /// at first (a tree node's header and first cell offsets). Asking for the whole page cost more than it saved in the
+ /// scans of the range step execution (W11 −10 %); 256 bytes gave W11 +4 %, 64 bytes +2.4 %.
+ const PREFETCH_BYTES: usize = 256;
++// A prefetch slices the first page bytes, so they must fit in a page (RDD R3-prefetch-slice-bound).
++const _: () = assert!(PREFETCH_BYTES <= PAGE_SIZE);
+ 
+ /// The size a store of `len` bytes grows to when it needs `needed` bytes, before any limit: it doubles, by at most
+ /// [`MAX_GROWTH_STEP`], or takes what it needs when that is more (P11).
+diff --git a/crates/krummi-pager/src/pager_tests.rs b/crates/krummi-pager/src/pager_tests.rs
+index 3d858a1..6d7940c 100644
+--- a/crates/krummi-pager/src/pager_tests.rs
++++ b/crates/krummi-pager/src/pager_tests.rs
+@@ -211,7 +211,7 @@ fn ac_p14_out_of_memory_while_growing_a_store_on_disk_keeps_it_usable() {
+     assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+     assert_eq!(pager.info().size_bytes, INITIAL_SIZE);
+     // Windows cannot shrink a file while it is mapped, and the earlier mappings must stay alive (P15): there the
+-    // reserved space stays in the file (recorded as a deviation from P11 in odd/tasks/pager.md).
++    // reserved space stays in the file (recorded as a deviation from P11 in odd/done/pager/pager.md).
+     if cfg!(not(windows)) {
+         assert_eq!(
+             fs::metadata(tmp.path().join(DATA_FILE)).unwrap().len(),
+diff --git a/crates/krummi-tree/src/multi.rs b/crates/krummi-tree/src/multi.rs
+index 800d631..20dcf6c 100644
+--- a/crates/krummi-tree/src/multi.rs
++++ b/crates/krummi-tree/src/multi.rs
+@@ -40,7 +40,7 @@ use crate::{Interval, MAX_KEY, PageSource, Range, RangeUpdate, copy, descend, le
+ /// Highest promotion threshold: an inline entry of this volume fills the longest leaf cell kept in its leaf (D2).
+ pub const MAX_PROMOTION: usize = MAX_LEAF_CELL - LEAF_CELL_HEADER;
+ /// Promotion threshold, chosen by the measurements of M15 and of longer keys and values (M3;
+-/// `odd/tasks/trees-multivalue-measurements.md`): the highest.
++/// `odd/done/trees/trees-multivalue-measurements.md`): the highest.
+ const DEFAULT_PROMOTION: usize = MAX_PROMOTION;
+ /// Demotion threshold, chosen by the measurement of M15 (M3): half the promotion threshold.
+ const DEFAULT_DEMOTION: usize = MAX_PROMOTION / 2;
+diff --git a/crates/krummi-tx/tests/transfer.rs b/crates/krummi-tx/tests/transfer.rs
+index 2c2c45b..cc45f40 100644
+--- a/crates/krummi-tx/tests/transfer.rs
++++ b/crates/krummi-tx/tests/transfer.rs
+@@ -1,5 +1,5 @@
+ //! The transfer to `krummi.data` without further commits, and the data flushes it pays for (J5, J6 of the Journal
+-//! PRD): odd/tasks/transfer-background-thread.md, S1–S4.
++//! PRD): odd/done/journal/transfer-background-thread.md, S1–S4.
+ 
+ mod common;
+ 
+diff --git a/crates/krummi/examples/value_timing.rs b/crates/krummi/examples/value_timing.rs
+index a68d481..a046b5c 100644
+--- a/crates/krummi/examples/value_timing.rs
++++ b/crates/krummi/examples/value_timing.rs
+@@ -20,7 +20,7 @@
+ //! Markdown tables. There is no threshold (D5 of the root PRD).
+ //!
+ //! The evaluation of the leaf's threshold (V4) ran this measurement with the half-page threshold the engine keeps
+-//! and with a full-page prototype since removed; its data is in `odd/tasks/trees-large-values-measurements.md`.
++//! and with a full-page prototype since removed; its data is in `odd/done/trees/trees-large-values-measurements.md`.
+ 
+ mod timing;
+ 
+diff --git a/crates/krummi/src/table/malformed_tests.rs b/crates/krummi/src/table/malformed_tests.rs
+index 4c65dc4..aeec0bd 100644
+--- a/crates/krummi/src/table/malformed_tests.rs
++++ b/crates/krummi/src/table/malformed_tests.rs
+@@ -1,4 +1,4 @@
+-//! Internal tests of the row reads PRD (`docs/prd/krummi/tables-row-reads.prd.md`): reading by key and scanning do not
++//! Internal tests of the row reads PRD (`docs/prd/krummi/tables/tables-row-reads.prd.md`): reading by key and scanning do not
+ //! check a row's content (L1, L2), update and upsert still check the row they replace (L3), and a panic of a column
+ //! read leaves the transaction intact (L2). The malformed rows are written through the tree, so that the commit
+ //! computes their pages' integrity codes over them, as a Krummi defect or a file altered with its codes recomputed

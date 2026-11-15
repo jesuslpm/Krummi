@@ -1,0 +1,47 @@
+[
+  {
+    "worker": 0,
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-bounds.exe"
+    ],
+    "exit": 0,
+    "stdout": "metric first_schema_open 1 32300\nmetric first_projection 1 26600\nmetric first_handles 1 4500\nsample 0 lookup_bounds_6 2000000 51863200\nsample 0 hoisted_cells_6 2000000 38423000\nsample 1 hoisted_cells_6 2000000 37293000\nsample 1 lookup_bounds_6 2000000 50321500\nsample 2 lookup_bounds_6 2000000 50307900\nsample 2 hoisted_cells_6 2000000 37124200\nsample 3 hoisted_cells_6 2000000 37182300\nsample 3 lookup_bounds_6 2000000 50706200\nsample 4 lookup_bounds_6 2000000 50349700\nsample 4 hoisted_cells_6 2000000 36626300\nsample 5 hoisted_cells_6 2000000 36625800\nsample 5 lookup_bounds_6 2000000 50608100\nsample 6 lookup_bounds_6 2000000 50602700\nsample 6 hoisted_cells_6 2000000 37902700\nsample 7 hoisted_cells_6 2000000 37535500\nsample 7 lookup_bounds_6 2000000 50520400\n",
+    "stderr": ""
+  },
+  {
+    "worker": 1,
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-bounds.exe"
+    ],
+    "exit": 0,
+    "stdout": "metric first_schema_open 1 24300\nmetric first_projection 1 70600\nmetric first_handles 1 8000\nsample 0 lookup_bounds_6 2000000 50337000\nsample 0 hoisted_cells_6 2000000 39373800\nsample 1 hoisted_cells_6 2000000 38560200\nsample 1 lookup_bounds_6 2000000 55566400\nsample 2 lookup_bounds_6 2000000 57980900\nsample 2 hoisted_cells_6 2000000 42929800\nsample 3 hoisted_cells_6 2000000 43975700\nsample 3 lookup_bounds_6 2000000 63126500\nsample 4 lookup_bounds_6 2000000 65902900\nsample 4 hoisted_cells_6 2000000 47489300\nsample 5 hoisted_cells_6 2000000 55803900\nsample 5 lookup_bounds_6 2000000 67137000\nsample 6 lookup_bounds_6 2000000 66008700\nsample 6 hoisted_cells_6 2000000 48273200\nsample 7 hoisted_cells_6 2000000 51296600\nsample 7 lookup_bounds_6 2000000 69320700\n",
+    "stderr": ""
+  },
+  {
+    "worker": 2,
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-bounds.exe"
+    ],
+    "exit": 0,
+    "stdout": "metric first_schema_open 1 30000\nmetric first_projection 1 63400\nmetric first_handles 1 6200\nsample 0 lookup_bounds_6 2000000 67193500\nsample 0 hoisted_cells_6 2000000 50837900\nsample 1 hoisted_cells_6 2000000 51136000\nsample 1 lookup_bounds_6 2000000 65850000\nsample 2 lookup_bounds_6 2000000 66253100\nsample 2 hoisted_cells_6 2000000 47298100\nsample 3 hoisted_cells_6 2000000 48900800\nsample 3 lookup_bounds_6 2000000 67274500\nsample 4 lookup_bounds_6 2000000 66144500\nsample 4 hoisted_cells_6 2000000 48839400\nsample 5 hoisted_cells_6 2000000 49467100\nsample 5 lookup_bounds_6 2000000 69736700\nsample 6 lookup_bounds_6 2000000 67028500\nsample 6 hoisted_cells_6 2000000 55637300\nsample 7 hoisted_cells_6 2000000 53252500\nsample 7 lookup_bounds_6 2000000 74357500\n",
+    "stderr": ""
+  },
+  {
+    "worker": 3,
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-bounds.exe"
+    ],
+    "exit": 0,
+    "stdout": "metric first_schema_open 1 62000\nmetric first_projection 1 34300\nmetric first_handles 1 3800\nsample 0 lookup_bounds_6 2000000 65359200\nsample 0 hoisted_cells_6 2000000 48941200\nsample 1 hoisted_cells_6 2000000 50573500\nsample 1 lookup_bounds_6 2000000 66866400\nsample 2 lookup_bounds_6 2000000 70360900\nsample 2 hoisted_cells_6 2000000 51336000\nsample 3 hoisted_cells_6 2000000 50683100\nsample 3 lookup_bounds_6 2000000 68709000\nsample 4 lookup_bounds_6 2000000 69376700\nsample 4 hoisted_cells_6 2000000 46119100\nsample 5 hoisted_cells_6 2000000 52262100\nsample 5 lookup_bounds_6 2000000 66885400\nsample 6 lookup_bounds_6 2000000 65883800\nsample 6 hoisted_cells_6 2000000 49020200\nsample 7 hoisted_cells_6 2000000 48806400\nsample 7 lookup_bounds_6 2000000 65842800\n",
+    "stderr": ""
+  },
+  {
+    "worker": 4,
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-bounds.exe"
+    ],
+    "exit": 0,
+    "stdout": "metric first_schema_open 1 27400\nmetric first_projection 1 52700\nmetric first_handles 1 6600\nsample 0 lookup_bounds_6 2000000 62347200\nsample 0 hoisted_cells_6 2000000 45011900\nsample 1 hoisted_cells_6 2000000 45113400\nsample 1 lookup_bounds_6 2000000 67917400\nsample 2 lookup_bounds_6 2000000 68529200\nsample 2 hoisted_cells_6 2000000 51156000\nsample 3 hoisted_cells_6 2000000 48905600\nsample 3 lookup_bounds_6 2000000 66027400\nsample 4 lookup_bounds_6 2000000 66109100\nsample 4 hoisted_cells_6 2000000 47916600\nsample 5 hoisted_cells_6 2000000 50422700\nsample 5 lookup_bounds_6 2000000 67047600\nsample 6 lookup_bounds_6 2000000 66002400\nsample 6 hoisted_cells_6 2000000 50822100\nsample 7 hoisted_cells_6 2000000 47120000\nsample 7 lookup_bounds_6 2000000 66067400\n",
+    "stderr": ""
+  }
+]

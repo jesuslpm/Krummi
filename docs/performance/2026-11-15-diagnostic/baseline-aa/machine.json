@@ -1,0 +1,36 @@
+{
+  "machine": "MSI-W11-01",
+  "cpu": "13th Gen Intel(R) Core(TM) i9-13980HX",
+  "os": [
+    10,
+    0,
+    26200,
+    2,
+    ""
+  ],
+  "affinity": "0xffff",
+  "started": "2026-11-15T06:20:29+0000",
+  "labels": [
+    "baseline",
+    "voron"
+  ],
+  "loads": [
+    "W28",
+    "W24",
+    "W17",
+    "W19",
+    "W26",
+    "W27",
+    "W11"
+  ],
+  "baseline": {
+    "binary": "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+    "sha256": "ab4fdab3948eab9e7061cbbcaeec81a2c110a8f9445446fcadbd19eb3da79abc"
+  },
+  "voron": {
+    "binary": "C:\\projects\\Krummi\\work\\diag-20261115\\dotnet\\bin\\VoronBench\\release\\VoronBench.dll",
+    "sha256": "8f42b7186781620c613c3587f9c93736c17329ac84df247a05e50c4298d34c4c"
+  },
+  "power": "Power Scheme GUID: 6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10  (Krummi bench)",
+  "cores": "core 0 1\ncore 1 1\ncore 2 1\ncore 3 1\ncore 4 1\ncore 5 1\ncore 6 1\ncore 7 1\ncore 8 1\ncore 9 1\ncore 10 1\ncore 11 1\ncore 12 1\ncore 13 1\ncore 14 1\ncore 15 1\ncore 16 0\ncore 17 0\ncore 18 0\ncore 19 0\ncore 20 0\ncore 21 0\ncore 22 0\ncore 23 0\ncore 24 0\ncore 25 0\ncore 26 0\ncore 27 0\ncore 28 0\ncore 29 0\ncore 30 0\ncore 31 0\n"
+}

@@ -1,0 +1,694 @@
+[
+  {
+    "label": "baseline",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-baseline-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 41.97866201400757,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 8838488600\nrep 1 W28 1000000 8920402500\nrep 2 W28 1000000 8773380400\nrep 3 W28 1000000 8834946500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8838488600,
+        "ns_op": 8838.4886
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8920402500,
+        "ns_op": 8920.4025
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8773380400,
+        "ns_op": 8773.3804
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8834946500,
+        "ns_op": 8834.9465
+      }
+    ],
+    "median_ns_op": 8834.9465
+  },
+  {
+    "label": "diff",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-diff-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 42.81684231758118,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 9035281900\nrep 1 W28 1000000 9148141800\nrep 2 W28 1000000 9084841600\nrep 3 W28 1000000 8968047100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 9035281900,
+        "ns_op": 9035.2819
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9148141800,
+        "ns_op": 9148.1418
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9084841600,
+        "ns_op": 9084.8416
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8968047100,
+        "ns_op": 8968.0471
+      }
+    ],
+    "median_ns_op": 9084.8416
+  },
+  {
+    "label": "baseline",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-baseline-W24"
+    ],
+    "exit": 0,
+    "wall_s": 43.75964856147766,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10433781700\nrep 1 W24 1000000 10462984100\nrep 2 W24 1000000 10585858300\nrep 3 W24 1000000 10401758300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10433781700,
+        "ns_op": 10433.7817
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10462984100,
+        "ns_op": 10462.9841
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10585858300,
+        "ns_op": 10585.8583
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10401758300,
+        "ns_op": 10401.7583
+      }
+    ],
+    "median_ns_op": 10462.9841
+  },
+  {
+    "label": "diff",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-diff-W24"
+    ],
+    "exit": 0,
+    "wall_s": 44.57114315032959,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10523311600\nrep 1 W24 1000000 10480721200\nrep 2 W24 1000000 10706941300\nrep 3 W24 1000000 10942451300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10523311600,
+        "ns_op": 10523.3116
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10480721200,
+        "ns_op": 10480.7212
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10706941300,
+        "ns_op": 10706.9413
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10942451300,
+        "ns_op": 10942.4513
+      }
+    ],
+    "median_ns_op": 10706.9413
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.4005067348480225,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 878969200\nrep 1 W17 4096 801825300\nrep 2 W17 4096 794273400\nrep 3 W17 4096 799295000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 878969200,
+        "ns_op": 214592.08984375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 801825300,
+        "ns_op": 195758.1298828125
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 794273400,
+        "ns_op": 193914.404296875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 799295000,
+        "ns_op": 195140.380859375
+      }
+    ],
+    "median_ns_op": 195140.380859375
+  },
+  {
+    "label": "diff",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-diff-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.468205213546753,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 851916300\nrep 1 W17 4096 849740100\nrep 2 W17 4096 785608800\nrep 3 W17 4096 905346400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 851916300,
+        "ns_op": 207987.3779296875
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 849740100,
+        "ns_op": 207456.0791015625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 785608800,
+        "ns_op": 191799.0234375
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 905346400,
+        "ns_op": 221031.8359375
+      }
+    ],
+    "median_ns_op": 207456.0791015625
+  },
+  {
+    "label": "baseline",
+    "load": "W19",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W19",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-baseline-W19"
+    ],
+    "exit": 0,
+    "wall_s": 34.94040489196777,
+    "output": "data W19 ba02fd8484868a2f\nrep 0 W19 1000000 8461777500\nrep 1 W19 1000000 8582527300\nrep 2 W19 1000000 8462429500\nrep 3 W19 1000000 8905395700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8461777500,
+        "ns_op": 8461.7775
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8582527300,
+        "ns_op": 8582.5273
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8462429500,
+        "ns_op": 8462.4295
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8905395700,
+        "ns_op": 8905.3957
+      }
+    ],
+    "median_ns_op": 8582.5273
+  },
+  {
+    "label": "diff",
+    "load": "W19",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W19",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\0-diff-W19"
+    ],
+    "exit": 0,
+    "wall_s": 35.52992057800293,
+    "output": "data W19 ba02fd8484868a2f\nrep 0 W19 1000000 8708593300\nrep 1 W19 1000000 8822413700\nrep 2 W19 1000000 8742293900\nrep 3 W19 1000000 8714885700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8708593300,
+        "ns_op": 8708.5933
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8822413700,
+        "ns_op": 8822.4137
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8742293900,
+        "ns_op": 8742.2939
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8714885700,
+        "ns_op": 8714.8857
+      }
+    ],
+    "median_ns_op": 8742.2939
+  },
+  {
+    "label": "diff",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-diff-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 42.37612557411194,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 8985720300\nrep 1 W28 1000000 9024987800\nrep 2 W28 1000000 8931640600\nrep 3 W28 1000000 8942472100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8985720300,
+        "ns_op": 8985.7203
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9024987800,
+        "ns_op": 9024.9878
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8931640600,
+        "ns_op": 8931.6406
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8942472100,
+        "ns_op": 8942.4721
+      }
+    ],
+    "median_ns_op": 8942.4721
+  },
+  {
+    "label": "baseline",
+    "load": "W28",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-baseline-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 42.46952509880066,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 8949544700\nrep 1 W28 1000000 8877914000\nrep 2 W28 1000000 9111265600\nrep 3 W28 1000000 9012835500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8949544700,
+        "ns_op": 8949.5447
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8877914000,
+        "ns_op": 8877.914
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9111265600,
+        "ns_op": 9111.2656
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9012835500,
+        "ns_op": 9012.8355
+      }
+    ],
+    "median_ns_op": 9012.8355
+  },
+  {
+    "label": "diff",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-diff-W24"
+    ],
+    "exit": 0,
+    "wall_s": 44.75218963623047,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10633692700\nrep 1 W24 1000000 10750295700\nrep 2 W24 1000000 10866515900\nrep 3 W24 1000000 10558260000\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10633692700,
+        "ns_op": 10633.6927
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10750295700,
+        "ns_op": 10750.2957
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10866515900,
+        "ns_op": 10866.5159
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10558260000,
+        "ns_op": 10558.26
+      }
+    ],
+    "median_ns_op": 10750.2957
+  },
+  {
+    "label": "baseline",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-baseline-W24"
+    ],
+    "exit": 0,
+    "wall_s": 43.87235903739929,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10521361200\nrep 1 W24 1000000 10481043600\nrep 2 W24 1000000 10588979800\nrep 3 W24 1000000 10437171400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10521361200,
+        "ns_op": 10521.3612
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10481043600,
+        "ns_op": 10481.0436
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10588979800,
+        "ns_op": 10588.9798
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10437171400,
+        "ns_op": 10437.1714
+      }
+    ],
+    "median_ns_op": 10481.0436
+  },
+  {
+    "label": "diff",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-diff-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.462457656860352,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 839744500\nrep 1 W17 4096 843036700\nrep 2 W17 4096 811298100\nrep 3 W17 4096 789876900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 839744500,
+        "ns_op": 205015.7470703125
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 843036700,
+        "ns_op": 205819.5068359375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 811298100,
+        "ns_op": 198070.8251953125
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 789876900,
+        "ns_op": 192841.0400390625
+      }
+    ],
+    "median_ns_op": 198070.8251953125
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.418679475784302,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 865863400\nrep 1 W17 4096 840141100\nrep 2 W17 4096 817355700\nrep 3 W17 4096 893672500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 865863400,
+        "ns_op": 211392.431640625
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 840141100,
+        "ns_op": 205112.5732421875
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 817355700,
+        "ns_op": 199549.7314453125
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 893672500,
+        "ns_op": 218181.7626953125
+      }
+    ],
+    "median_ns_op": 205112.5732421875
+  },
+  {
+    "label": "diff",
+    "load": "W19",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\diff.exe",
+      "run",
+      "krummi",
+      "W19",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-diff-W19"
+    ],
+    "exit": 0,
+    "wall_s": 35.74995446205139,
+    "output": "data W19 ba02fd8484868a2f\nrep 0 W19 1000000 8840939700\nrep 1 W19 1000000 8728984100\nrep 2 W19 1000000 8740118600\nrep 3 W19 1000000 8872836700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8840939700,
+        "ns_op": 8840.9397
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8728984100,
+        "ns_op": 8728.9841
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8740118600,
+        "ns_op": 8740.1186
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8872836700,
+        "ns_op": 8872.8367
+      }
+    ],
+    "median_ns_op": 8740.1186
+  },
+  {
+    "label": "baseline",
+    "load": "W19",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W19",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\diff-ab\\1-baseline-W19"
+    ],
+    "exit": 0,
+    "wall_s": 35.28117775917053,
+    "output": "data W19 ba02fd8484868a2f\nrep 0 W19 1000000 8600093100\nrep 1 W19 1000000 8599836400\nrep 2 W19 1000000 8729247600\nrep 3 W19 1000000 8779145900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 8600093100,
+        "ns_op": 8600.0931
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8599836400,
+        "ns_op": 8599.8364
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8729247600,
+        "ns_op": 8729.2476
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8779145900,
+        "ns_op": 8779.1459
+      }
+    ],
+    "median_ns_op": 8729.2476
+  }
+]

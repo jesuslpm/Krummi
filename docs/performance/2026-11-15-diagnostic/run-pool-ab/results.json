@@ -1,0 +1,346 @@
+[
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\0-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.7434399127960205,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 862138600\nrep 1 W17 4096 885044700\nrep 2 W17 4096 853296200\nrep 3 W17 4096 803266800\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 862138600,
+        "ns_op": 210483.056640625
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 885044700,
+        "ns_op": 216075.3662109375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 853296200,
+        "ns_op": 208324.267578125
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 803266800,
+        "ns_op": 196110.05859375
+      }
+    ],
+    "median_ns_op": 208324.267578125
+  },
+  {
+    "label": "run-pool",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\run-pool.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\0-run-pool-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.0520899295806885,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 814126700\nrep 1 W17 4096 776516600\nrep 2 W17 4096 635745200\nrep 3 W17 4096 777766300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 814126700,
+        "ns_op": 198761.4013671875
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 776516600,
+        "ns_op": 189579.248046875
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 635745200,
+        "ns_op": 155211.23046875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 777766300,
+        "ns_op": 189884.3505859375
+      }
+    ],
+    "median_ns_op": 189579.248046875
+  },
+  {
+    "label": "run-pool",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\run-pool.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\1-run-pool-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.128436803817749,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 638335600\nrep 1 W17 4096 824950000\nrep 2 W17 4096 750641100\nrep 3 W17 4096 672602200\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 638335600,
+        "ns_op": 155843.65234375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 824950000,
+        "ns_op": 201403.80859375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 750641100,
+        "ns_op": 183261.9873046875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 672602200,
+        "ns_op": 164209.521484375
+      }
+    ],
+    "median_ns_op": 183261.9873046875
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\1-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.532531499862671,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 794912100\nrep 1 W17 4096 893680900\nrep 2 W17 4096 815786400\nrep 3 W17 4096 887805700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 794912100,
+        "ns_op": 194070.3369140625
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 893680900,
+        "ns_op": 218183.8134765625
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 815786400,
+        "ns_op": 199166.6015625
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 887805700,
+        "ns_op": 216749.4384765625
+      }
+    ],
+    "median_ns_op": 216749.4384765625
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\2-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.43514084815979,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 813337600\nrep 1 W17 4096 816281200\nrep 2 W17 4096 823082400\nrep 3 W17 4096 877500400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 813337600,
+        "ns_op": 198568.75
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 816281200,
+        "ns_op": 199287.40234375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 823082400,
+        "ns_op": 200947.8515625
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 877500400,
+        "ns_op": 214233.49609375
+      }
+    ],
+    "median_ns_op": 200947.8515625
+  },
+  {
+    "label": "run-pool",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\run-pool.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\2-run-pool-W17"
+    ],
+    "exit": 0,
+    "wall_s": 4.986810684204102,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 651029900\nrep 1 W17 4096 805829300\nrep 2 W17 4096 761008900\nrep 3 W17 4096 639450300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 651029900,
+        "ns_op": 158942.8466796875
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 805829300,
+        "ns_op": 196735.6689453125
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 761008900,
+        "ns_op": 185793.1884765625
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 639450300,
+        "ns_op": 156115.7958984375
+      }
+    ],
+    "median_ns_op": 185793.1884765625
+  },
+  {
+    "label": "run-pool",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\run-pool.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\3-run-pool-W17"
+    ],
+    "exit": 0,
+    "wall_s": 4.875198125839233,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 786215000\nrep 1 W17 4096 762959000\nrep 2 W17 4096 612075500\nrep 3 W17 4096 747230900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 786215000,
+        "ns_op": 191947.021484375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 762959000,
+        "ns_op": 186269.287109375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 612075500,
+        "ns_op": 149432.4951171875
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 747230900,
+        "ns_op": 182429.4189453125
+      }
+    ],
+    "median_ns_op": 182429.4189453125
+  },
+  {
+    "label": "baseline",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\3-baseline-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.443468332290649,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 874495200\nrep 1 W17 4096 852821600\nrep 2 W17 4096 869233800\nrep 3 W17 4096 785248900\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 874495200,
+        "ns_op": 213499.8046875
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 852821600,
+        "ns_op": 208208.3984375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 869233800,
+        "ns_op": 212215.283203125
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 785248900,
+        "ns_op": 191711.1572265625
+      }
+    ],
+    "median_ns_op": 208208.3984375
+  }
+]

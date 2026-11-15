@@ -111,6 +111,12 @@ brings them to disk grouped (E4).
 - *Annotation of 2026-11-12 from the Krummi and Voron only benchmark: before each release, the maintainer may run the benchmark with `--solo-krummi-voron` (B6); the benchmark finds the performance cores before measuring, and with that option measures only Krummi and Voron (B2, B4).*
 - *Annotation of 2026-11-12 from the Krummi and Voron only benchmark: exceptions to «Elegir desde la orden qué motores o qué cargas ejecutar», because `--solo-krummi-voron` picks the Krummi and Voron pair (B1), and to «Preparar el equipo», because the benchmark limits its measuring processes to the performance cores (B4).*
 
+*Annotation of 2026-11-15 from the projections ([tables-projection.prd.md](../tables/tables-projection.prd.md), Spanish, authoritative): K7: in W26 and W27, and in
+the loads of future tables that read column values unless their PRD says otherwise, Krummi reads its rows with a
+projection, the read with the real capabilities of the engine, as in W28, and preparing the projection counts in the
+measured time of each repetition; Voron reads its fields by their position. The loads and the thresholds do not change
+(PY7).*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

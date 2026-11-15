@@ -1,0 +1,45 @@
+[
+  {
+    "label": "r2-compression-observe",
+    "load": "W17",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r2-compression-observe.exe",
+      "run",
+      "krummi",
+      "W17",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\r2-compression-observe\\0-r2-compression-observe-W17"
+    ],
+    "exit": 0,
+    "wall_s": 5.712436199188232,
+    "output": "data W17 dc1fad2fed9dded8\nrep 0 W17 4096 1167715900\nrep 1 W17 4096 881529200\nrep 2 W17 4096 830499200\nrep 3 W17 4096 792507400\n",
+    "stderr": "sample total=16826860 raw=65536 encoded=64376\nsample total=16836898 raw=65536 encoded=65157\nsample total=16823672 raw=65536 encoded=65362\nsample total=16852520 raw=65536 encoded=65144\nsample total=16824824 raw=65536 encoded=65334\nsample total=16839760 raw=65536 encoded=64670\nsample total=16854438 raw=65536 encoded=65077\nsample total=16833620 raw=65536 encoded=64900\nsample total=16833886 raw=65536 encoded=65048\nsample total=16827388 raw=65536 encoded=65101\nsample total=16834968 raw=65536 encoded=65165\nsample total=16835474 raw=65536 encoded=65241\nsample total=16857330 raw=65536 encoded=65208\nsample total=16864576 raw=65536 encoded=65205\nsample total=16844248 raw=65536 encoded=64957\nsample total=16837382 raw=65536 encoded=64828\nsample total=16826860 raw=65536 encoded=64376\nsample total=16836898 raw=65536 encoded=65157\nsample total=16823672 raw=65536 encoded=65362\nsample total=16852520 raw=65536 encoded=65144\nsample total=16824824 raw=65536 encoded=65334\nsample total=16839760 raw=65536 encoded=64670\nsample total=16854438 raw=65536 encoded=65077\nsample total=16833620 raw=65536 encoded=64900\nsample total=16833886 raw=65536 encoded=65048\nsample total=16827388 raw=65536 encoded=65101\nsample total=16834968 raw=65536 encoded=65165\nsample total=16835474 raw=65536 encoded=65241\nsample total=16857330 raw=65536 encoded=65208\nsample total=16864576 raw=65536 encoded=65205\nsample total=16844248 raw=65536 encoded=64957\nsample total=16837382 raw=65536 encoded=64828\nsample total=16826860 raw=65536 encoded=64376\nsample total=16836898 raw=65536 encoded=65157\nsample total=16823672 raw=65536 encoded=65362\nsample total=16852520 raw=65536 encoded=65144\nsample total=16824824 raw=65536 encoded=65334\nsample total=16839760 raw=65536 encoded=64670\nsample total=16854438 raw=65536 encoded=65077\nsample total=16833620 raw=65536 encoded=64900\nsample total=16833886 raw=65536 encoded=65048\nsample total=16827388 raw=65536 encoded=65101\nsample total=16834968 raw=65536 encoded=65165\nsample total=16835474 raw=65536 encoded=65241\nsample total=16857330 raw=65536 encoded=65208\nsample total=16864576 raw=65536 encoded=65205\nsample total=16844248 raw=65536 encoded=64957\nsample total=16837382 raw=65536 encoded=64828\nsample total=16826860 raw=65536 encoded=64376\nsample total=16836898 raw=65536 encoded=65157\nsample total=16823672 raw=65536 encoded=65362\nsample total=16852520 raw=65536 encoded=65144\nsample total=16824824 raw=65536 encoded=65334\nsample total=16839760 raw=65536 encoded=64670\nsample total=16854438 raw=65536 encoded=65077\nsample total=16833620 raw=65536 encoded=64900\nsample total=16833886 raw=65536 encoded=65048\nsample total=16827388 raw=65536 encoded=65101\nsample total=16834968 raw=65536 encoded=65165\nsample total=16835474 raw=65536 encoded=65241\nsample total=16857330 raw=65536 encoded=65208\nsample total=16864576 raw=65536 encoded=65205\nsample total=16844248 raw=65536 encoded=64957\nsample total=16837382 raw=65536 encoded=64828\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 4096,
+        "ns": 1167715900,
+        "ns_op": 285086.8896484375
+      },
+      {
+        "index": 1,
+        "ops": 4096,
+        "ns": 881529200,
+        "ns_op": 215217.08984375
+      },
+      {
+        "index": 2,
+        "ops": 4096,
+        "ns": 830499200,
+        "ns_op": 202758.59375
+      },
+      {
+        "index": 3,
+        "ops": 4096,
+        "ns": 792507400,
+        "ns_op": 193483.251953125
+      }
+    ],
+    "median_ns_op": 202758.59375
+  }
+]

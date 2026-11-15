@@ -1,0 +1,18 @@
+{
+  "worker_runs_checked": 118,
+  "errors": [],
+  "ablation_digest_exclusions": [
+    "byte-count",
+    "v-byte-count"
+  ],
+  "expected_digests": {
+    "W23": "0cb517052425cfa6",
+    "W28": "73339fce928d72a8",
+    "W24": "eb283872a83767a3",
+    "W17": "dc1fad2fed9dded8",
+    "W19": "ba02fd8484868a2f",
+    "W26": "3dae393237807191",
+    "W27": "83c361de908f0c3a",
+    "W11": "b8e5a57912ef29d1"
+  }
+}

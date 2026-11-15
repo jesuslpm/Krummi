@@ -1,0 +1,14 @@
+{
+  "command": [
+    "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+    "run",
+    "krummi",
+    "W18",
+    "full",
+    "C:\\projects\\Krummi\\work\\diag-20261115\\verify-pool-W18",
+    "C:\\projects\\Krummi\\work\\diag-20261115\\run-pool-ab\\3-run-pool-W17\\rep-3"
+  ],
+  "exit": 0,
+  "stdout": "data W18 79f7c80ca2cf92fa\nrep 0 W18 4096 184223100\nrep 1 W18 4096 24789000\nrep 2 W18 4096 24286100\nrep 3 W18 4096 26596500\n",
+  "stderr": ""
+}

@@ -1,0 +1,12 @@
+[
+  [
+    "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\micro.exe"
+  ],
+  [
+    "dotnet",
+    "C:\\projects\\Krummi\\work\\diag-20261115\\v-probe\\VoronBench.dll",
+    "micro",
+    "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3",
+    "C:\\projects\\Krummi\\work\\diag-20261115\\micro-v-store"
+  ]
+]

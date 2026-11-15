@@ -73,6 +73,9 @@ pueden encontrar filas.
   «Reiniciar o fijar el contador de una columna autonumérica» pasa a ser reiniciar o fijar una secuencia después de
   crearla.*
 
+*Anotación del 2026-11-15 desde las proyecciones ([tables-projection.prd.md](tables-projection.prd.md)): N10: esquema
+distinto también cubre los usos de una proyección que dependen del esquema (PY1–PY3).*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

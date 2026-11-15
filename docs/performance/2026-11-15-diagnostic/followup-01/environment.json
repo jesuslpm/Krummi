@@ -1,0 +1,8 @@
+{
+  "Time": "2026-11-15T07:46:53.8958355+00:00",
+  "Computer": "MSI-W11-01",
+  "DriveError": "Access denied ",
+  "PhysicalError": "Exception calling \"MoveNext\" with \"0\" argument(s): \"Access denied \"",
+  "Rust": "rustc 1.99.0 (b940084d7 2026-09-28)\r\nbinary: rustc\r\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\r\ncommit-date: 2026-09-28\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.99.0\r\nLLVM version: 23.1.1\r\n",
+  "Power": "Power Scheme GUID: 6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10  (Krummi bench)\r\n"
+}

@@ -1,0 +1,30 @@
+{
+  "machine": "MSI-W11-01",
+  "cpu": "13th Gen Intel(R) Core(TM) i9-13980HX",
+  "os": [
+    10,
+    0,
+    26200,
+    2,
+    ""
+  ],
+  "affinity": "0xffff",
+  "started": "2026-11-15T08:53:59+0000",
+  "labels": [
+    "r3-verified-baseline",
+    "r3-verified-handles"
+  ],
+  "loads": [
+    "W26"
+  ],
+  "r3-verified-baseline": {
+    "binary": "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-baseline.exe",
+    "sha256": "3ecd0fefdf6770a15385e3d8a4a6bcf22b996eaf224885006d462306ef49c7d6"
+  },
+  "r3-verified-handles": {
+    "binary": "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-handles.exe",
+    "sha256": "186883d076b274ef81346a2de03b80ad35ed54445e82bbdb03f03e1d722614f3"
+  },
+  "power": "Power Scheme GUID: 6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10  (Krummi bench)",
+  "cores": "core 0 1\ncore 1 1\ncore 2 1\ncore 3 1\ncore 4 1\ncore 5 1\ncore 6 1\ncore 7 1\ncore 8 1\ncore 9 1\ncore 10 1\ncore 11 1\ncore 12 1\ncore 13 1\ncore 14 1\ncore 15 1\ncore 16 0\ncore 17 0\ncore 18 0\ncore 19 0\ncore 20 0\ncore 21 0\ncore 22 0\ncore 23 0\ncore 24 0\ncore 25 0\ncore 26 0\ncore 27 0\ncore 28 0\ncore 29 0\ncore 30 0\ncore 31 0\n"
+}

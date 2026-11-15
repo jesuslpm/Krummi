@@ -1,0 +1,308 @@
+{
+  "series": {
+    "W27 r3-verified-baseline": {
+      "median": 102.5531579760591,
+      "min": 99.67666429481143,
+      "max": 104.70441400091308,
+      "n": 12,
+      "round_medians": [
+        99.77282193934418,
+        102.14110021746728,
+        102.55182286991815,
+        104.02561003599786
+      ]
+    },
+    "W27 r3-verified-control": {
+      "median": 102.18858899282492,
+      "min": 100.27083153110672,
+      "max": 107.68132066499287,
+      "n": 12,
+      "round_medians": [
+        100.53831279586727,
+        102.25594934797316,
+        102.1212286376767,
+        106.43223136239331
+      ]
+    },
+    "W27 r3-verified-index": {
+      "median": 98.61671002844726,
+      "min": 96.48738074676938,
+      "max": 139.2781126099525,
+      "n": 12,
+      "round_medians": [
+        98.27413279355709,
+        97.89256245871547,
+        100.87442951714661,
+        100.50891045838144
+      ]
+    },
+    "W27 r3-verified-handles": {
+      "median": 95.70413347861154,
+      "min": 94.1090616704028,
+      "max": 103.73155665875437,
+      "n": 12,
+      "round_medians": [
+        94.3825334114062,
+        95.91034487241735,
+        95.67230594832289,
+        95.7359610089002
+      ]
+    },
+    "W27 voron": {
+      "median": 94.93048697371441,
+      "min": 91.72851241673713,
+      "max": 109.19974137943967,
+      "n": 12,
+      "round_medians": [
+        93.48327192011764,
+        100.12958030163398,
+        105.24090665207883,
+        92.63655460609118
+      ]
+    },
+    "W26 r3-verified-baseline": {
+      "median": 1409.3847500000002,
+      "min": 1349.0862,
+      "max": 2040.7873,
+      "n": 12,
+      "round_medians": [
+        1416.2372,
+        1365.9074,
+        1923.524,
+        1402.5323
+      ]
+    },
+    "W26 r3-verified-control": {
+      "median": 1419.5531,
+      "min": 1365.4415,
+      "max": 6425.1547,
+      "n": 12,
+      "round_medians": [
+        1381.3129,
+        1429.7532,
+        1372.4578,
+        1422.8587
+      ]
+    },
+    "W26 r3-verified-index": {
+      "median": 1382.9418999999998,
+      "min": 1346.6116,
+      "max": 7648.825,
+      "n": 12,
+      "round_medians": [
+        1383.2785,
+        1367.5245,
+        1839.1447,
+        1362.3896
+      ]
+    },
+    "W26 r3-verified-handles": {
+      "median": 1370.58705,
+      "min": 1340.5424,
+      "max": 3565.2254,
+      "n": 12,
+      "round_medians": [
+        1364.4183,
+        1347.7606,
+        2141.1372,
+        1373.7301
+      ]
+    },
+    "W26 voron": {
+      "median": 1329.09955,
+      "min": 1271.6512,
+      "max": 1591.9251,
+      "n": 12,
+      "round_medians": [
+        1322.9419,
+        1278.237,
+        1335.2572,
+        1368.8043
+      ]
+    }
+  },
+  "micro": {
+    "first_schema_open": {
+      "median": 22400.0,
+      "min": 21800.0,
+      "max": 51200.0,
+      "n": 5
+    },
+    "first_projection": {
+      "median": 25900.0,
+      "min": 21100.0,
+      "max": 57200.0,
+      "n": 5
+    },
+    "first_handles": {
+      "median": 10900.0,
+      "min": 7100.0,
+      "max": 12200.0,
+      "n": 5
+    },
+    "handles_prepare": {
+      "median": 138.33,
+      "min": 136.95,
+      "max": 223.325,
+      "n": 35
+    },
+    "cache_hit": {
+      "median": 54.97,
+      "min": 54.455,
+      "max": 89.525,
+      "n": 35
+    },
+    "prepare_uncached": {
+      "median": 3175.19,
+      "min": 3106.53,
+      "max": 6527.53,
+      "n": 35
+    },
+    "read_no_schema": {
+      "median": 5.30285,
+      "min": 5.2663,
+      "max": 7.63775,
+      "n": 35
+    },
+    "read": {
+      "median": 5.79175,
+      "min": 5.7155,
+      "max": 8.237,
+      "n": 35
+    },
+    "handles_no_owner_6": {
+      "median": 25.43305,
+      "min": 25.05375,
+      "max": 39.95235,
+      "n": 35
+    },
+    "index_no_tag_6": {
+      "median": 25.94215,
+      "min": 25.67805,
+      "max": 48.68615,
+      "n": 35
+    },
+    "handles_6": {
+      "median": 26.627,
+      "min": 26.2766,
+      "max": 39.20645,
+      "n": 35
+    },
+    "index_6": {
+      "median": 28.3616,
+      "min": 27.8444,
+      "max": 51.20045,
+      "n": 35
+    },
+    "first_old_version": {
+      "median": 9700.0,
+      "min": 9300.0,
+      "max": 13400.0,
+      "n": 5
+    },
+    "read_old_warm": {
+      "median": 6.74585,
+      "min": 6.67755,
+      "max": 7.4064,
+      "n": 35
+    }
+  },
+  "checks": {
+    "type_tag_per_call": {
+      "median": 0.397475,
+      "min": 0.05249999999999962,
+      "max": 1.1139500000000002,
+      "n": 35
+    },
+    "handle_owner_per_call": {
+      "median": 0.22434166666666636,
+      "min": -0.12431666666666767,
+      "max": 0.5577999999999997,
+      "n": 35
+    },
+    "schema_per_row": {
+      "median": 0.48104999999999976,
+      "min": 0.36214999999999975,
+      "max": 0.7990000000000004,
+      "n": 35
+    },
+    "lookup_and_bounds_per_call": {
+      "median": 1.4197,
+      "min": 0.9444250000000002,
+      "max": 1.938133333333333,
+      "n": 35
+    }
+  },
+  "bounds": {
+    "first_schema_open": {
+      "median": 30000.0,
+      "min": 24300.0,
+      "max": 62000.0,
+      "n": 5
+    },
+    "first_projection": {
+      "median": 52700.0,
+      "min": 26600.0,
+      "max": 70600.0,
+      "n": 5
+    },
+    "first_handles": {
+      "median": 6200.0,
+      "min": 3800.0,
+      "max": 8000.0,
+      "n": 5
+    },
+    "hoisted_cells_6": {
+      "median": 24.4032,
+      "min": 18.3129,
+      "max": 27.90195,
+      "n": 35
+    },
+    "lookup_bounds_6": {
+      "median": 33.0337,
+      "min": 25.15395,
+      "max": 37.17875,
+      "n": 35
+    }
+  },
+  "audit": {
+    "verified_workers": 58,
+    "prior_provisional_workers": 90,
+    "baseline_source_matches_head": true,
+    "baseline_binary_sha256": "3ecd0fefdf6770a15385e3d8a4a6bcf22b996eaf224885006d462306ef49c7d6",
+    "reused_binary_sha256": "f56804f603848a8da9128cbd4c08ebb9c75b277720d7eb11dd5c390e3606ca8c",
+    "ceiling_binary_sha256": "f56804f603848a8da9128cbd4c08ebb9c75b277720d7eb11dd5c390e3606ca8c",
+    "old_report_unchanged": true,
+    "changed_tracked": [],
+    "head_unchanged": true,
+    "status": "",
+    "diff_unchanged": true,
+    "power": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)"
+  },
+  "w26_validation": {
+    "r3-verified-baseline": {
+      "median": 1388.7824,
+      "min": 1365.1269,
+      "max": 1428.0095,
+      "n": 12,
+      "round_medians": [
+        1370.1729,
+        1396.7492,
+        1388.7633,
+        1402.7122
+      ]
+    },
+    "r3-verified-handles": {
+      "median": 1371.1151,
+      "min": 1339.8607,
+      "max": 1407.2898,
+      "n": 12,
+      "round_medians": [
+        1348.3394,
+        1345.8433,
+        1395.0734,
+        1371.157
+      ]
+    }
+  }
+}

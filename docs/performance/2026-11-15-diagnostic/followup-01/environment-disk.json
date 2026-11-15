@@ -1,0 +1,24 @@
+{
+  "Time": "2026-11-15T07:47:15.9524716+00:00",
+  "Drive": {
+    "DeviceID": "C:",
+    "FileSystem": "NTFS",
+    "Size": 2022678982656,
+    "FreeSpace": 956717514752
+  },
+  "Disk": {
+    "Model": "NVMe SAMSUNG MZVL22T0HBLB-00B00",
+    "InterfaceType": "SCSI",
+    "Size": 2048407280640,
+    "Status": "OK"
+  },
+  "Physical": {
+    "FriendlyName": "NVMe SAMSUNG MZVL22T0HBLB-00B00",
+    "MediaType": "SSD",
+    "BusType": "NVMe",
+    "HealthStatus": "Healthy",
+    "OperationalStatus": "OK",
+    "Size": 2048408248320
+  },
+  "FreeBytes": 956717514752
+}

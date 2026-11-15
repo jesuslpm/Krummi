@@ -1,0 +1,91 @@
+[
+  {
+    "label": "v-parts-all",
+    "load": "W28",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-parts-all\\VoronBench.dll",
+      "run",
+      "voron",
+      "W28",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-parts-all\\0-v-parts-all-W28",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 36.70528030395508,
+    "output": "data W28 73339fce928d72a8\nrep 0 W28 1000000 9128887200\nrep 1 W28 1000000 8070707800\nrep 2 W28 1000000 8072096300\nrep 3 W28 1000000 8004638000\n",
+    "stderr": "parts W28 1000000 2457333700 165674400 1861377000\nparts W28 1000000 2123661500 118324400 1707249400\nparts W28 1000000 2084664900 115043900 1699648400\nparts W28 1000000 2056581900 116083500 1711453200\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 9128887200,
+        "ns_op": 9128.8872
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 8070707800,
+        "ns_op": 8070.7078
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 8072096300,
+        "ns_op": 8072.0963
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 8004638000,
+        "ns_op": 8004.638
+      }
+    ],
+    "median_ns_op": 8070.7078
+  },
+  {
+    "label": "v-parts-all",
+    "load": "W24",
+    "command": [
+      "dotnet",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\v-parts-all\\VoronBench.dll",
+      "run",
+      "voron",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\voron-parts-all\\0-v-parts-all-W24"
+    ],
+    "exit": 0,
+    "wall_s": 41.969496726989746,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 11367716500\nrep 1 W24 1000000 9727681400\nrep 2 W24 1000000 9728785300\nrep 3 W24 1000000 9767378300\n",
+    "stderr": "parts W24 1000000 116168500 6145660200\nparts W24 1000000 82441200 5268277100\nparts W24 1000000 85861000 5192156800\nparts W24 1000000 86645300 5259091400\n",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 11367716500,
+        "ns_op": 11367.7165
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 9727681400,
+        "ns_op": 9727.6814
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 9728785300,
+        "ns_op": 9728.7853
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 9767378300,
+        "ns_op": 9767.3783
+      }
+    ],
+    "median_ns_op": 9728.7853
+  }
+]

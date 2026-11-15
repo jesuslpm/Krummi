@@ -62,6 +62,18 @@ ascendientes, que llevan su anotación (*Anotaciones a otros PRD*):
 
 *Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables-row-reads.prd.md)): E19: Las lecturas por la clave y los recorridos ya no comprueban el contenido de la fila (sus valores, sus desplazamientos, sus bits de nulo y su clave); una fila mal formada en una página cuya integridad pasó G6 se devuelve sin error, y leer una de sus columnas puede devolver un valor que no es el escrito o terminar con un pánico; un texto que no es UTF-8 leído como texto termina siempre con un pánico. Siguen fallando con daño la versión de esquema desconocida o ausente del historial, la cabecera que Krummi no escribe y la fila que no llega al final de su parte fija; actualizar e insertar o actualizar siguen comprobando la fila que reemplazan (decisiones L1–L3 de [tables-row-reads.prd.md](tables-row-reads.prd.md)).*
 
+*Anotaciones del 2026-11-15 desde las proyecciones ([tables-projection.prd.md](tables-projection.prd.md)):*
+
+- *E6: también fallan con esquema distinto preparar una proyección con un nombre que no es de una columna viva (con la
+  tabla y la columna), obtener una columna preparada con un tipo de otra clase (con la tabla, la columna y la
+  diferencia) y ligar a una proyección una fila de otra tabla, de otro almacén o de otro esquema (con la tabla) (PY1–PY3
+  de [tables-projection.prd.md](tables-projection.prd.md)).*
+- *E17: la lista de reglas de valor no válido añade al final proyección sin columnas, y la precedencia vale para
+  preparar una proyección como dice PY1 de [tables-projection.prd.md](tables-projection.prd.md).*
+- *E19: preparar una proyección, obtener sus columnas preparadas, ligarle una fila y leer con ella no fallan con daño:
+  los daños de la fila y del historial aparecen en la lectura o en el paso del recorrido que la devuelve (PY3 de
+  [tables-projection.prd.md](tables-projection.prd.md)).*
+
 
 #### Cargas del banco
 
@@ -91,6 +103,11 @@ haga el otro motor; el tamaño físico incluye la clave, el formato de las filas
 por fila. W26 y W27 calculan en los dos motores la misma suma de comprobación de los valores de todas las columnas
 leídas, dentro del tiempo medido porque es la forma de leer los valores, y al terminar la comparan con la esperada. Valen las reglas de reproducibilidad del banco (K4, K8, K13): operaciones
 durables, las mismas condiciones, tres repeticiones y la mediana.
+
+*Anotación del 2026-11-15 desde las proyecciones ([tables-projection.prd.md](tables-projection.prd.md)): W26 y W27:
+Krummi lee las columnas de las filas con una proyección, y preparar la proyección cuenta en el tiempo medido de cada
+repetición; también lo harán las cargas de tablas futuras que lean valores de columnas, salvo que su PRD diga otra
+cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
 
 ### Estado de partida
 
@@ -164,7 +181,10 @@ W25 y W29.
 - Índices secundarios (7.2), estadísticas (7.3) y columnas JSON (7.5), salvo lo que E3, E5 y E17 dicen de ellos.
 - Insertar o ignorar, y cualquier otra variante de insertar que no falle con una clave duplicada.
 - Una operación para cambiar la clave primaria de una fila (E10).
-- Leer solo algunas columnas de una fila (proyecciones): módulo 17.
+- Leer solo algunas columnas de una fila (proyecciones): módulo 17. *Anotación del 2026-11-15: las proyecciones de
+  columnas entran antes, en [tables-projection.prd.md](tables-projection.prd.md): una lista de columnas preparada una
+  vez por esquema, guardada en el almacén, con la que se leen las filas; las consultas del módulo 17 fijarán si las
+  usan.*
 - Columnas generadas o autonuméricas, valores por defecto calculados (como la hora actual), generadores como valor por
   defecto, y valores por defecto en la clave primaria (simplificación de esta versión, E4); cambiar el valor por
   defecto de una columna (como el padre).

@@ -1,0 +1,354 @@
+[
+  {
+    "label": "baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\0-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.10004997253418,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1439725500\nrep 1 W26 1000000 1357413800\nrep 2 W26 1000000 1365418300\nrep 3 W26 1000000 1348964200\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1439725500,
+        "ns_op": 1439.7255
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1357413800,
+        "ns_op": 1357.4138
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1365418300,
+        "ns_op": 1365.4183
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1348964200,
+        "ns_op": 1348.9642
+      }
+    ],
+    "median_ns_op": 1357.4138
+  },
+  {
+    "label": "projection",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\projection.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\0-projection-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.980844497680664,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1418882700\nrep 1 W26 1000000 1348546600\nrep 2 W26 1000000 1320885700\nrep 3 W26 1000000 1354947100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1418882700,
+        "ns_op": 1418.8827
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1348546600,
+        "ns_op": 1348.5466
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1320885700,
+        "ns_op": 1320.8857
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1354947100,
+        "ns_op": 1354.9471
+      }
+    ],
+    "median_ns_op": 1348.5466
+  },
+  {
+    "label": "baseline",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\0-baseline-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.726686716079712,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 1102445400\nrep 1 W27 9999205 1040594600\nrep 2 W27 9999205 1021393800\nrep 3 W27 9999205 1018434300\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1102445400,
+        "ns_op": 110.25330513775845
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 1040594600,
+        "ns_op": 104.06773338480409
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 1021393800,
+        "ns_op": 102.14750072630774
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 1018434300,
+        "ns_op": 101.85152719641212
+      }
+    ],
+    "median_ns_op": 102.14750072630774
+  },
+  {
+    "label": "projection",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\projection.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\0-projection-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.227912902832031,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 982950900\nrep 1 W27 9999205 904617600\nrep 2 W27 9999205 912932400\nrep 3 W27 9999205 896862400\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 982950900,
+        "ns_op": 98.30290508095393
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 904617600,
+        "ns_op": 90.4689522817064
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 912932400,
+        "ns_op": 91.30049838962198
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 896862400,
+        "ns_op": 89.69337062296452
+      }
+    ],
+    "median_ns_op": 90.4689522817064
+  },
+  {
+    "label": "projection",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\projection.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\1-projection-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 5.975934743881226,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1432131400\nrep 1 W26 1000000 1346120400\nrep 2 W26 1000000 1345566900\nrep 3 W26 1000000 1323096100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1432131400,
+        "ns_op": 1432.1314
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1346120400,
+        "ns_op": 1346.1204
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1345566900,
+        "ns_op": 1345.5669
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1323096100,
+        "ns_op": 1323.0961
+      }
+    ],
+    "median_ns_op": 1345.5669
+  },
+  {
+    "label": "baseline",
+    "load": "W26",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W26",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\1-baseline-W26",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 6.096358776092529,
+    "output": "data W26 3dae393237807191\nrep 0 W26 1000000 1433192900\nrep 1 W26 1000000 1353593400\nrep 2 W26 1000000 1375363500\nrep 3 W26 1000000 1353043100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 1433192900,
+        "ns_op": 1433.1929
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 1353593400,
+        "ns_op": 1353.5934
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 1375363500,
+        "ns_op": 1375.3635
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 1353043100,
+        "ns_op": 1353.0431
+      }
+    ],
+    "median_ns_op": 1353.5934
+  },
+  {
+    "label": "projection",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\projection.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\1-projection-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.263980865478516,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 978233400\nrep 1 W27 9999205 901007100\nrep 2 W27 9999205 900318100\nrep 3 W27 9999205 889611600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 978233400,
+        "ns_op": 97.83111757384712
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 901007100,
+        "ns_op": 90.10787357594928
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 900318100,
+        "ns_op": 90.03896809796379
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 889611600,
+        "ns_op": 88.96823297452147
+      }
+    ],
+    "median_ns_op": 90.03896809796379
+  },
+  {
+    "label": "baseline",
+    "load": "W27",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W27",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\projection-ab\\1-baseline-W27",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\krummi-table\\rep-3"
+    ],
+    "exit": 0,
+    "wall_s": 4.851418495178223,
+    "output": "data W27 83c361de908f0c3a\nrep 0 W27 9999205 1154219400\nrep 1 W27 9999205 1044512400\nrep 2 W27 9999205 1009797000\nrep 3 W27 9999205 1034861500\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 9999205,
+        "ns": 1154219400,
+        "ns_op": 115.43111677378351
+      },
+      {
+        "index": 1,
+        "ops": 9999205,
+        "ns": 1044512400,
+        "ns_op": 104.45954453379044
+      },
+      {
+        "index": 2,
+        "ops": 9999205,
+        "ns": 1009797000,
+        "ns_op": 100.98772852441769
+      },
+      {
+        "index": 3,
+        "ops": 9999205,
+        "ns": 1034861500,
+        "ns_op": 103.49437780303533
+      }
+    ],
+    "median_ns_op": 103.49437780303533
+  }
+]

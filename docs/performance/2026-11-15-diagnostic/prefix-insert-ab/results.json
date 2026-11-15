@@ -1,0 +1,174 @@
+[
+  {
+    "label": "baseline",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-insert-ab\\0-baseline-W24"
+    ],
+    "exit": 0,
+    "wall_s": 44.027958154678345,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10456538000\nrep 1 W24 1000000 10526974500\nrep 2 W24 1000000 10572665300\nrep 3 W24 1000000 10383110100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10456538000,
+        "ns_op": 10456.538
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10526974500,
+        "ns_op": 10526.9745
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10572665300,
+        "ns_op": 10572.6653
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10383110100,
+        "ns_op": 10383.1101
+      }
+    ],
+    "median_ns_op": 10526.9745
+  },
+  {
+    "label": "prefix",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\prefix.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-insert-ab\\0-prefix-W24"
+    ],
+    "exit": 0,
+    "wall_s": 43.159351110458374,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10265703800\nrep 1 W24 1000000 10262375700\nrep 2 W24 1000000 10404056700\nrep 3 W24 1000000 10379939700\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10265703800,
+        "ns_op": 10265.7038
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10262375700,
+        "ns_op": 10262.3757
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10404056700,
+        "ns_op": 10404.0567
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10379939700,
+        "ns_op": 10379.9397
+      }
+    ],
+    "median_ns_op": 10379.9397
+  },
+  {
+    "label": "prefix",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\prefix.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-insert-ab\\1-prefix-W24"
+    ],
+    "exit": 0,
+    "wall_s": 44.60573744773865,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10478527900\nrep 1 W24 1000000 10423417800\nrep 2 W24 1000000 10564971300\nrep 3 W24 1000000 11236007600\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10478527900,
+        "ns_op": 10478.5279
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10423417800,
+        "ns_op": 10423.4178
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10564971300,
+        "ns_op": 10564.9713
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 11236007600,
+        "ns_op": 11236.0076
+      }
+    ],
+    "median_ns_op": 10564.9713
+  },
+  {
+    "label": "baseline",
+    "load": "W24",
+    "command": [
+      "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\baseline.exe",
+      "run",
+      "krummi",
+      "W24",
+      "full",
+      "C:\\projects\\Krummi\\work\\diag-20261115\\prefix-insert-ab\\1-baseline-W24"
+    ],
+    "exit": 0,
+    "wall_s": 43.91795778274536,
+    "output": "data W24 eb283872a83767a3\nrep 0 W24 1000000 10495157500\nrep 1 W24 1000000 10461084200\nrep 2 W24 1000000 10637265700\nrep 3 W24 1000000 10471260100\n",
+    "stderr": "",
+    "reps": [
+      {
+        "index": 0,
+        "ops": 1000000,
+        "ns": 10495157500,
+        "ns_op": 10495.1575
+      },
+      {
+        "index": 1,
+        "ops": 1000000,
+        "ns": 10461084200,
+        "ns_op": 10461.0842
+      },
+      {
+        "index": 2,
+        "ops": 1000000,
+        "ns": 10637265700,
+        "ns_op": 10637.2657
+      },
+      {
+        "index": 3,
+        "ops": 1000000,
+        "ns": 10471260100,
+        "ns_op": 10471.2601
+      }
+    ],
+    "median_ns_op": 10471.2601
+  }
+]

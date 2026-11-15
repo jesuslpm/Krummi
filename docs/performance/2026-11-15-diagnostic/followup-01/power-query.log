@@ -1,0 +1,22 @@
+Power Scheme GUID: 6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10  (Krummi bench)
+  Subgroup GUID: 54533251-82be-4824-96c1-47b60b740d00  (Processor power management)
+    GUID Alias: SUB_PROCESSOR
+    Power Setting GUID: be337238-0d82-4146-a960-4f3749d470c7  (Processor performance boost mode)
+      GUID Alias: PERFBOOSTMODE
+      Possible Setting Index: 000
+      Possible Setting Friendly Name: Disabled
+      Possible Setting Index: 001
+      Possible Setting Friendly Name: Enabled
+      Possible Setting Index: 002
+      Possible Setting Friendly Name: Aggressive
+      Possible Setting Index: 003
+      Possible Setting Friendly Name: Efficient Enabled
+      Possible Setting Index: 004
+      Possible Setting Friendly Name: Efficient Aggressive
+      Possible Setting Index: 005
+      Possible Setting Friendly Name: Aggressive At Guaranteed
+      Possible Setting Index: 006
+      Possible Setting Friendly Name: Efficient Aggressive At Guaranteed
+    Current AC Power Setting Index: 0x00000000
+    Current DC Power Setting Index: 0x00000002
+

@@ -1,0 +1,8 @@
+{
+  "machine": "MSI-W11-01",
+  "affinity": "0xffff",
+  "binary": "C:\\projects\\Krummi\\work\\diag-20261115\\bin\\r3-verified-micro.exe",
+  "sha256": "4a61513d2d02ef9104f9e6f7218c247a263d33ec012d8a727c5d29b351996480",
+  "started": "2026-11-15T08:52:53+0000",
+  "power": "Power Scheme GUID: 6c0f3a52-1d7e-4b8a-9f21-4b7d2e9c5a10  (Krummi bench)"
+}

@@ -111,6 +111,12 @@ hilos (G4); Krummi además las lleva al disco agrupadas (E4).
 - *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron: antes de cada versión, el mantenedor puede ejecutar el banco con `--solo-krummi-voron` (B6); el banco averigua los núcleos de rendimiento antes de medir, y con esa opción solo mide Krummi y Voron (B2, B4).*
 - *Anotación del 2026-11-12 desde el banco solo con Krummi y Voron: excepciones a «Elegir desde la orden qué motores o qué cargas ejecutar», porque `--solo-krummi-voron` elige el par Krummi y Voron (B1), y a «Preparar el equipo», porque el banco limita sus procesos de medición a los núcleos de rendimiento (B4).*
 
+*Anotación del 2026-11-15 desde las proyecciones ([tables-projection.prd.md](../tables/tables-projection.prd.md)): K7:
+en W26 y W27, y en las cargas de tablas futuras que lean valores de columnas salvo que su PRD diga otra cosa, Krummi lee
+sus filas con una proyección, la lectura con las capacidades reales del motor, como en W28, y preparar la proyección
+cuenta en el tiempo medido de cada repetición; Voron lee sus campos por su posición. Las cargas y los umbrales no
+cambian (PY7).*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:
