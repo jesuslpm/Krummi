@@ -140,17 +140,33 @@ struct Prepared {
     /// The reader of the schema it was prepared with: its columns, its layout and their defaults.
     reader: Arc<Reader>,
     /// How each column of the list is read from a row of the current version.
-    current: Box<[Access]>,
+    current: Box<[Planned]>,
     /// The same for the rows of each older version, by version number, prepared when the first such row is read.
-    older: Box<[OnceLock<Box<[Access]>>]>,
+    older: Box<[OnceLock<Box<[Planned]>>]>,
     /// Whether the store keeps it (a test hook).
     kept: bool,
 }
 
+/// A column of the list as it is read from a row of one version: everything a read needs, in one record.
+struct Planned {
+    access: Access,
+    ty: ColumnType,
+    /// Its position among the live columns.
+    position: usize,
+}
+
 /// How a column of the list is read from a row of one version.
 enum Access {
-    /// From the row's bytes, at this slot of the version's layout.
-    Slot(Slot),
+    /// From the fixed section of the row's bytes, `start..end`, null when `null_mask` is set in the byte `null_byte`
+    /// (a mask of 0 for a column without nulls).
+    Fixed {
+        start: u32,
+        end: u32,
+        null_byte: u32,
+        null_mask: u8,
+    },
+    /// From the variable section of the row's bytes, at this slot of the version's layout.
+    Variable(Slot),
     /// From the row's key: a fixed-width primary key column, this element of the key.
     Key(usize),
     /// A column added after the row's version, with this default (null, or one the reader keeps).
@@ -162,24 +178,36 @@ enum Access {
 
 impl Prepared {
     /// How the columns at `positions` are read from the rows of `old`, or of the current version without it.
-    fn plan(reader: &Reader, positions: &[usize], old: Option<&OldVersion>) -> Box<[Access]> {
+    fn plan(reader: &Reader, positions: &[usize], old: Option<&OldVersion>) -> Box<[Planned]> {
         positions
             .iter()
             .map(|&i| {
                 let column = &reader.columns[i];
-                if let Some(k) = column.in_key {
-                    return Access::Key(k);
-                }
                 let (layout, place) = match old {
                     None => (&reader.layout, Some(i)),
                     Some(old) => (&old.layout, old.places[i]),
                 };
-                match place {
-                    Some(place) => {
-                        Access::Slot(layout.slot(place).expect("a column of the version"))
+                let access = match (column.in_key, place) {
+                    (Some(k), _) => Access::Key(k),
+                    (None, Some(place)) => {
+                        let slot = layout.slot(place).expect("a column of the version");
+                        match slot.fixed() {
+                            Some((start, end, null_byte, null_mask)) => Access::Fixed {
+                                start,
+                                end,
+                                null_byte,
+                                null_mask,
+                            },
+                            None => Access::Variable(slot),
+                        }
                     }
-                    None if needs_stored(&column.default) => Access::Default,
-                    None => Access::Constant(column.default.clone()),
+                    (None, None) if needs_stored(&column.default) => Access::Default,
+                    (None, None) => Access::Constant(column.default.clone()),
+                };
+                Planned {
+                    access,
+                    ty: column.ty,
+                    position: i,
                 }
             })
             .collect()
@@ -258,7 +286,7 @@ impl<T: ReadAs> fmt::Debug for ProjectedColumn<T> {
 /// transaction's pages (D11), and those of a copied row are copies of their own.
 pub struct ProjectedRow<'p, 't> {
     prepared: &'p Prepared,
-    plan: &'p [Access],
+    plan: &'p [Planned],
     row: Bound<'p, 't>,
 }
 
@@ -286,6 +314,18 @@ impl<'s> Projection<'s> {
     /// The [`Error::DifferentSchema`] of the projection's table.
     fn different(&self, different: Different) -> Error {
         Folder(self.prepared.folder.as_deref()).different_schema(&self.table, different)
+    }
+
+    /// The error of binding a row of another table, store or schema (PY3).
+    #[cold]
+    #[inline(never)]
+    fn wrong_row(&self) -> Error {
+        self.different(Different {
+            column: None,
+            difference: SchemaDifference::Projection,
+            expected: "a row of the projection's table and schema".to_owned(),
+            found: "a row of another table, store or schema".to_owned(),
+        })
     }
 
     /// The column at `position` of the list, prepared to be read as `T`, which must be read from the column's type
@@ -322,12 +362,7 @@ impl<'s> Projection<'s> {
     pub fn bind<'p, 't>(&'p self, row: &'p TableRow<'t>) -> Result<ProjectedRow<'p, 't>> {
         let prepared = &*self.prepared;
         if row.reader.schema != prepared.key.schema {
-            return Err(self.different(Different {
-                column: None,
-                difference: SchemaDifference::Projection,
-                expected: "a row of the projection's table and schema".to_owned(),
-                found: "a row of another table, store or schema".to_owned(),
-            }));
+            return Err(self.wrong_row());
         }
         let (plan, row) = match &row.stored {
             Stored::Owned(values) => (&prepared.current[..], Bound::Owned(values)),
@@ -390,9 +425,8 @@ impl<'t> ProjectedRow<'_, 't> {
         if !Arc::ptr_eq(&column.key, list) && *column.key != **list {
             panic!("the prepared column is of another projection");
         }
-        let at = column.at;
-        let i = list.positions[at];
-        let ty = &self.prepared.reader.columns[i].ty;
+        let planned = &self.plan[column.at];
+        let ty = &planned.ty;
         let value = match self.row {
             Bound::Row {
                 key,
@@ -400,20 +434,31 @@ impl<'t> ProjectedRow<'_, 't> {
                 bytes,
                 layout,
                 defaults,
-            } => match &self.plan[at] {
-                Access::Slot(slot) => {
-                    return layout.slot_bytes(bytes, *slot).map(|b| T::stored(ty, b));
+            } => match planned.access {
+                Access::Fixed {
+                    start,
+                    end,
+                    null_byte,
+                    null_mask,
+                } => {
+                    if null_mask != 0 && bytes[null_byte as usize] & null_mask != 0 {
+                        return None;
+                    }
+                    return Some(T::stored(ty, &bytes[start as usize..end as usize]));
+                }
+                Access::Variable(slot) => {
+                    return layout.slot_bytes(bytes, slot).map(|b| T::stored(ty, b));
                 }
                 Access::Key(k) => {
-                    let start = starts.map_or(0, |starts| usize::from(starts[*k]));
+                    let start = starts.map_or(0, |starts| usize::from(starts[k]));
                     return Some(T::key(ty, &key[start..]));
                 }
-                Access::Constant(value) => value.clone(),
+                Access::Constant(ref value) => value.clone(),
                 Access::Default => {
-                    defaults.expect("the stored defaults of an older row")[i].clone()
+                    defaults.expect("the stored defaults of an older row")[planned.position].clone()
                 }
             },
-            Bound::Owned(values) => values[i].clone(),
+            Bound::Owned(values) => values[planned.position].clone(),
         };
         match value {
             Value::Null => None,

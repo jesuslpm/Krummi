@@ -89,6 +89,18 @@ impl Slot {
         matches!(self.place, SlotPlace::Fixed { .. })
     }
 
+    /// For a column of the fixed section, the start and the end of its bytes in a row, and the byte and the mask of
+    /// its bit in the null bitmap (a mask of 0 for a column without nulls): what [`RowLayout::slot_bytes`] reads.
+    #[inline]
+    pub fn fixed(self) -> Option<(u32, u32, u32, u8)> {
+        match self.place {
+            SlotPlace::Fixed { offset, width } => {
+                Some((offset, offset + width, self.null_byte, self.null_mask))
+            }
+            _ => None,
+        }
+    }
+
     /// Writes `value`, normalized for this fixed-width column, into `row`, a row of its layout, as
     /// [`RowLayout::encode`] writes it: its bytes and a clear null bit, or for a null, zeros and a set null bit.
     /// Panics for a column outside the fixed section, or a null where the column takes none.
