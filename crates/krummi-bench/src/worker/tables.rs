@@ -7,13 +7,21 @@
 //! The table `table` has the primary key `id` (`ulid`, or `uuid` in the order of RFC 9562 for W24) and the columns
 //! `n` (`i64`), `x` (`f64`), `ts` (`timestamp`), `flag` (`bool`) and `name` (`string`), none nullable. Every commit
 //! is durable, as in the other Krummi loads (K3).
+//!
+//! W26 and W27 read the columns of their rows with a projection prepared at the start of each repetition, inside its
+//! measured time (PY7 of tables-projection.prd.md). `KRUMMI_BENCH_PROJECTION=off` reads them by position instead, a
+//! diagnostic hook to measure the projection (AC-PY11), not part of the benchmark's interface.
 
 use std::borrow::Cow;
 use std::convert::Infallible;
 
 use krummi::ids::{Ulid, Uuid};
+use krummi::table::projection::{TextBytes, Timestamp};
 use krummi::table::value::{ColumnType, UuidOrder, Value};
-use krummi::{Column, Schema, TableMode, TableRow, WriteTable, WriteTransaction};
+use krummi::{
+    Column, ProjectedColumn, Projection, ReadTable, ReadTransaction, Schema, TableMode, TableRow,
+    WriteTable, WriteTransaction,
+};
 
 use super::{Context, check_count, check_sum, hex, missing, timed};
 use crate::engines::{self, Result, Tree, cause};
@@ -24,6 +32,14 @@ type Krummi = engines::krummi::Store;
 
 /// The name of the table of every table load.
 const TABLE: &str = "table";
+
+/// The variable whose value `off` makes W26 and W27 read their columns by position instead of with a projection.
+pub const PROJECTION_VARIABLE: &str = "KRUMMI_BENCH_PROJECTION";
+
+/// Whether W26 and W27 read with a projection: unless [`PROJECTION_VARIABLE`] is `off`.
+fn with_projection() -> bool {
+    std::env::var_os(PROJECTION_VARIABLE).is_none_or(|value| value != "off")
+}
 
 /// Runs the table load of `cx` (W23–W29).
 pub(super) fn run(cx: &Context) -> Result<()> {
@@ -66,18 +82,9 @@ pub(super) fn run(cx: &Context) -> Result<()> {
         Load::W26 => {
             let keys = ulid_keys(table_data::order(load.number(), n));
             let expected = table_data::expected_read_sum(n);
+            let projected = with_projection();
             cx.read_only::<Krummi>(Tree::Normal, |store| {
-                let (sum, time) = timed(|| {
-                    let tx = store.inner().read().map_err(cause)?;
-                    let table = tx.open_table(TABLE).map_err(cause)?;
-                    let mut sum = 0u64;
-                    for key in &keys {
-                        let row = tx.get_row(&table, &[ulid(key)]).map_err(cause)?;
-                        let row = row.ok_or_else(|| missing(key))?;
-                        sum = sum.wrapping_add(checksum(&row)?);
-                    }
-                    Ok(sum)
-                })?;
+                let (sum, time) = timed(|| read_by_key(store.inner(), &keys, projected))?;
                 check_sum(expected, sum)?;
                 Ok(vec![(load, n, time)])
             })
@@ -85,33 +92,10 @@ pub(super) fn run(cx: &Context) -> Result<()> {
         Load::W27 => {
             let starts = ulid_keys(table_data::range_starts(n, p.ranges));
             let (rows, expected) = table_data::expected_ranges(n, p.ranges, p.range_len);
+            let projected = with_projection();
             cx.read_only::<Krummi>(Tree::Normal, |store| {
-                let ((count, sum), time) = timed(|| {
-                    let tx = store.inner().read().map_err(cause)?;
-                    let table = tx.open_table(TABLE).map_err(cause)?;
-                    let (mut count, mut sum) = (0u64, 0u64);
-                    for start in &starts {
-                        // The rows are lent one after another, as Voron's scan lends its holder.
-                        let mut range = tx.range_rows(&table, &[], ulid(start)..).map_err(cause)?;
-                        let mut read = 0u64;
-                        while read < p.range_len {
-                            let Some(row) = range.next_row().map_err(cause)? else {
-                                break;
-                            };
-                            // A range starts at an existing key: its first row is that key's.
-                            if read == 0 && id_of(row).as_ref() != Some(start) {
-                                return Err(missing(start));
-                            }
-                            sum = sum.wrapping_add(checksum(row)?);
-                            read += 1;
-                        }
-                        if read == 0 {
-                            return Err(missing(start));
-                        }
-                        count += read;
-                    }
-                    Ok((count, sum))
-                })?;
+                let ((count, sum), time) =
+                    timed(|| read_ranges(store.inner(), &starts, p.range_len, projected))?;
                 check_count(rows, count)?;
                 check_sum(expected, sum)?;
                 Ok(vec![(load, count, time)])
@@ -234,19 +218,119 @@ fn id_of(row: &TableRow<'_>) -> Option<[u8; ID_LEN]> {
     row.ulid(0).map(|id| id.0)
 }
 
-/// The checksum of a row read, every column ([`table_data::checksum`]), each read with its typed accessor (the table
-/// has the columns of [`schema`], or the accessor panics); `ts` back in microseconds.
-fn checksum(row: &TableRow<'_>) -> Result<u64> {
+/// The sum of the checksums of the rows of `keys`, each read by its key (W26), with a projection or by position.
+fn read_by_key(store: &krummi::Store, keys: &[[u8; ID_LEN]], projected: bool) -> Result<u64> {
+    let tx = store.read().map_err(cause)?;
+    let table = tx.open_table(TABLE).map_err(cause)?;
+    let columns = Columns::prepare(&tx, &table, projected)?;
+    let mut sum = 0u64;
+    for key in keys {
+        let row = tx.get_row(&table, &[ulid(key)]).map_err(cause)?;
+        let row = row.ok_or_else(|| missing(key))?;
+        sum = sum.wrapping_add(checksum(&row, columns.as_ref())?);
+    }
+    Ok(sum)
+}
+
+/// The number of rows read and the sum of their checksums of a range of up to `range_len` rows from each of `starts`
+/// (W27), with a projection or by position.
+fn read_ranges(
+    store: &krummi::Store,
+    starts: &[[u8; ID_LEN]],
+    range_len: u64,
+    projected: bool,
+) -> Result<(u64, u64)> {
+    let tx = store.read().map_err(cause)?;
+    let table = tx.open_table(TABLE).map_err(cause)?;
+    let columns = Columns::prepare(&tx, &table, projected)?;
+    let (mut count, mut sum) = (0u64, 0u64);
+    for start in starts {
+        // The rows are lent one after another, as Voron's scan lends its holder.
+        let mut range = tx.range_rows(&table, &[], ulid(start)..).map_err(cause)?;
+        let mut read = 0u64;
+        while read < range_len {
+            let Some(row) = range.next_row().map_err(cause)? else {
+                break;
+            };
+            // A range starts at an existing key: its first row is that key's.
+            if read == 0 && id_of(row).as_ref() != Some(start) {
+                return Err(missing(start));
+            }
+            sum = sum.wrapping_add(checksum(row, columns.as_ref())?);
+            read += 1;
+        }
+        if read == 0 {
+            return Err(missing(start));
+        }
+        count += read;
+    }
+    Ok((count, sum))
+}
+
+/// The columns of [`schema`] prepared to be read with a projection (PY7).
+struct Columns<'s> {
+    projection: Projection<'s>,
+    id: ProjectedColumn<Ulid>,
+    n: ProjectedColumn<i64>,
+    x: ProjectedColumn<f64>,
+    ts: ProjectedColumn<Timestamp>,
+    flag: ProjectedColumn<bool>,
+    name: ProjectedColumn<TextBytes>,
+}
+
+impl<'s> Columns<'s> {
+    /// The projection of every column of `table`, when the load reads with one.
+    fn prepare(
+        tx: &ReadTransaction<'s>,
+        table: &ReadTable<'_>,
+        projected: bool,
+    ) -> Result<Option<Self>> {
+        if !projected {
+            return Ok(None);
+        }
+        let projection = tx
+            .projection(table, &["id", "n", "x", "ts", "flag", "name"])
+            .map_err(cause)?;
+        Ok(Some(Columns {
+            id: projection.column(0).map_err(cause)?,
+            n: projection.column(1).map_err(cause)?,
+            x: projection.column(2).map_err(cause)?,
+            ts: projection.column(3).map_err(cause)?,
+            flag: projection.column(4).map_err(cause)?,
+            name: projection.column(5).map_err(cause)?,
+            projection,
+        }))
+    }
+}
+
+/// The checksum of a row read, every column ([`table_data::checksum`]): with `columns`, through the projection;
+/// otherwise each with its typed accessor (the table has the columns of [`schema`], or the accessor panics); `ts` back
+/// in microseconds.
+fn checksum(row: &TableRow<'_>, columns: Option<&Columns<'_>>) -> Result<u64> {
     let unexpected = || format!("la fila leída no tiene las columnas de la tabla: {row:?}");
-    let (COLUMNS, Some(id), Some(n), Some(x), Some(ts), Some(flag), Some(name)) = (
-        row.len(),
-        id_of(row),
-        row.i64(1),
-        row.f64(2),
-        row.timestamp(3),
-        row.bool(4),
-        row.text_bytes(5),
-    ) else {
+    let read = match columns {
+        Some(c) => {
+            let r = c.projection.bind(row).map_err(cause)?;
+            (
+                r.get(&c.id).map(|id| id.0),
+                r.get(&c.n),
+                r.get(&c.x),
+                r.get(&c.ts),
+                r.get(&c.flag),
+                r.get(&c.name),
+            )
+        }
+        None if row.len() == COLUMNS => (
+            id_of(row),
+            row.i64(1),
+            row.f64(2),
+            row.timestamp(3),
+            row.bool(4),
+            row.text_bytes(5),
+        ),
+        None => return Err(unexpected()),
+    };
+    let (Some(id), Some(n), Some(x), Some(ts), Some(flag), Some(name)) = read else {
         return Err(unexpected());
     };
     // A 64-bit division when the nanoseconds fit, as they do in the loads' data; the 128-bit one costs several times more.
@@ -291,4 +375,50 @@ fn batches(
         start = end;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A store with the table of W23's first `n` rows.
+    fn loaded(n: u64) -> krummi::Store {
+        let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+        let rows = table_data::rows(n, KeyKind::Ulid);
+        batches(
+            &store,
+            rows.len(),
+            1_000,
+            Some(&schema(KeyKind::Ulid)),
+            |tx, table, j| {
+                tx.insert_row(table, &values(&rows[j], KeyKind::Ulid))
+                    .map_err(cause)
+            },
+        )
+        .unwrap();
+        store
+    }
+
+    /// PY7 and AC-PY11 of the projection PRD: W26 and W27 read with a projection, which the store keeps once
+    /// prepared (the test hook), and give the checksums both engines check; by position (the diagnostic hook) they
+    /// prepare none and give the same checksums.
+    #[test]
+    fn w26_and_w27_read_with_a_projection() {
+        let n = 2_000;
+        let keys = ulid_keys(table_data::order(Load::W26.number(), n));
+        let starts = ulid_keys(table_data::range_starts(n, 20));
+        let (rows, ranges) = table_data::expected_ranges(n, 20, 50);
+        for projected in [false, true] {
+            let store = loaded(n);
+            assert_eq!(
+                read_by_key(&store, &keys, projected).unwrap(),
+                table_data::expected_read_sum(n)
+            );
+            assert_eq!(
+                read_ranges(&store, &starts, 50, projected).unwrap(),
+                (rows, ranges)
+            );
+            assert_eq!(store.kept_projections(), usize::from(projected));
+        }
+    }
 }
