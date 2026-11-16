@@ -68,3 +68,13 @@ now carry the annotation of 2026-11-16, which names the nine loads and the compa
 W27 checksums, W27's ratio up on both systems) are met as recorded.
 
 Status: claimed, unverified until a follow-up review.
+
+## 2026-11-16 (verification, round 3)
+
+Follow-up report: [2026-11-16-code-03.md](2026-11-16-code-03.md), over `df72e3f..dc35e10`, wrapper status `approved`,
+thread `01a1e358-cb1f-7191-b1a1-e68909e10eac`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer `krummi-review`
+`gpt-6.1-sol` / `high`. Verdict, quoted: «Approved: R1 is verified resolved; no findings remain open in the requested
+follow-up scope.»
+
+- R1: verified resolved.
+- R2: verified resolved in round 2.

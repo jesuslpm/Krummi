@@ -195,3 +195,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   cierro T5 y lo dejo en el informe de cierre." AC-PY11 of
   [tables-projection.prd.md](../../docs/prd/krummi/tables/tables-projection.prd.md) and its translation now carry the
   annotation of 2026-11-16; S2 rewritten; T5 done. The wait for the answer is in the phase log.
+- **L20** (2026-11-16) — Codex code review, round 3 (follow-up, `df72e3f..dc35e10`):
+  [2026-11-16-code-03.md](../../docs/reviews/tables-projection/2026-11-16-code-03.md), status **approved**. R1 verified
+  resolved (the user's decision, annotated on AC-PY11); R2 verified in round 2. No finding open. Three rounds, the
+  loop's limit.

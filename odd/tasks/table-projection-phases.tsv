@@ -43,3 +43,6 @@
 2026-11-16T07:20:55+00:00	mark	fix	RDD advisories of the identity fix
 2026-11-16T07:27:44+00:00	mark	wait	R1 question to the user
 2026-11-16T07:52:43+00:00	mark	close	R1 answered: accept the A/B
+2026-11-16T07:53:26+00:00	mark	review	Codex code review R3
+2026-11-16T07:53:26+00:00	bg-start	review	codex-R3
+2026-11-16T07:56:18+00:00	bg-end	review	codex-R3
