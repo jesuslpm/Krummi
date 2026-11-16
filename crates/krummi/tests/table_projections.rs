@@ -898,6 +898,106 @@ fn ac_py5_rows_of_another_table_store_or_schema_do_not_bind() {
     other.close().unwrap();
 }
 
+/// An identity source that gives `values` in order.
+fn identities(values: Vec<u64>) -> impl FnMut(&mut [u8]) -> krummi::Result<()> {
+    let mut next = values.into_iter();
+    move |out| {
+        out.copy_from_slice(
+            &next
+                .next()
+                .expect("identity source exhausted")
+                .to_le_bytes(),
+        );
+        Ok(())
+    }
+}
+
+/// AC-PY5 and PY1 with the generator forced to repeat an identity (R2 of the Codex code review): an abandoned write's
+/// schema state drawn again by the next write, and a deleted table's identity and schema state drawn again for the
+/// table created with its name in a store reopened from its files, never give a schema that binds the other's rows or
+/// shares its kept projection.
+#[test]
+fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
+    use krummi::table::testing::with_identity_source;
+    let tmp = tempfile::tempdir().unwrap();
+    let schema = Schema::new(vec![Column::new("id", ColumnType::I64).not_null()], &["id"]);
+
+    // An abandoned write's schema state, 40, drawn again by the next write's schema change.
+    let store = open(&tmp.path().join("t"));
+    let mut seed = store.write().unwrap();
+    with_identity_source(identities(vec![10, 20, 30]), || {
+        seed.open_table_with("t", TableMode::CreateNew(&schema))
+    })
+    .unwrap();
+    seed.commit().unwrap();
+    let mut abandoned = store.write().unwrap();
+    let t = abandoned.open_table("t").unwrap();
+    with_identity_source(identities(vec![40, 50]), || {
+        abandoned.add_column(&t, &Column::new("a", ColumnType::I64))
+    })
+    .unwrap();
+    let old = abandoned.projection(&t, &["a"]).unwrap();
+    drop(abandoned);
+    let mut write = store.write().unwrap();
+    let t = write.open_table("t").unwrap();
+    with_identity_source(identities(vec![40, 60, 70]), || {
+        write.add_column(&t, &Column::new("b", ColumnType::I64))
+    })
+    .unwrap();
+    write
+        .insert_row(&t, &[("id", Value::I64(1)), ("b", Value::I64(77))])
+        .unwrap();
+    let row = write.get_row(&t, &[Value::I64(1)]).unwrap().unwrap();
+    wrong_schema(old.bind(&row).unwrap_err(), "t");
+    let new = write.projection(&t, &["b"]).unwrap();
+    assert!(
+        !new.same_as(&old),
+        "the new schema shares the abandoned one's kept projection"
+    );
+    let b = new.column::<i64>(0).unwrap();
+    assert_eq!(new.bind(&row).unwrap().get(&b), Some(77));
+    drop(row);
+    write.commit().unwrap();
+    store.close().unwrap();
+
+    // A deleted table's identity, 100, and schema state, 120, read from the files and drawn again for the table
+    // created with its name.
+    let folder = tmp.path().join("u");
+    let store = open(&folder);
+    let mut write = store.write().unwrap();
+    with_identity_source(identities(vec![100, 110, 120]), || {
+        write.open_table_with("u", TableMode::CreateNew(&schema))
+    })
+    .unwrap();
+    write.commit().unwrap();
+    store.close().unwrap();
+    let store = open(&folder);
+    let read = store.read().unwrap();
+    let old = read
+        .projection(&read.open_table("u").unwrap(), &["id"])
+        .unwrap();
+    drop(read);
+    let mut write = store.write().unwrap();
+    write.delete_table("u").unwrap();
+    write.commit().unwrap();
+    let mut write = store.write().unwrap();
+    let u = with_identity_source(identities(vec![100, 110, 120, 130, 140]), || {
+        write.open_table_with("u", TableMode::CreateNew(&schema))
+    })
+    .unwrap();
+    write.insert_row(&u, &[("id", Value::I64(1))]).unwrap();
+    let row = write.get_row(&u, &[Value::I64(1)]).unwrap().unwrap();
+    wrong_schema(old.bind(&row).unwrap_err(), "u");
+    let new = write.projection(&u, &["id"]).unwrap();
+    assert!(
+        !new.same_as(&old),
+        "the new table shares the deleted one's kept projection"
+    );
+    drop(row);
+    write.commit().unwrap();
+    store.close().unwrap();
+}
+
 /// The table `name` of [`simple`] with only the row 1, created in `write`.
 fn simple_in(write: &mut krummi::WriteTransaction<'_>, name: &str) {
     let schema = Schema::new(

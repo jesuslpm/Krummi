@@ -55,8 +55,8 @@
 //! ```
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -81,6 +81,9 @@ pub const MAX_PROJECTIONS: usize = 1_024;
 pub(crate) struct Projections {
     serial: u64,
     kept: Mutex<HashMap<Arc<ListKey>, Arc<Prepared>>>,
+    /// The schema identities that a projection or a row of the store may still carry although no tree of a later
+    /// write lists them, which the store never draws again, so that two schemas it shows never share one (PY1, PY3).
+    retired: Mutex<Retired>,
 }
 
 impl Projections {
@@ -88,12 +91,39 @@ impl Projections {
         Projections {
             serial,
             kept: Mutex::default(),
+            retired: Mutex::default(),
         }
     }
 
     /// The serial of the store, unique in the process.
     pub(crate) fn serial(&self) -> u64 {
         self.serial
+    }
+
+    fn retired(&self) -> std::sync::MutexGuard<'_, Retired> {
+        self.retired.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether the store must not draw `id` again for a new table.
+    pub(crate) fn retired_table(&self, id: u64) -> bool {
+        self.retired().tables.contains(&id)
+    }
+
+    /// Records that the store must not draw `id` again for a new table: one it created, also in a write it
+    /// abandoned, or deleted.
+    pub(crate) fn retire_table(&self, id: u64) {
+        self.retired().tables.insert(id);
+    }
+
+    /// Whether the store must not draw `state` again for a new schema of the table `table`.
+    pub(crate) fn retired_schema(&self, table: u64, state: u64) -> bool {
+        self.retired().schemas.contains(&(table, state))
+    }
+
+    /// Records that the store must not draw `state` again for a new schema of the table `table`: a state drawn by a
+    /// schema change, also in a write it abandoned.
+    pub(crate) fn retire_schema(&self, table: u64, state: u64) {
+        self.retired().schemas.insert((table, state));
     }
 
     /// How many projections the store keeps.
@@ -122,6 +152,17 @@ impl Projections {
         }
         prepared
     }
+}
+
+/// The schema identities a store retires (see [`Projections`]): the identities of the tables it created, also in
+/// abandoned writes, or deleted, and the schema states that its schema changes drew for each table, also in abandoned
+/// writes. A schema's identity is its table's and its state (`SchemaId`), so a new table needs only an identity not
+/// retired, and a new schema of a table a state that neither its history nor this set knows. One entry per table
+/// created or deleted and per schema change while the store is open.
+#[derive(Default)]
+struct Retired {
+    tables: HashSet<u64>,
+    schemas: HashSet<(u64, u64)>,
 }
 
 /// What identifies a projection: the schema it is tied to and the live columns of its list, by position, in its

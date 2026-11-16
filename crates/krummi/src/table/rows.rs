@@ -202,7 +202,10 @@ pub(crate) struct Reader {
 
 /// The schema of a table in an open store, which identifies it among every schema of every table of every open store
 /// (PY1 of the projection PRD): the store's serial, unique in the process, the table's identity and its schema state
-/// (P12), random and drawn again at each new version, so that an abandoned write's never equals another's.
+/// (P12), random and drawn again at each new version. While open, the store never draws again the identity of a table
+/// it created or deleted, nor a state its schema changes drew for the same table, also in abandoned writes
+/// (`Projections::retire_table`, `retire_schema`), so an abandoned write's schema, or a deleted table's, never equals
+/// another's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SchemaId {
     pub(crate) store: u64,

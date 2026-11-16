@@ -567,7 +567,8 @@ impl<'s> WriteTransaction<'s> {
         defaults: Vec<Option<super::value::Value<'static>>>,
     ) -> Result<WriteTable<'s>> {
         let table_id = self.draw_identity(|tx, id| {
-            Ok(catalog::has_identity(&tx.inner, TreeKind::Table, id)?
+            Ok(tx.projections.retired_table(id)
+                || catalog::has_identity(&tx.inner, TreeKind::Table, id)?
                 || tx.tables.borrow().get(id).is_some())
         })?;
         let mut drawn: Vec<u64> = Vec::with_capacity(schema.columns.len() + 1);
@@ -576,6 +577,7 @@ impl<'s> WriteTransaction<'s> {
             drawn.push(id);
         }
         let schema_state = drawn.pop().expect("one more than the columns");
+        self.projections.retire_table(table_id);
         let schema = TableSchema::new(table_id, schema, defaults, &drawn, schema_state);
         let root = krummi_tree::create(&mut self.inner)?;
         let history = krummi_tree::create(&mut self.inner)?;
@@ -622,6 +624,7 @@ impl<'s> WriteTransaction<'s> {
     /// from now on (E2, A6).
     fn drop_table(&mut self, name: &str, found: Found) -> Result<()> {
         let id = self.join(name, found)?.id;
+        self.projections.retire_table(id);
         let (root, history) = {
             let state = self.tables.get_mut().get(id).expect("joined");
             (state.rows_root, state.history)
@@ -657,7 +660,10 @@ impl<'s> WriteTransaction<'s> {
         let known = |tx: &Self, id: u64| {
             Ok(krummi_tree::get(&tx.inner, history, &identity_key(id))?.is_some())
         };
-        let schema_state = self.draw_identity(known)?;
+        let schema_state = self.draw_identity(|tx, id| {
+            Ok(tx.projections.retired_schema(table.id, id) || known(tx, id)?)
+        })?;
+        self.projections.retire_schema(table.id, schema_state);
         let column_id = if next.adds_column() {
             Some(self.draw_identity(|tx, id| Ok(id == schema_state || known(tx, id)?))?)
         } else {

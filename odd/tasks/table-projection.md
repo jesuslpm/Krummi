@@ -154,3 +154,10 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   acknowledged and burned. One advisory finding: R2-001 (SUGGESTION, deterministic, `row.rs` `slot_bytes` kept a
   `Fixed` match arm that the early `FixedSlot` return made unreachable) — **fixed** in the next commit: `slot_bytes`
   matches the place once and reads a fixed column through `Slot::fixed_at(..).read`, with no dead arm. Checks: fmt and clippy clean, `cargo test --workspace` 851 passed, 0 failed, 34 ignored.
+- **L15** (2026-11-16) — Codex code review, round 1, over `28f9d3b..daccfcd`:
+  [2026-11-16-code.md](../../docs/reviews/tables-projection/2026-11-16-code.md), status `findings`. R1 (blocker,
+  AC-PY11 accepted on the A/B of L10 instead of its single-load clause) → pending, a product question for the user
+  after the loop. R2 (major, a repeated schema state of an abandoned write, or a deleted table's identity, aliases
+  another schema) → fixed in the next commit, with `ac_py5_a_repeated_identity_never_aliases_a_schema` (RED before
+  the fix, two mutants fail). Resolutions:
+  [2026-11-16-code-resolutions.md](../../docs/reviews/tables-projection/2026-11-16-code-resolutions.md).
