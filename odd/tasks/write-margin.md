@@ -37,8 +37,8 @@ guarantees and need a PRD first; a cache of recent leaves.
 | T2 | S2 | inline | done | `893468a`; RED 0 of 180 in place, GREEN; L4 |
 | T3 | S3 (hash) | inline | done | `4da23ed`; L4 |
 | T4 | S3 (first check of a version) | inline (S1: 54 % of updates) | done | `fdb7af9`; verifier pass; L6 |
-| T5 | S4 | inline, runs in the background | pending | |
-| T6 | — | close: RDD of the last slice, Codex review, report, archive | pending | |
+| T5 | S4 | inline, runs in the background | done | L8, L9, L13, L14; W20 accepted (L11) |
+| T6 | — | close: RDD of the last slice, Codex review, report, archive | done | L12, L15 |
 
 Routes: every task is one understood change of at most a few hundred lines, with no Writer trigger reason
 (no parallel units), so the parent writes inline.
@@ -153,3 +153,20 @@ Routes: every task is one understood change of at most a few hundred lines, with
   (WARNING): the second `bg-end acceptance full-linux` row of 14:40:08, written when the stopped Linux run was closed
   by hand, was removed. R2-resolutions-stray-blank (SUGGESTION): the extra blank line before round 3 of the
   resolutions was removed.
+- **L13** (2026-11-16) — T5 (S4), complete runs with `--solo-krummi-voron`. Windows, `e05655c` (same code as
+  `1ee31df`), performance cores, bench power plan, 13:36–14:00: **29 of 29**
+  (`docs/benchmark/2026-11-16-windows-write-margin.md`). Against this morning's run of `main`, Krummi dropped 25–35 %
+  in the concurrent reads only (W8 0.656, W9 0.661, W12 0.719, W13 0.758) while Voron moved less; an A/B right after,
+  3 rounds (`ab9`), gave W8 0.997 and W9 0.994: machine state during that run, not the branch. WSL 2, `b7d8083` (same
+  code), 16:08–17:01, without the bench power plan (the script did not set it): **28 of 29**, `tamano-fijo-carga`
+  (W21) 0.71 against 0.88 on 2026-11-15, Krummi 48,146 op/s (−14 %) and Voron 67,633 (+6.5 %), with both engines far
+  from yesterday on many loads (`docs/benchmark/2026-11-16-linux-write-margin.md`); an A/B of W21 in WSL, 5 rounds,
+  `main` against the branch (`work/wm/linux/ab-W21.txt`): 18,545 against 18,024 ns, the branch faster: not the branch.
+  W12 and W13 (reads beside a writer, where versions are read: the hash and the mark run there) came out below 1 in
+  three sessions (0.923, 0.964, 0.934; rounds spread ±12 %): a 10-round A/B follows.
+- **L14** (2026-11-16) — W12 and W13, 10 alternated rounds, `main` against the branch (`ab10`): W12 446.8 against
+  409.5 ns (1.091, the branch slower in 2 of 10), W13 12,905 against 12,331 ns (1.047, slower in 4 of 10). The lower
+  medians of the shorter sessions were noise. T5 done: every load that shares the changed code is even or faster
+  but W20, accepted by the user (L11); Windows 29 of 29; WSL 28 of 29 with the miss shown not to come from the
+  branch (L13).
+- **L15** (2026-11-16) — Closing report: [write-margin-report.md](write-margin-report.md). T6 done.
