@@ -35,7 +35,7 @@ guarantees and need a PRD first; a cache of recent leaves.
 | T1 | S1 | inline (probe in a copy under `work/`) | done | L3, probe not committed |
 | T2 | S2 | inline | done | `893468a`; RED 0 of 180 in place, GREEN; L4 |
 | T3 | S3 (hash) | inline | done | `4da23ed`; L4 |
-| T4 | S3 (first check of a version) | inline, if S1 supports it | pending | |
+| T4 | S3 (first check of a version) | inline (S1: 54 % of updates) | done | `fdb7af9`; verifier pass; L6 |
 | T5 | S4 | inline, runs in the background | pending | |
 | T6 | — | close: RDD of the last slice, Codex review, report, archive | pending | |
 
@@ -80,3 +80,40 @@ Routes: every task is one understood change of at most a few hundred lines, with
   only while page numbers are the store's own) and R1-002 (the guards of `replace` hold) need no change. R3-001 (the
   same-length branch of `replace` is never run: an add always makes the entry longer) and R3-002 (no direct test of
   the guards of `replace` against a stale place) are taken in a fix after T4.
+- **L6** (2026-11-16) — T4 (S3, first check of a version), `fdb7af9`. A read of a scratch-area version returns
+  `Origin::Version { checked, mark }`; `VersionMark` holds the version slot's layout flag, so `version_checked`
+  stores the pass through it instead of taking the scratch lock and finding the version again. `PageCheck` carries
+  the mark (krummi-tx) and the tree reports through it (`PageSource::layout_checked` takes the `PageCheck`). No RED:
+  the behavior is the same; `a_layout_pass_is_kept_only_by_the_version_that_passed` was rewritten for marks (a pass
+  through another version's mark, or a failure, leaves the version unchecked; a pass holds for later snapshots), and
+  AC-U1 to AC-U7 (`crates/krummi/src/version_check_tests.rs`) still pass. Suite 855 passed, 0 failed, 34 ignored;
+  fmt and clippy clean. Risk: item 4 (a reference to an atomic flag of a slot, taken under the lock and used after
+  it, `unsafe`). Independent verifier (sonnet, high): pass, no blocker; the flag shares the slot's lifetime with the
+  page bytes, a mark cannot outlive its snapshot through the API, marking is never wider than before, the
+  `version_checks` hook counts the same reports; four advisories (no test of a mark beyond what the borrow checker
+  enforces; a mark can be reported through another snapshot; the counter relies on `Unverified` never reaching a
+  transaction; the old "pass for other bytes" case became the other-version case). RDD of `4da23ed..d148e7d`
+  (assess high through item 4), lenses risk and reliability, lineage `review-224c85ccfe6aae29`: approved and
+  acknowledged, three suggestions. R3-001 (a mark from another snapshot) and the verifier's second advisory: a
+  note in `version_checked`. R3-002 (no end-to-end proof that the mark is forwarded): AC-U1
+  (`version_check_tests.rs:62`) counts the checks of a version over two reads through the public API, checked by
+  mutation below. R3-003 (T4 not recorded): this entry.
+- **L7** (2026-11-16) — Fixes of the RDD suggestions. `replace` returns false for a value of the same length
+  (`overwrite`'s case) instead of keeping a branch no caller runs (R3-001 of `review-8c1ce0cefd91e0ac`);
+  `a_located_value_of_another_length_is_replaced_in_place` checks that another key, a page that is no leaf, a place
+  past the leaf's entries, a value of the same length and one too long to stay on its leaf change nothing, and that
+  a longer value leaves every node as `set` does on a twin store (R3-002). `version_checked` notes where a mark is
+  meant to come from (R3-001 of `review-224c85ccfe6aae29`). Mutation for R3-002 of that review: without forwarding
+  the mark in the tree's `PageSource` impls, AC-U1 to AC-U5 fail (5 of 7 in `version_check_tests`).
+- **L8** (2026-11-16) — T5 (S4), A/B of Krummi alone, `main` `6b49bea` against `fdb7af9` (`work/wm/ab.py`, worker
+  on the performance cores through the bench's launcher, bench power plan, digests equal in every run), median of 3
+  rounds, head over base in op/s: W19 1.111 (every round), W24 1.028, W28 1.016 (every round), W1 1.009, W3 1.002,
+  W7 1.002, W23 0.999, W26 0.989, W9 0.969, W20 0.956, W12 and W13 0.923. Five more rounds of W9, W12 and W20 with
+  a third build, `4da23ed` (T2 and T3 without T4): W12 and W13 drift up in every build from round to round (base
+  384 to 630 ns) and the builds overlap, W9 too: noise. W20 is slower in every round: base 118.6 ns, T2+T3 121.6,
+  head 123.9 (0.957). W20 reads a store with no versions, so neither the hash of T3 nor the mark of T4 runs on its
+  path; marking `located_entry` `#[inline]` did not recover it (another 5 rounds: base 122.5, head 126.0, with the
+  attribute 124.9), so it was left out. The general read path is not slower (W7 1.002, W26 0.989). Taken as a
+  result to report, not fixed: W20 about 3 % slower, probably code layout of the multi-value read loop (not shown
+  with a profiler); its ratio to Voron (1.11 on 2026-11-16) stays well above the threshold. W28 gains less than
+  the lock and lookup removed (S1) promised: 1.6 %, which matches about 50–150 ns of 8,800 ns.
