@@ -420,3 +420,29 @@ fn the_filter_of_pages_with_versions_follows_them() {
         assert!(scratch.lock().filter_agrees(), "after the flush");
     });
 }
+
+/// The hash of the maps keyed by page number spreads consecutive and strided page numbers evenly over the low bits
+/// that choose a bucket and over the top seven bits that a lookup compares first.
+#[test]
+fn page_numbers_spread_over_the_buckets() {
+    use std::hash::{BuildHasher, BuildHasherDefault};
+    let build = BuildHasherDefault::<super::PageHasher>::default();
+    for stride in [1u64, 2, 64, 4096] {
+        let (mut low, mut high) = ([0u32; 1024], [0u32; 128]);
+        for i in 0..102_400u64 {
+            let hash = build.hash_one(i * stride);
+            low[(hash & 1023) as usize] += 1;
+            high[(hash >> 57) as usize] += 1;
+        }
+        assert!(
+            low.iter().all(|&n| (50..=150).contains(&n)),
+            "stride {stride}: low bits {:?}",
+            (low.iter().min(), low.iter().max())
+        );
+        assert!(
+            high.iter().all(|&n| (400..=1200).contains(&n)),
+            "stride {stride}: top bits {:?}",
+            (high.iter().min(), high.iter().max())
+        );
+    }
+}

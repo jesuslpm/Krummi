@@ -43,6 +43,7 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::path::Path;
@@ -222,18 +223,47 @@ impl VersionFilter {
     }
 }
 
+/// The hash of the maps keyed by page number. Page numbers are the store's own, never chosen from outside, so they
+/// need no defense against collisions made on purpose, and SipHash, the default, costs more than the lookup it
+/// serves: a read of a version takes one on every page that may have versions (S3 of the write margin execution). A
+/// multiplication by an odd constant spreads nearby numbers over the high bits, and the rotation brings them to the
+/// low bits that choose the bucket.
+#[derive(Default, Clone, Copy)]
+struct PageHasher(u64);
+
+impl Hasher for PageHasher {
+    fn finish(&self) -> u64 {
+        self.0.rotate_left(26)
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0xf135_7aea_2e62_a9c5);
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.write_u64(u64::from_le_bytes(word));
+        }
+    }
+}
+
+/// A map keyed by page number, with [`PageHasher`].
+type PageMap<V> = HashMap<u64, V, BuildHasherDefault<PageHasher>>;
+
 struct State {
     /// Number of the newest committed version: commits are numbered on from what the header records (J6).
     last_committed: u64,
     /// Versions of each page that are only here, oldest first.
-    versions: HashMap<u64, Vec<Version>>,
+    versions: PageMap<Vec<Version>>,
     /// Which pages may have versions, for the snapshots that read without the lock; the same as `Shared::filter`.
     filter: Arc<VersionFilter>,
     /// For each page whose older versions left `versions` without being written in place, because no snapshot
     /// needed them any more, the commit of the oldest of them: `krummi.data` still holds what the page was before it,
     /// so the journal records from that commit on are needed until the page is written. The journal keeps only the
     /// bytes each commit changed, which recovery applies over `krummi.data` (Y2 of the journal page diffs PRD).
-    unwritten: HashMap<u64, u64>,
+    unwritten: PageMap<u64>,
     /// Bytes taken by `versions` and `retired` (T14): a page of its own for each version of one in `versions`, and the
     /// whole slots of a value run while one of its pages keeps a version in either, even when newer versions replaced
     /// the others (see [`State::hold`]).
@@ -317,9 +347,9 @@ impl Scratch {
             filter: Arc::clone(&filter),
             state: RwLock::new(State {
                 last_committed: header.applied_txid,
-                versions: HashMap::new(),
+                versions: PageMap::default(),
                 filter,
-                unwritten: HashMap::new(),
+                unwritten: PageMap::default(),
                 bytes: 0,
                 run_holders: HashMap::new(),
                 live: Vec::new(),
