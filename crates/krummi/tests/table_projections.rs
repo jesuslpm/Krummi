@@ -381,6 +381,9 @@ fn ac_py2_older_rows_read_their_defaults_and_nulls() {
             .add_column(&table, &Column::new("z", ColumnType::F64))
             .unwrap();
         write.insert_row(&table, &row(3)).unwrap();
+        write
+            .insert_row(&table, &[("id", Value::I64(5)), ("z", Value::F64(2.5))])
+            .unwrap();
         write.drop_column(&table, "gone").unwrap();
         write
             .insert_row(
@@ -392,6 +395,7 @@ fn ac_py2_older_rows_read_their_defaults_and_nulls() {
                 ],
             )
             .unwrap();
+        write.insert_row(&table, &[("id", Value::I64(6))]).unwrap();
         write.commit().unwrap();
 
         let read = store.read().unwrap();
@@ -405,7 +409,7 @@ fn ac_py2_older_rows_read_their_defaults_and_nulls() {
             reads_as_by_position(&projection, &names, &schema, &row);
             seen += 1;
         }
-        assert_eq!(seen, 4);
+        assert_eq!(seen, 6);
         let old = read.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
         let bound = projection.bind(&old).unwrap();
         assert_eq!(bound.get(&projection.column::<i32>(2).unwrap()), Some(7));
@@ -414,6 +418,13 @@ fn ac_py2_older_rows_read_their_defaults_and_nulls() {
             Some("dflt")
         );
         assert_eq!(bound.get(&projection.column::<f64>(0).unwrap()), None);
+        // The nullable fixed-width `z`, null and not null, in a row of an older version (3 and 5) and of the current
+        // one (6 and 4), read from its byte range and null bit (R3-002 of the second RDD review).
+        let z = projection.column::<f64>(0).unwrap();
+        for (id, expected) in [(3, None), (5, Some(2.5)), (6, None), (4, Some(1.5))] {
+            let row = read.get_row(&table, &[Value::I64(id)]).unwrap().unwrap();
+            assert_eq!(projection.bind(&row).unwrap().get(&z), expected, "row {id}");
+        }
     });
 }
 

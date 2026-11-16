@@ -126,3 +126,26 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   runs W26 and W27 on it with the projection and with `KRUMMI_BENCH_PROJECTION=off`. All four exit 0 (the worker
   checks each read's checksum) with the same digests (W26 `f9ff3b9819b073e3`, W27 `5a536accc3f3dfb3`), which are also
   the digests of a store written by `f4b6c2f`. Scratch in a `mktemp -d` folder, removed.
+- **L12** (2026-11-15) — Final checks at `704d18b`: `cargo fmt --all --check` clean, clippy clean, `cargo test
+  --workspace` 851 passed, 0 failed, 34 ignored. Independent verifier (Verify role, sonnet/high, for Risk items 3 and
+  4), in `mktemp -d` copies: **no blockers**; S1–S5 and items 3 and 4 pass. Item 3: a differential of the 18 typed
+  accessors, `text_bytes`, `ulid` and `value()` on every position of every column type, over 8 schema versions
+  (added columns with defaults, a dropped column, nulls) and every row path, gives byte-identical output at `28f9d3b`
+  and HEAD (998 lines, wrong-type panic text included). Item 4: 1 writer changing the schema and 6 readers
+  preparing, binding and reading projections (no mismatches, binding refused exactly when the schema changed); 8
+  threads preparing 1,452 lists twice keep exactly 1,024; old-version plans shared by 6 threads; the run pool with 4
+  readers holding snapshots (reused buffers zeroed, old snapshots unchanged; the probe fails with `fill(0)` removed).
+  Advisories, kept as they are: a pooled run is reused only at the same length (performance only); projections
+  prepared in aborted write transactions keep their cache slots (as PY5 allows); a projection read of a malformed
+  row may panic with an index error instead of "a malformed row" (PY6 allows either; AC-PY9 passes). Scratch removed.
+- **L13** (2026-11-16) — RDD of the last slice `4774ba4..704d18b` (lenses readability and reliability, chosen for
+  the plan and read code and the reports): **approved**, lineage `review-0f3dc3663cbdd4a8`, acknowledged and burned.
+  Five advisory findings, none blocking. R2-001 (WARNING, `projection.rs` the fixed-section read repeats
+  `slot_bytes`'), R2-002 (SUGGESTION, `Slot::fixed` returns an unnamed 4-tuple) and R3-002 (SUGGESTION, no test of a
+  nullable fixed-width column through a projection): **fixed** in the next commit. `FixedSlot` in `row.rs` is the one
+  read of the fixed section, used by `RowLayout::slot_bytes` and `Access::Fixed`; AC-PY2 now reads the nullable `z`,
+  null and not null, in rows of an older version and of the current one (it passed before the refactor too). No A/B
+  run: the hot paths do the same work (one place match, one null-bit test, one slice). R2-003 (WARNING) and R3-001
+  (SUGGESTION), "Krummi: desconocido" in the Linux report: **kept**. WSL builds from `git archive` of `f4b6c2f`, which
+  carries no `.git`, so the bench cannot read the commit; earlier Linux reports say the same, and L9 names the
+  commit. Checks after the fix: fmt and clippy clean, `cargo test --workspace` 851 passed, 0 failed, 34 ignored.

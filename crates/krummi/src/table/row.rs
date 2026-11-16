@@ -76,11 +76,39 @@ enum SlotPlace {
     Variable(u32),
 }
 
+/// A column of the fixed section of one layout's rows: its bytes `start..end`, null when `null_mask` is set in the
+/// byte `null_byte` (a mask of 0 for a column without nulls). The one read of that section, shared by
+/// [`RowLayout::slot_bytes`] and the projection.
+#[derive(Debug, Clone, Copy)]
+pub struct FixedSlot {
+    start: u32,
+    end: u32,
+    null_byte: u32,
+    null_mask: u8,
+}
+
+impl FixedSlot {
+    /// The column's bytes in `bytes`, a row of its layout, or `None` for a null.
+    #[inline]
+    pub fn read(self, bytes: &[u8]) -> Option<&[u8]> {
+        if null_bit(bytes, self.null_byte, self.null_mask) {
+            return None;
+        }
+        Some(&bytes[self.start as usize..self.end as usize])
+    }
+}
+
+/// Whether the null bit of mask `mask` in the byte `byte` of `bytes` is set; never for a mask of 0.
+#[inline]
+fn null_bit(bytes: &[u8], byte: u32, mask: u8) -> bool {
+    mask != 0 && bytes[byte as usize] & mask != 0
+}
+
 impl Slot {
     /// Whether the column is null in `bytes`.
     #[inline]
     fn is_null(self, bytes: &[u8]) -> bool {
-        self.null_mask != 0 && bytes[self.null_byte as usize] & self.null_mask != 0
+        null_bit(bytes, self.null_byte, self.null_mask)
     }
 
     /// Whether the column is in the fixed section of its rows.
@@ -89,14 +117,16 @@ impl Slot {
         matches!(self.place, SlotPlace::Fixed { .. })
     }
 
-    /// For a column of the fixed section, the start and the end of its bytes in a row, and the byte and the mask of
-    /// its bit in the null bitmap (a mask of 0 for a column without nulls): what [`RowLayout::slot_bytes`] reads.
+    /// For a column of the fixed section, where it is: what [`RowLayout::slot_bytes`] reads.
     #[inline]
-    pub fn fixed(self) -> Option<(u32, u32, u32, u8)> {
+    pub fn fixed(self) -> Option<FixedSlot> {
         match self.place {
-            SlotPlace::Fixed { offset, width } => {
-                Some((offset, offset + width, self.null_byte, self.null_mask))
-            }
+            SlotPlace::Fixed { offset, width } => Some(FixedSlot {
+                start: offset,
+                end: offset + width,
+                null_byte: self.null_byte,
+                null_mask: self.null_mask,
+            }),
             _ => None,
         }
     }
@@ -229,15 +259,14 @@ impl RowLayout {
     /// column. Panics, or gives other bytes, on a column that [`Row::check`] rejects.
     #[inline]
     pub fn slot_bytes<'r>(&self, bytes: &'r [u8], slot: Slot) -> Option<&'r [u8]> {
+        if let Some(fixed) = slot.fixed() {
+            return fixed.read(bytes);
+        }
         if slot.is_null(bytes) {
             return None;
         }
         match slot.place {
-            SlotPlace::Key => None,
-            SlotPlace::Fixed { offset, width } => {
-                let offset = offset as usize;
-                Some(&bytes[offset..offset + width as usize])
-            }
+            SlotPlace::Key | SlotPlace::Fixed { .. } => None,
             SlotPlace::Variable(j) => {
                 let j = j as usize;
                 let width = 1usize << bytes[2];

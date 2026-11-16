@@ -66,7 +66,7 @@ use krummi_pager::{Error, Result, SchemaDifference, ValueRule};
 
 use super::catalog::{ReadTable, WriteTable};
 use super::key::key_value;
-use super::row::{RowLayout, Slot, slot_array};
+use super::row::{FixedSlot, RowLayout, Slot, slot_array};
 use super::rows::{Fault, OldVersion, Reader, SchemaId, Stored, TableRow, needs_stored};
 use super::schema::Different;
 use super::value::{ColumnType, Decimal, NANOS_PER_MICRO, Value};
@@ -157,14 +157,8 @@ struct Planned {
 
 /// How a column of the list is read from a row of one version.
 enum Access {
-    /// From the fixed section of the row's bytes, `start..end`, null when `null_mask` is set in the byte `null_byte`
-    /// (a mask of 0 for a column without nulls).
-    Fixed {
-        start: u32,
-        end: u32,
-        null_byte: u32,
-        null_mask: u8,
-    },
+    /// From the fixed section of the row's bytes.
+    Fixed(FixedSlot),
     /// From the variable section of the row's bytes, at this slot of the version's layout.
     Variable(Slot),
     /// From the row's key: a fixed-width primary key column, this element of the key.
@@ -192,12 +186,7 @@ impl Prepared {
                     (None, Some(place)) => {
                         let slot = layout.slot(place).expect("a column of the version");
                         match slot.fixed() {
-                            Some((start, end, null_byte, null_mask)) => Access::Fixed {
-                                start,
-                                end,
-                                null_byte,
-                                null_mask,
-                            },
+                            Some(fixed) => Access::Fixed(fixed),
                             None => Access::Variable(slot),
                         }
                     }
@@ -435,17 +424,7 @@ impl<'t> ProjectedRow<'_, 't> {
                 layout,
                 defaults,
             } => match planned.access {
-                Access::Fixed {
-                    start,
-                    end,
-                    null_byte,
-                    null_mask,
-                } => {
-                    if null_mask != 0 && bytes[null_byte as usize] & null_mask != 0 {
-                        return None;
-                    }
-                    return Some(T::stored(ty, &bytes[start as usize..end as usize]));
-                }
+                Access::Fixed(fixed) => return fixed.read(bytes).map(|b| T::stored(ty, b)),
                 Access::Variable(slot) => {
                     return layout.slot_bytes(bytes, slot).map(|b| T::stored(ty, b));
                 }
