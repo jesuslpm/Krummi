@@ -1167,7 +1167,10 @@ fn a_transaction_remembers_a_leaf_until_it_reserves_or_frees_pages() {
     let mut tx = engine.write(None).unwrap();
     let (root, leaf) = (5, 9);
     assert_eq!(tx.recent_leaf(root, b"m"), None);
-    tx.remember_leaf(root, leaf, Some(b"c"), Some(b"p"));
+    // Bounds that are not given remember nothing.
+    tx.remember_leaf(root, leaf, || None);
+    assert_eq!(tx.recent_leaf(root, b"m"), None);
+    tx.remember_leaf(root, leaf, || Some((Some(&b"c"[..]), Some(&b"p"[..]))));
     for key in [&b"c"[..], b"m", b"p", b"o\xff"] {
         assert_eq!(tx.recent_leaf(root, key), Some(leaf), "{key:?}");
     }
@@ -1175,22 +1178,22 @@ fn a_transaction_remembers_a_leaf_until_it_reserves_or_frees_pages() {
         assert_eq!(tx.recent_leaf(root, key), None, "{key:?}");
     }
     assert_eq!(tx.recent_leaf(root + 1, b"m"), None);
-    tx.remember_leaf(root, leaf, None, Some(b"p"));
+    tx.remember_leaf(root, leaf, || Some((None, Some(&b"p"[..]))));
     assert_eq!(tx.recent_leaf(root, b"\x00"), Some(leaf));
     assert_eq!(tx.recent_leaf(root, b"q"), None);
-    tx.remember_leaf(root, leaf, Some(b"c"), None);
+    tx.remember_leaf(root, leaf, || Some((Some(&b"c"[..]), None)));
     assert_eq!(tx.recent_leaf(root, b"\xff\xff"), Some(leaf));
     assert_eq!(tx.recent_leaf(root, b"b"), None);
 
     let page = tx.allocate().unwrap();
     assert_eq!(tx.recent_leaf(root, b"m"), None);
-    tx.remember_leaf(root, leaf, None, None);
+    tx.remember_leaf(root, leaf, || Some((None, None)));
     tx.free(page, 1).unwrap();
     assert_eq!(tx.recent_leaf(root, b"m"), None);
-    tx.remember_leaf(root, leaf, None, None);
+    tx.remember_leaf(root, leaf, || Some((None, None)));
     tx.allocate_value_run(1).unwrap();
     assert_eq!(tx.recent_leaf(root, b"m"), None);
-    tx.remember_leaf(root, leaf, None, None);
+    tx.remember_leaf(root, leaf, || Some((None, None)));
     // Reading a page the transaction freed is a misuse, which fails the transaction (F8, T11).
     assert!(tx.page(page).is_err());
     assert_eq!(tx.recent_leaf(root, b"m"), None);
@@ -1409,9 +1412,10 @@ fn a_leaf_merged_away_is_not_remembered() {
 /// A measurement of the remembered leaf, not a check: the time per operation of loads shaped as the bench's, with the
 /// leaf remembered and with every operation walking from the root (`testing::WALK_FROM_ROOT`), alternated, best of
 /// five each. W1: 1,000,000 sets of 16-byte keys and 100-byte values in increasing order, 1,000 per transaction; W2:
-/// the same keys in a scrambled order; W19: a value added to each of 100,000 keys spread by a hash, ten times over,
-/// 1,000 adds per transaction. It prints for W19 how often an add lands on the leaf of the add before it. Run it in a
-/// release build, on an otherwise idle machine:
+/// the same keys in a scrambled order; W3: those sets in one transaction; W19: a value added to each of 100,000 keys
+/// spread by a hash, ten times over, 1,000 adds per transaction. It prints for W19 how often an add lands on the leaf of the add before it. Run it in a
+/// release build, on an otherwise idle machine; `RECENT_LOADS` (as `W2,W3`) picks the loads and `RECENT_ROUNDS` the
+/// rounds:
 ///
 /// `cargo test -p krummi-tree --release --lib -- --ignored --nocapture recent_leaf_measurement`
 #[test]
@@ -1442,15 +1446,15 @@ fn recent_leaf_measurement() {
     };
     // An operation: on the tree at the root given, the one of index given; it returns the root afterwards.
     type Load<'a> = &'a dyn Fn(&mut WriteTransaction<'_>, u64, u64) -> u64;
-    // The time of the operations of a load, without the commits, from an empty tree.
-    let run = |op: Load<'_>| {
+    // The time of the operations of a load, `per_write` in each transaction, without the commits, from an empty tree.
+    let run = |op: Load<'_>, per_write: u64| {
         let engine = temporary();
         let mut root = new_tree(&engine);
         let mut time = Duration::ZERO;
-        for batch in 0..ENTRIES / BATCH {
+        for batch in 0..ENTRIES / per_write {
             let mut tx = engine.write(None).unwrap();
             let start = Instant::now();
-            for i in batch * BATCH..(batch + 1) * BATCH {
+            for i in batch * per_write..(batch + 1) * per_write {
                 root = op(&mut tx, root, i);
             }
             time += start.elapsed();
@@ -1474,13 +1478,23 @@ fn recent_leaf_measurement() {
             .unwrap()
             .root
     };
-    let loads: [(&str, Load<'_>); 3] = [("W1", &w1), ("W2", &w2), ("W19", &w19)];
-    for (name, op) in loads {
+    let loads: [(&str, Load<'_>, u64); 4] = [
+        ("W1", &w1, BATCH),
+        ("W2", &w2, BATCH),
+        ("W3", &w2, ENTRIES),
+        ("W19", &w19, BATCH),
+    ];
+    let picked = std::env::var("RECENT_LOADS").unwrap_or_default();
+    let rounds = std::env::var("RECENT_ROUNDS").map_or(5, |n| n.parse().unwrap());
+    for (name, op, per_write) in loads {
+        if !picked.is_empty() && !picked.split(',').any(|load| load == name) {
+            continue;
+        }
         let (mut remembered, mut walked) = (Duration::MAX, Duration::MAX);
-        for _ in 0..5 {
+        for _ in 0..rounds {
             for walk in [false, true] {
                 testing::WALK_FROM_ROOT.set(walk);
-                let time = run(op);
+                let time = run(op, per_write);
                 let best = if walk { &mut walked } else { &mut remembered };
                 *best = (*best).min(time);
             }
@@ -1495,6 +1509,9 @@ fn recent_leaf_measurement() {
         );
     }
 
+    if !picked.is_empty() && !picked.split(',').any(|load| load == "W19") {
+        return;
+    }
     // W19: where consecutive adds land.
     let engine = temporary();
     let mut root = new_tree(&engine);

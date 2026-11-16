@@ -227,6 +227,9 @@ struct Changed {
     keeps_check: bool,
 }
 
+/// The lower and upper bounds of the keys of a leaf given to [`WriteTransaction::remember_leaf`].
+pub type LeafBounds<'k> = (Option<&'k [u8]>, Option<&'k [u8]>);
+
 /// After a remembered leaf served no walk, a write transaction remembers one leaf in this many walks.
 const RECENT_RETRY: u32 = 16;
 
@@ -454,8 +457,9 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// Remembers `leaf` as the leaf of the tree at `root` that holds every key from `lower` to `upper`, both included,
-    /// a `None` bound leaving that side open, in place of the leaf remembered before. The caller vouches for it as the
-    /// tree is now; see [`recent_leaf`](Self::recent_leaf). Without memory for the bounds it remembers nothing.
+    /// as `bounds` gives them, a `None` bound leaving that side open, in place of the leaf remembered before; `bounds`
+    /// is called only when the leaf is remembered, and its `None` remembers nothing. The caller vouches for the leaf as
+    /// the tree is now; see [`recent_leaf`](Self::recent_leaf). Without memory for the bounds it remembers nothing.
     /// Meant only for the tree layer, which names a leaf it has just reached by walking (R1-001 of the RDD review of
     /// T4): a wrong leaf would send later changes to it.
     ///
@@ -463,9 +467,17 @@ impl<'e> WriteTransaction<'e> {
     /// than it saves (W3 of the write optimizations execution): from then on the transaction remembers only one leaf
     /// in every [`RECENT_RETRY`] walks, until one serves a walk again, and forgets the others.
     #[doc(hidden)]
-    pub fn remember_leaf(&self, root: u64, leaf: u64, lower: Option<&[u8]>, upper: Option<&[u8]>) {
+    pub fn remember_leaf<'k>(
+        &self,
+        root: u64,
+        leaf: u64,
+        bounds: impl FnOnce() -> Option<LeafBounds<'k>>,
+    ) {
+        // Plain loads and stores, not read-modify-write operations: the transaction is not shared between threads,
+        // so nothing runs between them, and they cost no more than ordinary memory accesses.
         let had = self.recent_on.load(Relaxed);
-        let hit = self.recent_hit.swap(false, Relaxed);
+        let hit = self.recent_hit.load(Relaxed);
+        self.recent_hit.store(false, Relaxed);
         let misses = self.recent_misses.load(Relaxed);
         let misses = if hit {
             0
@@ -484,6 +496,9 @@ impl<'e> WriteTransaction<'e> {
         recent.at = None;
         self.recent_on.store(false, Relaxed);
         recent.keys.clear();
+        let Some((lower, upper)) = bounds() else {
+            return;
+        };
         let len = lower.map_or(0, <[u8]>::len) + upper.map_or(0, <[u8]>::len);
         // A memory to skip a walk is not worth failing for, nor an injected allocation failure of the tests.
         if recent.keys.try_reserve(len).is_err() {
@@ -500,7 +515,8 @@ impl<'e> WriteTransaction<'e> {
 
     /// Forgets the leaf of [`recent_leaf`](Self::recent_leaf), before a change that may reshape a tree.
     fn forget_leaf(&self) {
-        if self.recent_on.swap(false, Relaxed) {
+        if self.recent_on.load(Relaxed) {
+            self.recent_on.store(false, Relaxed);
             self.hint().at = None;
         }
     }

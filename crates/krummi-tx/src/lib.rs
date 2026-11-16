@@ -35,7 +35,7 @@ pub use krummi_pager::{
 use krummi_pager::{Pager, PayloadBuf, RunBuf, Scratch};
 pub use space::REGION_PAGES;
 use space::Space;
-pub use transaction::{ReadTransaction, WriteTransaction};
+pub use transaction::{LeafBounds, ReadTransaction, WriteTransaction};
 
 /// Page that keeps the transaction layer's own data: the frontier, the first page never used (F3 of the
 /// free-space PRD), and the number of free pages of the map (F10). It is an ordinary data page, not part of the
