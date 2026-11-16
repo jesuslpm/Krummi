@@ -65,7 +65,6 @@ slower in the default build; aligning loops is a separate follow-up.
 
 Status: claimed, unverified until a follow-up review.
 
-
 ## 2026-11-16 (verification, round 3)
 
 Follow-up report: [2026-11-16-code-03.md](2026-11-16-code-03.md), over `864d430..91a1e17`, wrapper status
@@ -76,3 +75,9 @@ remains an open pre-existing advisory. No correction-induced defect found.»
 - R1: verified resolved.
 - R2: pending, pre-existing, outside the run; the loop's three automatic rounds are used, and R2 is listed in the
   closing report as a follow-up of the pager.
+
+## 2026-11-16 (note on R1)
+
+The resolution of R1 above states the cause of W20's gap as the alignment of a hot loop. The aligned builds show
+that the gap depends on code layout; they do not prove that alignment is its only cause (round 3 and the RDD review
+`review-b01fa0cf505a75c2`). R1 rests on the user's acceptance of the cost, and S4 now states only that exception.

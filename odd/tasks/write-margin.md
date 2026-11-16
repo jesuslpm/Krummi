@@ -22,8 +22,8 @@ merge or push until the user asks. Tests: `cargo test --workspace`; acceptance w
   behavior or stored format.
 - **S4** — Acceptance: an A/B of Krummi alone, `main` against the head, of W19 and W28 and of the loads that share
   the changed code, shows no load slower, except W20, which the user accepted 2–3 % slower in the default build
-  because the gap is the alignment of a hot loop, not added work (L10, L11); complete `--solo-krummi-voron` runs on
-  Windows and Linux meet 29 of 29 thresholds.
+  (L11); the measurements point to code layout, a hypothesis not proven (L10, L12); complete `--solo-krummi-voron`
+  runs on Windows and Linux meet 29 of 29 thresholds.
 
 Out of scope (decided with the user on 2026-11-16): W28-A (remember a page written by the transfer, candidate 7 of
 the performance plan) and W28-B (keep the layout check of a leaf whose value changed in place), which change
@@ -146,3 +146,10 @@ Routes: every task is one understood change of at most a few hundred lines, with
   cerrar (Recommended)» («Anoto en S4 tu decisión: W20 queda un 2–3 % más lento por alineación de código, a cambio de
   W19 +10 %. Cierro con los informes completos y dejo la alineación de bucles como mejora aparte.»). S4 was rewritten
   accordingly; aligning loops in the release profile is a separate follow-up.
+- **L12** (2026-11-16) — RDD of the last slice `1ee31df..b7d8083` (the W20 fix, its revert, the review records),
+  lens readability, lineage `review-b01fa0cf505a75c2`: approved and acknowledged; R2-s4-unproven-cause (WARNING): S4
+  stated the cause of W20's gap as a fact, while the aligned builds only show that it depends on code layout; S4 now
+  states only the accepted exception, and the cause of L10 and of the resolutions is a hypothesis. R2-phases-duplicate-row
+  (WARNING): the second `bg-end acceptance full-linux` row of 14:40:08, written when the stopped Linux run was closed
+  by hand, was removed. R2-resolutions-stray-blank (SUGGESTION): the extra blank line before round 3 of the
+  resolutions was removed.
