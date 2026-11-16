@@ -39,3 +39,14 @@ Status: pending.
 Review record: [2026-11-16-code.md](2026-11-16-code.md), wrapper status `findings` (R1 open; no open question),
 thread `01a1e468-b45c-7e03-8df1-1926523834ae`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review-critical` (Noether) `gpt-6-astra` / `xhigh`.
+
+## 2026-11-16 (verification)
+
+Follow-up report: [2026-11-16-code-02.md](2026-11-16-code-02.md), over `1ee31df..864d430`, wrapper status `findings`,
+thread `01a1e48d-c7ac-78a1-a73d-79cd9982e864`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` (Avicenna) `gpt-6-astra` / `xhigh`. Verdict, quoted: «Changes requested: R1 remains open.
+R2 remains a non-blocking pre-existing advisory.»
+
+- R1: «still open; not verified resolved». Codex: «resolve the W20 regression and verify the final-head A/B;
+  relaxing S4 requires an explicit user decision.» Status: pending, a product question for the user after the loop.
+- R2: pending, pre-existing, outside the run.
