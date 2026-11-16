@@ -53,7 +53,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
 | T3 | S1: projections in the library (prepare, cache, prepared columns, bind, read) with AC-PY1–AC-PY10, AC-PY12 | inline | done (RED: the tests did not compile without the API; GREEN: `table_projections` 10 of 10 and `projection_tests` 2 of 2 in debug and release; mutations without the schema check and with the current plan on older rows fail AC-PY5, AC-PY10 and AC-PY2; workspace suite passed) | `9c9cba6`, `2277110` |
 | T4 | S2: W26 and W27 read with a projection, test hook, W27 without it | inline | done (`w26_and_w27_read_with_a_projection`) | `5b17ff0`, `2277110`, `c00f2dc` |
 | T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | done (L9, L10, L19: AC-PY11 met with the A/B, by the user's decision on R1 of the Codex code review; 29 of 29 on both; W27 0.91 → 0.96 and 0.95 → 1.04; drops checked alone and with a main/head A/B) | reports in the T6 commit |
-| T6 | S5: final checks, RDD of the last slice, Codex review, closing report | inline | pending | |
+| T6 | S5: final checks, RDD of the last slice, Codex review, closing report | inline | done (L12–L21; [closing report](table-projection-report.md)) | `3d296fb`..`3c7cb4b`, the report commit |
 
 ## Log
 
@@ -207,3 +207,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   give the draw order and the first table of each case asserts its identity and state ((100, 120), (200, 220)).
   Final checks after it: `cargo fmt --all --check` clean, clippy clean, `cargo test --workspace` 852 passed, 0
   failed, 34 ignored.
+- **L22** (2026-11-16) — Closing report: [table-projection-report.md](table-projection-report.md). The phase log got
+  an `end` at 2026-11-15 21:14:57 and a `mark fix` at 2026-11-16 06:21:09, both from the session history: the session
+  stopped while a background command waited on standard input, and resumed with the user's message; without them the
+  9 h 06 min pause counted as fixes.

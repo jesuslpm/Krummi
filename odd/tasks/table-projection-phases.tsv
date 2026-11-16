@@ -25,6 +25,8 @@
 2026-11-15T20:44:32+00:00	mark	checks	final checks
 2026-11-15T21:02:06+00:00	mark	review	RDD last slice
 2026-11-15T21:04:22+00:00	mark	fix	RDD last slice advisories
+2026-11-15T21:14:57+00:00	end		
+2026-11-16T06:21:09+00:00	mark	fix	resume after the stalled background command
 2026-11-16T06:30:37+00:00	mark	checks	fix checks
 2026-11-16T06:31:15+00:00	mark	review	RDD of the FixedSlot fix
 2026-11-16T06:31:15+00:00	bg-start	review	rdd3
@@ -50,3 +52,10 @@
 2026-11-16T07:56:50+00:00	bg-start	review	rdd5
 2026-11-16T07:57:19+00:00	bg-end	review	rdd5
 2026-11-16T07:57:50+00:00	mark	checks	final checks
+2026-11-16T08:05:35+00:00	mark	review	RDD of the last test commit
+2026-11-16T08:05:51+00:00	bg-start	review	rdd6
+2026-11-16T08:06:10+00:00	bg-end	review	rdd6
+2026-11-16T08:06:19+00:00	mark	close	closing report
+2026-11-16T08:06:19+00:00	end		
+2026-11-16T08:07:02+00:00	mark	close	closing report
+2026-11-16T08:08:24+00:00	end		
