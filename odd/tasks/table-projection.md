@@ -176,3 +176,15 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   resolved, no regressions of the fix. R1 still open: the single-load clause of AC-PY11 is not met, and the A/B of
   L10 does not replace it without the user's approval. T5 reopened as pending that decision; the question goes to
   the user after the loop. No further round: the only open finding is a product decision.
+- **L18** (2026-11-16) — RDD of the last slice `3d296fb..605dd96` (assessment of the R2 fix; lenses risk, reliability
+  and readability): **approved**, lineage `review-7b867378ec08eb40`, acknowledged and burned. Advisory findings:
+  R2-001 (WARNING, the comment of the deleted-table case said it draws the deleted identity and state again, and the
+  test did not check which identities were used) and R3 (WARNING, no committed test of a table created in an abandoned
+  write) — **fixed** in the next commit: the comments say the generator offers the value again and the store draws the
+  next one, each case asserts the identities drawn (state 60; table 110 with state 130), and a third case covers the
+  abandoned create (table 210 with state 230); without `retire_table` in `create_table` it fails. R1-001 and R3
+  (SUGGESTION, the retired sets only grow while the store is open) — kept: one entry per table created or deleted and
+  per schema change, documented on `Retired`. R2-002 (SUGGESTION, the retired sets live on `Projections`, the cache
+  type) — kept: `Projections` is the store-level state every transaction already reaches, and the sets exist only so
+  projections and rows never alias; their doc says so. Checks: fmt and clippy clean, `cargo test --workspace` 852
+  passed, 0 failed, 34 ignored.

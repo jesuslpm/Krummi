@@ -912,17 +912,17 @@ fn identities(values: Vec<u64>) -> impl FnMut(&mut [u8]) -> krummi::Result<()> {
     }
 }
 
-/// AC-PY5 and PY1 with the generator forced to repeat an identity (R2 of the Codex code review): an abandoned write's
-/// schema state drawn again by the next write, and a deleted table's identity and schema state drawn again for the
-/// table created with its name in a store reopened from its files, never give a schema that binds the other's rows or
-/// shares its kept projection.
+/// AC-PY5 and PY1 with the generator forced to offer an identity again (R2 of the Codex code review): the store refuses
+/// an abandoned schema change's state for the next change of the table, the identity of a table it deleted (read from
+/// the files of a reopened store) and the identity of a table created in an abandoned write for the next table created
+/// with the name, and draws the next value; so no schema binds another's rows or shares its kept projection.
 #[test]
 fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     use krummi::table::testing::with_identity_source;
     let tmp = tempfile::tempdir().unwrap();
     let schema = Schema::new(vec![Column::new("id", ColumnType::I64).not_null()], &["id"]);
 
-    // An abandoned write's schema state, 40, drawn again by the next write's schema change.
+    // An abandoned write's schema state, 40, offered again for the next write's schema change: 60 is drawn instead.
     let store = open(&tmp.path().join("t"));
     let mut seed = store.write().unwrap();
     with_identity_source(identities(vec![10, 20, 30]), || {
@@ -944,6 +944,7 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
         write.add_column(&t, &Column::new("b", ColumnType::I64))
     })
     .unwrap();
+    assert_eq!(write.table_schema(&t).unwrap().schema_state(), 60);
     write
         .insert_row(&t, &[("id", Value::I64(1)), ("b", Value::I64(77))])
         .unwrap();
@@ -960,8 +961,8 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     write.commit().unwrap();
     store.close().unwrap();
 
-    // A deleted table's identity, 100, and schema state, 120, read from the files and drawn again for the table
-    // created with its name.
+    // A deleted table's identity, 100, read from the files, offered again first for the table created with its name:
+    // 110 is drawn instead (a new table's state may repeat another table's, D6, so only its identity matters).
     let folder = tmp.path().join("u");
     let store = open(&folder);
     let mut write = store.write().unwrap();
@@ -981,10 +982,12 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     write.delete_table("u").unwrap();
     write.commit().unwrap();
     let mut write = store.write().unwrap();
-    let u = with_identity_source(identities(vec![100, 110, 120, 130, 140]), || {
+    let u = with_identity_source(identities(vec![100, 110, 120, 130]), || {
         write.open_table_with("u", TableMode::CreateNew(&schema))
     })
     .unwrap();
+    let described = write.table_schema(&u).unwrap();
+    assert_eq!((described.table_id(), described.schema_state()), (110, 130));
     write.insert_row(&u, &[("id", Value::I64(1))]).unwrap();
     let row = write.get_row(&u, &[Value::I64(1)]).unwrap().unwrap();
     wrong_schema(old.bind(&row).unwrap_err(), "u");
@@ -992,6 +995,33 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     assert!(
         !new.same_as(&old),
         "the new table shares the deleted one's kept projection"
+    );
+    drop(row);
+    write.commit().unwrap();
+
+    // A table created in an abandoned write, with identity 200 and state 220, offered again for the next table
+    // created with its name: 210 is drawn instead.
+    let mut abandoned = store.write().unwrap();
+    let v = with_identity_source(identities(vec![200, 210, 220]), || {
+        abandoned.open_table_with("v", TableMode::CreateNew(&schema))
+    })
+    .unwrap();
+    let old = abandoned.projection(&v, &["id"]).unwrap();
+    drop(abandoned);
+    let mut write = store.write().unwrap();
+    let v = with_identity_source(identities(vec![200, 210, 220, 230]), || {
+        write.open_table_with("v", TableMode::CreateNew(&schema))
+    })
+    .unwrap();
+    let described = write.table_schema(&v).unwrap();
+    assert_eq!((described.table_id(), described.schema_state()), (210, 230));
+    write.insert_row(&v, &[("id", Value::I64(1))]).unwrap();
+    let row = write.get_row(&v, &[Value::I64(1)]).unwrap().unwrap();
+    wrong_schema(old.bind(&row).unwrap_err(), "v");
+    let new = write.projection(&v, &["id"]).unwrap();
+    assert!(
+        !new.same_as(&old),
+        "the new table shares the abandoned one's kept projection"
     );
     drop(row);
     write.commit().unwrap();
