@@ -35,7 +35,9 @@ use krummi_tx::{Result, WriteTransaction};
 
 use crate::node::{self, LEAF_CELL_HEADER, MAX_LEAF_CELL, Value};
 use crate::range::OwnedInterval;
-use crate::{Interval, MAX_KEY, PageSource, Range, RangeUpdate, copy, descend, leaves, reserve};
+use crate::{
+    Interval, Located, MAX_KEY, PageSource, Range, RangeUpdate, copy, descend, leaves, reserve,
+};
 
 /// Highest promotion threshold: an inline entry of this volume fills the longest leaf cell kept in its leaf (D2).
 pub const MAX_PROMOTION: usize = MAX_LEAF_CELL - LEAF_CELL_HEADER;
@@ -260,16 +262,26 @@ fn entry<'t, S: PageSource + ?Sized>(
     root: u64,
     key: &[u8],
 ) -> Result<Option<(u64, Entry<'t>)>> {
-    let (page, leaf) = descend(tx, root, key)?;
-    let Ok(index) = node::search(leaf, key) else {
+    Ok(located_entry(tx, root, key)?.map(|(at, entry)| (at.leaf, entry)))
+}
+
+/// As [`entry`], with where the entry is in its leaf, so that an add can write there without walking the tree again
+/// ([`crate::replace`]).
+fn located_entry<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    root: u64,
+    key: &[u8],
+) -> Result<Option<(Located, Entry<'t>)>> {
+    let (leaf, node) = descend(tx, root, key)?;
+    let Ok(index) = node::search(node, key) else {
         return Ok(None);
     };
-    match node::value(leaf, index) {
+    match node::value(node, index) {
         Value::Inline(blob) => Entry::decode(blob),
         Value::Run { .. } => None,
     }
-    .map(|entry| Some((page, entry)))
-    .ok_or_else(|| tx.damaged(page))
+    .map(|entry| Some((Located { leaf, index }, entry)))
+    .ok_or_else(|| tx.damaged(leaf))
 }
 
 /// Decodes the blob of `key` that a scan of the parent at `root` returned; one that is not consistent, or that does
@@ -464,7 +476,9 @@ fn shrink<S: PageSource + ?Sized>(
 
 /// Adds `value` to the values of `key` in the multi-value tree at `root`, creating the key if it is not there; a
 /// value that is already there changes nothing and touches no page (M5, T10). An addition that makes the key's
-/// volume exceed the promotion threshold moves its values to a subtree (M2).
+/// volume exceed the promotion threshold moves its values to a subtree (M2). A key whose values stay inline gets its
+/// new entry in the leaf its lookup found, without walking the tree again, when that changes no other node
+/// ([`crate::replace`]).
 ///
 /// # Panics
 ///
@@ -478,12 +492,14 @@ pub fn add(
     check_key(key);
     check_value(value);
     let len = ELEMENT_HEADER + value.len();
-    let (blob, key_changed) = match entry(&*tx, root, key)? {
+    let mut found = None;
+    let (blob, key_changed) = match located_entry(&*tx, root, key)? {
         None => (
             encode_inline(&*tx, 1, INLINE_HEADER + len, std::iter::once(value))?,
             true,
         ),
-        Some((_, Entry::Inline { count, elements })) => {
+        Some((at, Entry::Inline { count, elements })) => {
+            found = Some(at);
             if Elements(elements).any(|v| v == value) {
                 return Ok(MultiUpdate::unchanged(root));
             }
@@ -516,9 +532,19 @@ pub fn add(
         }
     };
     let (promotion, _) = multi_thresholds();
+    #[cfg(test)]
+    if testing::WALK_AGAIN.get() {
+        found = None;
+    }
     let root = if key.len() + blob.len() > promotion {
         let subtree = promote(tx, &blob)?;
         store(tx, root, key, &subtree)?
+    } else if let Some(at) = found
+        && crate::replace(tx, root, at, key, &blob)?
+    {
+        #[cfg(test)]
+        testing::IN_PLACE.set(testing::IN_PLACE.get() + 1);
+        root
     } else {
         store(tx, root, key, &blob)?
     };
@@ -991,3 +1017,16 @@ impl<S: PageSource + ?Sized> DoubleEndedIterator for Values<'_, S> {
 }
 
 impl<S: PageSource + ?Sized> std::iter::FusedIterator for Values<'_, S> {}
+
+/// Test hooks of the adds that write in the leaf they found.
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Makes every add walk the tree again through `set`, as before adds wrote in the leaf they found.
+        pub(crate) static WALK_AGAIN: Cell<bool> = const { Cell::new(false) };
+        /// Adds on this thread that wrote in the leaf they found.
+        pub(crate) static IN_PLACE: Cell<usize> = const { Cell::new(0) };
+    }
+}

@@ -471,6 +471,48 @@ pub fn overwrite(
     Ok(same_entry)
 }
 
+/// Replaces the inline value of `key` at `at`, where a lookup of the tree at `root` found it in this transaction,
+/// with `value`, of any length its leaf keeps inline, writing the same bytes as [`set`] without walking the tree
+/// again. That holds when [`set`] would change that leaf alone: the new entry fits in it, and the leaf stays at least
+/// a quarter full or is the root, so nothing splits or merges; the tree's root and its number of entries do not
+/// change. Returns false, changing nothing, otherwise, or unless the page at `at` is a leaf whose entry there is
+/// `key`'s with an inline value, as [`overwrite`] checks; the caller then uses [`set`].
+pub(crate) fn replace(
+    tx: &mut WriteTransaction<'_>,
+    root: u64,
+    at: Located,
+    key: &[u8],
+    value: &[u8],
+) -> Result<bool> {
+    let node = tx.page(at.leaf)?;
+    if !(node::is_leaf(node) && at.index < node::count(node) && node::key(node, at.index) == key) {
+        return Ok(false);
+    }
+    let Value::Inline(old) = node::value(node, at.index) else {
+        return Ok(false);
+    };
+    if !node::fits_inline(key.len(), value.len()) {
+        return Ok(false);
+    }
+    if old.len() == value.len() {
+        node::value_mut(tx.page_mut(at.leaf)?, at.index).copy_from_slice(value);
+        return Ok(true);
+    }
+    // As `change_leaf`: the old cell and its offset give their room back, and the new cell takes its own and one.
+    let old_len = node::cell(node, at.index).len();
+    let mut buf = [0; MAX_LEAF_CELL];
+    let cell_len = node::encode_leaf(&mut buf, key, Value::Inline(value));
+    let fits = node::free_space(node) + old_len >= cell_len;
+    let stays = at.leaf == root || node::used(node) + cell_len >= UNDERFULL + old_len;
+    if !(fits && stays) {
+        return Ok(false);
+    }
+    let node = tx.page_mut(at.leaf)?;
+    node::remove(node, at.index);
+    node::insert(node, at.index, &buf[..cell_len]);
+    Ok(true)
+}
+
 /// The page of the leaf of the tree at `root` where `key` is or would be (tests use it to damage a known page).
 pub fn leaf_of<S: PageSource + ?Sized>(tx: &S, root: u64, key: &[u8]) -> Result<u64> {
     Ok(descend(tx, root, key)?.0)

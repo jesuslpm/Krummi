@@ -1083,3 +1083,88 @@ fn values_added_in_order_fill_their_subtree() {
     tx.commit().unwrap();
     agree(&engine.read().unwrap(), root, b"key", &set, "in order");
 }
+
+/// W19 of the benchmark, in small: every add to a key whose values stay inline in a root leaf writes the new entry in
+/// the leaf that its lookup found, without walking the tree again through `set`; only the adds that create a key do.
+#[test]
+fn adds_to_inline_keys_write_in_the_leaf_they_found() {
+    multi::testing::IN_PLACE.set(0);
+    let engine = temporary();
+    let mut tx = engine.write(None).unwrap();
+    let mut root = create(&mut tx).unwrap();
+    for round in 0..10 {
+        for key in 0..20 {
+            root = add(&mut tx, root, &sixteen(key), &sixteen(round))
+                .unwrap()
+                .root;
+        }
+    }
+    // Twenty entries of up to 199 bytes stay in one leaf, the root.
+    assert!(node::is_leaf(tx.page(root).unwrap()));
+    assert_eq!(multi::testing::IN_PLACE.get(), 9 * 20);
+    let set: BTreeSet<Vec<u8>> = (0..10).map(sixteen).collect();
+    for key in 0..20 {
+        agree(&tx, root, &sixteen(key), &set, "in place");
+    }
+}
+
+/// The results, roots and every page of the parent tree and of its subtrees, after the same random adds and
+/// removals, are the same bytes whether the adds write in the leaf they found or always walk the tree again through
+/// `set`. Four hundred keys of 16 bytes with values of 0, 1, 16, about 1,000 and 2,048 bytes make leaves fill, split,
+/// fall under a quarter full and merge, and keys cross both thresholds; commits in between put pages in the scratch
+/// area.
+#[test]
+fn writes_in_the_leaf_found_store_what_set_stores() {
+    type Outcome = (Vec<(u64, u64, bool)>, Vec<(u64, Vec<u8>)>);
+    let run = |walk_again: bool| -> (Outcome, usize) {
+        multi::testing::WALK_AGAIN.set(walk_again);
+        multi::testing::IN_PLACE.set(0);
+        let engine = temporary();
+        let mut rng = Rng(19);
+        let mut results = Vec::new();
+        let mut root = {
+            let mut tx = engine.write(None).unwrap();
+            let root = create(&mut tx).unwrap();
+            tx.commit().unwrap();
+            root
+        };
+        for _ in 0..10 {
+            let mut tx = engine.write(None).unwrap();
+            for _ in 0..2000 {
+                let key = sixteen(rng.below(400) as u32);
+                let update = match rng.below(10) {
+                    0..=5 => add(&mut tx, root, &key, &rng.value()).unwrap(),
+                    6..=8 => remove_value(&mut tx, root, &key, &rng.value()).unwrap(),
+                    _ => remove_key(&mut tx, root, &key).unwrap(),
+                };
+                results.push((update.root, update.values, update.key_changed));
+                root = update.root;
+            }
+            tx.commit().unwrap();
+        }
+        let tx = engine.read().unwrap();
+        let mut pages = Vec::new();
+        pages_of(&tx, root, &mut pages);
+        for key in 0..400 {
+            if let Some(subtree) = subtree_of(&tx, root, &sixteen(key)).unwrap() {
+                pages_of(&tx, subtree, &mut pages);
+            }
+        }
+        let bytes = pages
+            .into_iter()
+            .map(|page| (page, tx.page(page).unwrap().to_vec()))
+            .collect();
+        multi::testing::WALK_AGAIN.set(false);
+        ((results, bytes), multi::testing::IN_PLACE.get())
+    };
+    let (walked, none) = run(true);
+    let (in_place, written) = run(false);
+    assert_eq!(none, 0);
+    assert!(written > 1000, "only {written} adds wrote in place");
+    assert!(walked.0 == in_place.0, "the results differ");
+    assert_eq!(walked.1.len(), in_place.1.len());
+    for ((page, a), (other, b)) in walked.1.iter().zip(&in_place.1) {
+        assert_eq!(page, other);
+        assert!(a == b, "page {page} differs");
+    }
+}
