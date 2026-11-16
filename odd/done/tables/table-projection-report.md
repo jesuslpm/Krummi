@@ -1,7 +1,7 @@
 # Proyección de columnas, conjunto de ejecuciones y suma corta terminados: 29 de 29 umbrales en Windows y Linux, rama verificada
 
 Informe de cierre de `table-projection` (2026-11-16). Enfoque de ejecución: ODD.
-Fuente de producto: [tables-projection.prd.md](../../docs/prd/krummi/tables/tables-projection.prd.md) (la proyección;
+Fuente de producto: [tables-projection.prd.md](../../../docs/prd/krummi/tables/tables-projection.prd.md) (la proyección;
 M1 y M2 son optimizaciones sin cambio de producto, sin PRD). Documento de ejecución:
 [table-projection.md](table-projection.md).
 
@@ -25,8 +25,8 @@ del usuario.
 - **Aceptación:**
   - Ejecuciones completas de `f4b6c2f` con Krummi y Voron, **29 de 29** umbrales en las dos:
     - Windows, fijada a los núcleos de rendimiento (1.262 s):
-      [informe](../../docs/benchmark/2026-11-15-windows-projection.md);
-    - WSL 2 (2.685 s): [informe](../../docs/benchmark/2026-11-15-linux-projection.md).
+      [informe](../../../docs/benchmark/2026-11-15-windows-projection.md);
+    - WSL 2 (2.685 s): [informe](../../../docs/benchmark/2026-11-15-linux-projection.md).
   - Las sumas de comprobación de los dos motores coinciden en todas las cargas.
 
     | Sistema | Razón de W27 con Voron |
@@ -62,10 +62,10 @@ del usuario.
       conjunto de ejecuciones;
     - L16, el arreglo de identidades.
   - RDD aprobó los seis tramos (tabla de abajo).
-  - Codex aprobó en la ronda 3, la última que permite el bucle: [ronda 1](../../docs/reviews/tables-projection/2026-11-16-code.md),
-    [ronda 2](../../docs/reviews/tables-projection/2026-11-16-code-02.md),
-    [ronda 3](../../docs/reviews/tables-projection/2026-11-16-code-03.md) y
-    [resoluciones](../../docs/reviews/tables-projection/2026-11-16-code-resolutions.md).
+  - Codex aprobó en la ronda 3, la última que permite el bucle: [ronda 1](../../../docs/reviews/tables-projection/2026-11-16-code.md),
+    [ronda 2](../../../docs/reviews/tables-projection/2026-11-16-code-02.md),
+    [ronda 3](../../../docs/reviews/tables-projection/2026-11-16-code-03.md) y
+    [resoluciones](../../../docs/reviews/tables-projection/2026-11-16-code-resolutions.md).
 - **Hallazgos corregidos por el camino:**
   - **R2 de Codex (mayor).** Un estado de esquema de una escritura abandonada, o el identificador de una tabla
     borrada, podía repetirse y hacer que una proyección se ligara a otro esquema. Codex lo reprodujo forzando el

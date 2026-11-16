@@ -157,12 +157,12 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   `Fixed` match arm that the early `FixedSlot` return made unreachable) — **fixed** in the next commit: `slot_bytes`
   matches the place once and reads a fixed column through `Slot::fixed_at(..).read`, with no dead arm. Checks: fmt and clippy clean, `cargo test --workspace` 851 passed, 0 failed, 34 ignored.
 - **L15** (2026-11-16) — Codex code review, round 1, over `28f9d3b..daccfcd`:
-  [2026-11-16-code.md](../../docs/reviews/tables-projection/2026-11-16-code.md), status `findings`. R1 (blocker,
+  [2026-11-16-code.md](../../../docs/reviews/tables-projection/2026-11-16-code.md), status `findings`. R1 (blocker,
   AC-PY11 accepted on the A/B of L10 instead of its single-load clause) → pending, a product question for the user
   after the loop. R2 (major, a repeated schema state of an abandoned write, or a deleted table's identity, aliases
   another schema) → fixed in the next commit, with `ac_py5_a_repeated_identity_never_aliases_a_schema` (RED before
   the fix, two mutants fail). Resolutions:
-  [2026-11-16-code-resolutions.md](../../docs/reviews/tables-projection/2026-11-16-code-resolutions.md).
+  [2026-11-16-code-resolutions.md](../../../docs/reviews/tables-projection/2026-11-16-code-resolutions.md).
 - **L16** (2026-11-16) — Independent verifier of `3a548b2` (Verify role, sonnet/high, Risk items 3 and 4): **no
   blockers**. Forced repeats (abandoned create, abandoned change three rounds, committed and same-write delete then
   create, create and change in one abandoned write, a reopened store) all refuse the bind with `DifferentSchema`
@@ -174,7 +174,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   abandoned write leaves the table's identity retired, with no observable effect since the catalog still holds it.
   Scratch removed.
 - **L17** (2026-11-16) — Codex code review, round 2 (follow-up, `daccfcd..df72e3f`):
-  [2026-11-16-code-02.md](../../docs/reviews/tables-projection/2026-11-16-code-02.md), status `findings`. R2 verified
+  [2026-11-16-code-02.md](../../../docs/reviews/tables-projection/2026-11-16-code-02.md), status `findings`. R2 verified
   resolved, no regressions of the fix. R1 still open: the single-load clause of AC-PY11 is not met, and the A/B of
   L10 does not replace it without the user's approval. T5 reopened as pending that decision; the question goes to
   the user after the loop. No further round: the only open finding is a product decision.
@@ -193,10 +193,10 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
 - **L19** (2026-11-16) — User's answer to R1 of the Codex code review (AC-PY11), verbatim: «Aceptar el A/B
   (Recommended)», the option "Anoto en el PRD que AC-PY11 se da por cumplido con el A/B main/head de Krummi solo,
   cierro T5 y lo dejo en el informe de cierre." AC-PY11 of
-  [tables-projection.prd.md](../../docs/prd/krummi/tables/tables-projection.prd.md) and its translation now carry the
+  [tables-projection.prd.md](../../../docs/prd/krummi/tables/tables-projection.prd.md) and its translation now carry the
   annotation of 2026-11-16; S2 rewritten; T5 done. The wait for the answer is in the phase log.
 - **L20** (2026-11-16) — Codex code review, round 3 (follow-up, `df72e3f..dc35e10`):
-  [2026-11-16-code-03.md](../../docs/reviews/tables-projection/2026-11-16-code-03.md), status **approved**. R1 verified
+  [2026-11-16-code-03.md](../../../docs/reviews/tables-projection/2026-11-16-code-03.md), status **approved**. R1 verified
   resolved (the user's decision, annotated on AC-PY11); R2 verified in round 2. No finding open. Three rounds, the
   loop's limit.
 - **L21** (2026-11-16) — RDD of the last slice `605dd96..f2566fb` (the strengthened test, the AC-PY11 annotation and

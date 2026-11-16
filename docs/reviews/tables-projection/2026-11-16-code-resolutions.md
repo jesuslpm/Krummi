@@ -11,7 +11,7 @@ Artifact versions: reviewed range `28f9d3b..daccfcd`; the R2 fix in the commit a
 ### R1 — blocker: AC-PY11 is marked satisfied despite failing its required ratio check
 
 Disposition: pending, a product decision. The figures are right: L10 of
-[table-projection.md](../../../odd/tasks/table-projection.md) already says the single-load clause holds only for
+[table-projection.md](../../../odd/done/tables/table-projection.md) already says the single-load clause holds only for
 W22 and W29, and that T5 was closed on a Krummi-only `main`/head A/B instead, as a decision taken during the run
 (no regression of the branch; W27 up on both systems; digests match). That decision changes how the criterion is
 met, so it is the user's call: accept the A/B, measure again, or amend AC-PY11. The requirement was not edited.
@@ -52,7 +52,7 @@ resolved.»
 
 - R1: «blocker, still open». Codex: «keep AC-PY11/T5 open until the specified evidence satisfies it or the user
   explicitly approves a revised acceptance condition.» T5 of
-  [table-projection.md](../../../odd/tasks/table-projection.md) now reads pending that decision (L17). Status:
+  [table-projection.md](../../../odd/done/tables/table-projection.md) now reads pending that decision (L17). Status:
   pending, a product question for the user.
 - R2: «major, verified resolved». No correction-induced regressions were confirmed.
 
@@ -64,7 +64,7 @@ Disposition: resolved by the user's decision, as the review asked («explicit us
 condition»). The user chose to accept the Krummi-only base/head A/B of L10 in place of the single-load clause.
 AC-PY11 of [tables-projection.prd.md](../../prd/krummi/tables/tables-projection.prd.md) and of its English translation
 now carry the annotation of 2026-11-16, which names the nine loads and the comparison accepted; S2 and T5 of
-[table-projection.md](../../../odd/tasks/table-projection.md) follow it (L19). The criterion's other clauses (W26 and
+[table-projection.md](../../../odd/done/tables/table-projection.md) follow it (L19). The criterion's other clauses (W26 and
 W27 checksums, W27's ratio up on both systems) are met as recorded.
 
 Status: claimed, unverified until a follow-up review.
