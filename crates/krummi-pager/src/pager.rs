@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
 
@@ -374,7 +374,7 @@ impl Pager {
             let kept = self
                 .kept_layouts
                 .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             kept.get(&page_number) == Some(&code)
         }
         #[cfg(not(debug_assertions))]
@@ -405,7 +405,7 @@ impl Pager {
             let mut kept_layouts = self
                 .kept_layouts
                 .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if layout_checked && kept {
                 kept_layouts.insert(page_number, code);
             } else {

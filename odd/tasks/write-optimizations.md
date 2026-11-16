@@ -53,3 +53,27 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   was written and approved earlier in the session (decisions «Sí, como Voron», «Sí, solo valor igual», «Sí, se
   encadena»; Codex PRD review approved in round 2). The untracked `docs/prd/krummi/tables/tables-indexes.prd.md` is
   not part of the run and is never staged.
+- **L2** (2026-11-16) — Writers, launched together (T1, T2, T3). T2 `0a5603c`: a commit record of 4 MiB or more is
+  probe-compressed on eight 32 KiB samples from the middle of equal parts and stored raw when they shrink by less
+  than 1/32; records under 4 MiB unchanged; RED `assertion failed: !header.compressed`, then GREEN; raw records were
+  already valid for recovery. T3 `ce8a668`: each end of a range keeps its leaf and index apart from the path and
+  steps through a clear leaf with one comparison; `node::entry` inlined across crates; behavior-preserving, no RED;
+  writer's micro-measurement: whole scans 13.8–15.1 → 8.3–11.3 ns per entry, W11-like 39.4–40.6 → 33.8–35.4 (noisy,
+  other builds running). T1 `56f8a79`: Q1–Q4 of the PRD (the transfer remembers what it writes; a
+  `keeps_check` mark kept only by same-length overwrites through `page_mut_same_layout`; debug re-check), tests
+  AC-Q1–AC-Q9 in `crates/krummi/src/written_pages_tests.rs`, RED observed for each failing one; existing tests
+  adjusted as the PRD annotations allow, plus AC-I9 and AC-S5 (temporary part), whose annotations were added in
+  `757901b`. Seam check: fmt and clippy clean, `cargo test --workspace` 867 passed, 0 failed, 35 ignored.
+- **L3** (2026-11-16) — RDD. The whole run (`10077aa..757901b`, 2,839 lines) exceeded the reviewers' context budget
+  (`lens_context_budget_exceeded`, no authority created), so it was split: T1 alone (`ce8a668..757901b`, lenses
+  risk, resilience and reliability, item 1 named), lineage `review-8e27299c4cffef65`, approved and acknowledged;
+  T2 and T3 (`aa82944..ce8a668`), reviewed in a local clone at `ce8a668` (`work/rdd-clone`, since the review always
+  ends at HEAD), same lenses, lineage `review-a2930b6b3ea7e376`, approved and acknowledged. T1 findings: R4-001
+  (SUGGESTION, the order of the staged pages is only a comment): a debug assertion added; two WARNINGs dismissed with
+  evidence: the value-run mark is set by the only path that stores runs in the scratch area
+  (`scratch.rs:1526-1527`; recovery does not use it), and `copy_for_write` reading through `page_and_code` is what
+  `Snapshot::page` already does (`scratch.rs:1202-1204`). T2+T3 findings: three WARNINGs on the derived last key of a
+  range end after a step into a new leaf that returns nothing, dismissed with evidence: `guard` stops both ends on
+  every `Ok(None)` and error (`range.rs:495-506`, `stop` at `:253-258`), so no later step reads it; one SUGGESTION
+  (a unit test alternating ends): covered by the random alternation tests of `crates/krummi/tests/tree_scans.rs` and
+  `tree_value_model.rs`.

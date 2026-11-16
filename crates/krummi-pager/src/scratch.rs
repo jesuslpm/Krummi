@@ -1421,7 +1421,16 @@ impl<'a> ScratchWriter<'a> {
         assert_eq!(created.len(), pages.len(), "one flag per page");
         assert_eq!(kept.len(), pages.len(), "one flag per page");
         let mut staged = self.stage(pages, runs)?;
-        // The staged pages come first, in the order of `pages`, each in slots of its own that nobody shares yet.
+        // The staged pages come first, in the order of `pages`, each in slots of its own that nobody shares yet: a
+        // flag of `kept` goes to the slot of its own page only (R4-001 of the RDD review of T1).
+        debug_assert!(
+            staged
+                .0
+                .iter()
+                .zip(pages)
+                .all(|((staged, _, _), (page, _))| staged == page),
+            "the staged pages come first, in the order of the pages given"
+        );
         for ((_, slot, _), _) in staged.0.iter_mut().zip(kept).filter(|(_, kept)| **kept) {
             Arc::get_mut(slot)
                 .expect("a staged page is not shared before it is published")
