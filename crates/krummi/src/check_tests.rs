@@ -145,8 +145,9 @@ fn ac_c1_each_node_is_checked_once_while_the_store_is_open() {
 }
 
 /// AC-C2 (C1, C2, C3, C8, G3): a remembered node that a write changes: a read opened before still sees the content it
-/// remembered; the new version, while in the scratch area, is checked on every read and never remembered; once
-/// transferred to the same page, a new read sees it and checks it once.
+/// remembered; the new version, while in the scratch area, is not remembered in the store's memory of checked contents;
+/// once transferred to the same page, a new read sees it without checking it again, because the transfer remembered
+/// the check its version passed in the scratch area (precised by Q2 of the written pages PRD).
 #[test]
 fn ac_c2_a_changed_node_is_checked_again_once_in_the_store() {
     on_both(|store| {
@@ -185,11 +186,14 @@ fn ac_c2_a_changed_node_is_checked_again_once_in_the_store() {
         let before = remembered(store);
         let read = store.read().unwrap();
         let tree = read.open_tree("n").unwrap();
-        assert_eq!(read.get(&tree, &key).unwrap(), Some(&b"changed"[..]));
-        let checked = remembered(store);
-        assert!(checked > before, "the new content is checked");
-        assert_eq!(read.get(&tree, &key).unwrap(), Some(&b"changed"[..]));
-        assert_eq!(remembered(store), checked, "and only once");
+        for _ in 0..2 {
+            assert_eq!(read.get(&tree, &key).unwrap(), Some(&b"changed"[..]));
+        }
+        assert_eq!(
+            remembered(store),
+            before,
+            "the transfer remembered the check of the version (Q2)"
+        );
         drop(read);
         assert_eq!(
             leaf(store, root_of(store, "n"), &key),

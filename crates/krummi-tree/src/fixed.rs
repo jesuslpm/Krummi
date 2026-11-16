@@ -447,7 +447,9 @@ fn change_leaf(
             Ok(underfull_or_done(node))
         }
         (Op::Set(value), Ok(index)) => {
-            let node = tx.page_mut(page)?;
+            // A value of the tree's one length replaces the old one's bytes, and nothing else: the leaf keeps its layout
+            // check (Q3 of the written pages PRD).
+            let node = tx.page_mut_same_layout(page)?;
             let at = offset(node, index) + KEY;
             node[at..at + value.len()].copy_from_slice(value);
             Ok(Outcome::Done)

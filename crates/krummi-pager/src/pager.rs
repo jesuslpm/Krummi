@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use memmap2::Mmap;
 
@@ -99,6 +99,11 @@ pub struct Pager {
     /// The pages whose integrity a read already verified in this opening (I1–I7 of the remembered page integrity
     /// PRD).
     remembered: Remembered,
+    /// The pages that the transfer remembered in `checked` from a version that kept its layout check from a write that
+    /// only overwrote values of the same length (Q3 of the written pages PRD), with the code it remembered: debug builds
+    /// check their layout on every read anyway (Q4). Only debug builds keep it; one entry per page at most.
+    #[cfg(debug_assertions)]
+    kept_layouts: Mutex<std::collections::HashMap<u64, u64>>,
     /// Integrity checks of the store's pages and runs so far (tests).
     #[cfg(any(test, feature = "test-hooks"))]
     integrity_checks: AtomicU64,
@@ -229,6 +234,8 @@ impl Pager {
             checked: Checked::new()?,
             remembered: Remembered::new(reserved / PAGE_SIZE_U64, INITIAL_SIZE / PAGE_SIZE_U64)
                 .map_err(|requested| Error::OutOfMemory { requested })?,
+            #[cfg(debug_assertions)]
+            kept_layouts: Mutex::default(),
             #[cfg(any(test, feature = "test-hooks"))]
             integrity_checks: AtomicU64::new(0),
             header: Mutex::new(HeaderState::new(
@@ -355,6 +362,70 @@ impl Pager {
     /// it, passed the check of the layers above (C1, C2).
     pub fn remember_checked(&self, page_number: u64, code: u64) {
         self.checked.remember(page_number, code);
+    }
+
+    /// Whether the content of page `page_number` with integrity code `code` is remembered in the table of checked
+    /// contents because the transfer wrote it from a version that kept its layout check without a check of its own (Q2,
+    /// Q3 of the written pages PRD), for debug builds, which check such a layout on every read anyway (Q4). Production
+    /// builds do not keep it and answer `false`.
+    pub fn layout_kept(&self, page_number: u64, code: u64) -> bool {
+        #[cfg(debug_assertions)]
+        {
+            let kept = self
+                .kept_layouts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            kept.get(&page_number) == Some(&code)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = (page_number, code);
+            false
+        }
+    }
+
+    /// Remembers page `page_number`, which the transfer has just written in place with the bytes of `page`, sealed by
+    /// the commit (Q1 of the written pages PRD): its integrity, without checking it, since its bytes are the ones the
+    /// engine sealed; and, when its version had `layout_checked` (U1 of the version checks PRD, or kept by Q3), the
+    /// content's layout check in the table of checked contents, with the code sealed in it (Q2). `kept` tells that the
+    /// version kept that check from the page it was copied from instead of passing one (Q3), for debug builds (Q4).
+    /// Nothing is counted as a check. Pages of a value run are never remembered this way (they follow I4).
+    pub(crate) fn remember_written(
+        &self,
+        page_number: u64,
+        page: &[u8; PAGE_SIZE],
+        layout_checked: bool,
+        kept: bool,
+    ) {
+        let code = format::recorded_checksum(page);
+        // Before the table of checked contents, so that a debug read that finds the content there also finds that it
+        // was kept.
+        #[cfg(debug_assertions)]
+        {
+            let mut kept_layouts = self
+                .kept_layouts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if layout_checked && kept {
+                kept_layouts.insert(page_number, code);
+            } else {
+                kept_layouts.remove(&page_number);
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = kept;
+        self.remembered.remember(page_number, 1);
+        if layout_checked {
+            self.checked.remember_written(page_number, code);
+        }
+    }
+
+    /// Forgets the integrity of page `page_number`, as if it had not been read in this opening nor written by the
+    /// transfer, without changing it (tests: a page damaged in place that stands for one damaged with the store
+    /// closed, in a temporary store that cannot be reopened).
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn forget_integrity(&self, page_number: u64) {
+        self.remembered.forget(page_number, 1);
     }
 
     /// Contents remembered so far in this opening, one per successful check (tests).
@@ -622,7 +693,9 @@ impl Pager {
                     .is_some_and(|end| end <= self.page_count()),
             "{count} pages from page {first} cannot be written"
         );
-        // Before writing, so that a write that fails or stops halfway leaves them forgotten too (I4).
+        // Before writing, so that a write that fails or stops halfway leaves them forgotten too (I4, G12). The transfer
+        // remembers a page of its own again once its write ended ([`Pager::remember_written`], Q1 of the written pages
+        // PRD).
         self.remembered.forget(first, count);
         // SAFETY: the caller guarantees what `write_unremembered` requires.
         unsafe { self.write_unremembered(first, pages) }
@@ -1065,6 +1138,8 @@ fn file_pager(
         checked: Checked::new()?,
         remembered: Remembered::new(MAX_FILE_PAGES, len / PAGE_SIZE_U64)
             .map_err(|requested| Error::OutOfMemory { requested })?,
+        #[cfg(debug_assertions)]
+        kept_layouts: Mutex::default(),
         #[cfg(any(test, feature = "test-hooks"))]
         integrity_checks: AtomicU64::new(0),
     })

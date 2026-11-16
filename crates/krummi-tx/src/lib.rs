@@ -70,10 +70,14 @@ pub enum PageCheck<'a> {
     /// of checked contents, although it keeps the integrity code of the page it was copied from.
     Changed,
     /// A committed version in the scratch area, which no read verifies (I3), and whether its layout already passed
-    /// the check of the layers above since it was published (U1 of the version checks PRD).
+    /// the check of the layers above since it was published (U1 of the version checks PRD), or kept it from the page it
+    /// was copied from (Q3 of the written pages PRD).
     Version {
-        /// The version passed the layout check.
+        /// The version passed the layout check, or kept it.
         checked: bool,
+        /// The version kept the layout check of the page it was copied from, without a check of its own (Q3), which
+        /// debug builds check on every read anyway (Q4 of the written pages PRD).
+        kept: bool,
         /// Where the version remembers a pass, which the check reports through without finding the version again.
         mark: krummi_pager::VersionMark<'a>,
     },
@@ -85,7 +89,15 @@ impl<'a> From<krummi_pager::Origin<'a>> for PageCheck<'a> {
     fn from(origin: krummi_pager::Origin<'a>) -> PageCheck<'a> {
         match origin {
             krummi_pager::Origin::Store(code) => PageCheck::Verified(code),
-            krummi_pager::Origin::Version { checked, mark } => PageCheck::Version { checked, mark },
+            krummi_pager::Origin::Version {
+                checked,
+                kept,
+                mark,
+            } => PageCheck::Version {
+                checked,
+                kept,
+                mark,
+            },
         }
     }
 }
@@ -434,6 +446,26 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn flip_byte_in_place(&mut self, page_number: u64, offset: usize) -> Result<()> {
         self.scratch.flip_byte_in_place(page_number, offset)
+    }
+
+    /// Forgets the integrity of page `page_number` in the store, without changing it, as if no read of this opening had
+    /// checked it and the transfer had not written it (tests of the written pages PRD: in a temporary store, which
+    /// cannot be reopened, a page then altered with [`flip_byte_in_place`](Self::flip_byte_in_place) stands for one
+    /// damaged with the store closed).
+    #[cfg(feature = "test-hooks")]
+    pub fn forget_integrity(&self, page_number: u64) {
+        self.scratch.pager().forget_integrity(page_number);
+    }
+
+    /// Reads page `page_number` from the store's pages, not from the scratch area, as a transaction of this opening
+    /// does: its integrity is checked unless it is remembered (tests of the written pages PRD, which count the checks
+    /// with [`integrity_checks`](Self::integrity_checks)).
+    #[cfg(feature = "test-hooks")]
+    pub fn read_in_place(&self, page_number: u64) -> Result<()> {
+        self.scratch
+            .pager()
+            .page_and_code_with(page_number, krummi_pager::Integrity::UseRemembered)
+            .map(|_| ())
     }
 
     /// Contents whose layout the tree code remembered as checked since the store opened, one per successful check of

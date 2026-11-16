@@ -100,6 +100,15 @@ impl<'e> ReadTransaction<'e> {
             .remember_checked(page_number, code);
     }
 
+    /// Whether the content of page `page_number` with integrity code `code` is remembered as checked because it kept
+    /// the check of the page it was copied from (Q3 of the written pages PRD); only debug builds tell, for Q4.
+    pub fn layout_kept(&self, page_number: u64, code: u64) -> bool {
+        self.snapshot
+            .scratch()
+            .pager()
+            .layout_kept(page_number, code)
+    }
+
     /// The content of the value run of `count` pages from page `first` as this transaction sees it, after the run's
     /// header, as one contiguous sequence without copying it (V2 of the large values PRD, T16). The reference lives
     /// as long as the transaction (T8). A damaged run, or pages that are not such a run, are the damage class with
@@ -203,16 +212,31 @@ struct Changed {
     /// The transaction created the page, zeroed, rather than copying its newest version: the journal keeps what
     /// differs from zeros, not from that version (Y1 of the journal page diffs PRD).
     created: bool,
+    /// The page keeps the layout check of the page or version it was copied from: that one's layout was checked or
+    /// remembered when the copy was made, and every change since only overwrote values of entries in the leaf with
+    /// others of the same length (Q3 of the written pages PRD). Any other change clears it for good.
+    keeps_check: bool,
 }
 
 impl Changed {
-    /// A page just created, zeroed, or copied for this transaction.
-    fn new(payload: PayloadBuf, created: bool) -> Changed {
-        Changed { payload, created }
+    /// A page just created, zeroed, or copied for this transaction; `keeps_check` for a copy of a checked page that
+    /// is about to change only by same-length value overwrites (Q3).
+    fn new(payload: PayloadBuf, created: bool, keeps_check: bool) -> Changed {
+        Changed {
+            payload,
+            created,
+            keeps_check,
+        }
     }
 
-    /// The payload to change it.
+    /// The payload to change it in any way: the page no longer keeps a layout check (Q3).
     fn payload_mut(&mut self) -> &mut [u8] {
+        self.keeps_check = false;
+        &mut self.payload[..]
+    }
+
+    /// The payload to overwrite values in it with others of the same length, which keeps its layout check (Q3).
+    fn payload_same_layout(&mut self) -> &mut [u8] {
         &mut self.payload[..]
     }
 }
@@ -317,6 +341,16 @@ impl<'e> WriteTransaction<'e> {
             .remember_checked(page_number, code);
     }
 
+    /// Whether the content of page `page_number` with integrity code `code` is remembered as checked because it kept
+    /// the check of the page it was copied from (Q3 of the written pages PRD); only debug builds tell, for Q4.
+    pub fn layout_kept(&self, page_number: u64, code: u64) -> bool {
+        self.writer
+            .snapshot()
+            .scratch()
+            .pager()
+            .layout_kept(page_number, code)
+    }
+
     /// The payload of page `page_number` to change it. The first change copies the page into this transaction
     /// (T14). Changing one of the store's own pages, a page this transaction freed, or a page of a value run it
     /// reserved, fails with the misuse class (F8, T11).
@@ -337,6 +371,32 @@ impl<'e> WriteTransaction<'e> {
             .get_mut(&page_number)
             .expect("copied above")
             .payload_mut())
+    }
+
+    /// The payload of page `page_number`, as [`page_mut`](Self::page_mut), for a layer above that only overwrites the
+    /// value of entries the leaf already holds, stored in the leaf, with others of the same length, which leaves the
+    /// node's layout as it was. A copy made here of a page or version whose layout was checked or remembered (C2, U1 of
+    /// the version checks PRD, or kept itself), and changed only through this method until the commit, keeps that
+    /// layout check: its version is published as checked (Q3 of the written pages PRD). Any change through
+    /// [`page_mut`](Self::page_mut) ends that for the rest of the transaction. The caller vouches that it changes
+    /// nothing else; debug builds check the layout of such a version on every read by another transaction (Q4).
+    ///
+    /// # Panics
+    ///
+    /// If the page was never reserved.
+    pub fn page_mut_same_layout(&mut self, page_number: u64) -> Result<&mut [u8]> {
+        let result = self
+            .engine
+            .injected_fault()
+            .and_then(|()| self.writable_with(page_number, true));
+        self.track(result)?;
+        #[cfg(feature = "test-hooks")]
+        self.log(LayoutEvent::Change(page_number));
+        Ok(self
+            .dirty
+            .get_mut(&page_number)
+            .expect("copied above")
+            .payload_same_layout())
     }
 
     /// Reserves a page, zeroed, and returns its number: a free page of the map if there is one, otherwise the
@@ -540,13 +600,15 @@ impl<'e> WriteTransaction<'e> {
         self.track(finished)?;
         let meta_written = self.dirty.contains_key(&META_PAGE);
         // The pager seals the pages straight into the temporary area (O5 of the performance plan).
-        let (pages, created): (Vec<(u64, PayloadBuf)>, Vec<bool>) = std::mem::take(&mut self.dirty)
+        let dirty = std::mem::take(&mut self.dirty);
+        let kept: Vec<bool> = dirty.values().map(|changed| changed.keeps_check).collect();
+        let (pages, created): (Vec<(u64, PayloadBuf)>, Vec<bool>) = dirty
             .into_iter()
             .map(|(page, changed)| ((page, changed.payload), changed.created))
             .unzip();
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
-        let committed = self.writer.commit(&pages, &created, &runs);
+        let committed = self.writer.commit(&pages, &created, &kept, &runs);
         // The pages and the runs are copied into the temporary area now, or the commit failed: their buffers serve
         // the next copies and runs.
         self.engine.keep_payloads(pages);
@@ -606,6 +668,12 @@ impl<'e> WriteTransaction<'e> {
     }
 
     fn writable(&mut self, page_number: u64) -> Result<()> {
+        self.writable_with(page_number, false)
+    }
+
+    /// As [`writable`](Self::writable); a copy made for `same_layout` changes keeps the layout check of its source when
+    /// that was checked or remembered (Q3 of the written pages PRD).
+    fn writable_with(&mut self, page_number: u64, same_layout: bool) -> Result<()> {
         if self.layout.is_own(page_number) {
             return Err(self
                 .engine
@@ -614,16 +682,29 @@ impl<'e> WriteTransaction<'e> {
         self.check_reserved(page_number, 1);
         self.check_page(page_number)?;
         if !self.dirty.contains_key(&page_number) {
-            self.copy_for_write(page_number)?;
+            self.copy_for_write(page_number, same_layout)?;
         }
         Ok(())
     }
 
-    fn copy_for_write(&mut self, page_number: u64) -> Result<()> {
+    /// Copies page `page_number` into this transaction. With `same_layout`, the copy keeps the layout check of what it
+    /// copies when that passed the check or kept it: a content of the store remembered in the table of checked contents
+    /// (C2), or a version of the scratch area that passed or kept it (U1, Q3 of the written pages PRD).
+    fn copy_for_write(&mut self, page_number: u64, same_layout: bool) -> Result<()> {
         self.reserve(1, 0)?;
         let mut payload = self.engine.payload_for_copy()?;
-        payload.copy_from_slice(self.writer.snapshot().page(page_number)?);
-        self.dirty.insert(page_number, Changed::new(payload, false));
+        let snapshot = self.writer.snapshot();
+        let (page, origin) = snapshot.page_and_code(page_number)?;
+        payload.copy_from_slice(page);
+        let keeps_check = same_layout
+            && match origin {
+                krummi_pager::Origin::Store(code) => {
+                    snapshot.scratch().pager().is_checked(page_number, code)
+                }
+                krummi_pager::Origin::Version { checked, .. } => checked,
+            };
+        self.dirty
+            .insert(page_number, Changed::new(payload, false, keeps_check));
         Ok(())
     }
 
@@ -631,7 +712,7 @@ impl<'e> WriteTransaction<'e> {
     fn add_zeroed(&mut self, pages: impl IntoIterator<Item = u64>) -> Result<()> {
         for page in pages {
             self.dirty
-                .insert(page, Changed::new(alloc_payload()?, true));
+                .insert(page, Changed::new(alloc_payload()?, true, false));
             #[cfg(feature = "test-hooks")]
             self.log(LayoutEvent::Change(page));
         }
@@ -658,7 +739,7 @@ impl<'e> WriteTransaction<'e> {
             self.reserve(2, 0)?;
             return self.add_zeroed([META_PAGE, MAP_PAGE]);
         }
-        self.copy_for_write(META_PAGE)
+        self.copy_for_write(META_PAGE, false)
     }
 
     /// The map page of `region` in this transaction, copied on first use.
@@ -666,7 +747,7 @@ impl<'e> WriteTransaction<'e> {
         self.ensure_meta()?;
         let page = self.layout.map_page(region);
         if !self.dirty.contains_key(&page) {
-            self.copy_for_write(page)?;
+            self.copy_for_write(page, false)?;
         }
         Ok(self
             .dirty

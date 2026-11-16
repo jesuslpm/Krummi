@@ -109,6 +109,8 @@ mod value_tests;
 mod version_check_tests;
 #[cfg(test)]
 mod writer_check_tests;
+#[cfg(test)]
+mod written_pages_tests;
 
 /// Options for opening a store.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -236,8 +236,9 @@ fn ac_u5_a_copy_of_a_remembered_version_is_checked_after_the_commit() {
     });
 }
 
-/// AC-U6 (U1, C2): once the version leaves the scratch area, a new read of the node from the store's pages checks
-/// it on its first read only, in the shared memory.
+/// AC-U6 (U1, C2): once the version leaves the scratch area, a new read of the node from the store's pages does not
+/// check it again: the transfer remembered in the shared memory the check its version passed (precised by Q2 of the
+/// written pages PRD), and no read checks it later.
 #[test]
 fn ac_u6_after_the_version_leaves_the_node_is_checked_from_the_store_once() {
     on_both(|store| {
@@ -258,8 +259,11 @@ fn ac_u6_after_the_version_leaves_the_node_is_checked_from_the_store_once() {
         let tree = read.open_tree("n").unwrap();
         assert!(read.get(&tree, &long_key(0, 64)).unwrap().is_some());
         let after_first = store.engine.checked_remembered();
-        // The catalog's root, read to open the tree, and the tree's root, each checked once.
-        assert_eq!(after_first, remembered + 2, "checked from the store");
+        // The catalog's root, read to open the tree, and the tree's root passed their check as versions.
+        assert_eq!(
+            after_first, remembered,
+            "remembered by the transfer, not checked from the store"
+        );
         assert!(read.get(&tree, &long_key(0, 64)).unwrap().is_some());
         assert_eq!(checks(store), versions, "no version read");
         assert_eq!(

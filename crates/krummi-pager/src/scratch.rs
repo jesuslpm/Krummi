@@ -764,7 +764,9 @@ impl Shared {
 
     /// Writes in place every newest version that no open snapshot is older than and that is durable, after
     /// retiring the versions that no snapshot can read any more; with `force`, it first waits until every queued
-    /// commit is durable, so every such version goes (J5). It calls the test hook once it knows what it writes.
+    /// commit is durable, so every such version goes (J5). It calls the test hook once it knows what it writes. Each page
+    /// of its own that it writes is remembered once written, with the layout check of its version (Q1, Q2 of the written
+    /// pages PRD).
     fn flush_locked(&self, _flushing: &MutexGuard<'_, ()>, force: bool) -> Result<()> {
         let pager = self.pager();
         if force && let Some(journal) = &self.journal {
@@ -809,6 +811,12 @@ impl Shared {
             if let Err(error) = unsafe { pager.write_run_shared(*first, slots.bytes()) } {
                 outcome = Err(error);
                 break;
+            }
+            // Its bytes are the ones the commit sealed, and its version's layout check, at this moment, holds for them
+            // (Q1, Q2 of the written pages PRD); a value run follows I4.
+            if !slots.is_value_run() {
+                let checked = slots.layout_checked();
+                pager.remember_written(*first, slots.page(), checked, slots.keeps_check());
             }
             written += 1;
         }
@@ -1124,10 +1132,14 @@ pub enum Origin<'a> {
     /// this opening already did (C2 of the remembered node layout check PRD, I2).
     Store(u64),
     /// A committed version in the scratch area, which no read verifies (I3), and whether its layout already passed
-    /// the check of the layers above (U1 of the version checks PRD).
+    /// the check of the layers above (U1 of the version checks PRD) or kept it from the page it was copied from (Q3 of
+    /// the written pages PRD).
     Version {
-        /// The version passed the layout check since it was published.
+        /// The version passed the layout check since it was published, or kept it.
         checked: bool,
+        /// The version kept the layout check of the page it was copied from, without a check of its own (Q3), which
+        /// debug builds check on every read anyway (Q4).
+        kept: bool,
         /// Where the version remembers a pass, for [`Snapshot::version_checked`].
         mark: VersionMark<'a>,
     },
@@ -1214,6 +1226,7 @@ impl<'a> Snapshot<'a> {
             let ptr = version.page.page().as_ptr();
             let flag: *const AtomicBool = version.page.layout_flag();
             let checked = version.page.layout_checked();
+            let kept = version.page.keeps_check();
             drop(state);
             // SAFETY: `ptr` points to the PAGE_SIZE bytes of a slot of the temporary area owned by an `Arc` in the
             // scratch area; the area keeps a slot's memory while the slot is held.
@@ -1226,7 +1239,14 @@ impl<'a> Snapshot<'a> {
             // SAFETY: `flag` is a field of the `Slot` that owns those slots, inside the `Arc` that the scratch area
             // keeps while this snapshot is open, as above; an `AtomicBool` is shared through `&`.
             let mark = VersionMark(unsafe { &*flag });
-            return Ok((&page[PAGE_HEADER_SIZE..], Origin::Version { checked, mark }));
+            return Ok((
+                &page[PAGE_HEADER_SIZE..],
+                Origin::Version {
+                    checked,
+                    kept,
+                    mark,
+                },
+            ));
         }
         drop(state);
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
@@ -1382,20 +1402,31 @@ impl<'a> ScratchWriter<'a> {
     /// in the journal's queue from there, a run's pages as raw entries (D5 of the large values execution), and
     /// publishes them for the next writer (E2). `created[i]` tells whether the transaction created page `pages[i]`,
     /// zeroed, rather than copying its newest version: the journal keeps what differs from that version, or from
-    /// zeros (Y1 of the journal page diffs PRD). Returns the number of the commit, which read snapshots see once it is
-    /// durable (E3; [`Scratch::wait_durable`]). On failure nothing is published (J12).
+    /// zeros (Y1 of the journal page diffs PRD). `kept[i]` tells whether page `pages[i]` is a node that keeps the layout
+    /// check of the page it was copied from, because the transaction only overwrote values in it with others of the
+    /// same length (Q3 of the written pages PRD): its version is published as checked. Returns the number of the
+    /// commit, which read snapshots see once it is durable (E3; [`Scratch::wait_durable`]). On failure nothing is
+    /// published (J12).
     ///
     /// # Panics
     ///
-    /// If `created` and `pages` differ in length.
+    /// If `created` or `kept` and `pages` differ in length.
     pub fn commit(
         &mut self,
         pages: &[(u64, PayloadBuf)],
         created: &[bool],
+        kept: &[bool],
         runs: &[(u64, RunBuf)],
     ) -> Result<u64> {
         assert_eq!(created.len(), pages.len(), "one flag per page");
-        let staged = self.stage(pages, runs)?;
+        assert_eq!(kept.len(), pages.len(), "one flag per page");
+        let mut staged = self.stage(pages, runs)?;
+        // The staged pages come first, in the order of `pages`, each in slots of its own that nobody shares yet.
+        for ((_, slot, _), _) in staged.0.iter_mut().zip(kept).filter(|(_, kept)| **kept) {
+            Arc::get_mut(slot)
+                .expect("a staged page is not shared before it is published")
+                .keep_check();
+        }
         let scratch = self.snapshot.scratch;
         if let Some(journal) = &scratch.shared.journal {
             let (txid, bases) = {
@@ -1492,7 +1523,9 @@ impl<'a> ScratchWriter<'a> {
                 "the run of {} bytes from page {first} cannot be published",
                 run.len()
             );
-            let slots = Arc::new(scratch.shared.area.store_run(run, pager)?);
+            let mut slots = scratch.shared.area.store_run(run, pager)?;
+            slots.mark_value_run();
+            let slots = Arc::new(slots);
             staged.extend(
                 (*first..first + count)
                     .zip(0..)

@@ -25,7 +25,9 @@
 //! and the page number (G6, A9), and in a write it is the transaction's failure (T11). The node accessors then stay
 //! within the page without checking again. A layout that passed is not checked again while the content it covers
 //! stays the same: a verified content of the store while the store is open, and a node a write changed until its
-//! next change in that write (see [`node_at_with`]).
+//! next change in that write (see [`node_at_with`]). A leaf where a write only overwrote values in the leaf with others
+//! of the same length keeps the check of the node it copied (Q3 of the written pages PRD): those overwrites go through
+//! [`WriteTransaction::page_mut_same_layout`], every other change through `page_mut`.
 //!
 //! The memory an operation needs besides pages (the copy of a node that splits or merges, its cells, a separator
 //! key, the children of a node freed, the list of trees) is reserved through [`reserve`]: running out of it fails
@@ -81,6 +83,14 @@ pub trait PageSource {
     /// Remembers that the content of page `page_number` with integrity code `code` passed the layout check (C1, C2).
     fn remember_checked(&self, page_number: u64, code: u64) {
         let _ = (page_number, code);
+    }
+
+    /// Whether the content of page `page_number` with integrity code `code`, remembered as checked, kept that check from
+    /// the page it was copied from without a check of its own (Q3 of the written pages PRD); only debug builds tell,
+    /// for Q4.
+    fn layout_kept(&self, page_number: u64, code: u64) -> bool {
+        let _ = (page_number, code);
+        false
     }
 
     /// Reports the layout check of page `page_number`, read without a verified integrity code as `check` says, and
@@ -141,6 +151,10 @@ impl PageSource for ReadTransaction<'_> {
         ReadTransaction::remember_checked(self, page_number, code);
     }
 
+    fn layout_kept(&self, page_number: u64, code: u64) -> bool {
+        ReadTransaction::layout_kept(self, page_number, code)
+    }
+
     fn prefetch(&self, page_number: u64) {
         ReadTransaction::prefetch(self, page_number);
     }
@@ -185,6 +199,10 @@ impl PageSource for WriteTransaction<'_> {
 
     fn remember_checked(&self, page_number: u64, code: u64) {
         WriteTransaction::remember_checked(self, page_number, code);
+    }
+
+    fn layout_kept(&self, page_number: u64, code: u64) -> bool {
+        WriteTransaction::layout_kept(self, page_number, code)
     }
 
     fn layout_checked(&self, page_number: u64, check: PageCheck<'_>, passed: bool) {
@@ -272,8 +290,10 @@ fn node_at<S: PageSource + ?Sized>(tx: &S, page: u64, level: Option<u8>) -> Resu
 /// the transaction committed on their first read (H1 of the commit checks PRD); its kind and level are checked on
 /// every read, as for every node. A version of the
 /// scratch area is checked on its first read, and a pass is remembered by the version while it stays there, for every
-/// transaction (U1 of the version checks PRD); that memory does not know the format either. Every other check runs on
-/// every read.
+/// transaction (U1 of the version checks PRD); that memory does not know the format either. A leaf that a write only
+/// changed by overwriting values with others of the same length keeps the check of the node it was copied from, as a
+/// version and, once the transfer writes it, in the store (Q2, Q3 of the written pages PRD); debug builds check its
+/// layout on every read anyway, outside the count of layout checks (Q4). Every other check runs on every read.
 pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     page: u64,
@@ -285,7 +305,11 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
     }
     let (node, check) = tx.page_and_check(page)?;
     let layout = match check {
-        PageCheck::Verified(code) if tx.is_checked(page, code) => true,
+        // A content that kept its check from a same-length overwrite (Q3 of the written pages PRD) is checked anyway in
+        // debug builds, like the nodes a write changed, without remembering anything (Q4).
+        PageCheck::Verified(code) if tx.is_checked(page, code) => {
+            !cfg!(debug_assertions) || !tx.layout_kept(page, code) || (format.is_valid)(node)
+        }
         PageCheck::Verified(code) => {
             let valid = (format.is_valid)(node);
             if valid {
@@ -297,7 +321,11 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
         // first read (H1 of the commit checks PRD). Debug builds check them on every read, like Voron's `VALIDATE`
         // (annotation of 2026-11-09 to H1), outside the record of layout checks.
         PageCheck::Changed => !cfg!(debug_assertions) || (format.is_valid)(node),
-        PageCheck::Version { checked: true, .. } => true,
+        PageCheck::Version {
+            checked: true,
+            kept,
+            ..
+        } => !(cfg!(debug_assertions) && kept) || (format.is_valid)(node),
         PageCheck::Version { checked: false, .. } | PageCheck::Unverified => {
             let valid = (format.is_valid)(node);
             tx.layout_checked(page, check, valid);
@@ -468,7 +496,8 @@ pub fn overwrite(
         && node::key(node, at.index) == key
         && matches!(node::value(node, at.index), Value::Inline(old) if old.len() == value.len());
     if same_entry {
-        node::value_mut(tx.page_mut(at.leaf)?, at.index).copy_from_slice(value);
+        // Only the value's bytes change: the leaf keeps its layout check (Q3 of the written pages PRD).
+        node::value_mut(tx.page_mut_same_layout(at.leaf)?, at.index).copy_from_slice(value);
     }
     Ok(same_entry)
 }
@@ -1071,7 +1100,8 @@ fn change_leaf(
         && old_bytes.len() == value.len()
         && node::fits_inline(key.len(), value.len())
     {
-        node::value_mut(tx.page_mut(page)?, index).copy_from_slice(value);
+        // Only the value's bytes change: the leaf keeps its layout check (Q3 of the written pages PRD).
+        node::value_mut(tx.page_mut_same_layout(page)?, index).copy_from_slice(value);
         return Ok(Outcome::Done);
     }
     let index = found.unwrap_or_else(|i| i);

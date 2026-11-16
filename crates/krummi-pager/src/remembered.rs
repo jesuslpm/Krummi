@@ -2,7 +2,8 @@
 //! integrity PRD).
 //!
 //! One bit per page of the store, set when a read verifies the page and cleared before the engine writes it in
-//! place (I4). A value stored off its leaf is remembered and forgotten with every page of its range, and is only
+//! place (I4); the transfer sets it again once it has written a page of its own, whose bytes the engine sealed (Q1 of
+//! the written pages PRD). A value stored off its leaf is remembered and forgotten with every page of its range, and is only
 //! remembered while every one of them is (I1). The bits live in a reserved address range that never moves and is committed, zeroed, as the
 //! store grows: readers find a page's bit without a lock, and a growth only commits more of the range before the
 //! store publishes its new size, so every page a reader can reach already has its bit. One bit per page is 16 KiB

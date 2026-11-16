@@ -226,8 +226,10 @@ fn ac_s4_a_write_uses_the_remembered_pages() {
     });
 }
 
-/// AC-S4 (S2, I1, I5), second part: a page of the store's pages that nobody read in the opening is checked on its
-/// first read by a write, and not on the next ones, of that write, of another write or of a read.
+/// AC-S4 (S2, I1, I5), second part: a page of the store's pages that nobody read in the opening, and that the transfer
+/// did not write in it (precised by Q1 of the written pages PRD), is checked on its first read by a write, and not on
+/// the next ones, of that write, of another write or of a read. A temporary store, which cannot be reopened and whose
+/// pages the transfer wrote, forgets the integrity of the pages the write reads through a test hook.
 #[test]
 fn ac_s4_a_write_remembers_a_page_on_its_first_read() {
     let tmp = tempfile::tempdir().unwrap();
@@ -239,6 +241,10 @@ fn ac_s4_a_write_remembers_a_page_on_its_first_read() {
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     commit_tree(&temporary, "t", 200, 64);
     transfer(&temporary);
+    let root = root_of(&temporary, "t");
+    for page in [root, leaf(&temporary, root, &long_key(150, 64))] {
+        temporary.engine.forget_integrity(page);
+    }
 
     for store in [disk, temporary] {
         let key = long_key(150, 64);
@@ -296,8 +302,8 @@ fn ac_i3_versions_and_copies_are_not_checked() {
 }
 
 /// AC-I4 (I4, C8, G3): a remembered page that a write changes: a read opened before keeps seeing the earlier content;
-/// once that read closes and the new version moves to the store's pages, a new read sees the new content, checked
-/// once.
+/// once that read closes and the new version moves to the store's pages, a new read sees the new content, which the
+/// transfer remembered once it wrote it, so its integrity is not checked (precised by Q1 of the written pages PRD).
 #[test]
 fn ac_i4_a_moved_page_is_checked_again_once() {
     on_both(|store| {
@@ -321,18 +327,18 @@ fn ac_i4_a_moved_page_is_checked_again_once() {
         );
         drop(before);
         transfer(store);
-        assert!(!is_remembered(store, page), "the transfer forgot it");
+        assert!(
+            is_remembered(store, page),
+            "the transfer remembered what it wrote (Q1)"
+        );
 
         let read = store.read().unwrap();
         let tree = read.open_tree("t").unwrap();
         let (value, first) = checks_of(store, || read.get(&tree, &key).unwrap().unwrap().to_vec());
         assert_eq!(value, b"new");
-        assert!(
-            first > 0 && is_remembered(store, page),
-            "checked and remembered"
-        );
+        assert_eq!(first, 0, "not checked");
         let (_, again) = checks_of(store, || read.get(&tree, &key).unwrap().unwrap().to_vec());
-        assert_eq!(again, 0, "checked once");
+        assert_eq!(again, 0, "nor later");
     });
 }
 
@@ -422,27 +428,37 @@ fn ac_i6_a_page_damaged_while_closed_fails_on_every_read() {
     store.close().unwrap();
 }
 
-/// AC-I7 (I2, I8): a page not read yet in this opening, altered with the store open, fails when it is read.
+/// AC-I7 (I2, I8): a page not read yet in this opening, and not one the transfer wrote in it (precised by Q1 of the
+/// written pages PRD), altered with the store open, fails when it is read. On disk the store is reopened after the
+/// transfer; a temporary store, which cannot be reopened, forgets the page's integrity through a test hook.
 #[test]
 fn ac_i7_a_page_not_read_yet_and_damaged_while_open_fails() {
-    on_both(|store| {
-        commit_tree(store, "t", 3, 64);
-        transfer(store);
-        let page = root_of(store, "t");
-        assert!(
-            !is_remembered(store, page),
-            "not read since the transfer wrote it"
-        );
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    commit_tree(&disk, "t", 3, 64);
+    transfer(&disk);
+    disk.close().unwrap();
+    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
+    commit_tree(&temporary, "t", 3, 64);
+    transfer(&temporary);
+    temporary.engine.forget_integrity(root_of(&temporary, "t"));
+    for mut store in [disk, temporary] {
+        let page = root_of(&store, "t");
+        assert!(!is_remembered(&store, page), "not read in this opening");
         store.engine.flip_byte_in_place(page, 100).unwrap();
         let read = store.read().unwrap();
         let tree = read.open_tree("t").unwrap();
         assert_eq!(damaged_page(read.get(&tree, &long_key(1, 64))), page);
-    });
+        drop(read);
+        store.close().unwrap();
+    }
 }
 
 /// AC-S5 (S2, T11, G6): a page of the data file altered with the store closed makes every read of a write that reads
 /// it fail with the damage class and its page, twice, and the write cannot commit. A temporary store, which cannot be
-/// closed, does the same with a page not read since the transfer wrote it, altered while it is open.
+/// closed, does the same with a page whose integrity it forgets through a test hook, since the transfer remembers what
+/// it writes (Q1 of the written pages PRD), altered while it is open.
 #[test]
 fn ac_s5_a_write_fails_on_every_read_of_a_damaged_page() {
     let tmp = tempfile::tempdir().unwrap();
@@ -457,6 +473,7 @@ fn ac_s5_a_write_fails_on_every_read_of_a_damaged_page() {
     commit_tree(&temporary, "t", 3, 64);
     transfer(&temporary);
     let in_memory = root_of(&temporary, "t");
+    temporary.engine.forget_integrity(in_memory);
     assert!(!is_remembered(&temporary, in_memory));
     temporary.engine.flip_byte_in_place(in_memory, 100).unwrap();
 
@@ -672,14 +689,17 @@ fn ac_i9_concurrent_reads_while_pages_move() {
     ];
     concurrent_reads_while_a_write_moves_nodes(stores, |store, bad_page| {
         transfer(store);
-        // Not read since the transfer wrote it, as a page damaged with the store closed (AC-I6).
+        // Forgotten, as a page damaged with the store closed (AC-I6): the transfer remembers what it writes (Q1 of the
+        // written pages PRD), and the store is not reopened here.
+        store.engine.forget_integrity(bad_page);
         assert!(!store.engine.is_remembered(bad_page));
         store.engine.flip_byte_in_place(bad_page, 0).unwrap();
     });
 }
 
 /// AC-I10 (I4, I5, I6): a store with remembered pages grows while a read reads them: the remembered pages the
-/// transfer did not write stay unchecked, and the new pages are checked on their first read.
+/// transfer did not write stay unchecked, and the new pages, which the transfer wrote, are remembered from then on and
+/// not checked on their first read (precised by Q1 of the written pages PRD).
 #[test]
 fn ac_i10_growing_keeps_what_is_remembered() {
     on_both(|store| {
@@ -714,7 +734,8 @@ fn ac_i10_growing_keeps_what_is_remembered() {
             );
         }
 
-        // Nothing has read the tree since the transfer wrote it; finding its leaf reads it, so that comes after.
+        // Nothing has read the tree since the transfer wrote it and remembered it; finding its leaf reads it, so that
+        // comes after.
         let read = store.read().unwrap();
         let tree = read.open_tree("b").unwrap();
         let key = long_key(399, 1500);
@@ -726,8 +747,8 @@ fn ac_i10_growing_keeps_what_is_remembered() {
             "a page of the growth"
         );
         assert!(
-            first > 0 && is_remembered(store, new_leaf),
-            "checked on its first read"
+            first == 0 && is_remembered(store, new_leaf),
+            "remembered by the transfer, not checked"
         );
         assert_eq!(again, 0);
     });

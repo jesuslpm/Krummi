@@ -1,9 +1,10 @@
 //! The page contents that the layers above have already checked, remembered while the store is open (C1–C6 of the
 //! remembered node layout check PRD).
 //!
-//! A content is identified by its page number and by the integrity code that a read has just verified (C2). The code
-//! covers the page number, so a content of another page, or a changed content, has another code: a hit needs the code
-//! to equal the one remembered. The table has a fixed number of slots, one atomic word each, chosen by the page
+//! A content is identified by its page number and by the integrity code that a read has just verified (C2), or that the
+//! transfer has just written in place from a version whose layout passed the check or kept it (Q2 of the written pages
+//! PRD). The code covers the page number, so a content of another page, or a changed content, has another code: a hit
+//! needs the code to equal the one remembered. The table has a fixed number of slots, one atomic word each, chosen by the page
 //! number, so a lookup never pairs one page's number with another's code (C5); remembering a content replaces
 //! whatever its slot held. Code `0` marks an empty slot and is never remembered.
 
@@ -102,6 +103,16 @@ impl Checked {
         if code != 0 && ENABLED.load(Ordering::Relaxed) {
             self.slot(page).store(code, Ordering::Relaxed);
             self.remembered.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Remembers the content of page `page` with integrity code `code`, replacing what its slot held, as
+    /// [`Checked::remember`] does, for a content whose layout passed the check, or kept it, as a version of the scratch
+    /// area that the transfer has just written in place (Q2 of the written pages PRD). It is no check of a verified page,
+    /// so it does not count as one.
+    pub(crate) fn remember_written(&self, page: u64, code: u64) {
+        if code != 0 && ENABLED.load(Ordering::Relaxed) {
+            self.slot(page).store(code, Ordering::Relaxed);
         }
     }
 

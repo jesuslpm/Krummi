@@ -226,6 +226,8 @@ impl TempArea {
             index,
             pages,
             layout_checked: AtomicBool::new(false),
+            kept: false,
+            value_run: false,
         };
         // SAFETY: `ptr` points to `pages` slots of a live chunk, taken under the lock from its free ranges or from the
         // chunk `grow` just added: nobody holds a reference to them (a slot is free only once its `Slot` is dropped,
@@ -461,6 +463,13 @@ pub struct Slot {
     /// Whether the node in the slot passed the layout check of the layers above (U1 of the version checks PRD). Its
     /// bytes never change while the slot lives, so the pass holds as long as the slot does; a failure is never kept.
     layout_checked: AtomicBool,
+    /// Whether the node in the slot kept the layout check of the page it was copied from, because the write only
+    /// overwrote values in it with others of the same length (Q3 of the written pages PRD): `layout_checked` is set
+    /// from its publication on, without a check of this version. Set before the slot is published, never after.
+    kept: bool,
+    /// Whether the slots hold a value run, also of one page, rather than a page of its own (D5 of the large values
+    /// execution): the transfer does not remember a run's pages (Q1 of the written pages PRD).
+    value_run: bool,
 }
 
 // SAFETY: a Slot only reads the bytes it points to, which nobody writes while it lives (see the module
@@ -495,6 +504,29 @@ impl Slot {
     /// version mark when the node passes the check, for every later read of it (U1), without finding the slot again.
     pub(crate) fn layout_flag(&self) -> &AtomicBool {
         &self.layout_checked
+    }
+
+    /// Whether the node in the slot kept the layout check of the page it was copied from (Q3 of the written pages
+    /// PRD), rather than passing a check of its own.
+    pub fn keeps_check(&self) -> bool {
+        self.kept
+    }
+
+    /// Marks the node in the slot, not published yet, as keeping the layout check of the page it was copied from (Q3
+    /// of the written pages PRD): it counts as checked from its publication on.
+    pub(crate) fn keep_check(&mut self) {
+        self.kept = true;
+        *self.layout_checked.get_mut() = true;
+    }
+
+    /// Whether the slots hold a value run, also of one page (D5 of the large values execution).
+    pub fn is_value_run(&self) -> bool {
+        self.value_run
+    }
+
+    /// Marks the slots, not published yet, as a value run.
+    pub(crate) fn mark_value_run(&mut self) {
+        self.value_run = true;
     }
 
     /// Number of pages in the slots.

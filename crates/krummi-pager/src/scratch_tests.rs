@@ -343,7 +343,7 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     for text in ["b", "c", "d"] {
         let mut writer = scratch.begin_write().unwrap();
         let txid = writer
-            .commit(&[(PAGE, payload(text))], &[true], &[])
+            .commit(&[(PAGE, payload(text))], &[true], &[false], &[])
             .unwrap();
         drop(writer);
         scratch.wait_durable(txid).unwrap();
@@ -376,6 +376,7 @@ fn a_layout_pass_is_kept_only_by_the_version_that_passed() {
         let Origin::Version {
             checked: false,
             mark: other,
+            ..
         } = older.page_and_code(PAGE).unwrap().1
         else {
             panic!("an unchecked version");
@@ -385,6 +386,7 @@ fn a_layout_pass_is_kept_only_by_the_version_that_passed() {
         let Origin::Version {
             checked: false,
             mark,
+            ..
         } = origin
         else {
             panic!("an unchecked version");
