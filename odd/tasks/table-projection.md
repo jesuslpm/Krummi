@@ -161,3 +161,13 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   another schema) → fixed in the next commit, with `ac_py5_a_repeated_identity_never_aliases_a_schema` (RED before
   the fix, two mutants fail). Resolutions:
   [2026-11-16-code-resolutions.md](../../docs/reviews/tables-projection/2026-11-16-code-resolutions.md).
+- **L16** (2026-11-16) — Independent verifier of `3a548b2` (Verify role, sonnet/high, Risk items 3 and 4): **no
+  blockers**. Forced repeats (abandoned create, abandoned change three rounds, committed and same-write delete then
+  create, create and change in one abandoned write, a reopened store) all refuse the bind with `DifferentSchema`
+  (`Projection`) and do not share the kept preparation; at `daccfcd` the abandoned-change cases bind (R2). A
+  differential of the identities drawn on paths with no retired value, D6's sequence included, is identical at both
+  commits; a new table's state may still repeat another table's. The lock is taken for one set operation at a time,
+  with no user code under it. `table_projections` 11/0, `tables` 26/0. Advisories, kept: the retired sets grow by
+  one entry per table created or deleted and per schema change while the store is open (documented); a delete in an
+  abandoned write leaves the table's identity retired, with no observable effect since the catalog still holds it.
+  Scratch removed.
