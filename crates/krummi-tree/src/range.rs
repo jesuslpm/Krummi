@@ -17,6 +17,7 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
 use krummi_tx::Result;
 
+use crate::node::Value;
 use crate::{MAX_KEY, PageSource, child_level, copy, node, node_at, reserve, resolve};
 
 /// An interval of keys, borrowed: the bounds and the prefix of a scan or a removal.
@@ -163,26 +164,44 @@ impl OwnedInterval {
     }
 }
 
-/// One end of a [`Range`]: the path from the root to its leaf, each node with the index of the child it went down
-/// to and, in the leaf, the front's next entry or the back's entry after its next one.
+/// One end of a [`Range`]: its leaf, where it is in it, and the branches from the root down to that leaf.
 struct End<'t> {
+    /// The branches from the root down to the leaf, each with the index of the child the end went down to.
     path: Vec<(&'t [u8], usize)>,
+    /// The leaf the end reads; empty until its first step.
+    leaf: &'t [u8],
+    /// In the leaf, the front's next entry or the back's entry after its next one.
+    index: usize,
+    /// Where the quick steps of [`Range::next`] and [`Range::next_back`] stop, which test nothing but the index:
+    /// the front returns the entries before it, the back those from it. It is the whole leaf when the leaf is clear
+    /// and the other end has returned no entry, and no entry otherwise ([`FRONT_SHUT`] and [`BACK_SHUT`]), so that
+    /// every other step goes through the checks of [`Range::guard`].
+    quick: usize,
     started: bool,
     finished: bool,
-    /// The last key this end returned.
-    last: Option<&'t [u8]>,
+    /// Whether this end has returned an entry. Its last one is then next to its index: before it for the front, at
+    /// it for the back (see [`Range::front_last`]), so that the quick steps need not record it.
+    returned: bool,
     /// Whether every key of the current leaf is within the interval's bound on this end's side (the upper one for
     /// the front, the lower one for the back), so that its steps need not compare each key with it.
     clear: bool,
 }
 
+/// The front's [`End::quick`] that leaves it no quick step.
+const FRONT_SHUT: usize = 0;
+/// The back's [`End::quick`] that leaves it no quick step.
+const BACK_SHUT: usize = usize::MAX;
+
 impl End<'_> {
-    const fn new() -> Self {
+    const fn new(quick: usize) -> Self {
         End {
             path: Vec::new(),
+            leaf: &[],
+            index: 0,
+            quick,
             started: false,
             finished: false,
-            last: None,
+            returned: false,
             clear: false,
         }
     }
@@ -221,8 +240,8 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             tx,
             root,
             interval,
-            front: End::new(),
-            back: End::new(),
+            front: End::new(FRONT_SHUT),
+            back: End::new(BACK_SHUT),
         };
         if empty {
             range.stop();
@@ -234,6 +253,8 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
     fn stop(&mut self) {
         self.front.finished = true;
         self.back.finished = true;
+        self.front.quick = FRONT_SHUT;
+        self.back.quick = BACK_SHUT;
     }
 
     /// The path from the root to the leaf where the front starts: at each level, the child that may hold the first
@@ -242,15 +263,14 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         let interval = self.interval.borrow();
         let path = &mut self.front.path;
         let mut node = node_at(self.tx, self.root, None)?;
-        reserve(self.tx, path, usize::from(node::level(node)) + 1)?;
+        reserve(self.tx, path, usize::from(node::level(node)))?;
         loop {
             let index = node::partition(node, |key| !interval.after_lower(key));
-            path.push((node, index));
             if node::is_leaf(node) {
-                self.front.clear = leaf_before_upper(&interval, node);
-                self.prefetch_neighbour(true);
+                self.enter(true, node, index);
                 return Ok(());
             }
+            path.push((node, index));
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
         }
     }
@@ -261,17 +281,59 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         let interval = self.interval.borrow();
         let path = &mut self.back.path;
         let mut node = node_at(self.tx, self.root, None)?;
-        reserve(self.tx, path, usize::from(node::level(node)) + 1)?;
+        reserve(self.tx, path, usize::from(node::level(node)))?;
         loop {
             let index = node::partition(node, |key| interval.before_upper(key));
-            path.push((node, index));
             if node::is_leaf(node) {
-                self.back.clear = leaf_after_lower(&interval, node);
-                self.prefetch_neighbour(false);
+                self.enter(false, node, index);
                 return Ok(());
             }
+            path.push((node, index));
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
         }
+    }
+
+    /// Makes `leaf` the leaf of the front (`front`) or the back, at `index`: whether its steps compare the keys
+    /// with the bound, whether they may be quick, and the prefetch of the leaf after it.
+    fn enter(&mut self, front: bool, leaf: &'t [u8], index: usize) {
+        let interval = self.interval.borrow();
+        if front {
+            let clear = leaf_before_upper(&interval, leaf);
+            self.front.quick = if clear && !self.back.returned {
+                node::count(leaf)
+            } else {
+                FRONT_SHUT
+            };
+            self.front.clear = clear;
+            self.front.leaf = leaf;
+            self.front.index = index;
+        } else {
+            let clear = leaf_after_lower(&interval, leaf);
+            self.back.quick = if clear && !self.front.returned {
+                0
+            } else {
+                BACK_SHUT
+            };
+            self.back.clear = clear;
+            self.back.leaf = leaf;
+            self.back.index = index;
+        }
+        self.prefetch_neighbour(front);
+    }
+
+    /// The last key the front returned. Between steps, and until the scan stops, the front's leaf and index are
+    /// those of the step that returned it, as every step that moves to another leaf returns its first entry or stops.
+    fn front_last(&self) -> Option<&'t [u8]> {
+        let front = &self.front;
+        front
+            .returned
+            .then(|| node::key(front.leaf, front.index - 1))
+    }
+
+    /// The last key the back returned, as [`Range::front_last`].
+    fn back_last(&self) -> Option<&'t [u8]> {
+        let back = &self.back;
+        back.returned.then(|| node::key(back.leaf, back.index))
     }
 
     /// The front's next entry, or `None` at its end.
@@ -281,23 +343,23 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             self.seek_front()?;
         }
         loop {
-            let Some(&(leaf, index)) = self.front.path.last() else {
-                return Ok(None);
-            };
+            let (leaf, index) = (self.front.leaf, self.front.index);
             if index < node::count(leaf) {
                 let (key, value) = node::entry(leaf, index);
                 if (!self.front.clear && !self.interval.borrow().before_upper(key))
-                    || self.back.last.is_some_and(|last| key >= last)
+                    || self.back_last().is_some_and(|last| key >= last)
                 {
                     return Ok(None);
                 }
                 let value = resolve(self.tx, value)?;
-                self.front.path.last_mut().expect("a leaf").1 += 1;
-                self.front.last = Some(key);
+                self.front.index = index + 1;
+                self.front.returned = true;
+                // From now on the back compares each of its keys with this one.
+                self.back.quick = BACK_SHUT;
                 return Ok(Some((key, value)));
             }
             // The next leaf: up to the first branch with a child to the right, then down its leftmost children.
-            self.front.path.pop();
+            let back_last = self.back_last();
             loop {
                 let Some((branch, child)) = self.front.path.last_mut() else {
                     return Ok(None);
@@ -308,7 +370,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                     let separator = node::key(branch, *child);
                     let interval = self.interval.borrow();
                     if !interval.before_upper(separator)
-                        || self.back.last.is_some_and(|last| separator >= last)
+                        || back_last.is_some_and(|last| separator >= last)
                     {
                         return Ok(None);
                     }
@@ -329,24 +391,24 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
             self.seek_back()?;
         }
         loop {
-            let Some(&(leaf, end)) = self.back.path.last() else {
-                return Ok(None);
-            };
+            let (leaf, end) = (self.back.leaf, self.back.index);
             if end > 0 {
                 let index = end - 1;
                 let (key, value) = node::entry(leaf, index);
                 if (!self.back.clear && !self.interval.borrow().after_lower(key))
-                    || self.front.last.is_some_and(|last| key <= last)
+                    || self.front_last().is_some_and(|last| key <= last)
                 {
                     return Ok(None);
                 }
                 let value = resolve(self.tx, value)?;
-                self.back.path.last_mut().expect("a leaf").1 = index;
-                self.back.last = Some(key);
+                self.back.index = index;
+                self.back.returned = true;
+                // From now on the front compares each of its keys with this one.
+                self.front.quick = FRONT_SHUT;
                 return Ok(Some((key, value)));
             }
             // The previous leaf: up to the first branch with a child to the left, then down its rightmost children.
-            self.back.path.pop();
+            let front_last = self.front_last();
             loop {
                 let Some((branch, child)) = self.back.path.last_mut() else {
                     return Ok(None);
@@ -357,7 +419,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
                     let separator = node::key(branch, *child - 1);
                     let interval = self.interval.borrow();
                     if interval.all_before_lower(separator)
-                        || self.front.last.is_some_and(|last| separator <= last)
+                        || front_last.is_some_and(|last| separator <= last)
                     {
                         return Ok(None);
                     }
@@ -372,7 +434,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
     }
 
     /// Goes down from child `child` of `branch` to a leaf along the leftmost children for the front, or the
-    /// rightmost ones for the back, and adds the nodes to that end's path.
+    /// rightmost ones for the back, adds the branches to that end's path and makes the leaf its leaf.
     fn descend(&mut self, front: bool, branch: &'t [u8], child: usize) -> Result<()> {
         let path = if front {
             &mut self.front.path
@@ -383,17 +445,11 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         loop {
             // A branch's rightmost child and a leaf's end are both at its number of cells.
             let index = if front { 0 } else { node::count(node) };
-            path.push((node, index));
             if node::is_leaf(node) {
-                let interval = self.interval.borrow();
-                if front {
-                    self.front.clear = leaf_before_upper(&interval, node);
-                } else {
-                    self.back.clear = leaf_after_lower(&interval, node);
-                }
-                self.prefetch_neighbour(front);
+                self.enter(front, node, index);
                 return Ok(());
             }
+            path.push((node, index));
             node = node_at(self.tx, node::child(node, index), child_level(node))?;
         }
     }
@@ -406,8 +462,7 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         if !end.clear {
             return;
         }
-        let Some(&(branch, child)) = end.path.len().checked_sub(2).and_then(|i| end.path.get(i))
-        else {
+        let Some(&(branch, child)) = end.path.last() else {
             return;
         };
         let neighbour = if front {
@@ -420,7 +475,9 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
         }
     }
 
-    /// Runs a step of one end, stopping both ends after a failure.
+    /// Runs a step of one end with every check, stopping both ends after a failure. It is kept out of the quick
+    /// steps of [`Range::next`] and [`Range::next_back`], so that they stay small enough to inline.
+    #[inline(never)]
     fn guard(&mut self, front: bool) -> Option<Result<(&'t [u8], &'t [u8])>> {
         let finished = if front {
             self.front.finished
@@ -454,13 +511,33 @@ impl<'t, S: PageSource + ?Sized> Range<'t, S> {
 impl<'t, S: PageSource + ?Sized> Iterator for Range<'t, S> {
     type Item = Result<(&'t [u8], &'t [u8])>;
 
+    /// The quick step: an entry of a clear leaf with its value in the leaf, while the back has returned none, needs
+    /// no key comparison and cannot fail. Every other step goes through [`Range::guard`]. Always inlined, so that the
+    /// scans that wrap this one do not call it.
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
+        let front = &mut self.front;
+        if front.index < front.quick
+            && let (key, Value::Inline(value)) = node::entry(front.leaf, front.index)
+        {
+            front.index += 1;
+            return Some(Ok((key, value)));
+        }
         self.guard(true)
     }
 }
 
 impl<S: PageSource + ?Sized> DoubleEndedIterator for Range<'_, S> {
+    /// The quick step of the back, as [`Range::next`]'s.
+    #[inline(always)]
     fn next_back(&mut self) -> Option<Self::Item> {
+        let back = &mut self.back;
+        if back.index > back.quick
+            && let (key, Value::Inline(value)) = node::entry(back.leaf, back.index - 1)
+        {
+            back.index -= 1;
+            return Some(Ok((key, value)));
+        }
         self.guard(false)
     }
 }
@@ -584,5 +661,122 @@ mod tests {
         };
         assert!(b.before_upper(b"a") && b.before_upper(b"b") && b.before_upper(b"ba"));
         assert!(!b.before_upper(b"c") && !b.after_lower(b"a") && b.after_lower(b"b"));
+    }
+
+    /// A measurement of the step of a scan, not a check: scans of a tree of 1,000,000 entries with W11's sizes (16-byte
+    /// keys, 100-byte values, stored in a scrambled order), whole from each end without bounds, with both bounds and
+    /// with a prefix, and 100,000 scans of 100 entries from scattered keys, as W11's. It prints the best of five
+    /// times per entry of each. Run it in a release build, on an otherwise idle machine:
+    ///
+    /// `cargo test -p krummi-tree --release --lib -- --ignored --nocapture range_step_measurement`
+    #[test]
+    #[ignore = "a measurement; run it in a release build"]
+    fn range_step_measurement() {
+        use std::hint::black_box;
+        use std::time::{Duration, Instant};
+
+        use krummi_tx::{Engine, OpenOptions};
+
+        const ENTRIES: u64 = 1_000_000;
+        // Every key starts with five zero bytes, so that a scan with that prefix reads the whole tree.
+        let key = |i: u64| -> [u8; 16] {
+            let mut key = [0; 16];
+            key[..8].copy_from_slice(&i.to_be_bytes());
+            key[8..].copy_from_slice(&i.wrapping_mul(0x9E37_79B9_7F4A_7C15).to_le_bytes());
+            key
+        };
+        let value =
+            |i: u64| -> [u8; 100] { std::array::from_fn(|b| (i as u8).wrapping_add(b as u8)) };
+        let engine = Engine::open_temporary(&OpenOptions::default()).unwrap();
+        let mut tx = engine.write(None).unwrap();
+        let mut root = crate::create(&mut tx).unwrap();
+        // 7,919 is prime to 1,000,000, so `i * 7919 % ENTRIES` visits every key once.
+        for i in 0..ENTRIES {
+            let n = i * 7919 % ENTRIES;
+            root = crate::set(&mut tx, root, &key(n), &value(n)).unwrap().root;
+        }
+        tx.commit().unwrap();
+        let read = engine.read().unwrap();
+
+        let (lower, upper) = (key(1), key(ENTRIES - 1));
+        let all = Interval {
+            prefix: b"",
+            lower: Unbounded,
+            upper: Unbounded,
+        };
+        let bounded = Interval {
+            prefix: b"",
+            lower: Included(&lower),
+            upper: Excluded(&upper),
+        };
+        let prefixed = Interval {
+            prefix: &[0; 5],
+            lower: Unbounded,
+            upper: Unbounded,
+        };
+        let starts: Vec<[u8; 16]> = (0..100_000u64).map(|i| key(i * 7919 % ENTRIES)).collect();
+        // The keys' and values' first bytes, so that the scan reads each entry.
+        let sum = |(key, value): (&[u8], &[u8])| u64::from(key[0]) + u64::from(value[0]);
+        let measure = |name: &str, run: &dyn Fn() -> (u64, u64)| {
+            let mut best = Duration::MAX;
+            let mut entries = 0;
+            for _ in 0..5 {
+                let start = Instant::now();
+                let (count, total) = run();
+                best = best.min(start.elapsed());
+                black_box(total);
+                entries = count;
+            }
+            println!(
+                "{name:<24} {entries:>9} entries {:>7.2} ns/entry",
+                best.as_secs_f64() * 1e9 / entries as f64
+            );
+        };
+        let whole = |interval: Interval<'_>, back: bool| {
+            let scan = Range::new(&read, root, interval).unwrap();
+            let fold = |(count, total): (u64, u64), entry: Result<(&[u8], &[u8])>| {
+                (count + 1, total + sum(entry.unwrap()))
+            };
+            if back {
+                scan.rev().fold((0, 0), fold)
+            } else {
+                scan.fold((0, 0), fold)
+            }
+        };
+        measure("forward", &|| whole(all, false));
+        measure("backward", &|| whole(all, true));
+        measure("forward, bounds", &|| whole(bounded, false));
+        measure("backward, bounds", &|| whole(bounded, true));
+        measure("forward, prefix", &|| whole(prefixed, false));
+        measure("backward, prefix", &|| whole(prefixed, true));
+        let short = |back: bool| {
+            let (mut count, mut total) = (0, 0);
+            for start in &starts {
+                let mut add = |entry: Result<(&[u8], &[u8])>| {
+                    count += 1;
+                    total += sum(entry.unwrap());
+                };
+                if back {
+                    let to = Interval {
+                        prefix: b"",
+                        lower: Unbounded,
+                        upper: Included(start),
+                    };
+                    let scan = Range::new(&read, root, to).unwrap();
+                    scan.rev().take(100).for_each(&mut add);
+                } else {
+                    let from = Interval {
+                        prefix: b"",
+                        lower: Included(start),
+                        upper: Unbounded,
+                    };
+                    let scan = Range::new(&read, root, from).unwrap();
+                    scan.take(100).for_each(&mut add);
+                }
+            }
+            (count, total)
+        };
+        measure("100,000 x 100 forward", &|| short(false));
+        measure("100,000 x 100 backward", &|| short(true));
     }
 }

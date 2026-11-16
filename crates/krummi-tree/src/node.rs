@@ -73,8 +73,14 @@ pub(crate) enum Value<'a> {
     },
 }
 
+// The accessors a scan's step calls are inlined across crates: a scan is generic over its page source, so its
+// steps are compiled in the crates that use it, which would otherwise call them.
+#[inline]
 pub(crate) fn u16_at(node: &[u8], at: usize) -> usize {
-    usize::from(u16::from_le_bytes([node[at], node[at + 1]]))
+    // One range check for both bytes.
+    usize::from(u16::from_le_bytes(
+        node[at..at + 2].try_into().expect("2 bytes"),
+    ))
 }
 
 pub(crate) fn put_u16(node: &mut [u8], at: usize, value: usize) {
@@ -82,6 +88,7 @@ pub(crate) fn put_u16(node: &mut [u8], at: usize, value: usize) {
     node[at..at + 2].copy_from_slice(&value.to_le_bytes());
 }
 
+#[inline]
 pub(crate) fn u64_at(node: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(node[at..at + 8].try_into().expect("8 bytes"))
 }
@@ -231,6 +238,7 @@ pub(crate) fn level(node: &[u8]) -> u8 {
     node[1]
 }
 
+#[inline]
 pub(crate) fn count(node: &[u8]) -> usize {
     u16_at(node, 2)
 }
@@ -247,6 +255,7 @@ pub(crate) fn set_leftmost(node: &mut [u8], child: u64) {
     node[8..16].copy_from_slice(&child.to_le_bytes());
 }
 
+#[inline]
 fn offset(node: &[u8], index: usize) -> usize {
     u16_at(node, HEADER + 2 * index)
 }
@@ -304,7 +313,9 @@ pub(crate) fn value(node: &[u8], index: usize) -> Value<'_> {
     entry(node, index).1
 }
 
-/// The key and the value of entry `index` of a leaf, from one read of its cell's offset and header.
+/// The key and the value of entry `index` of a leaf, from one read of its cell's offset and header. Always inlined:
+/// it is most of a scan's quick step, which a mere hint left calling it.
+#[inline(always)]
 pub(crate) fn entry(node: &[u8], index: usize) -> (&[u8], Value<'_>) {
     let at = offset(node, index);
     let start = at + LEAF_CELL_HEADER;
