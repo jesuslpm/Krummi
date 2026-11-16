@@ -49,9 +49,9 @@ usuario.
     código, no trabajo añadido, aunque no está probado como causa única. **El usuario aceptó esa diferencia**
     (L10, L11) y S4 la nombra como excepción.
   - **Ejecuciones completas con `--solo-krummi-voron`:**
-    - **Windows:** **29 de 29** ([informe](../../docs/benchmark/2026-11-16-windows-write-margin.md)).
+    - **Windows:** **29 de 29** ([informe](../../../docs/benchmark/2026-11-16-windows-write-margin.md)).
     - **WSL 2:** **28 de 29**; incumple `tamano-fijo-carga` con 0,71
-      ([informe](../../docs/benchmark/2026-11-16-linux-write-margin.md)). Esa corrida se hizo sin el plan de energía
+      ([informe](../../../docs/benchmark/2026-11-16-linux-write-margin.md)). Esa corrida se hizo sin el plan de energía
       y los dos motores variaron mucho respecto de ayer. Un A/B de W21 en WSL da la rama más rápida que `main`
       (18.024 contra 18.545 ns, L13): el incumplimiento no viene de la rama.
     - En la corrida de Windows, las lecturas concurrentes de Krummi bajaron entre un 25 y un 35 % respecto de la de
@@ -61,10 +61,10 @@ usuario.
   - **RDD:** aprobó los cuatro tramos (tabla de abajo).
   - **Codex:** tres rondas. R1 (W20 contra S4) quedó resuelto por decisión del usuario y verificado en la ronda 3. R2
     es un aviso anterior a la rama y queda pendiente. Documentos:
-    [ronda 1](../../docs/reviews/write-margin/2026-11-16-code.md),
-    [ronda 2](../../docs/reviews/write-margin/2026-11-16-code-02.md),
-    [ronda 3](../../docs/reviews/write-margin/2026-11-16-code-03.md) y
-    [resoluciones](../../docs/reviews/write-margin/2026-11-16-code-resolutions.md).
+    [ronda 1](../../../docs/reviews/write-margin/2026-11-16-code.md),
+    [ronda 2](../../../docs/reviews/write-margin/2026-11-16-code-02.md),
+    [ronda 3](../../../docs/reviews/write-margin/2026-11-16-code-03.md) y
+    [resoluciones](../../../docs/reviews/write-margin/2026-11-16-code-resolutions.md).
 - **Hallazgos corregidos por el camino:**
   - **Rama muerta en `replace`.** La rama para valores del mismo largo no se ejecutaba nunca y ahora devuelve
     `false`, porque ese caso le corresponde a `overwrite`. Se agregó una prueba directa de sus controles (`7f4a182`,

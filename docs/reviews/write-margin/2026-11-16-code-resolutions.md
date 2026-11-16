@@ -19,7 +19,7 @@ two folders measured 122.7 and 121.3 against 118.7 on `main` (`ab6-result.json`)
 full scale, build order alternating, performance cores, bench power plan, digests equal in every run. So the
 duplication bought nothing measurable and was reverted (`b5b4e29`). What holds over five sessions: the branch reads
 W20 2 to 5 % slower than `main` in every session but one (L8, L9 of
-[write-margin.md](../../../odd/tasks/write-margin.md)); the cause is not shown: W20 reads a store with no
+[write-margin.md](../../../odd/done/pager/write-margin.md)); the cause is not shown: W20 reads a store with no
 scratch-area versions, so neither the hash nor the version mark runs on its path, and `#[inline]` on
 `located_entry` did not change it. The other loads that share the changed code are not slower (L9). Whether to
 accept that W20 cost for W19's 10 % or to keep looking (a profile of W20 on both builds) is the user's call;
@@ -56,7 +56,7 @@ R2 remains a non-blocking pre-existing advisory.»
 ### R1 — major: W20 regression remains unresolved against S4
 
 Disposition: resolved by the user's decision, as the review asked («relaxing S4 requires an explicit user
-decision»). The user first chose to profile W20 (L10 of [write-margin.md](../../../odd/tasks/write-margin.md)): in 20
+decision»). The user first chose to profile W20 (L10 of [write-margin.md](../../../odd/done/pager/write-margin.md)): in 20
 alternated rounds the branch reads W20 2.8 % slower than `main` (130.4 against 126.8 ns per value, slower in 18 of
 20, `work/wm/ab7-result.json`), and with both builds compiled with `-C llvm-args=-align-loops=64` the gap is gone
 (126.2 against 125.8, slower in 5 of 10, `ab8-result.json`): it is the alignment of a hot loop of the multi-value

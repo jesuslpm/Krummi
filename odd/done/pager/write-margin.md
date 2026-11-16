@@ -119,8 +119,8 @@ Routes: every task is one understood change of at most a few hundred lines, with
   with a profiler); its ratio to Voron (1.11 on 2026-11-16) stays well above the threshold. W28 gains less than
   the lock and lookup removed (S1) promised: 1.6 %, which matches about 50–150 ns of 8,800 ns.
 - **L9** (2026-11-16) — Codex code review, round 1, of `6b49bea..1ee31df`
-  ([report](../../docs/reviews/write-margin/2026-11-16-code.md),
-  [resolutions](../../docs/reviews/write-margin/2026-11-16-code-resolutions.md)): `findings`, R1 major (W20 slower,
+  ([report](../../../docs/reviews/write-margin/2026-11-16-code.md),
+  [resolutions](../../../docs/reviews/write-margin/2026-11-16-code-resolutions.md)): `findings`, R1 major (W20 slower,
   against S4) and R2, a pre-existing advisory of the pager outside the run (a `ScratchWriter` reused after
   `publish` is left out of version garbage collection). R1: `687ef64` gave `multi::entry` its own descent again after
   one A/B credited it (W20 119.9 ns against 121.5 on `main`, `ab4`); the final A/B of `687ef64` against `main`, three
