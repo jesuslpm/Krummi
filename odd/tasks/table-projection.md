@@ -14,7 +14,9 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   annotations) is done in `a7043fc`.
 - **S2** — PY7 and AC-PY11 of the same PRD: W26 and W27 read with a projection, prepared inside each repetition's
   measured time, with a test hook that shows it and a way to run W27 without it for the measurement of AC-PY11; full
-  benchmark runs on Windows and Linux compared with the last ones (Windows 2026-11-13, Linux 2026-11-12).
+  benchmark runs on Windows and Linux compared with the last ones (Windows 2026-11-13, Linux 2026-11-12). AC-PY11's
+  single-load clause is met, for the loads it misses, by the Krummi-only A/B before and after the change (the PRD's
+  annotation of 2026-11-16, user's decision, L19).
 - **S3** — M1, decided by the user on 2026-11-15 from the diagnostic (`docs/performance/2026-11-15-diagnostic/`,
   follow-up section 4): the private buffers of value runs are kept after a commit for the runs of the next writes;
   «Sí en el almacén»: the pool lives in the store, not in a thread, and closing the store frees it; at most 32 MiB of
@@ -50,7 +52,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
 | T2 | S3 (M1): run pool in the store | inline | done (RED: `run_pool_tests` did not compile without the pool; GREEN 4 of 4; mutation without zeroing fails `a_commit_keeps_its_run_buffers_and_the_next_run_gets_one_zeroed`; krummi-tx and krummi-pager suites pass) | `bee2dcb` |
 | T3 | S1: projections in the library (prepare, cache, prepared columns, bind, read) with AC-PY1–AC-PY10, AC-PY12 | inline | done (RED: the tests did not compile without the API; GREEN: `table_projections` 10 of 10 and `projection_tests` 2 of 2 in debug and release; mutations without the schema check and with the current plan on older rows fail AC-PY5, AC-PY10 and AC-PY2; workspace suite passed) | `9c9cba6`, `2277110` |
 | T4 | S2: W26 and W27 read with a projection, test hook, W27 without it | inline | done (`w26_and_w27_read_with_a_projection`) | `5b17ff0`, `2277110`, `c00f2dc` |
-| T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | pending: AC-PY11 awaits the user's decision (R1 of the Codex code review, L17). Runs done (L9, L10: 29 of 29 on both; W27 0.91 → 0.96 and 0.95 → 1.04; drops checked alone and with a main/head A/B) | reports in the T6 commit |
+| T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | done (L9, L10, L19: AC-PY11 met with the A/B, by the user's decision on R1 of the Codex code review; 29 of 29 on both; W27 0.91 → 0.96 and 0.95 → 1.04; drops checked alone and with a main/head A/B) | reports in the T6 commit |
 | T6 | S5: final checks, RDD of the last slice, Codex review, closing report | inline | pending | |
 
 ## Log
@@ -188,3 +190,8 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   type) — kept: `Projections` is the store-level state every transaction already reaches, and the sets exist only so
   projections and rows never alias; their doc says so. Checks: fmt and clippy clean, `cargo test --workspace` 852
   passed, 0 failed, 34 ignored.
+- **L19** (2026-11-16) — User's answer to R1 of the Codex code review (AC-PY11), verbatim: «Aceptar el A/B
+  (Recommended)», the option "Anoto en el PRD que AC-PY11 se da por cumplido con el A/B main/head de Krummi solo,
+  cierro T5 y lo dejo en el informe de cierre." AC-PY11 of
+  [tables-projection.prd.md](../../docs/prd/krummi/tables/tables-projection.prd.md) and its translation now carry the
+  annotation of 2026-11-16; S2 rewritten; T5 done. The wait for the answer is in the phase log.

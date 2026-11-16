@@ -204,6 +204,13 @@ reads that already exist do not change their output. The benchmark report does n
     by more than 0.05, unless the median of a measurement of that load alone, with its repetitions, equals that of the
     previous run within that margin. A K7 threshold that is still missed is not a failure of this PRD: K13 applies and
     it is reported at the close.
+
+    *Annotation of 2026-11-16, from the code review of the execution (user's decision): the condition of the
+    measurement of a load alone was not met in nine loads (W1, W9, W12, W13 and W23 on Windows; W9, W18, W21 and W26
+    on Linux). In its place a comparison of Krummi alone, before and after this change, load by load, with the rounds
+    in alternating order and the same start stores, is accepted; it did not show that the change lowered any load, and
+    its checksums match. The checksums of W26 and W27 match in both engines, and the ratio of W27 to Voron went up on
+    both systems.*
 12. **AC-PY12** — Given a store written before this PRD, when it is opened and its tables are read with projections,
     then it gives the same values as reading their columns by their position, without migrating anything.
 13. **AC-PY13** — Given E6, E17, E19, the *Out of scope* and the *Benchmark loads* of

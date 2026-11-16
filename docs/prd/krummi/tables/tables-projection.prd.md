@@ -204,6 +204,13 @@ existen no cambian su salida. El informe del banco no cambia de forma.
     baja más de 0,05 su razón con Voron, salvo que la mediana de una medición de esa carga sola, con sus repeticiones,
     la iguale a la de la ejecución anterior dentro de ese margen. Un umbral de K7 que siga incumplido no es un fallo de
     este PRD: sigue K13 y se informa en el cierre.
+
+    *Anotación del 2026-11-16, desde la revisión de código de la ejecución (decisión del usuario): la condición de la
+    medición de una carga sola no se cumplió en nueve cargas (W1, W9, W12, W13 y W23 en Windows; W9, W18, W21 y W26 en
+    Linux). Se acepta en su lugar una comparación de Krummi solo, antes y después de este cambio, carga a carga, con
+    las rondas en orden alterno y los mismos almacenes de partida, que no mostró que el cambio bajara ninguna carga y
+    cuyas sumas de comprobación coinciden. Las sumas de comprobación de W26 y W27 coinciden en los dos motores y la
+    razón de W27 con Voron subió en los dos sistemas.*
 12. **AC-PY12** — Dado un almacén escrito antes de este PRD, cuando se abre y se leen sus tablas con proyecciones,
     entonces da los mismos valores que leer sus columnas por su posición, sin migrar nada.
 13. **AC-PY13** — Dados E6, E17, E19, el *Fuera de alcance* y las *Cargas del banco* de

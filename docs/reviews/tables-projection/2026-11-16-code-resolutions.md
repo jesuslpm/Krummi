@@ -55,3 +55,16 @@ resolved.»
   [table-projection.md](../../../odd/tasks/table-projection.md) now reads pending that decision (L17). Status:
   pending, a product question for the user.
 - R2: «major, verified resolved». No correction-induced regressions were confirmed.
+
+## 2026-11-16 (user's decision on R1)
+
+### R1 — blocker: AC-PY11 is marked satisfied despite failing its required ratio check
+
+Disposition: resolved by the user's decision, as the review asked («explicit user approval of a revised acceptance
+condition»). The user chose to accept the Krummi-only base/head A/B of L10 in place of the single-load clause.
+AC-PY11 of [tables-projection.prd.md](../../prd/krummi/tables/tables-projection.prd.md) and of its English translation
+now carry the annotation of 2026-11-16, which names the nine loads and the comparison accepted; S2 and T5 of
+[table-projection.md](../../../odd/tasks/table-projection.md) follow it (L19). The criterion's other clauses (W26 and
+W27 checksums, W27's ratio up on both systems) are met as recorded.
+
+Status: claimed, unverified until a follow-up review.
