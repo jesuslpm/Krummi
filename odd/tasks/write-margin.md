@@ -33,8 +33,8 @@ guarantees and need a PRD first; a cache of recent leaves.
 | ID | Specs | Route | Status | Commit / evidence |
 |---|---|---|---|---|
 | T1 | S1 | inline (probe in a copy under `work/`) | done | L3, probe not committed |
-| T2 | S2 | inline | pending | |
-| T3 | S3 (hash) | inline | pending | |
+| T2 | S2 | inline | done | `893468a`; RED 0 of 180 in place, GREEN; L4 |
+| T3 | S3 (hash) | inline | done | `4da23ed`; L4 |
 | T4 | S3 (first check of a version) | inline, if S1 supports it | pending | |
 | T5 | S4 | inline, runs in the background | pending | |
 | T6 | — | close: RDD of the last slice, Codex review, report, archive | pending | |
@@ -63,3 +63,20 @@ Routes: every task is one understood change of at most a few hundred lines, with
   (xxh3 of 8 KiB and a full layout check), 3 % a page the transaction changed, 0.1 % remembered. So the second lock
   and lookup of S3 apply to about half of the updates: T4 goes ahead. For the PRD question left out of scope:
   W28-A would remove the 8 KiB hash from 43 % of the updates, W28-B the layout check from 97 %.
+- **L4** (2026-11-16) — T2 (S2), `893468a`. RED: `adds_to_inline_keys_write_in_the_leaf_they_found` saw 0 adds in
+  place against 180, and `writes_in_the_leaf_found_store_what_set_stores` "only 0 adds wrote in place"; GREEN after
+  `krummi_tree::replace` and `multi::add` using it. The bytes test runs 20,000 random adds and removals over 400 keys
+  in ten commits, once with every add walking the tree again (`multi::testing::WALK_AGAIN`) and once writing in
+  place, and compares every result and every page of the parent tree and its subtrees. Mutation: without the
+  quarter-full guard the bytes test fails. Suite 854 passed, 0 failed, 34 ignored; fmt and clippy clean. While
+  undoing that mutation with `git checkout` the uncommitted `replace` was lost and written again before the
+  commit (the checks above ran on the restored code). T3 (S3, hash), `4da23ed`: `PageHasher` for the maps of the
+  scratch area keyed by page number; `page_numbers_spread_over_the_buckets` checks the spread over the low and the
+  top bits for strides 1, 2, 64 and 4,096, and fails with an identity hash (mutation). No RED: the maps behave the
+  same, which the existing scratch tests pin. Suite 855 passed, 0 failed, 34 ignored.
+- **L5** (2026-11-16) — RDD, slice `6b49bea..4da23ed` (T2 and T3), closed before the high-risk T4. Assess: medium,
+  `under_budget` after each commit (253, then 319 lines). Lenses risk and reliability, lineage
+  `review-8c1ce0cefd91e0ac`: approved and acknowledged, four suggestions, no blocker. R1-001 (an unkeyed hash is safe
+  only while page numbers are the store's own) and R1-002 (the guards of `replace` hold) need no change. R3-001 (the
+  same-length branch of `replace` is never run: an add always makes the entry longer) and R3-002 (no direct test of
+  the guards of `replace` against a stale place) are taken in a fix after T4.
