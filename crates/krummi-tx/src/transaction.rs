@@ -422,8 +422,13 @@ impl<'e> WriteTransaction<'e> {
     /// a tree freed) only by reserving or freeing pages, and freed pages are not reserved again in the same
     /// transaction (F6), so until then the leaf holds the same range of keys of the same tree. A read of a remembered
     /// leaf skips the walk from the root (S4 of the write optimizations execution, as Voron's recently found pages).
+    /// A transaction that failed (T11) remembers nothing: a failed operation can leave a tree half changed, where only
+    /// a walk names the leaf the other operations of the transaction would.
     #[inline]
     pub fn recent_leaf(&self, root: u64, key: &[u8]) -> Option<u64> {
+        if self.has_failed() {
+            return None;
+        }
         let recent = self.hint();
         let (tree, leaf) = recent.at?;
         let (lower, upper) = recent.keys.split_at(recent.lower.unwrap_or(0));
@@ -436,6 +441,9 @@ impl<'e> WriteTransaction<'e> {
     /// Remembers `leaf` as the leaf of the tree at `root` that holds every key from `lower` to `upper`, both included,
     /// a `None` bound leaving that side open, in place of the leaf remembered before. The caller vouches for it as the
     /// tree is now; see [`recent_leaf`](Self::recent_leaf). Without memory for the bounds it remembers nothing.
+    /// Meant only for the tree layer, which names a leaf it has just reached by walking (R1-001 of the RDD review of
+    /// T4): a wrong leaf would send later changes to it.
+    #[doc(hidden)]
     pub fn remember_leaf(&self, root: u64, leaf: u64, lower: Option<&[u8]>, upper: Option<&[u8]>) {
         let mut recent = self.hint();
         let recent = &mut *recent;
