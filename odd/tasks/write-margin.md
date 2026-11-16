@@ -21,8 +21,9 @@ merge or push until the user asks. Tests: `cargo test --workspace`; acceptance w
   of such a version is remembered without taking the scratch lock and looking the version up again. No change of
   behavior or stored format.
 - **S4** — Acceptance: an A/B of Krummi alone, `main` against the head, of W19 and W28 and of the loads that share
-  the changed code, shows no load slower; complete `--solo-krummi-voron` runs on Windows and Linux meet 29 of 29
-  thresholds.
+  the changed code, shows no load slower, except W20, which the user accepted 2–3 % slower in the default build
+  because the gap is the alignment of a hot loop, not added work (L10, L11); complete `--solo-krummi-voron` runs on
+  Windows and Linux meet 29 of 29 thresholds.
 
 Out of scope (decided with the user on 2026-11-16): W28-A (remember a page written by the transfer, candidate 7 of
 the performance plan) and W28-B (keep the layout check of a leaf whose value changed in place), which change
@@ -130,3 +131,18 @@ Routes: every task is one understood change of at most a few hundred lines, with
   for W19's 10 %, or profile W20). The RDD suggestion R3-001 of `review-75d1e7d679f238bc` (last slice `d148e7d..1ee31df`,
   lens reliability, approved and acknowledged) is dismissed with evidence: `long_key` always has `MAX_KEY` bytes
   (`crates/krummi-tree/src/tests.rs:376-380`), so the too-long value does test the inline-size guard.
+- **L10** (2026-11-16) — R1, the user's choice (2026-11-16, after the second Codex round): «Profile W20 first». The
+  complete runs started meanwhile were stopped (Windows had finished, 29 of 29, report kept in
+  `work/wm/full/windows-before-profile.md`; Linux was stopped at W6 after 38 min; a `dotnet.exe` process was also
+  ended by `taskkill`). W20 lasts about 0.1 s per repetition, so 20 alternated rounds of `main` against the current
+  code (`b5b4e29`, same code as `1ee31df`), performance cores and bench power plan (`ab7`): 126.8 against 130.4 ns
+  per value, the branch slower in 18 of 20 rounds: the gap is real. `samply` needs administrator rights on Windows
+  (one UAC prompt per recording); the unsymbolized profiles showed the same hot functions in both builds with two
+  more separate functions in the branch, and the symbolized recordings failed without elevation. With both builds
+  compiled with `-C llvm-args=-align-loops=64` (`ab8`, 10 rounds): 125.8 against 126.2 ns, the branch slower in 5
+  of 10. So the W20 gap is the alignment of a hot loop of the multi-value read in the default build, not work the
+  change adds; aligning loops is a build setting for every load, out of this run's scope.
+- **L11** (2026-11-16) — The user's decision on R1, verbatim, to «¿Cómo cierro R1?» with the options of L10: «Aceptar y
+  cerrar (Recommended)» («Anoto en S4 tu decisión: W20 queda un 2–3 % más lento por alineación de código, a cambio de
+  W19 +10 %. Cierro con los informes completos y dejo la alineación de bucles como mejora aparte.»). S4 was rewritten
+  accordingly; aligning loops in the release profile is a separate follow-up.

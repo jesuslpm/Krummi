@@ -50,3 +50,18 @@ R2 remains a non-blocking pre-existing advisory.»
 - R1: «still open; not verified resolved». Codex: «resolve the W20 regression and verify the final-head A/B;
   relaxing S4 requires an explicit user decision.» Status: pending, a product question for the user after the loop.
 - R2: pending, pre-existing, outside the run.
+
+## 2026-11-16 (user's decision on R1)
+
+### R1 — major: W20 regression remains unresolved against S4
+
+Disposition: resolved by the user's decision, as the review asked («relaxing S4 requires an explicit user
+decision»). The user first chose to profile W20 (L10 of [write-margin.md](../../../odd/tasks/write-margin.md)): in 20
+alternated rounds the branch reads W20 2.8 % slower than `main` (130.4 against 126.8 ns per value, slower in 18 of
+20, `work/wm/ab7-result.json`), and with both builds compiled with `-C llvm-args=-align-loops=64` the gap is gone
+(126.2 against 125.8, slower in 5 of 10, `ab8-result.json`): it is the alignment of a hot loop of the multi-value
+read, not work the change adds. The user then chose «Aceptar y cerrar» (L11): S4 now names W20 as accepted 2–3 %
+slower in the default build; aligning loops is a separate follow-up.
+
+Status: claimed, unverified until a follow-up review.
+
