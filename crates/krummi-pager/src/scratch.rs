@@ -1253,7 +1253,8 @@ impl<'a> Snapshot<'a> {
     /// `mark`, and whether it `passed`. A pass is remembered by that version, for every later read of it while it
     /// stays in the scratch area, by any snapshot; a failure is never remembered (U1 of the version checks PRD). Only
     /// the version that `mark` came with is marked, and without the scratch area's lock (S3 of the write margin
-    /// execution).
+    /// execution). `mark` is meant to come from a read of this snapshot: one from another snapshot still marks only
+    /// its own version, but the test hook that counts these reports counts it in this snapshot's scratch area.
     pub fn version_checked(&self, mark: VersionMark<'_>, passed: bool) {
         #[cfg(any(test, feature = "test-hooks"))]
         self.scratch

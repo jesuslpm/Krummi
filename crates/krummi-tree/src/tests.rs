@@ -945,6 +945,49 @@ fn a_located_value_of_the_same_length_is_overwritten_in_place() {
     validate(&after, grown, None, None, true);
 }
 
+/// The located replace that multi-value adds use (S2 of the write margin execution): at a place `get_located` gave,
+/// a value of another length that stays on its leaf is written there, leaving every node as `set` leaves it; another
+/// key at that place, a page that is no leaf, a place past the leaf's entries, a value of the same length
+/// (`overwrite`'s case) and one too long to stay on its leaf change nothing and say so.
+#[test]
+fn a_located_value_of_another_length_is_replaced_in_place() {
+    let (engine, twin) = (temporary(), temporary());
+    let (root, twin_root) = (committed_tree(&engine, 200), committed_tree(&twin, 200));
+    let mut tx = engine.write(None).unwrap();
+    let (_, at) = get_located(&tx, root, &long_key(7)).unwrap().unwrap();
+    let at = at.expect("a value on its leaf");
+    assert!(!node::is_leaf(tx.page(root).unwrap()));
+    let pages = node_pages(&tx, root);
+    let too_long = vec![1; max_inline_value(MAX_KEY) + 1];
+    let refused = [
+        (at, long_key(8), &b"longer"[..]),
+        (
+            Located {
+                leaf: root,
+                index: 0,
+            },
+            long_key(7),
+            b"longer",
+        ),
+        (Located { index: 1000, ..at }, long_key(7), b"longer"),
+        (at, long_key(7), b"VALUE"),
+        (at, long_key(7), &too_long[..]),
+    ];
+    for (place, key, value) in refused {
+        assert!(!replace(&mut tx, root, place, &key, value).unwrap());
+    }
+    assert_eq!(node_pages(&tx, root), pages);
+    assert!(replace(&mut tx, root, at, &long_key(7), b"a longer value").unwrap());
+    assert_eq!(
+        get(&tx, root, &long_key(7)).unwrap(),
+        Some(&b"a longer value"[..])
+    );
+    let mut twin_tx = twin.write(None).unwrap();
+    let update = set(&mut twin_tx, twin_root, &long_key(7), b"a longer value").unwrap();
+    assert_eq!((root, update.root), (twin_root, twin_root));
+    assert_eq!(node_pages(&tx, root), node_pages(&twin_tx, twin_root));
+}
+
 /// The page number and bytes of every node of the tree at `root`, in depth-first order.
 fn node_pages<S: PageSource>(tx: &S, root: u64) -> Vec<(u64, Vec<u8>)> {
     let mut out = Vec::new();

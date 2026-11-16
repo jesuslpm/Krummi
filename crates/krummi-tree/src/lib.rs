@@ -474,11 +474,12 @@ pub fn overwrite(
 }
 
 /// Replaces the inline value of `key` at `at`, where a lookup of the tree at `root` found it in this transaction,
-/// with `value`, of any length its leaf keeps inline, writing the same bytes as [`set`] without walking the tree
-/// again. That holds when [`set`] would change that leaf alone: the new entry fits in it, and the leaf stays at least
-/// a quarter full or is the root, so nothing splits or merges; the tree's root and its number of entries do not
+/// with `value`, of another length that its leaf keeps inline, writing the same bytes as [`set`] without walking the
+/// tree again. That holds when [`set`] would change that leaf alone: the new entry fits in it, and the leaf stays at
+/// least a quarter full or is the root, so nothing splits or merges; the tree's root and its number of entries do not
 /// change. Returns false, changing nothing, otherwise, or unless the page at `at` is a leaf whose entry there is
-/// `key`'s with an inline value, as [`overwrite`] checks; the caller then uses [`set`].
+/// `key`'s with an inline value, as [`overwrite`] checks; the caller then uses [`set`]. A value of the same length is
+/// [`overwrite`]'s case.
 pub(crate) fn replace(
     tx: &mut WriteTransaction<'_>,
     root: u64,
@@ -493,12 +494,8 @@ pub(crate) fn replace(
     let Value::Inline(old) = node::value(node, at.index) else {
         return Ok(false);
     };
-    if !node::fits_inline(key.len(), value.len()) {
+    if old.len() == value.len() || !node::fits_inline(key.len(), value.len()) {
         return Ok(false);
-    }
-    if old.len() == value.len() {
-        node::value_mut(tx.page_mut(at.leaf)?, at.index).copy_from_slice(value);
-        return Ok(true);
     }
     // As `change_leaf`: the old cell and its offset give their room back, and the new cell takes its own and one.
     let old_len = node::cell(node, at.index).len();
