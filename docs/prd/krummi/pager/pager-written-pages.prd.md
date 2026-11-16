@@ -167,16 +167,17 @@ Este PRD cambia reglas de documentos anteriores, que llevarán las anotaciones c
 - Padre raíz, G6: la excepción de I8, ampliada por S3, U2 y H3, se amplía con Q5. AC10 no cambia.
 - Integridad recordada: I1 («solo se recuerdan comprobaciones superadas») tiene la excepción de Q1: una página que el
   traslado escribe queda recordada sin calcular su integridad, porque su contenido es el que el motor selló; AC-I1 se
-  precisa: la primera lectura de una página que el traslado escribió en la apertura en curso no calcula su
-  integridad, y los valores fuera de su hoja y las demás páginas siguen como dice. I4 pasa a decir que la página que el traslado escribe queda recordada al terminar su
-  escritura (Q1), salvo las de un valor fuera de su hoja; I5 («las páginas que el archivo gana al crecer empiezan sin
-  recordar») y el punto de Fuera de alcance sobre ellas dejan de valer para las que escribe el traslado; el paso 3 del
-  Flujo, AC-I4 («su integridad se comprueba una vez») y AC-I10 se precisan con Q1; AC-I5 y AC-I7 («una página que todavía
-  no se leyó») se precisan: el contenido nuevo o la página no son una que el traslado escribió en esa apertura y
-  quedó recordada (Q1); el riesgo residual de I8 se amplía con Q5.
-- Comprobaciones de la escritura: el riesgo residual de S3 se amplía con Q5. AC-S4 («una página del archivo de datos
-  que nadie leyó en la apertura se comprueba en su primera lectura») se precisa: salvo las que escribió el traslado
-  en esa apertura (Q1). AC-S6 no cambia.
+  precisa: la primera lectura de una página que el traslado escribió en la apertura en curso no calcula su integridad, y
+  los valores fuera de su hoja y las demás páginas siguen como dice. I4 pasa a decir que la página que el traslado
+  escribe queda recordada al terminar su escritura (Q1), salvo las de un valor fuera de su hoja; I5 («las páginas que el
+  archivo gana al crecer empiezan sin recordar») y el punto de Fuera de alcance sobre ellas dejan de valer para las que
+  escribe el traslado; el paso 3 del Flujo, AC-I4 («su integridad se comprueba una vez») y AC-I10 se precisan con Q1;
+  AC-I5, AC-I7 y AC-I9 («una página que todavía no se leyó», una página dañada con el almacén abierto) se precisan: el
+  contenido nuevo o la página no son una que el traslado escribió en esa apertura y quedó recordada (Q1); el riesgo
+  residual de I8 se amplía con Q5.
+- Comprobaciones de la escritura: el riesgo residual de S3 se amplía con Q5. AC-S4 («una página del archivo de datos que
+  nadie leyó en la apertura se comprueba en su primera lectura») y la parte en modo temporal de AC-S5 se precisan: salvo
+  las páginas que escribió el traslado en esa apertura (Q1). AC-S6 no cambia.
 - Comprobación de organización recordada: C1 y C2 («solo se recuerdan comprobaciones superadas» en una lectura)
   tienen la excepción de Q2, que recuerda en C2 lo que pasó la comprobación como versión del área temporal o la
   conserva por Q3; la última frase de C3 («leer del archivo de datos un contenido que antes se leyó del área temporal

@@ -61,7 +61,7 @@ reglas anteriores está declarado en sus decisiones y anotado en los documentos 
   de un valor fuera de su hoja, que siguen I4; una escritura que falla o queda a medias la deja sin recordar.*
 - *I5 y el punto de Fuera de alcance sobre las páginas que el archivo gana al crecer: no valen para las que escribe el
   traslado (Q1). El paso 3 del Flujo, AC-I4 y AC-I10 se precisan con Q1: tras el traslado, la integridad de la página no
-  se comprueba; AC-I5 y AC-I7 eligen contenidos y páginas que el traslado no escribió en esa apertura. El riesgo
+  se comprueba; AC-I5, AC-I7 y AC-I9 eligen contenidos y páginas que el traslado no escribió en esa apertura. El riesgo
   residual de I8 se amplía con Q5.*
 
 

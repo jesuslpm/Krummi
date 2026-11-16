@@ -62,8 +62,8 @@ changes earlier rules is declared in its decisions and annotated in the affected
   off-leaf value, which follow I4; a write that fails or stops halfway leaves it not remembered.*
 - *I5 and the Out of scope item about the pages the file gains when it grows: they do not apply to those the transfer
   writes (Q1). Step 3 of the Flow, AC-I4 and AC-I10 are clarified by Q1: after the transfer, the page's integrity is not
-  checked; AC-I5 and AC-I7 pick contents and pages the transfer did not write in that opening. The residual risk of I8
-  widens with Q5.*
+  checked; AC-I5, AC-I7 and AC-I9 pick contents and pages the transfer did not write in that opening. The residual risk
+  of I8 widens with Q5.*
 
 
 ### Starting state

@@ -163,16 +163,17 @@ This PRD changes rules of earlier documents, which carry the corresponding annot
 - Root parent, G6: the exception of I8, extended by S3, U2 and H3, is extended with Q5. AC10 does not change.
 - Remembered integrity: I1 («solo se recuerdan comprobaciones superadas») has the exception of Q1: a page that the move
   writes stays remembered without computing its integrity, because its content is what the engine sealed; AC-I1 is
-  specified: the first read of a page that the move wrote in the current opening does not compute its integrity, and
-  the values stored off their leaf and the other pages stay as it says. I4 now says that the page that the move writes
-  stays remembered when its write finishes (Q1), except those of a value stored off its leaf; I5 («las páginas que el
-  archivo gana al crecer empiezan sin recordar») and the Out of scope item about them cease to hold for those that the
-  move writes; step 3 of the Flow, AC-I4 («su integridad se comprueba una vez») and AC-I10 are specified with Q1; AC-I5
-  and AC-I7 («una página que todavía no se leyó») are specified: the new content or the page is not one that the move
-  wrote in that opening and that stayed remembered (Q1); the residual risk of I8 is extended with Q5.
+  specified: the first read of a page that the move wrote in the current opening does not compute its integrity, and the
+  values stored off their leaf and the other pages stay as it says. I4 now says that the page that the move writes stays
+  remembered when its write finishes (Q1), except those of a value stored off its leaf; I5 («las páginas que el archivo
+  gana al crecer empiezan sin recordar») and the Out of scope item about them cease to hold for those that the move
+  writes; step 3 of the Flow, AC-I4 («su integridad se comprueba una vez») and AC-I10 are specified with Q1; AC-I5,
+  AC-I7 and AC-I9 («una página que todavía no se leyó», a page damaged with the store open) are specified: the new
+  content or the page is not one that the move wrote in that opening and that stayed remembered (Q1); the residual risk
+  of I8 is extended with Q5.
 - Write checks: the residual risk of S3 is extended with Q5. AC-S4 («una página del archivo de datos que nadie leyó en
-  la apertura se comprueba en su primera lectura») is specified: except those that the move wrote in that opening (Q1).
-  AC-S6 does not change.
+  la apertura se comprueba en su primera lectura») and the temporary-mode part of AC-S5 are specified: except the pages
+  that the move wrote in that opening (Q1). AC-S6 does not change.
 - Remembered layout check: C1 and C2 («solo se recuerdan comprobaciones superadas» in a read) have the exception of Q2,
   which remembers in C2 what passed the check as a temporary-area version or keeps it by Q3; the last sentence of C3
   («leer del archivo de datos un contenido que antes se leyó del área temporal no lo encuentra recordado»), step 4 of

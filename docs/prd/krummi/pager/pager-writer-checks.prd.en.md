@@ -64,8 +64,9 @@ decisions and annotated in the affected documents (see [Annotations to other PRD
 *Annotations of 2026-11-16 from the remembered checks of what the engine writes
 ([pager-written-pages.prd.en.md](pager-written-pages.prd.en.md)):*
 
-- *S3: the residual risk widens with Q5. AC-S4: the page of the data file that nobody read in the opening is not one the
-  transfer wrote in it (Q1). AC-S6 does not change.*
+- *S3: the residual risk widens with Q5. AC-S4 and the temporary-mode part of AC-S5: the page of the data file that
+  nobody read in the opening, or that is damaged with the store open, is not one the transfer wrote in it (Q1). AC-S6
+  does not change.*
 
 
 ### Starting state

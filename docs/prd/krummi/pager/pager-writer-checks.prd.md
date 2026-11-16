@@ -62,8 +62,9 @@ decisiones y anotado en los documentos afectados (ver [Anotaciones a otros PRD](
 *Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
 ([pager-written-pages.prd.md](pager-written-pages.prd.md)):*
 
-- *S3: el riesgo residual se amplía con Q5. AC-S4: la página del archivo de datos que nadie leyó en la apertura no es
-  una que el traslado escribió en ella (Q1). AC-S6 no cambia.*
+- *S3: el riesgo residual se amplía con Q5. AC-S4 y la parte en modo temporal de AC-S5: la página del archivo de datos
+  que nadie leyó en la apertura, o que se daña con el almacén abierto, no es una que el traslado escribió en ella (Q1).
+  AC-S6 no cambia.*
 
 
 ### Estado de partida
