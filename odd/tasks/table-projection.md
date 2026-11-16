@@ -50,7 +50,7 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
 | T2 | S3 (M1): run pool in the store | inline | done (RED: `run_pool_tests` did not compile without the pool; GREEN 4 of 4; mutation without zeroing fails `a_commit_keeps_its_run_buffers_and_the_next_run_gets_one_zeroed`; krummi-tx and krummi-pager suites pass) | `bee2dcb` |
 | T3 | S1: projections in the library (prepare, cache, prepared columns, bind, read) with AC-PY1–AC-PY10, AC-PY12 | inline | done (RED: the tests did not compile without the API; GREEN: `table_projections` 10 of 10 and `projection_tests` 2 of 2 in debug and release; mutations without the schema check and with the current plan on older rows fail AC-PY5, AC-PY10 and AC-PY2; workspace suite passed) | `9c9cba6`, `2277110` |
 | T4 | S2: W26 and W27 read with a projection, test hook, W27 without it | inline | done (`w26_and_w27_read_with_a_projection`) | `5b17ff0`, `2277110`, `c00f2dc` |
-| T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | done (L9, L10: 29 of 29 on both; W27 0.91 → 0.96 and 0.95 → 1.04; drops checked alone and with a main/head A/B) | reports in the T6 commit |
+| T5 | S2 (AC-PY11): full runs on Windows and Linux | inline (background runs) | pending: AC-PY11 awaits the user's decision (R1 of the Codex code review, L17). Runs done (L9, L10: 29 of 29 on both; W27 0.91 → 0.96 and 0.95 → 1.04; drops checked alone and with a main/head A/B) | reports in the T6 commit |
 | T6 | S5: final checks, RDD of the last slice, Codex review, closing report | inline | pending | |
 
 ## Log
@@ -171,3 +171,8 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   one entry per table created or deleted and per schema change while the store is open (documented); a delete in an
   abandoned write leaves the table's identity retired, with no observable effect since the catalog still holds it.
   Scratch removed.
+- **L17** (2026-11-16) — Codex code review, round 2 (follow-up, `daccfcd..df72e3f`):
+  [2026-11-16-code-02.md](../../docs/reviews/tables-projection/2026-11-16-code-02.md), status `findings`. R2 verified
+  resolved, no regressions of the fix. R1 still open: the single-load clause of AC-PY11 is not met, and the A/B of
+  L10 does not replace it without the user's approval. T5 reopened as pending that decision; the question goes to
+  the user after the loop. No further round: the only open finding is a product decision.

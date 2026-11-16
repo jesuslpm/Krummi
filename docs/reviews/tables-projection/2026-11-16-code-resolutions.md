@@ -42,3 +42,16 @@ Status: claimed, unverified until a follow-up review.
 Review record: [2026-11-16-code.md](2026-11-16-code.md), wrapper status `findings` (R1, R2 open; one open question,
 AC-PY11), thread `01a1e315-1c7d-7170-82ff-27fbdc6d977b`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-16 (verification)
+
+Follow-up report: [2026-11-16-code-02.md](2026-11-16-code-02.md), over `daccfcd..df72e3f`, wrapper status `findings`,
+thread `01a1e334-2aac-7141-b04a-2eb57497248c`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Verdict, quoted: «Changes requested: R1 remains open; R2 is verified
+resolved.»
+
+- R1: «blocker, still open». Codex: «keep AC-PY11/T5 open until the specified evidence satisfies it or the user
+  explicitly approves a revised acceptance condition.» T5 of
+  [table-projection.md](../../../odd/tasks/table-projection.md) now reads pending that decision (L17). Status:
+  pending, a product question for the user.
+- R2: «major, verified resolved». No correction-induced regressions were confirmed.
