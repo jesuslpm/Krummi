@@ -65,3 +65,14 @@ slower in the default build; aligning loops is a separate follow-up.
 
 Status: claimed, unverified until a follow-up review.
 
+
+## 2026-11-16 (verification, round 3)
+
+Follow-up report: [2026-11-16-code-03.md](2026-11-16-code-03.md), over `864d430..91a1e17`, wrapper status
+`findings` (only R2 open), thread `01a1e519-413c-7e31-ac94-102cd8b42905`. Telemetry: coordinator `gpt-6.1-sol` /
+`high`; reviewer `krummi-review-critical` (Kant) `gpt-6-astra` / `xhigh`. Verdict, quoted: «R1 is resolved; R2
+remains an open pre-existing advisory. No correction-induced defect found.»
+
+- R1: verified resolved.
+- R2: pending, pre-existing, outside the run; the loop's three automatic rounds are used, and R2 is listed in the
+  closing report as a follow-up of the pager.
