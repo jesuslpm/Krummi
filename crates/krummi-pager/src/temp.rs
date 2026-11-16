@@ -491,9 +491,10 @@ impl Slot {
         self.layout_checked.load(Ordering::Relaxed)
     }
 
-    /// Remembers that the node in the slot passed the layout check, for every later read of it (U1).
-    pub fn remember_layout_checked(&self) {
-        self.layout_checked.store(true, Ordering::Relaxed);
+    /// The flag behind [`layout_checked`](Self::layout_checked), which a read of the slot's page sets through its
+    /// version mark when the node passes the check, for every later read of it (U1), without finding the slot again.
+    pub(crate) fn layout_flag(&self) -> &AtomicBool {
+        &self.layout_checked
     }
 
     /// Number of pages in the slots.

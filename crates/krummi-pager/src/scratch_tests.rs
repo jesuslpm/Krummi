@@ -357,34 +357,48 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     scratch.close().unwrap();
 }
 
-/// U1 of the version checks PRD: a pass is kept only by the version whose payload passed; a pass reported for other
-/// bytes, or a failure, leaves the version unchecked (R3 of the RDD review of the version checks).
+/// U1 of the version checks PRD: a pass is kept only by the version whose read returned the mark it was reported
+/// through; a pass reported through another version's mark, or a failure, leaves the version unchecked (R3 of the
+/// RDD review of the version checks), and a pass holds for every later snapshot.
 #[test]
 fn a_layout_pass_is_kept_only_by_the_version_that_passed() {
+    let version = |origin: Origin<'_>| match origin {
+        Origin::Version { checked, .. } => checked,
+        Origin::Store(_) => panic!("a version"),
+    };
     both_modes(|scratch| {
+        // A snapshot that sees the data file's page keeps both versions in the scratch area.
         let keeper = scratch.snapshot().unwrap();
         commit(&scratch, "b");
+        let older = scratch.snapshot().unwrap();
+        commit(&scratch, "c");
         let read = scratch.snapshot().unwrap();
+        let Origin::Version {
+            checked: false,
+            mark: other,
+        } = older.page_and_code(PAGE).unwrap().1
+        else {
+            panic!("an unchecked version");
+        };
         let (node, origin) = read.page_and_code(PAGE).unwrap();
-        assert_eq!(origin, Origin::Version { checked: false });
-        let other = node.to_vec();
-        read.version_checked(PAGE, &other, true);
-        read.version_checked(PAGE, node, false);
-        assert_eq!(
-            read.page_and_code(PAGE).unwrap().1,
-            Origin::Version { checked: false }
-        );
-        read.version_checked(PAGE, node, true);
-        assert_eq!(
-            read.page_and_code(PAGE).unwrap().1,
-            Origin::Version { checked: true }
-        );
+        assert_eq!(text(node), "c");
+        let Origin::Version {
+            checked: false,
+            mark,
+        } = origin
+        else {
+            panic!("an unchecked version");
+        };
+        assert_ne!(mark, other);
+        read.version_checked(other, true);
+        read.version_checked(mark, false);
+        assert!(!version(read.page_and_code(PAGE).unwrap().1));
+        assert!(version(older.page_and_code(PAGE).unwrap().1));
+        read.version_checked(mark, true);
+        assert!(version(read.page_and_code(PAGE).unwrap().1));
         let again = scratch.snapshot().unwrap();
-        assert_eq!(
-            again.page_and_code(PAGE).unwrap().1,
-            Origin::Version { checked: true }
-        );
-        drop((again, read, keeper));
+        assert!(version(again.page_and_code(PAGE).unwrap().1));
+        drop((again, read, older, keeper));
     });
 }
 

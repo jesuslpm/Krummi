@@ -60,7 +60,7 @@ pub const PAYLOAD_SIZE: usize = PAGE_PAYLOAD_SIZE;
 /// What a transaction's read of a page tells the layers above for the check of its layout (C2, C3 of the remembered
 /// node layout check PRD, S1 of the writer checks PRD).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PageCheck {
+pub enum PageCheck<'a> {
     /// A page of the store, with the integrity code stored in it as read, which this read verified or a read of this
     /// opening already did (I2 of the remembered page integrity PRD, S2 of the writer checks PRD): the store's memory
     /// of checked contents applies.
@@ -74,16 +74,18 @@ pub enum PageCheck {
     Version {
         /// The version passed the layout check.
         checked: bool,
+        /// Where the version remembers a pass, which the check reports through without finding the version again.
+        mark: krummi_pager::VersionMark<'a>,
     },
     /// A page whose source tells nothing: its layout is checked on every read.
     Unverified,
 }
 
-impl From<krummi_pager::Origin> for PageCheck {
-    fn from(origin: krummi_pager::Origin) -> PageCheck {
+impl<'a> From<krummi_pager::Origin<'a>> for PageCheck<'a> {
+    fn from(origin: krummi_pager::Origin<'a>) -> PageCheck<'a> {
         match origin {
             krummi_pager::Origin::Store(code) => PageCheck::Verified(code),
-            krummi_pager::Origin::Version { checked } => PageCheck::Version { checked },
+            krummi_pager::Origin::Version { checked, mark } => PageCheck::Version { checked, mark },
         }
     }
 }

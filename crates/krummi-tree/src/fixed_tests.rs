@@ -845,7 +845,7 @@ impl PageSource for OnePage {
         Ok(&self.page)
     }
 
-    fn page_and_check(&self, _: u64) -> Result<(&[u8], krummi_tx::PageCheck)> {
+    fn page_and_check(&self, _: u64) -> Result<(&[u8], krummi_tx::PageCheck<'_>)> {
         Ok((&self.page, krummi_tx::PageCheck::Verified(42)))
     }
 

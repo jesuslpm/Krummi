@@ -1119,7 +1119,7 @@ fn counted_while_retired(page: &Slot) -> bool {
 
 /// Where a page that a snapshot reads comes from, for the layout check of the layers above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Origin {
+pub enum Origin<'a> {
     /// The store's pages, with the integrity code stored in the page as read, which this read verified or a read of
     /// this opening already did (C2 of the remembered node layout check PRD, I2).
     Store(u64),
@@ -1128,7 +1128,32 @@ pub enum Origin {
     Version {
         /// The version passed the layout check since it was published.
         checked: bool,
+        /// Where the version remembers a pass, for [`Snapshot::version_checked`].
+        mark: VersionMark<'a>,
     },
+}
+
+/// Where a version of the scratch area remembers that its layout passed the check of the layers above, as a read of
+/// it returned it (U1 of the version checks PRD): a pass reported through it marks that version without the scratch
+/// area's lock or a second lookup (S3 of the write margin execution). It lives as long as the snapshot that read the
+/// version, which keeps the version's slots.
+#[derive(Clone, Copy)]
+pub struct VersionMark<'a>(&'a AtomicBool);
+
+impl PartialEq for VersionMark<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0, other.0)
+    }
+}
+
+impl Eq for VersionMark<'_> {}
+
+impl std::fmt::Debug for VersionMark<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("VersionMark")
+            .field(&self.0.load(Ordering::Relaxed))
+            .finish()
+    }
 }
 
 /// A view of the store as it was when the snapshot opened (G3). It can be sent to and shared between threads
@@ -1173,7 +1198,7 @@ impl<'a> Snapshot<'a> {
     /// # Panics
     ///
     /// If `page_number` is a header page.
-    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Origin)> {
+    pub fn page_and_code(&self, page_number: u64) -> Result<(&[u8], Origin<'_>)> {
         let state = (self.may_see_versions && self.scratch.shared.filter.may_have(page_number))
             .then(|| self.scratch.read());
         let version = state
@@ -1187,6 +1212,7 @@ impl<'a> Snapshot<'a> {
                 return Err(self.scratch.pager().damaged(page_number));
             }
             let ptr = version.page.page().as_ptr();
+            let flag: *const AtomicBool = version.page.layout_flag();
             let checked = version.page.layout_checked();
             drop(state);
             // SAFETY: `ptr` points to the PAGE_SIZE bytes of a slot of the temporary area owned by an `Arc` in the
@@ -1197,7 +1223,10 @@ impl<'a> Snapshot<'a> {
             // whose retired versions its own flush frees: the flush borrows the writer mutably, which ends this
             // reference first ([`State::free_retired_by_writer`]). Published pages are never written again.
             let page = unsafe { std::slice::from_raw_parts(ptr, PAGE_SIZE) };
-            return Ok((&page[PAGE_HEADER_SIZE..], Origin::Version { checked }));
+            // SAFETY: `flag` is a field of the `Slot` that owns those slots, inside the `Arc` that the scratch area
+            // keeps while this snapshot is open, as above; an `AtomicBool` is shared through `&`.
+            let mark = VersionMark(unsafe { &*flag });
+            return Ok((&page[PAGE_HEADER_SIZE..], Origin::Version { checked, mark }));
         }
         drop(state);
         // No version up to this snapshot is in the scratch area: the store has the one it sees, and no flush
@@ -1220,27 +1249,19 @@ impl<'a> Snapshot<'a> {
         }
     }
 
-    /// Reports that the layers above checked the layout of `node`, the payload of page `page_number` read as a
-    /// version of the scratch area, and whether it `passed`. A pass is remembered by that version, for every later
-    /// read of it while it stays in the scratch area, by any snapshot; a failure is never remembered (U1 of the
-    /// version checks PRD). Only the version whose payload is `node` is marked.
-    pub fn version_checked(&self, page_number: u64, node: &[u8], passed: bool) {
+    /// Reports that the layers above checked the layout of a version of the scratch area that a read returned with
+    /// `mark`, and whether it `passed`. A pass is remembered by that version, for every later read of it while it
+    /// stays in the scratch area, by any snapshot; a failure is never remembered (U1 of the version checks PRD). Only
+    /// the version that `mark` came with is marked, and without the scratch area's lock (S3 of the write margin
+    /// execution).
+    pub fn version_checked(&self, mark: VersionMark<'_>, passed: bool) {
         #[cfg(any(test, feature = "test-hooks"))]
         self.scratch
             .shared
             .version_checks
             .fetch_add(1, Ordering::Relaxed);
-        if !passed || !self.may_see_versions {
-            return;
-        }
-        let state = self.scratch.read();
-        if let Some(version) = state
-            .versions
-            .get(&page_number)
-            .and_then(|versions| versions.iter().rev().find(|v| v.txid <= self.txid))
-            && version.page.page()[PAGE_HEADER_SIZE..].as_ptr() == node.as_ptr()
-        {
-            version.page.remember_layout_checked();
+        if passed {
+            mark.0.store(true, Ordering::Relaxed);
         }
     }
 

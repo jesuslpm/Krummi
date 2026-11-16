@@ -67,7 +67,7 @@ pub trait PageSource {
     /// changed, whether its layout passed the check since its last change (S1 of the writer checks PRD); for a version
     /// of the scratch area, whether its layout passed the check since it was published (U1 of the version checks
     /// PRD); or nothing, for a source that cannot tell.
-    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck<'_>)> {
         Ok((self.page(page_number)?, PageCheck::Unverified))
     }
 
@@ -83,11 +83,11 @@ pub trait PageSource {
         let _ = (page_number, code);
     }
 
-    /// Reports the layout check of `node`, page `page_number` read without a verified integrity code, and whether it
-    /// `passed`: a write transaction remembers a pass of a page it changed until its next change (S1), and a version
-    /// of the scratch area remembers a pass while it stays there (U1 of the version checks PRD).
-    fn layout_checked(&self, page_number: u64, node: &[u8], passed: bool) {
-        let _ = (page_number, node, passed);
+    /// Reports the layout check of page `page_number`, read without a verified integrity code as `check` says, and
+    /// whether it `passed`: a version of the scratch area remembers a pass while it stays there (U1 of the version
+    /// checks PRD).
+    fn layout_checked(&self, page_number: u64, check: PageCheck<'_>, passed: bool) {
+        let _ = (page_number, check, passed);
     }
 
     /// The content of the value run of `count` pages from page `first` as the transaction sees it, after the run's
@@ -123,12 +123,14 @@ impl PageSource for ReadTransaction<'_> {
         ReadTransaction::page(self, page_number)
     }
 
-    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck<'_>)> {
         ReadTransaction::page_and_check(self, page_number)
     }
 
-    fn layout_checked(&self, page_number: u64, node: &[u8], passed: bool) {
-        ReadTransaction::version_checked(self, page_number, node, passed);
+    fn layout_checked(&self, _: u64, check: PageCheck<'_>, passed: bool) {
+        if let PageCheck::Version { mark, .. } = check {
+            ReadTransaction::version_checked(self, mark, passed);
+        }
     }
 
     fn is_checked(&self, page_number: u64, code: u64) -> bool {
@@ -173,7 +175,7 @@ impl PageSource for WriteTransaction<'_> {
         WriteTransaction::page(self, page_number)
     }
 
-    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+    fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck<'_>)> {
         WriteTransaction::page_and_check(self, page_number)
     }
 
@@ -185,8 +187,8 @@ impl PageSource for WriteTransaction<'_> {
         WriteTransaction::remember_checked(self, page_number, code);
     }
 
-    fn layout_checked(&self, page_number: u64, node: &[u8], passed: bool) {
-        WriteTransaction::layout_checked(self, page_number, node, passed);
+    fn layout_checked(&self, page_number: u64, check: PageCheck<'_>, passed: bool) {
+        WriteTransaction::layout_checked(self, page_number, check, passed);
     }
 
     fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
@@ -295,10 +297,10 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
         // first read (H1 of the commit checks PRD). Debug builds check them on every read, like Voron's `VALIDATE`
         // (annotation of 2026-11-09 to H1), outside the record of layout checks.
         PageCheck::Changed => !cfg!(debug_assertions) || (format.is_valid)(node),
-        PageCheck::Version { checked: true } => true,
-        PageCheck::Version { checked: false } | PageCheck::Unverified => {
+        PageCheck::Version { checked: true, .. } => true,
+        PageCheck::Version { checked: false, .. } | PageCheck::Unverified => {
             let valid = (format.is_valid)(node);
-            tx.layout_checked(page, node, valid);
+            tx.layout_checked(page, check, valid);
             valid
         }
     };

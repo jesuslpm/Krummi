@@ -63,7 +63,7 @@ impl<'e> ReadTransaction<'e> {
     /// The payload of page `page_number`, as [`page`](Self::page), with what its read tells about its layout check:
     /// the integrity code its read verified when it comes from the store (C2 of the remembered node layout check
     /// PRD), or whether a version of the scratch area already passed the check (U1 of the version checks PRD).
-    pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+    pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck<'_>)> {
         self.count_read();
         let (page, origin) = self.snapshot.page_and_code(page_number)?;
         Ok((page, origin.into()))
@@ -75,11 +75,11 @@ impl<'e> ReadTransaction<'e> {
         self.snapshot.prefetch(page_number);
     }
 
-    /// Records that a layer above checked the layout of `node`, page `page_number` read as a version of the scratch
-    /// area, and whether it `passed`: a pass holds for every later read of that version (U1 of the version checks
-    /// PRD).
-    pub fn version_checked(&self, page_number: u64, node: &[u8], passed: bool) {
-        self.snapshot.version_checked(page_number, node, passed);
+    /// Records that a layer above checked the layout of a version of the scratch area that
+    /// [`page_and_check`](Self::page_and_check) returned with `mark`, and whether it `passed`: a pass holds for every
+    /// later read of that version (U1 of the version checks PRD).
+    pub fn version_checked(&self, mark: krummi_pager::VersionMark<'_>, passed: bool) {
+        self.snapshot.version_checked(mark, passed);
     }
 
     /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
@@ -260,7 +260,7 @@ impl<'e> WriteTransaction<'e> {
     /// # Panics
     ///
     /// If the page was never reserved.
-    pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+    pub fn page_and_check(&self, page_number: u64) -> Result<(&[u8], PageCheck<'_>)> {
         let read = self.page_with(page_number);
         #[cfg(feature = "test-hooks")]
         if let Ok((_, PageCheck::Changed)) = read {
@@ -269,7 +269,7 @@ impl<'e> WriteTransaction<'e> {
         read
     }
 
-    fn page_with(&self, page_number: u64) -> Result<(&[u8], PageCheck)> {
+    fn page_with(&self, page_number: u64) -> Result<(&[u8], PageCheck<'_>)> {
         self.count_read();
         self.track(self.engine.injected_fault())?;
         self.check_reserved(page_number, 1);
@@ -284,15 +284,17 @@ impl<'e> WriteTransaction<'e> {
         Ok((page, origin.into()))
     }
 
-    /// Records that a layer above checked the layout of `node`, page `page_number` read with
-    /// [`page_and_check`](Self::page_and_check) as a version of the scratch area, and whether it `passed`. A version
+    /// Records that a layer above checked the layout of page `page_number`, read with
+    /// [`page_and_check`](Self::page_and_check) as `check` says, and whether it `passed`. A version of the scratch area
     /// that passes is not checked again by any transaction while it stays there (U1 of the version checks PRD).
-    pub fn layout_checked(&self, page_number: u64, node: &[u8], passed: bool) {
+    pub fn layout_checked(&self, page_number: u64, check: PageCheck<'_>, passed: bool) {
         #[cfg(feature = "test-hooks")]
         self.log(LayoutEvent::Check(page_number));
-        self.writer
-            .snapshot()
-            .version_checked(page_number, node, passed);
+        #[cfg(not(feature = "test-hooks"))]
+        let _ = page_number;
+        if let PageCheck::Version { mark, .. } = check {
+            self.writer.snapshot().version_checked(mark, passed);
+        }
     }
 
     /// Whether the content of page `page_number` with integrity code `code` already passed the check of the layers
