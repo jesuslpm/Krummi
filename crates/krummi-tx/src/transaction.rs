@@ -9,7 +9,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::atomic::Ordering::Relaxed;
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
 use krummi_pager::{PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, growth_target};
@@ -195,14 +194,6 @@ pub struct WriteTransaction<'e> {
     freed: BTreeSet<u64>,
     /// Regions where this transaction made pages free, whose longest free run the engine must forget.
     gained: BTreeSet<u64>,
-    /// The leaf a tree layer above last found, for [`recent_leaf`](Self::recent_leaf); a mutex, never contended, so
-    /// that it adds no type that cannot be shared between threads to those the compile-fail tests list.
-    recent_leaf: std::sync::Mutex<RecentLeaf>,
-    /// Whether a leaf is remembered, whether it served a walk since, and how many walks in a row found no use for
-    /// it, read without the lock (see [`WriteTransaction::remember_leaf`]).
-    recent_on: std::sync::atomic::AtomicBool,
-    recent_hit: std::sync::atomic::AtomicBool,
-    recent_misses: std::sync::atomic::AtomicU32,
     /// The first operation that failed: the transaction can no longer be committed (T11).
     failure: RefCell<Option<Error>>,
     /// The changes, reads and layout checks of changed pages, while a test records them; a mutex, so that the tests'
@@ -225,25 +216,6 @@ struct Changed {
     /// remembered when the copy was made, and every change since only overwrote values of entries in the leaf with
     /// others of the same length (Q3 of the written pages PRD). Any other change clears it for good.
     keeps_check: bool,
-}
-
-/// The lower and upper bounds of the keys of a leaf given to [`WriteTransaction::remember_leaf`].
-pub type LeafBounds<'k> = (Option<&'k [u8]>, Option<&'k [u8]>);
-
-/// After a remembered leaf served no walk, a write transaction remembers one leaf in this many walks.
-const RECENT_RETRY: u32 = 16;
-
-/// A leaf of a tree that a layer above found in this transaction, and the keys that bound the keys it holds (S4 of the
-/// write optimizations execution, as Voron's recently found pages).
-#[derive(Default)]
-struct RecentLeaf {
-    /// The tree's root and the leaf's page, `None` when nothing is remembered.
-    at: Option<(u64, u64)>,
-    /// The lower bound's bytes, then the upper bound's.
-    keys: Vec<u8>,
-    /// The length of each bound in `keys`, `None` for a side without bound.
-    lower: Option<usize>,
-    upper: Option<usize>,
 }
 
 impl Changed {
@@ -285,10 +257,6 @@ impl<'e> WriteTransaction<'e> {
             freed: BTreeSet::new(),
             gained: BTreeSet::new(),
             failure: RefCell::new(None),
-            recent_leaf: std::sync::Mutex::default(),
-            recent_on: std::sync::atomic::AtomicBool::new(false),
-            recent_hit: std::sync::atomic::AtomicBool::new(false),
-            recent_misses: std::sync::atomic::AtomicU32::new(0),
             #[cfg(feature = "test-hooks")]
             layout_log: std::sync::Mutex::new(None),
             #[cfg(feature = "test-hooks")]
@@ -431,103 +399,6 @@ impl<'e> WriteTransaction<'e> {
             .payload_same_layout())
     }
 
-    /// The leaf of the tree at `root` that holds `key`, as [`remember_leaf`](Self::remember_leaf) last named it, when
-    /// `key` is within the bounds it gave, both included. The transaction forgets that leaf whenever it reserves or
-    /// frees pages, or an operation fails: a tree layer above changes the shape of a tree (splits, merges, a new root,
-    /// a tree freed) only by reserving or freeing pages, and freed pages are not reserved again in the same
-    /// transaction (F6), so until then the leaf holds the same range of keys of the same tree. A read of a remembered
-    /// leaf skips the walk from the root (S4 of the write optimizations execution, as Voron's recently found pages).
-    /// A transaction that failed (T11) remembers nothing: a failed operation can leave a tree half changed, where only
-    /// a walk names the leaf the other operations of the transaction would.
-    #[inline]
-    pub fn recent_leaf(&self, root: u64, key: &[u8]) -> Option<u64> {
-        if !self.recent_on.load(Relaxed) || self.has_failed() {
-            return None;
-        }
-        let recent = self.hint();
-        let (tree, leaf) = recent.at?;
-        let (lower, upper) = recent.keys.split_at(recent.lower.unwrap_or(0));
-        let within = tree == root
-            && recent.lower.is_none_or(|_| lower <= key)
-            && recent.upper.is_none_or(|_| key <= upper);
-        if within {
-            self.recent_hit.store(true, Relaxed);
-        }
-        within.then_some(leaf)
-    }
-
-    /// Remembers `leaf` as the leaf of the tree at `root` that holds every key from `lower` to `upper`, both included,
-    /// as `bounds` gives them, a `None` bound leaving that side open, in place of the leaf remembered before; `bounds`
-    /// is called only when the leaf is remembered, and its `None` remembers nothing. The caller vouches for the leaf as
-    /// the tree is now; see [`recent_leaf`](Self::recent_leaf). Without memory for the bounds it remembers nothing.
-    /// Meant only for the tree layer, which names a leaf it has just reached by walking (R1-001 of the RDD review of
-    /// T4): a wrong leaf would send later changes to it.
-    ///
-    /// When the leaf remembered before served no walk, keys are not coming close together, and remembering costs more
-    /// than it saves (W3 of the write optimizations execution): from then on the transaction remembers only one leaf
-    /// in every [`RECENT_RETRY`] walks, until one serves a walk again, and forgets the others.
-    #[doc(hidden)]
-    pub fn remember_leaf<'k>(
-        &self,
-        root: u64,
-        leaf: u64,
-        bounds: impl FnOnce() -> Option<LeafBounds<'k>>,
-    ) {
-        // Plain loads and stores, not read-modify-write operations: the transaction is not shared between threads,
-        // so nothing runs between them, and they cost no more than ordinary memory accesses.
-        let had = self.recent_on.load(Relaxed);
-        let hit = self.recent_hit.load(Relaxed);
-        self.recent_hit.store(false, Relaxed);
-        let misses = self.recent_misses.load(Relaxed);
-        let misses = if hit {
-            0
-        } else if had || misses > 0 {
-            misses.saturating_add(1)
-        } else {
-            0
-        };
-        self.recent_misses.store(misses, Relaxed);
-        if !misses.is_multiple_of(RECENT_RETRY) {
-            self.forget_leaf();
-            return;
-        }
-        let mut recent = self.hint();
-        let recent = &mut *recent;
-        recent.at = None;
-        self.recent_on.store(false, Relaxed);
-        recent.keys.clear();
-        let Some((lower, upper)) = bounds() else {
-            return;
-        };
-        let len = lower.map_or(0, <[u8]>::len) + upper.map_or(0, <[u8]>::len);
-        // A memory to skip a walk is not worth failing for, nor an injected allocation failure of the tests.
-        if recent.keys.try_reserve(len).is_err() {
-            return;
-        }
-        for bound in [lower, upper].into_iter().flatten() {
-            recent.keys.extend_from_slice(bound);
-        }
-        recent.lower = lower.map(<[u8]>::len);
-        recent.upper = upper.map(<[u8]>::len);
-        recent.at = Some((root, leaf));
-        self.recent_on.store(true, Relaxed);
-    }
-
-    /// Forgets the leaf of [`recent_leaf`](Self::recent_leaf), before a change that may reshape a tree.
-    fn forget_leaf(&self) {
-        if self.recent_on.load(Relaxed) {
-            self.recent_on.store(false, Relaxed);
-            self.hint().at = None;
-        }
-    }
-
-    /// The leaf of [`recent_leaf`](Self::recent_leaf), locked; nothing panics while it is.
-    fn hint(&self) -> std::sync::MutexGuard<'_, RecentLeaf> {
-        self.recent_leaf
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
     /// Reserves a page, zeroed, and returns its number: a free page of the map if there is one, otherwise the
     /// page at the frontier (F4).
     pub fn allocate(&mut self) -> Result<u64> {
@@ -538,7 +409,6 @@ impl<'e> WriteTransaction<'e> {
     /// there is one, otherwise at the frontier, in the next region when they do not fit in the frontier's (F5).
     /// Asking for none, or for more than a region holds, fails with the misuse class.
     pub fn allocate_run(&mut self, count: u64) -> Result<u64> {
-        self.forget_leaf();
         let result = self
             .engine
             .injected_fault()
@@ -551,7 +421,6 @@ impl<'e> WriteTransaction<'e> {
     /// zeroed, for the caller to fill now: a run is never changed afterwards. Its pages are not pages of their own:
     /// it is read with [`run`](Self::run) and freed whole with [`free`](Self::free).
     pub fn allocate_value_run(&mut self, count: u64) -> Result<(u64, &mut [u8])> {
-        self.forget_leaf();
         let result = self
             .engine
             .injected_fault()
@@ -602,7 +471,6 @@ impl<'e> WriteTransaction<'e> {
     /// from the frontier on, pages already free, a page twice, or part of a value run this transaction reserved
     /// fails with the misuse class (T11).
     pub fn free(&mut self, first: u64, count: u64) -> Result<()> {
-        self.forget_leaf();
         let result = self
             .engine
             .injected_fault()
@@ -1144,8 +1012,6 @@ impl<'e> WriteTransaction<'e> {
     /// Records the first failure of the transaction (T11) and whether the store stopped accepting writes (T12).
     fn track<T>(&self, result: Result<T>) -> Result<T> {
         if let Err(error) = &result {
-            // A change that failed half way may have left a tree's shape anywhere.
-            self.forget_leaf();
             let mut failure = self.failure.borrow_mut();
             if failure.is_none() {
                 *failure = Some(error.duplicate());
