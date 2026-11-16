@@ -117,3 +117,16 @@ Routes: every task is one understood change of at most a few hundred lines, with
   result to report, not fixed: W20 about 3 % slower, probably code layout of the multi-value read loop (not shown
   with a profiler); its ratio to Voron (1.11 on 2026-11-16) stays well above the threshold. W28 gains less than
   the lock and lookup removed (S1) promised: 1.6 %, which matches about 50–150 ns of 8,800 ns.
+- **L9** (2026-11-16) — Codex code review, round 1, of `6b49bea..1ee31df`
+  ([report](../../docs/reviews/write-margin/2026-11-16-code.md),
+  [resolutions](../../docs/reviews/write-margin/2026-11-16-code-resolutions.md)): `findings`, R1 major (W20 slower,
+  against S4) and R2, a pre-existing advisory of the pager outside the run (a `ScratchWriter` reused after
+  `publish` is left out of version garbage collection). R1: `687ef64` gave `multi::entry` its own descent again after
+  one A/B credited it (W20 119.9 ns against 121.5 on `main`, `ab4`); the final A/B of `687ef64` against `main`, three
+  rounds (`ab5`), gave W19 1.101, W24 1.024, W28 1.011, W7 1.018, W26 0.993 and W20 0.945 (121.5 against 114.9 ns);
+  one session of five rounds with `main` and that code built in two folders (`ab6`) gave 118.7, 122.7 and 121.3 ns.
+  The duplication was reverted (`b5b4e29`): the code is the reviewed code again. W20 stays 2–5 % slower than `main`
+  in every session but one, with no cause shown; R1 is a product question for the user after the loop (accept it
+  for W19's 10 %, or profile W20). The RDD suggestion R3-001 of `review-75d1e7d679f238bc` (last slice `d148e7d..1ee31df`,
+  lens reliability, approved and acknowledged) is dismissed with evidence: `long_key` always has `MAX_KEY` bytes
+  (`crates/krummi-tree/src/tests.rs:376-380`), so the too-long value does test the inline-size guard.
