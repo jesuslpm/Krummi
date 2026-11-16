@@ -199,3 +199,11 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   [2026-11-16-code-03.md](../../docs/reviews/tables-projection/2026-11-16-code-03.md), status **approved**. R1 verified
   resolved (the user's decision, annotated on AC-PY11); R2 verified in round 2. No finding open. Three rounds, the
   loop's limit.
+- **L21** (2026-11-16) — RDD of the last slice `605dd96..f2566fb` (the strengthened test, the AC-PY11 annotation and
+  the review records; lenses readability and reliability): **approved**, lineage `review-8aaa0b251c91e621`,
+  acknowledged and burned. R2-001 (WARNING, the expected identities (110, 130) and (210, 230) were unexplained: the
+  comments did not say that a creation draws one identity per column between the table's and the state) and R3-001
+  (SUGGESTION, the abandoned create's own identities were not asserted) — **fixed** in the next commit: the comments
+  give the draw order and the first table of each case asserts its identity and state ((100, 120), (200, 220)).
+  Final checks after it: `cargo fmt --all --check` clean, clippy clean, `cargo test --workspace` 852 passed, 0
+  failed, 34 ignored.

@@ -961,15 +961,19 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     write.commit().unwrap();
     store.close().unwrap();
 
-    // A deleted table's identity, 100, read from the files, offered again first for the table created with its name:
-    // 110 is drawn instead (a new table's state may repeat another table's, D6, so only its identity matters).
+    // Creating a table draws its identity, then one identity per column (here `id`), then its schema state. A deleted
+    // table's identity, 100, read from the files, is offered again first for the table created with its name: the
+    // store refuses it and takes 110 as the identity, 120 for `id` and 130 as the state. A new table's state may
+    // repeat another table's (D6), so only the identity is refused.
     let folder = tmp.path().join("u");
     let store = open(&folder);
     let mut write = store.write().unwrap();
-    with_identity_source(identities(vec![100, 110, 120]), || {
+    let u = with_identity_source(identities(vec![100, 110, 120]), || {
         write.open_table_with("u", TableMode::CreateNew(&schema))
     })
     .unwrap();
+    let described = write.table_schema(&u).unwrap();
+    assert_eq!((described.table_id(), described.schema_state()), (100, 120));
     write.commit().unwrap();
     store.close().unwrap();
     let store = open(&folder);
@@ -999,13 +1003,16 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     drop(row);
     write.commit().unwrap();
 
-    // A table created in an abandoned write, with identity 200 and state 220, offered again for the next table
-    // created with its name: 210 is drawn instead.
+    // A table created in an abandoned write, with identity 200 (`id` 210, state 220): its identity, offered again
+    // first for the next table created with its name, is refused, so that table takes 210, then 220 for `id` and 230
+    // as the state.
     let mut abandoned = store.write().unwrap();
     let v = with_identity_source(identities(vec![200, 210, 220]), || {
         abandoned.open_table_with("v", TableMode::CreateNew(&schema))
     })
     .unwrap();
+    let described = abandoned.table_schema(&v).unwrap();
+    assert_eq!((described.table_id(), described.schema_state()), (200, 220));
     let old = abandoned.projection(&v, &["id"]).unwrap();
     drop(abandoned);
     let mut write = store.write().unwrap();
