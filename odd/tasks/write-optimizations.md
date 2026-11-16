@@ -77,3 +77,25 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   every `Ok(None)` and error (`range.rs:495-506`, `stop` at `:253-258`), so no later step reads it; one SUGGESTION
   (a unit test alternating ends): covered by the random alternation tests of `crates/krummi/tests/tree_scans.rs` and
   `tree_value_model.rs`.
+- **L4** (2026-11-16) — Independent verifier of T1 and T2 (sonnet, high): S1 pass, S2 pass, no blocker. It checked
+  every path that writes a dirty page clears the Q3 mark (only `page_mut_same_layout` keeps it, three callers), Q1
+  remembers only after the write and never a value-run page, and recovered each build's journal with the other build
+  (`aa82944` and `0a5603c`, four pairings, 408 of 408 values). Advisories: an unused `PoisonError` import in release
+  builds (fixed in `0c8bea7`, with the R4-001 assertion); a large record whose compressible bytes miss the eight
+  samples is stored raw (+4.7 % in one probe, allowed by J16); the name of the AC-U6 test no longer matches its
+  assertion (kept: archived reports cite it); debug reads of kept leaves take a mutex.
+- **L5** (2026-11-16) — T4 `3f35631` (writer, after T1): a write transaction remembers the last leaf its walk
+  reached (root, page, copies of its bounding keys); `set`, `try_add` and `remove` change it directly when the change
+  stays in the leaf; forgotten on every page reservation, free and failure. Writer's measurement: W19 keys are hashed
+  (0.15 % same-leaf), so no cache helps it; W23 already uses `append_last`; W1-like sets −21 to −28 % per set. Tests
+  compare every page with the cache on and off; mutations of the forgets caught. Suite: 872 passed, 0 failed, 36
+  ignored; clippy clean in debug and release. RDD `757901b..3f35631`, lenses risk, resilience and reliability, item
+  6 named, lineage `review-6e9928eb4aa5471f`: approved; R1-001 (WARNING, `remember_leaf` public): hidden from the
+  docs in `49fc00d` (it cannot be crate-private: another crate calls it); R4-001 (WARNING, a miss that splits walks
+  twice): left to the A/B; R3-001 (WARNING, the correctness rule is only documented): checked by the verifier;
+  R3-002 (SUGGESTION, a walk-count threshold in a test): kept. Verifier of T4 (sonnet, high): S4 pass, no blocker;
+  every shape change reserves or frees a page (no redistribution between siblings; root collapse frees); a debug
+  cross-check of each cache hit against a walk held over about 980,000 hits in random workloads and fired within a
+  second when a forget was removed; 84 workload digests identical to `0c8bea7`. Its advisory, a stale hit inside a
+  transaction that already failed (the tree is already inconsistent there at the baseline too), was hardened in
+  `49fc00d`: a failed transaction skips the cache. Tree, tx and krummi tests after it: 626 passed, 0 failed.
