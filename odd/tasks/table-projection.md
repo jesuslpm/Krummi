@@ -149,3 +149,8 @@ in WSL 2 Ubuntu). Estimate: 7 h – 11 h. Real start: 2026-11-15 17:51:45 +0000.
   (SUGGESTION), "Krummi: desconocido" in the Linux report: **kept**. WSL builds from `git archive` of `f4b6c2f`, which
   carries no `.git`, so the bench cannot read the commit; earlier Linux reports say the same, and L9 names the
   commit. Checks after the fix: fmt and clippy clean, `cargo test --workspace` 851 passed, 0 failed, 34 ignored.
+- **L14** (2026-11-16) — RDD of `704d18b..3d296fb` (assessment: medium, `under_budget`; reviewed as the last slice
+  before the Codex review; lenses readability and reliability): **approved**, lineage `review-ba947c7922df2d79`,
+  acknowledged and burned. One advisory finding: R2-001 (SUGGESTION, deterministic, `row.rs` `slot_bytes` kept a
+  `Fixed` match arm that the early `FixedSlot` return made unreachable) — **fixed** in the next commit: `slot_bytes`
+  matches the place once and reads a fixed column through `Slot::fixed_at(..).read`, with no dead arm. Checks: fmt and clippy clean, `cargo test --workspace` 851 passed, 0 failed, 34 ignored.

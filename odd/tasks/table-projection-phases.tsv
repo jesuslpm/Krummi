@@ -26,3 +26,7 @@
 2026-11-15T21:02:06+00:00	mark	review	RDD last slice
 2026-11-15T21:04:22+00:00	mark	fix	RDD last slice advisories
 2026-11-16T06:30:37+00:00	mark	checks	fix checks
+2026-11-16T06:31:15+00:00	mark	review	RDD of the FixedSlot fix
+2026-11-16T06:31:15+00:00	bg-start	review	rdd3
+2026-11-16T06:31:37+00:00	bg-end	review	rdd3
+2026-11-16T06:32:27+00:00	mark	fix	RDD R2-001 dead arm

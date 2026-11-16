@@ -121,13 +121,19 @@ impl Slot {
     #[inline]
     pub fn fixed(self) -> Option<FixedSlot> {
         match self.place {
-            SlotPlace::Fixed { offset, width } => Some(FixedSlot {
-                start: offset,
-                end: offset + width,
-                null_byte: self.null_byte,
-                null_mask: self.null_mask,
-            }),
+            SlotPlace::Fixed { offset, width } => Some(self.fixed_at(offset, width)),
             _ => None,
+        }
+    }
+
+    /// This fixed-section column, at `offset` with `width` bytes, as a [`FixedSlot`].
+    #[inline]
+    fn fixed_at(self, offset: u32, width: u32) -> FixedSlot {
+        FixedSlot {
+            start: offset,
+            end: offset + width,
+            null_byte: self.null_byte,
+            null_mask: self.null_mask,
         }
     }
 
@@ -259,15 +265,13 @@ impl RowLayout {
     /// column. Panics, or gives other bytes, on a column that [`Row::check`] rejects.
     #[inline]
     pub fn slot_bytes<'r>(&self, bytes: &'r [u8], slot: Slot) -> Option<&'r [u8]> {
-        if let Some(fixed) = slot.fixed() {
-            return fixed.read(bytes);
-        }
-        if slot.is_null(bytes) {
-            return None;
-        }
         match slot.place {
-            SlotPlace::Key | SlotPlace::Fixed { .. } => None,
+            SlotPlace::Key => None,
+            SlotPlace::Fixed { offset, width } => slot.fixed_at(offset, width).read(bytes),
             SlotPlace::Variable(j) => {
+                if slot.is_null(bytes) {
+                    return None;
+                }
                 let j = j as usize;
                 let width = 1usize << bytes[2];
                 let var_start = self.offsets_start + (self.variables - 1) * width;
