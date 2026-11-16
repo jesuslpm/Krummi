@@ -256,24 +256,13 @@ impl<'t> Iterator for Elements<'t> {
 }
 
 /// The page of the parent leaf with the entry of `key` and its values, or `None` if the key is not there. An entry
-/// that is not a consistent blob kept in its leaf is damage of that leaf (G6). It walks the tree itself rather than
-/// through [`located_entry`]: the reads of multi-value keys were about 3 % slower through that call, measured on
-/// W20 of the benchmark (R1 of the write margin code review).
+/// that is not a consistent blob kept in its leaf is damage of that leaf (G6).
 fn entry<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     root: u64,
     key: &[u8],
 ) -> Result<Option<(u64, Entry<'t>)>> {
-    let (page, leaf) = descend(tx, root, key)?;
-    let Ok(index) = node::search(leaf, key) else {
-        return Ok(None);
-    };
-    match node::value(leaf, index) {
-        Value::Inline(blob) => Entry::decode(blob),
-        Value::Run { .. } => None,
-    }
-    .map(|entry| Some((page, entry)))
-    .ok_or_else(|| tx.damaged(page))
+    Ok(located_entry(tx, root, key)?.map(|(at, entry)| (at.leaf, entry)))
 }
 
 /// As [`entry`], with where the entry is in its leaf, so that an add can write there without walking the tree again
