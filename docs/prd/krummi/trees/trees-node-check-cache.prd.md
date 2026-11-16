@@ -89,6 +89,15 @@ documentos afectados (ver [Anotaciones a otros PRD](#anotaciones-a-otros-prd)).
 - *C3, en lo que dice su anotación del 2026-11-06 de los nodos que modifica la escritura: la escritura no los
   comprueba; la primera lectura de otra transacción comprueba lo que confirma (decisiones H1 y H2).*
 
+*Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
+([pager-written-pages.prd.md](../pager/pager-written-pages.prd.md)):*
+
+- *C1 y C2 («solo se recuerdan comprobaciones superadas» en una lectura): excepción de Q2; cuando el traslado escribe un
+  nodo cuya versión pasó la comprobación de organización en el área temporal o la conserva por Q3, C2 lo recuerda con el
+  código de la página. La última frase de C3, el paso 4 del Flujo, AC-C2 y AC-C3 se precisan con Q2. El riesgo residual
+  de C7 se amplía con Q5.*
+
+
 ### Estado de partida
 
 Verificado el 2026-10-30 en el código:

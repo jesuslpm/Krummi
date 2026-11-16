@@ -57,6 +57,15 @@ reglas anteriores está declarado en sus decisiones y anotado en los documentos 
   lectura de la copia por la escritura no la comprueba; la primera lectura de la versión confirmada por otra
   transacción sí.*
 
+*Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
+([pager-written-pages.prd.md](pager-written-pages.prd.md)):*
+
+- *U1: excepciones de Q2 (lo comprobado de una versión pasa a la memoria compartida de nodos recordados cuando el
+  traslado la escribe) y de Q3 (la versión que publica una confirmación que solo sobrescribió valores del mismo largo en
+  una hoja conserva su comprobación). U2 deja de valer en lo que dice de una versión alterada que el traslado escribe:
+  no falla hasta reabrir (Q5). El paso 4 del Flujo, AC-U3 y AC-U6 se precisan con Q2 y Q3.*
+
+
 ### Estado de partida
 
 Verificado el 2026-11-08 en el código, en los perfiles de la investigación de ese día, en los informes del banco y

@@ -288,6 +288,15 @@ objective 2 when the five are (annotation of 2026-11-03 to B2 of [trees.prd.en.m
   and execution by cursor), and 18, C interface and C# binding, built right after 7, in that order; and 19,
   Importing and exporting row files (CSV, JSON lines, Parquet), after 18.*
 
+*Annotations of 2026-11-16 from the remembered checks of what the engine writes
+([pager-written-pages.prd.en.md](pager/pager-written-pages.prd.en.md)):*
+
+- *G6: the exception of I8, widened by S3, U2 and H3, widens with Q5: a page the transfer wrote is not checked again
+  until the store is reopened, and a leaf in which a write only overwrote values of the same length keeps its layout
+  check in production builds; a change of its bytes the engine did not make, or an engine error in that overwrite, is
+  not detected until reopening, or is sealed if a write copies the page and commits. AC10 does not change.*
+
+
 ## Validations and messages
 
 Situations common to the whole product. The library returns the error class of each row (D8); the message column

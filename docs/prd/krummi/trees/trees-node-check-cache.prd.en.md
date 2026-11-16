@@ -88,6 +88,14 @@ affected documents (see [Annotations to other PRDs](#annotations-to-other-prds))
 - *C3, in what its annotation of 2026-11-06 says of the nodes the write modifies: the write does not check them;
   the first read by another transaction checks what it commits (decisions H1 and H2).*
 
+*Annotations of 2026-11-16 from the remembered checks of what the engine writes
+([pager-written-pages.prd.en.md](../pager/pager-written-pages.prd.en.md)):*
+
+- *C1 and C2 (only passed checks of a read are remembered): exception of Q2; when the transfer writes a node whose
+  version passed the layout check in the scratch area or keeps it by Q3, C2 remembers it with the page's code. The last
+  sentence of C3, step 4 of the Flow, AC-C2 and AC-C3 are clarified by Q2. The residual risk of C7 widens with Q5.*
+
+
 ### Starting state
 
 Verified on 2026-10-30 in the code:

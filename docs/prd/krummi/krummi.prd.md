@@ -290,6 +290,16 @@ el objetivo 2 cuando lo están los cinco (anotación del 2026-11-03 a B2 de [tre
   justo después del 7, en ese orden; y el 19, Importar y exportar archivos de filas (CSV, JSON por líneas, Parquet),
   después del 18.*
 
+*Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
+([pager-written-pages.prd.md](pager/pager-written-pages.prd.md)):*
+
+- *G6: la excepción de I8, ampliada por S3, U2 y H3, se amplía con Q5: una página que el traslado escribió no se vuelve
+  a comprobar hasta reabrir el almacén, y una hoja en la que una escritura solo sobrescribió valores del mismo largo
+  conserva su comprobación de organización en las compilaciones de producción; un cambio de sus bytes que el motor no
+  hizo, o un error del motor en esa sobrescritura, no se detecta hasta reabrir, o queda sellado si una escritura copia
+  la página y confirma. AC10 no cambia.*
+
+
 ## Validaciones y mensajes
 
 Situaciones comunes a todo el producto. La biblioteca devuelve la clase de error de cada fila (D8); la columna de

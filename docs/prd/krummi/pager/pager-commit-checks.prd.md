@@ -48,6 +48,12 @@ inconsistente; esa comprobación falla con la clase de daño y el número de la 
 entre las comprobaciones que mide AC-H1. Las compilaciones de producción siguen H1 sin cambios, así que H3 y AC-H1 a
 AC-H4 valen para ellas.*
 
+*Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
+([pager-written-pages.prd.md](pager-written-pages.prd.md)):*
+
+- *H2 («La versión que publica la confirmación es nueva»): excepción de Q3. AC-H2 se precisa: el cambio que hace la
+  prueba no es una sobrescritura de Q3. El riesgo residual de H3 se amplía con Q5.*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código y en los perfiles del diagnóstico del margen:

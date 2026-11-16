@@ -47,6 +47,12 @@ within the same write a node the engine itself left inconsistent; that check fai
 page number, as the others do, and is not among the checks AC-H1 counts. Production builds follow H1 unchanged, so
 H3 and AC-H1 to AC-H4 hold for them.*
 
+*Annotations of 2026-11-16 from the remembered checks of what the engine writes
+([pager-written-pages.prd.en.md](pager-written-pages.prd.en.md)):*
+
+- *H2 (the version published by the commit is new): exception of Q3. AC-H2 is clarified: the change the test makes is
+  not a Q3 overwrite. The residual risk of H3 widens with Q5.*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code and in the profiles of the margin diagnosis:

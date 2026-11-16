@@ -51,6 +51,21 @@ changes earlier rules is declared in its decisions and annotated in the affected
 - *Objective, I3, I8, step 3 of the Flow and the Out of scope item about using what is remembered in write transactions: write transactions use the remembered pages as read transactions do (S2), and I8's guarantee widens with S3: a write can seal a change to a remembered page made while the store is open by something other than the engine.*
 - *AC-I2 is replaced by AC-S4 and AC-I8 by AC-S6.*
 
+*Annotations of 2026-11-16 from the remembered checks of what the engine writes
+([pager-written-pages.prd.en.md](pager-written-pages.prd.en.md)):*
+
+- *I1 («solo se recuerdan comprobaciones superadas»): exception of Q1; a page the transfer writes is remembered without
+  computing its integrity, because its content is the one the engine sealed. AC-I1 is clarified: the first read of a
+  page the transfer wrote in the current opening does not compute its integrity; off-leaf values and the other pages
+  stay as it says.*
+- *I4: the page the transfer writes is remembered as soon as its bytes are written in place (Q1), except the pages of an
+  off-leaf value, which follow I4; a write that fails or stops halfway leaves it not remembered.*
+- *I5 and the Out of scope item about the pages the file gains when it grows: they do not apply to those the transfer
+  writes (Q1). Step 3 of the Flow, AC-I4 and AC-I10 are clarified by Q1: after the transfer, the page's integrity is not
+  checked; AC-I5 and AC-I7 pick contents and pages the transfer did not write in that opening. The residual risk of I8
+  widens with Q5.*
+
+
 ### Starting state
 
 Verified on 2026-11-05 in the code:

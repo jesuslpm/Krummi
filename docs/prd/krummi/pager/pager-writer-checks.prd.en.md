@@ -61,6 +61,13 @@ decisions and annotated in the affected documents (see [Annotations to other PRD
   grows with H3's.*
 - *AC-S1 is replaced by AC-H1 and AC-S2 by AC-H2; AC-S3 no longer applies.*
 
+*Annotations of 2026-11-16 from the remembered checks of what the engine writes
+([pager-written-pages.prd.en.md](pager-written-pages.prd.en.md)):*
+
+- *S3: the residual risk widens with Q5. AC-S4: the page of the data file that nobody read in the opening is not one the
+  transfer wrote in it (Q1). AC-S6 does not change.*
+
+
 ### Starting state
 
 Verified on 2026-11-06 in the code and in the profile of the performance plan:

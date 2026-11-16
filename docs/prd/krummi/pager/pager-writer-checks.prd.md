@@ -59,6 +59,13 @@ decisiones y anotado en los documentos afectados (ver [Anotaciones a otros PRD](
   riesgo residual de S3 se amplía con el de H3.*
 - *AC-S1 se sustituye por AC-H1 y AC-S2 por AC-H2; AC-S3 deja de aplicarse.*
 
+*Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
+([pager-written-pages.prd.md](pager-written-pages.prd.md)):*
+
+- *S3: el riesgo residual se amplía con Q5. AC-S4: la página del archivo de datos que nadie leyó en la apertura no es
+  una que el traslado escribió en ella (Q1). AC-S6 no cambia.*
+
+
 ### Estado de partida
 
 Verificado el 2026-11-06 en el código y en el perfil del plan de rendimiento:

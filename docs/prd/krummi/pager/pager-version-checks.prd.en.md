@@ -57,6 +57,15 @@ its decisions and annotated in the affected documents (see [Annotations to other
   commits is checked on its first read by another transaction (decisions H1 and H2). AC-U5: the write's read of the
   copy does not check it; the first read of the committed version by another transaction does.*
 
+*Annotations of 2026-11-16 from the remembered checks of what the engine writes
+([pager-written-pages.prd.en.md](pager-written-pages.prd.en.md)):*
+
+- *U1: exceptions of Q2 (what was checked of a version moves to the shared memory of remembered nodes when the transfer
+  writes it) and of Q3 (the version published by a commit that only overwrote values of the same length in a leaf keeps
+  its check). U2 stops applying where it speaks of an altered version that the transfer writes: it does not fail until
+  reopening (Q5). Step 4 of the Flow, AC-U3 and AC-U6 are clarified by Q2 and Q3.*
+
+
 ### Starting state
 
 Verified on 2026-11-08 in the code, in the profiles of that day's investigation, in the benchmark reports and in the

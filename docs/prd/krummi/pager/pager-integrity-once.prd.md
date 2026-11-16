@@ -50,6 +50,21 @@ reglas anteriores está declarado en sus decisiones y anotado en los documentos 
 - *Objetivo, I3, I8, el paso 3 del Flujo y el punto de Fuera de alcance «Usar lo recordado en las transacciones de escritura»: las transacciones de escritura usan las páginas recordadas como las de lectura (S2), y la garantía de I8 se amplía con S3: una escritura puede sellar un cambio de una página recordada hecho con el almacén abierto por algo que no es el motor.*
 - *AC-I2 se sustituye por AC-S4 y AC-I8 por AC-S6.*
 
+*Anotaciones del 2026-11-16 desde las comprobaciones recordadas de lo que escribe el motor
+([pager-written-pages.prd.md](pager-written-pages.prd.md)):*
+
+- *I1 («solo se recuerdan comprobaciones superadas»): excepción de Q1; una página que el traslado escribe queda
+  recordada sin calcular su integridad, porque su contenido es el que el motor selló. AC-I1 se precisa: la primera
+  lectura de una página que el traslado escribió en la apertura en curso no calcula su integridad; los valores fuera de
+  su hoja y las demás páginas siguen como dice.*
+- *I4: la página que el traslado escribe queda recordada en cuanto sus bytes quedan escritos en su sitio (Q1), salvo las
+  de un valor fuera de su hoja, que siguen I4; una escritura que falla o queda a medias la deja sin recordar.*
+- *I5 y el punto de Fuera de alcance sobre las páginas que el archivo gana al crecer: no valen para las que escribe el
+  traslado (Q1). El paso 3 del Flujo, AC-I4 y AC-I10 se precisan con Q1: tras el traslado, la integridad de la página no
+  se comprueba; AC-I5 y AC-I7 eligen contenidos y páginas que el traslado no escribió en esa apertura. El riesgo
+  residual de I8 se amplía con Q5.*
+
+
 ### Estado de partida
 
 Verificado el 2026-11-05 en el código:
