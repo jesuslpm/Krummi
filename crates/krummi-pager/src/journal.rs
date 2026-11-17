@@ -328,7 +328,8 @@ fn encode_record_in(
     };
     let raw = &mut buffers.raw;
     raw.clear();
-    raw.try_reserve_exact(most_raw)
+    raw.try_reserve_exact(room(most_raw))
+        .or_else(|_| raw.try_reserve_exact(most_raw))
         .map_err(|_| out_of_memory(most_raw))?;
     let mut entries = 0u32;
     for &page in pages {
@@ -349,7 +350,9 @@ fn encode_record_in(
     let most = RECORD_HEADER + bound.max(raw_len);
     let mut record = match take_spare(spare, most) {
         Some(record) => record,
-        None => AlignedBuf::zeroed(most).map_err(|_| out_of_memory(most))?,
+        None => AlignedBuf::zeroed(room(most))
+            .or_else(|_| AlignedBuf::zeroed(most))
+            .map_err(|_| out_of_memory(most))?,
     };
     record.set_len(most);
     let payload = &mut record[RECORD_HEADER..];
@@ -376,6 +379,18 @@ fn encode_record_in(
     record[RECORD_HEADER + stored_len..len].fill(0);
     record.set_len(len);
     Ok(record)
+}
+
+/// The size to allocate for a buffer that must hold `len` bytes: the next power of two while the commits keep it
+/// ([`ENCODE_RETAIN`]), so that commits growing a little each time reuse it instead of taking new memory, which on
+/// Windows faults again on every commit (T1 of the night optimizations); `len` for a larger buffer, which is not
+/// kept. A caller that cannot get this size falls back to `len`, so running out of memory fails as before.
+fn room(len: usize) -> usize {
+    if len <= ENCODE_RETAIN {
+        len.next_power_of_two()
+    } else {
+        len
+    }
 }
 
 /// The smallest buffer of `spare` that holds `len` bytes, taken out of it.
@@ -1294,6 +1309,32 @@ mod tests {
             give_back(&spare, reused);
             let kept: usize = spare.lock().unwrap().iter().map(AlignedBuf::capacity).sum();
             assert!(buffers.raw.capacity() <= ENCODE_RETAIN && kept <= ENCODE_RETAIN);
+        }
+    }
+
+    /// Commits that grow by a page each time, as in W21, reuse the payload buffer and the record buffer the writer
+    /// gave back instead of taking new memory for every commit (T1 of the night optimizations: on Windows, that
+    /// memory faulted again on every commit).
+    #[test]
+    fn growing_commits_reuse_their_buffers() {
+        let pages = sample_pages();
+        let entries = |count: usize| -> Vec<JournalPage<'_>> {
+            (0..count)
+                .map(|n| (10 + n as u64, &pages[n % 3], None))
+                .collect()
+        };
+        let mut buffers = EncodeBuffers::default();
+        let spare = SpareRecords::default();
+        let first = encode_record(&mut buffers, &spare, 3, 2, &entries(5)).unwrap();
+        let raw_capacity = buffers.raw.capacity();
+        let at = first.as_ptr();
+        give_back(&spare, first);
+        for count in [6, 7] {
+            let record = encode_record(&mut buffers, &spare, 3, 2, &entries(count)).unwrap();
+            assert_eq!(buffers.raw.capacity(), raw_capacity, "{count} pages");
+            assert_eq!(record.as_ptr(), at, "{count} pages");
+            assert!(record[..] == encode(&mut EncodeBuffers::default(), 3, 2, &entries(count))[..]);
+            give_back(&spare, record);
         }
     }
 
