@@ -190,3 +190,7 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   work; R3-002 (SUGGESTION): `layout_kept` answers yes for any content its slot does not hold, so it only means
   something after a hit, as its documentation says («A read asks it after finding the content in its slot»); R3-003
   (SUGGESTION): L14's time and measured code, corrected there from the phase log.
+- **L16** (2026-11-17) — Codex code review, round 3, of `df8abb1..8bff765`
+  ([report](../../docs/reviews/write-optimizations/2026-11-17-code-03.md), resolutions as in L11): `approved`. R5 and
+  R3 verified resolved; R1, R2 and R4 had been in round 2. Its one open question is Q7's decision for the user: W6 on
+  Windows, 0.33 % slower in the 20-round measurement; it goes to the closing report, to be asked after the run.

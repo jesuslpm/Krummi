@@ -127,3 +127,15 @@ Status: claimed, unverified until a follow-up review.
 Addendum to R3, same date: the 20-round Windows measurement (`work/wm/q7-d.json`) gives W6 0.997 (slower in 11 of 20),
 W19 1.001 (10 of 20) and W23 1.005 (13 of 20). By Q7's rule only W6 still gets worse, by 0.3 %; the closing report
 lists it for the user's decision (L14).
+
+## 2026-11-17 (verification, round 3)
+
+Follow-up report: [2026-11-17-code-03.md](2026-11-17-code-03.md), fix range `df8abb1..8bff765`, verdict «Approved
+within the requested follow-up scope.» Per ID, quoted: R5 «Verified resolved: colliding transfer suppressing Q4
+validation»; R3 «Verified resolved: inaccurate Q7 assessment». R1, R2 and R4 stay verified resolved (round 2). Open
+question, for the user after the loop: «¿Aceptás cerrar el cambio con la caída medida de W6 en Windows del 0,33 %,
+según lo previsto en Q7?»
+
+Review record: [2026-11-17-code-03.md](2026-11-17-code-03.md), wrapper status `approved`, thread
+`01a1e8dd-8535-7b92-b250-a253490bd0e3`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` (Poincare) `gpt-6-astra` / `xhigh`.
