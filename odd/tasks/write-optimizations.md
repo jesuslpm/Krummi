@@ -194,3 +194,15 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   ([report](../../docs/reviews/write-optimizations/2026-11-17-code-03.md), resolutions as in L11): `approved`. R5 and
   R3 verified resolved; R1, R2 and R4 had been in round 2. Its one open question is Q7's decision for the user: W6 on
   Windows, 0.33 % slower in the 20-round measurement; it goes to the closing report, to be asked after the run.
+- **L17** (2026-11-17) — T6, complete `--solo-krummi-voron` runs on the final code (`886db96`; its code is
+  `b025d58`'s; «con cambios sin confirmar» is the phase log only; WSL built from `git archive` of `886db96`), bench
+  power plan. First run (09:42–10:50): Windows **27 of 29**, missing `lecturas-con-escritor` 0.73 and
+  `escritor-con-lectores` 0.79; WSL **28 of 29**, missing `lecturas-al-azar-16` 0.68
+  (`docs/benchmark/2026-11-17-{windows,linux}-write-optimizations-final-1.md`). Voron moved as much (Windows
+  `lecturas-con-escritor` 1.67 M → 2.32 M op/s; WSL `lecturas-al-azar-16` 4.10 M → 3.13 M), and Q7's A/Bs, interleaved
+  over 10–20 rounds, give these loads no worsening (L14), so the run was repeated unchanged. Second run
+  (10:52–11:59): **29 of 29** on both (`…-final-2.md`): Windows W9 1.15, W12 0.97, W13 0.96; WSL W9 1.17, W12 1.19,
+  W13 1.08. Against the `8b54d0b` runs (L8, L9), Krummi's `valores-grandes-carga` (W17) on Windows fell 6,563 → 5,617
+  → 4,696 op/s while Voron stayed at 5,500–5,700; an A/B of W17 on Windows, 10 rounds, the write-margin head against
+  the final code (`work/wm/q7-w17.json`): **1.010, slower in 4 of 10**: no worsening; the runs' figure is the
+  machine's state, and the T2 gain was given up (L11). T6 done.
