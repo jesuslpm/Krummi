@@ -36,7 +36,7 @@ Out of scope: anything the PRD's «Fuera de alcance» lists; R2 of the write-mar
 | ID | Specs | Route | Status | Commit / evidence |
 |---|---|---|---|---|
 | T1 | S1 (Q1–Q7) | delegated writer (context backstop; parallel with T2, T3) | done | `56f8a79`, `757901b`, `0c8bea7`; L2–L4 |
-| T2 | S2 | delegated writer (parallel) | done | `0a5603c`; L2, L4 |
+| T2 | S2 | delegated writer (parallel) | reverted (L11) | `0a5603c`; revert `f45269d` |
 | T3 | S3 | delegated writer (parallel) | done | `ce8a668`; L2, L3 |
 | T4 | S4 | delegated writer after T1 | reverted (L6) | `3f35631`, `49fc00d`, `197d41c`, `3c11fba`; revert `8b54d0b` |
 | T5 | S5 | inline, at the end | not adopted (L7) | measurement only |
@@ -137,3 +137,17 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   is built from `git archive` of `8b54d0b` (`work/wm/linux/src.tar`, made at that commit) and carries no `.git`, as
   in the earlier Linux reports (R2-001). `8b54d0b` has the same code as `0c8bea7` (`git diff 0c8bea7 8b54d0b --
   crates` is empty).
+- **L11** (2026-11-17) — Codex code review, round 1, of `10077aa..2417fd9`
+  ([report](../../docs/reviews/write-optimizations/2026-11-17-code.md),
+  [resolutions](../../docs/reviews/write-optimizations/2026-11-17-code-resolutions.md)): `findings`, R1–R3 major, R4
+  minor. R1 (the T2 samples miss a repetition longer than 32 KiB: a value run that compresses 31× was stored raw,
+  against Y1 and J16): T2 reverted in `f45269d`; no sampling rule keeps Y1 for every record, so W17's gain is given
+  up. R2 (a new `Vec<bool>` of keep-check flags allocated during commit, against Q6) and R4 (a debug mutex on every
+  C2 hit, against C6): fixed in `cf8fd80` by a writer: one `PageChange` per page in place of the created flags and
+  the keep-check flags (the commit reserves what it did before), and a debug-only array of atomics beside the checked
+  table in place of the map. Suite 867 passed, 0 failed, 35 ignored. R3 (the A/B matrix of Q7 incomplete): the final
+  code (`cf8fd80`) against the write-margin head, Windows (`q7-a.json` 3 rounds, `q7-b.json` 10 rounds): W28 1.075,
+  W27 1.053, W12 1.028, W3 1.025, W17 1.022, W7 1.021, W26 1.020, W22 1.016, the rest 0.995–1.005; W23 0.978 (3 of
+  3) and W21 0.997 (3 of 3) measured again in 10 rounds (`q7-c.json`): W21 1.001 (same), **W23 0.998, slower in 8 of
+  10**: by the letter of Q7 a worsening of 0.2 %, under the spread of one run; Q7 leaves it to the user, listed in
+  the closing report. T2 is now not part of the run: its row of the task table reads reverted.
