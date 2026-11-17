@@ -29,13 +29,6 @@
 //! of the same length keeps the check of the node it copied (Q3 of the written pages PRD): those overwrites go through
 //! [`WriteTransaction::page_mut_same_layout`], every other change through `page_mut`.
 //!
-//! A write transaction remembers the last leaf of a tree after an add that went to its end, with the key added, until
-//! it reserves or frees pages, the only way a tree changes its shape, or a change of that tree comes with a key below
-//! it (see [`WriteTransaction::recent_leaf`]). A change by key from that one on that stays in the leaf, without a split
-//! or a merge, changes it there without the walk (S1 of the ordered-write cache execution, as Voron's recently found
-//! pages): keys that come in order, as an ordered load, walk the tree once per leaf, and keys at random seldom add at
-//! the tree's end. Any other change walks as it always did. Reads walk from the root.
-//!
 //! The memory an operation needs besides pages (the copy of a node that splits or merges, its cells, a separator
 //! key, the children of a node freed, the list of trees) is reserved through [`reserve`]: running out of it fails
 //! the operation with the out-of-memory class instead of aborting the process (P13), and in a write it is the
@@ -55,19 +48,6 @@ mod node;
 mod range;
 #[cfg(test)]
 mod tests;
-
-/// What the tests of the remembered leaf switch (S1 of the ordered-write cache execution).
-#[cfg(test)]
-pub(crate) mod testing {
-    use std::cell::Cell;
-
-    thread_local! {
-        /// Walks from the root on every operation on this thread, as before the transaction remembered a leaf.
-        pub(crate) static WALK_FROM_ROOT: Cell<bool> = const { Cell::new(false) };
-        /// Walks on this thread that went to a remembered leaf instead.
-        pub(crate) static REMEMBERED: Cell<usize> = const { Cell::new(0) };
-    }
-}
 
 use std::ops::Bound;
 
@@ -630,7 +610,7 @@ pub(crate) fn leaves<'t, S: PageSource + ?Sized>(
 ///
 /// If `key` is empty or longer than [`MAX_KEY`], or `value` is longer than [`MAX_VALUE`].
 pub fn set(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8], value: &[u8]) -> Result<Update> {
-    update(tx, root, key, Op::Set(value), None)
+    update(tx, root, key, Op::Set(value), &mut None)
 }
 
 /// Stores `value` under `key` only if the key is not there; otherwise changes nothing.
@@ -644,7 +624,7 @@ pub fn try_add(
     key: &[u8],
     value: &[u8],
 ) -> Result<Update> {
-    update(tx, root, key, Op::Add(value), None)
+    update(tx, root, key, Op::Add(value), &mut None)
 }
 
 /// [`try_add`], and the tree's rightmost leaf, for [`append_last`], when the entry went to the end of that leaf and
@@ -656,7 +636,7 @@ pub fn try_add_at_last(
     value: &[u8],
 ) -> Result<(Update, Option<LastLeaf>)> {
     let mut last = None;
-    let update = update(tx, root, key, Op::Add(value), Some(&mut last))?;
+    let update = update(tx, root, key, Op::Add(value), &mut last)?;
     Ok((update, last))
 }
 
@@ -771,7 +751,7 @@ pub fn append_last(
 ///
 /// If `key` is empty or longer than [`MAX_KEY`].
 pub fn remove(tx: &mut WriteTransaction<'_>, root: u64, key: &[u8]) -> Result<Update> {
-    update(tx, root, key, Op::Remove, None)
+    update(tx, root, key, Op::Remove, &mut None)
 }
 
 /// Frees every page of the tree at `root` and the runs of its values, reading its nodes but never its runs (V7).
@@ -956,16 +936,14 @@ pub(crate) enum Outcome<K = Vec<u8>> {
     Empty,
 }
 
-/// Applies `op` to the tree at `root`. `last`, when given, receives the rightmost leaf when the entry was added at its
-/// end and nothing above it changed (see [`try_add_at_last`]). Otherwise a change that stays in the leaf the
-/// transaction remembers for `key` is made there, without a walk (see [`change_in_leaf`]); any other change walks the
-/// tree, and an add that goes to the end of the tree's last leaf, changing nothing above it, remembers that leaf.
+/// Applies `op` to the tree at `root`. `last` receives the rightmost leaf when the entry was added at its end and
+/// nothing above it changed (see [`try_add_at_last`]).
 fn update(
     tx: &mut WriteTransaction<'_>,
     root: u64,
     key: &[u8],
     op: Op<'_>,
-    last: Option<&mut Option<LastLeaf>>,
+    last: &mut Option<LastLeaf>,
 ) -> Result<Update> {
     assert!(
         (1..=MAX_KEY).contains(&key.len()),
@@ -977,20 +955,6 @@ fn update(
             "a value has up to {MAX_VALUE} bytes"
         );
     }
-    let mut not_asked = None;
-    let asked = last.is_some();
-    let last = match last {
-        Some(last) => last,
-        None => {
-            if let Some(count_changed) = change_in_leaf(tx, root, key, op)? {
-                return Ok(Update {
-                    root,
-                    count_changed,
-                });
-            }
-            &mut not_asked
-        }
-    };
     let mut count_changed = false;
     // `change` checked the root, which no other node points to.
     let outcome = change(
@@ -1007,16 +971,6 @@ fn update(
         *last = None;
     }
     let root = fix_root(tx, root, outcome)?;
-    // An add went to the end of the tree's last leaf, which nothing else changed: the keys after it, as an ordered
-    // load brings, go there too (S1 of the ordered-write cache execution). The tests' switch walks every time.
-    #[cfg(test)]
-    let asked = asked || testing::WALK_FROM_ROOT.get();
-    if !asked
-        && let Some(leaf) = last.as_ref().map(|last| last.page)
-        && leaf != root
-    {
-        tx.remember_leaf(root, leaf, key);
-    }
     Ok(Update {
         root,
         count_changed,
@@ -1078,8 +1032,7 @@ fn change(
 ) -> Result<Outcome> {
     let node = node_at(&*tx, page, level)?;
     if node::is_leaf(node) {
-        let found = node::search(node, key);
-        return change_leaf(tx, page, key, found, op, count_changed, edge, last);
+        return change_leaf(tx, page, key, op, count_changed, edge, last);
     }
     let index = node::child_index(node, key);
     let child = node::child(node, index);
@@ -1113,19 +1066,17 @@ fn change(
     }
 }
 
-/// Applies `op` to the checked leaf at `page`, where `found` is the search of `key` in it, for [`change`].
-#[allow(clippy::too_many_arguments)]
 fn change_leaf(
     tx: &mut WriteTransaction<'_>,
     page: u64,
     key: &[u8],
-    found: std::result::Result<usize, usize>,
     op: Op<'_>,
     count_changed: &mut bool,
     edge: Option<Beside>,
     last: &mut Option<LastLeaf>,
 ) -> Result<Outcome> {
     let node = tx.page(page)?;
+    let found = node::search(node, key);
     let value = match (op, found) {
         // Adding over an existing key reserves nothing, whatever the value's size (V1, A10).
         (Op::Add(_), Ok(_)) | (Op::Remove, Err(_)) => return Ok(Outcome::Done),
@@ -1179,79 +1130,6 @@ fn change_leaf(
         *last = Some(LastLeaf { page, beside });
     }
     Ok(underfull_or_done(node))
-}
-
-/// Applies `op` in the leaf the transaction remembers for `key`, without a walk, when [`change_leaf`] would change that
-/// leaf alone and leave nothing for its ancestors (see [`stays_in_leaf`]), and returns whether the number of entries
-/// changed: the bytes are those of [`change`], which then returns [`Outcome::Done`] up to the root. Returns `None`,
-/// changing nothing, when the transaction remembers no leaf for `key` or the change does not stay in it; the caller
-/// then walks the tree with [`change`].
-fn change_in_leaf(
-    tx: &mut WriteTransaction<'_>,
-    root: u64,
-    key: &[u8],
-    op: Op<'_>,
-) -> Result<Option<bool>> {
-    #[cfg(test)]
-    if testing::WALK_FROM_ROOT.get() {
-        return Ok(None);
-    }
-    let Some(leaf) = tx.recent_leaf(root, key) else {
-        return Ok(None);
-    };
-    #[cfg(test)]
-    testing::REMEMBERED.set(testing::REMEMBERED.get() + 1);
-    let node = node_at(&*tx, leaf, Some(0))?;
-    let found = node::search(node, key);
-    if !stays_in_leaf(node, key, found, op, leaf == root) {
-        return Ok(None);
-    }
-    let mut count_changed = false;
-    let outcome = change_leaf(
-        tx,
-        leaf,
-        key,
-        found,
-        op,
-        &mut count_changed,
-        None,
-        &mut None,
-    )?;
-    debug_assert!(leaf == root || matches!(outcome, Outcome::Done));
-    Ok(Some(count_changed))
-}
-
-/// Whether [`change_leaf`] applies `op` to `node`, where `found` is the search of `key`, without a split, without
-/// reserving a value run, and leaving the leaf at least a quarter full and not empty, unless it is the `root`, which
-/// nothing merges: then it returns [`Outcome::Done`], or for a root an outcome that changes no page above it.
-fn stays_in_leaf(
-    node: &[u8],
-    key: &[u8],
-    found: std::result::Result<usize, usize>,
-    op: Op<'_>,
-    root: bool,
-) -> bool {
-    // The bytes the change frees in the leaf and the bytes it takes, offsets included.
-    let (freed, taken) = match (op, found) {
-        // Adding over an existing key, or removing a missing one, changes nothing.
-        (Op::Add(_), Ok(_)) | (Op::Remove, Err(_)) => return true,
-        (Op::Remove, Ok(index)) => (node::cell(node, index).len() + 2, 0),
-        (Op::Set(value) | Op::Add(value), _) => {
-            if !node::fits_inline(key.len(), value.len()) {
-                return false;
-            }
-            if let Ok(index) = found
-                && matches!(node::value(node, index), Value::Inline(old) if old.len() == value.len())
-            {
-                // `change_leaf` overwrites the value's bytes and reports `Done` whatever the leaf's fill.
-                return true;
-            }
-            let freed = found.map_or(0, |index| node::cell(node, index).len() + 2);
-            (freed, node::LEAF_CELL_HEADER + key.len() + value.len() + 2)
-        }
-    };
-    node::free_space(node) + freed >= taken
-        && (root || node::used(node) + taken >= UNDERFULL + freed)
 }
 
 fn underfull_or_done(node: &[u8]) -> Outcome {
@@ -1354,8 +1232,6 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
             node::leftmost(right_node),
         ) + 2
     };
-    // When the pair does not fit, no entry moves between the siblings: every move of entries between nodes reserves or
-    // frees a page, which the leaf a write transaction remembers relies on (`WriteTransaction::recent_leaf`).
     if !merge_fits(node::used(tx.page(left)?), node::used(right_node), extra) {
         return Ok(Outcome::Done);
     }
