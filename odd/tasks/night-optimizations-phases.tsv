@@ -1,1 +1,5 @@
 2026-11-17T18:42:27+00:00	start	plan	T0
+2026-11-17T18:42:58+00:00	mark	explore	T1
+2026-11-17T21:05:14+00:00	mark	implement	T1
+2026-11-17T21:05:35+00:00	mark	checks	T1
+2026-11-17T21:20:06+00:00	mark	implement	T2

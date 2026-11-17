@@ -32,9 +32,9 @@ PRD draft for the user, not an implementation).
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| T1 | S1, S5 | inline diagnosis, writer if a change follows | pending | |
-| T2 | S2, S5 | delegated writer (context backstop) | pending | |
-| T3 | S3, S5 | inline exploration; PRD draft if bytes change | pending | |
+| T1 | S1, S5 | delegated diagnosis, inline change | code done, A/B pending | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers` |
+| T2 | S2, S5 | delegated writer (context backstop) | in progress | |
+| T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | pending | |
 | T5 | S6 | inline | pending | |
 
@@ -67,3 +67,22 @@ PRD draft for the user, not an implementation).
   for a format change), added options (a deterministic rule without samples; value pages as literals in a valid LZ4
   stream) and the questions on growth, disk-full and determinism. Recommendation in the draft: not doing it. Codex
   review of the PRD waits for the user's answers (it runs once the draft is agreed). T3 done as a draft.
+- **L5** (2026-11-17) — T1 diagnosis (worker, opus high; runs about 17:50–21:03; scratch `work/night/t1/`). Faults per
+  operation counted with `GetProcessMemoryInfo.PageFaultCount` around each repetition and classified with the
+  working-set watch (`InitializeProcessForWsWatch`/`GetWsChangesEx`, no administrator rights). Findings: the
+  transfer's positional `WriteFile` never makes a mapped page fault again (repros over rewrites, flushes, the file
+  lock); growth maps a new view and readers switch to it, so hot pages fault again after each growth (55 % of W2's
+  data-file faults), but reading through the oldest covering view (e4) moved time about 1 %, not a gain under S5; the
+  main cause is `encode_record_in` in `journal.rs`, which reserved the payload with `try_reserve_exact` and allocated
+  each new record buffer at its exact size, so commits growing by one entry (W21: 8,206 bytes per commit, 1 to 7 MB)
+  took fresh memory on almost every commit, and that churn also evicted W19's hot data pages (page 10 faulted 26
+  times per repetition). e6 (geometric payload reservation, power-of-two record buffer) on scratch builds: W21 faults
+  0.214 → 0.042 per op, +6.9 % and +4.7 % (0/5 and 1/5 rounds slower); W19 +4.5 % and +4.6 %; W2 +1.3 %; W3 +2.1 %;
+  W14 +0.7 %; W15 +1.1 %; W17 +0.3 %; W4 +0.2 % (20 rounds); W5 −1.0 % (6/20 slower); W6 +1.1 %; W1 −0.8 % (13/20
+  slower) then +1.2 % (9/20) in the 20-round repeat; no load worse under Q7. Change made inline (`d96b9c2`): `room`
+  rounds a kept buffer (up to `ENCODE_RETAIN`) to the next power of two and larger ones stay exact, each allocation
+  falling back to the exact size so out-of-memory fails as before; test `growing_commits_reuse_their_buffers` (RED
+  observed, then GREEN). Checks: fmt clean, clippy clean, `cargo test --workspace` 869 passed, 0 failed. Risk: none
+  (no stored byte changes; item 6 covered by the new test). RDD assess (`--base-ref 2e45b31 --committed-only`):
+  medium, `review_due` false, `under_budget`; pending in the slice. Acceptance A/B on Windows deferred to one run with
+  T2's build (`main`, `t1`, `t2`) so the machine is measured once; T2's writer (opus, high) launched in the background.
