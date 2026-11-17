@@ -40,8 +40,8 @@ Out of scope: anything the PRD's «Fuera de alcance» lists; R2 of the write-mar
 | T3 | S3 | delegated writer (parallel) | done | `ce8a668`; L2, L3 |
 | T4 | S4 | delegated writer after T1 | reverted (L6) | `3f35631`, `49fc00d`, `197d41c`, `3c11fba`; revert `8b54d0b` |
 | T5 | S5 | inline, at the end | not adopted (L7) | measurement only |
-| T6 | S6 | inline, background runs | done | L6–L9 |
-| T7 | — | close: RDD of the last slice, Codex review, report, archive | pending | |
+| T6 | S6 | inline, background runs | done | L6–L9, L17 |
+| T7 | — | close: RDD of the last slice, Codex review, report, archive | done | L10–L18; [closing report](write-optimizations-report.md) |
 
 Route evidence: the parent context is past the long-session backstop (this session carries two earlier runs), and
 T1, T2 and T3 are independent units with disjoint edit surfaces, each several files or 100+ lines.
