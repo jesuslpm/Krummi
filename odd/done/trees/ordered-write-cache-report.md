@@ -2,7 +2,7 @@
 
 Informe de cierre de `ordered-write-cache` (2026-11-17). Enfoque de ejecución: ODD.
 Fuente de producto: ninguna. Es una optimización sin cambio de comportamiento, como S4 de
-[la ejecución de optimizaciones de escritura](../done/pager/write-optimizations.md), y nace de su informe de cierre
+[la ejecución de optimizaciones de escritura](../pager/write-optimizations.md), y nace de su informe de cierre
 (pendiente «Caché de escrituras en orden»). Documento de ejecución: [ordered-write-cache.md](ordered-write-cache.md).
 
 Rama `feat/ordered-write-cache`, creada desde `main` (`0cb816c`). Sin fusionar y sin publicar. El código de `crates/`
@@ -38,8 +38,8 @@ es idéntico al de `main` (`bbefd28`): la rama solo añade los registros de la e
     - La caché se usó 69.202 y 529.911 veces.
     - Cada mutación de los olvidos fue detectada.
   - Tres revisiones RDD aprobadas (tabla abajo).
-  - Codex aprobó en la primera ronda: [informe](../../docs/reviews/ordered-write-cache/2026-11-17-code.md) y
-    [resoluciones](../../docs/reviews/ordered-write-cache/2026-11-17-code-resolutions.md).
+  - Codex aprobó en la primera ronda: [informe](../../../docs/reviews/ordered-write-cache/2026-11-17-code.md) y
+    [resoluciones](../../../docs/reviews/ordered-write-cache/2026-11-17-code-resolutions.md).
 - **Hallazgos corregidos por el camino:**
   - **El costo de la primera versión** en las cargas al azar: el A/B de 3 rondas dio W3 0,969, W14 0,970 y W15
     0,974. Se buscó su origen con cuatro variantes (L6–L10):

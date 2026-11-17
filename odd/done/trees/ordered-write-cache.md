@@ -4,11 +4,11 @@ Objective: bring back the +9–12 % of W1 (in-order sets) that the reverted rece
 optimizations execution) gave, without its 5–6 % cost on W3 (random inserts), by remembering a leaf only for writes
 whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; delivery `ask-on-risk`; tests
 `cargo test --workspace`. No PRD: no product behavior changes (CLAUDE.md, *Workflow*), as S4 of
-[the write optimizations execution](../done/pager/write-optimizations.md).
+[the write optimizations execution](../pager/write-optimizations.md).
 
 ## Specs
 
-- **S1** — The pending item of [the write optimizations closing report](../done/pager/write-optimizations-report.md):
+- **S1** — The pending item of [the write optimizations closing report](../pager/write-optimizations-report.md):
   «**Caché de escrituras en orden** (W1, +9–12 % medido con T4): sin probar; sería un cambio aparte, con su A/B.»
   A write transaction remembers a leaf only for keys that come in order, so that a write whose key falls in it
   changes it without the walk from the root. No change of behavior or of stored bytes.
@@ -150,8 +150,8 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
   medium, under budget), lens reliability, lineage `review-35d081d38face02c`: approved without findings,
   acknowledged. Codex code review of `0cb816c..3092600` launched.
 - **L16** (2026-11-17) — Codex code review of `0cb816c..3092600`
-  ([report](../../docs/reviews/ordered-write-cache/2026-11-17-code.md),
-  [resolutions](../../docs/reviews/ordered-write-cache/2026-11-17-code-resolutions.md)): `approved`, no findings,
+  ([report](../../../docs/reviews/ordered-write-cache/2026-11-17-code.md),
+  [resolutions](../../../docs/reviews/ordered-write-cache/2026-11-17-code-resolutions.md)): `approved`, no findings,
   one round.
 - **L17** (2026-11-17) — Closing report: [ordered-write-cache-report.md](ordered-write-cache-report.md). The run
   closes on `feat/ordered-write-cache`, not merged and not pushed, with `crates/` as at `main`.
