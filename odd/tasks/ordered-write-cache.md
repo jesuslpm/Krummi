@@ -146,3 +146,12 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
   merged), the WSL one was at W12 and was killed. `bbefd28` restores `crates/` as at `0cb816c` (checked with `git
   diff --quiet 0cb816c -- crates`). Checks: `cargo fmt --all --check` clean, `cargo clippy --workspace --all-targets
   -- -D warnings` clean, `cargo test --workspace` 868 passed, 0 failed, 35 ignored.
+- **L15** (2026-11-17) — RDD of the last slice `d48f747..3092600` (the revert and the records; the assessment said
+  medium, under budget), lens reliability, lineage `review-35d081d38face02c`: approved without findings,
+  acknowledged. Codex code review of `0cb816c..3092600` launched.
+- **L16** (2026-11-17) — Codex code review of `0cb816c..3092600`
+  ([report](../../docs/reviews/ordered-write-cache/2026-11-17-code.md),
+  [resolutions](../../docs/reviews/ordered-write-cache/2026-11-17-code-resolutions.md)): `approved`, no findings,
+  one round.
+- **L17** (2026-11-17) — Closing report: [ordered-write-cache-report.md](ordered-write-cache-report.md). The run
+  closes on `feat/ordered-write-cache`, not merged and not pushed, with `crates/` as at `main`.
