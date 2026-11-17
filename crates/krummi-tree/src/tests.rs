@@ -1209,11 +1209,11 @@ fn a_transaction_remembers_a_leaf_until_it_reserves_or_frees_pages() {
 
 /// The results, roots and every node byte of three trees changed in the same transactions are the same whether an
 /// operation goes to the leaf the transaction remembers or always walks from the root (S1 of the ordered-write
-/// cache execution). The operations move between the trees, so the remembered leaf is often another tree's, and alternate
-/// runs of increasing keys, which find it, with keys at random: sets of short, same-length and long values (off their
-/// leaf), adds, removals, range removals and reads, and now and then a tree freed and created again, so that leaves
-/// split and merge and roots change under a remembered leaf, every other transaction removing more than it adds;
-/// commits in between.
+/// cache execution). The operations move between the trees, so the remembered leaf is often another tree's, and
+/// alternate runs of increasing keys, which find it, with keys at random: sets of short, same-length and long values
+/// (off their leaf), adds (also through `try_add_at_last`, which never goes to it), removals, range removals and
+/// reads, and now and then a tree freed and created again, so that leaves split and merge and roots change under a
+/// remembered leaf, every other transaction removing more than it adds; commits in between.
 #[test]
 fn the_remembered_leaf_changes_trees_as_walking_does() {
     type Outcome = (Vec<(u64, u64, Option<Vec<u8>>)>, Vec<(u64, Vec<u8>)>);
@@ -1257,8 +1257,13 @@ fn the_remembered_leaf_changes_trees_as_walking_does() {
                         let update = set(&mut tx, root, &key, &value).unwrap();
                         (update.root, u64::from(update.count_changed), None)
                     }
-                    9..=10 => {
+                    9 => {
                         let update = try_add(&mut tx, root, &key, &value).unwrap();
+                        (update.root, u64::from(update.count_changed), None)
+                    }
+                    // The add that walks without the remembered leaf, below or above its first key.
+                    10 => {
+                        let (update, _) = try_add_at_last(&mut tx, root, &key, &value).unwrap();
                         (update.root, u64::from(update.count_changed), None)
                     }
                     11..=15 => {

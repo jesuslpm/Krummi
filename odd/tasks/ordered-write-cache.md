@@ -51,3 +51,16 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
   224.5 against 311.4 ns/op (−27.9 %), W2 2655.9 against 2682.6 (−1.0 %), W3 1133.9 against 1169.5 (−3.0 %).
   Risk: item 1 (a stale remembered leaf would put a key in the wrong leaf and corrupt stored trees); RDD assessment
   `0cb816c..aef6348`: high, review due.
+- **L4** (2026-11-17) — Verifier of T1 (sonnet, high): S1 pass, no blocker. Every shape change (split, root growth
+  and collapse, merge, child drop, range-removal frees, freeing a tree) reserves or frees pages; `merge_child` always
+  frees the right page of the pair, so a merged last leaf is forgotten; the hit path calls the same `change_leaf` with
+  the same search, and `stays_in_leaf`'s fit and underfull tests are the exact complements of `change_leaf`'s. Probes
+  in a scratch copy: 144 digests of results and every node byte (120 slotted runs over three trees with three key
+  styles, five value profiles and 30–95 % in-order bias; 24 multi-value runs) identical between `0cb816c` and
+  `aef6348`, in release and debug, with 69,202 hits; removing `forget_leaf()` from `free` made the probe fail.
+  `cargo test -q -p krummi-tree -p krummi-tx`: 0 failed. Advisories: (1) a hit does not read the leaf's ancestors, so
+  damage to one of them after the walk that remembered the leaf, in the same transaction, shows only on the next
+  walk: kept, as in T4 — the walk that remembered the leaf read and checked them in this transaction, and a change
+  of their bytes since is the hardware-fault case the PRDs accept (P16); (2) a test comment still named T4's back-off:
+  fixed in `77be581`; (3) `remember_leaf` is public and trusts its caller: kept, as T4's R1-001 (another crate calls
+  it; hidden from the docs). Scratch removed.

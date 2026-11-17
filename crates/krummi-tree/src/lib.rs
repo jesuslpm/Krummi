@@ -1372,6 +1372,8 @@ fn merge_child(tx: &mut WriteTransaction<'_>, page: u64, index: usize) -> Result
             node::leftmost(right_node),
         ) + 2
     };
+    // When the pair does not fit, no entry moves between the siblings: every move of entries between nodes reserves or
+    // frees a page, which the leaf a write transaction remembers relies on (`WriteTransaction::recent_leaf`).
     if !merge_fits(node::used(tx.page(left)?), node::used(right_node), extra) {
         return Ok(Outcome::Done);
     }
