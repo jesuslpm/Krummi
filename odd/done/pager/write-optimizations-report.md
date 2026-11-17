@@ -1,4 +1,4 @@
-# Optimizaciones de escritura terminadas: W28 +7 % en las dos plataformas, W6 −0,33 % en Windows para tu decisión; rama verificada
+# Optimizaciones de escritura terminadas: W28 +7 % en las dos plataformas, W6 −0,33 % en Windows aceptado; rama verificada
 
 Informe de cierre de `write-optimizations` (2026-11-17). Enfoque de ejecución: ODD.
 Fuente de producto: [pager-written-pages.prd.md](../../../docs/prd/krummi/pager/pager-written-pages.prd.md) (S1); S2–S5
@@ -50,7 +50,7 @@ publicar: queda para la revisión del usuario.
 
   - **W28 mejora en las dos plataformas.**
   - **W6 empeora un 0,33 % en Windows** según la letra de Q7. Está por debajo de la dispersión de una corrida, pero
-    Q7 deja esa decisión al usuario, así que **AC-Q10 queda pendiente de tu decisión**.
+    Q7 deja esa decisión al usuario, que **la aceptó** (2026-11-17, «Sí»; L19): AC-Q10 cumplido.
   - En WSL, ninguna carga empeora después de repetir con 20 rondas las que la primera matriz marcaba (L13, L14).
 - **Ejecuciones completas con `--solo-krummi-voron`, código final** (L17):
   - **Primera corrida:**
@@ -105,7 +105,7 @@ publicar: queda para la revisión del usuario.
 | AC-Q7 | `ac_q7_debug_builds_check_a_leaf_that_kept_its_check`, y `a_kept_content_replaced_after_its_hit_is_still_checked` (R5) | PASS (solo depuración) |
 | AC-Q8 | `cargo test --release -p krummi written_pages` | PASS, 7 pasan |
 | AC-Q9 | `ac_q9_concurrent_reads_while_overwrites_are_transferred` | PASS |
-| AC-Q10 | A/B de Q7 y las dos ejecuciones completas | W28 mejora en las dos plataformas; **W6 −0,33 % en Windows, pendiente de tu decisión** |
+| AC-Q10 | A/B de Q7 y las dos ejecuciones completas | W28 mejora en las dos plataformas; W6 −0,33 % en Windows, **aceptado por el usuario** (L19) |
 
 Todas las pruebas están en `crates/krummi/src/written_pages_tests.rs`, salvo la de R5, que está en
 `crates/krummi-pager/src/checked.rs`.
@@ -292,8 +292,8 @@ Romper una regla del producto, hacer más lenta otra carga o no ganar nada no co
 
 ## Pendiente (no bloqueante)
 
-- **W6 en Windows, −0,33 %** (20 rondas, más lenta en 11 de 20). Q7 deja la decisión al usuario y AC-Q10 depende
-  de ella. Está por debajo de la dispersión de una corrida, y en WSL W6 da 1,004.
+- **W6 en Windows, −0,33 %** (20 rondas, más lenta en 11 de 20): aceptado por el usuario (L19), no queda
+  pendiente. Está por debajo de la dispersión de una corrida, y en WSL W6 da 1,004.
 - **Orden de memoria del registro de depuración** (R3-001 de RDD, dos tramos): se sostiene por el orden de sus
   escrituras y lecturas, que ninguna prueba ejerce entre hilos. No bloquea porque solo afecta a la comprobación extra
   de las compilaciones de depuración, nunca a lo que devuelve una lectura.

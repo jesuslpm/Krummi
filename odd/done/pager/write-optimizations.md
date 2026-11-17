@@ -215,3 +215,5 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   both. R2-002 (SUGGESTION): the round-3 resolutions put my Spanish wording of the report's open question in
   guillemets after «Per ID, quoted»; the resolutions file is append-only, so a dated note there says it is a
   translation, not a quotation.
+- **L19** (2026-11-17) — The user's decision on Q7, asked after the run («¿Aceptás cerrar el cambio con esa caída de
+  W6 en Windows?»), verbatim: «Sí». W6's 0.33 % on Windows is accepted and AC-Q10 holds; the closing report says so.

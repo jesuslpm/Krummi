@@ -146,3 +146,8 @@ The open question in «(verification, round 3)» is my Spanish translation, not 
 (`2026-11-17-code-03.md:107`): «Q7 reserves acceptance of the measured Windows W6 tradeoff (approximately 0.33% lower
 throughput in the rerun) to the user. Does the user accept closing the change with this result?» (RDD R2-002,
 lineage `review-a242d2b9304e896e`).
+
+## 2026-11-17 (user decision)
+
+Open question of round 3 (W6 on Windows, about 0.33 % lower throughput): the user accepted it, verbatim «Sí»
+(execution log L19). No change to the code.
