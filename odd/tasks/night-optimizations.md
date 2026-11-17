@@ -44,3 +44,26 @@ PRD draft for the user, not an implementation).
   las 4, ya es tarde y tienes toda la noche por delante.» Start 18:42:26 (`date`), without the estimate-and-confirm
   message: the user asked to work alone. Estimate recorded only here: 8–12 h. Profilers: samply works in WSL 2
   (`perf_event_paranoid` is 1); on Windows it needs administrator rights, so Windows is measured with counters.
+- **L2** (2026-11-17) — T1 diagnosis delegated (opus, high; scratch under `work/night/t1/`, no tracked edits). T3,
+  read inline (`crates/krummi-pager/src/journal.rs:346-361`): the record is compressed whole with
+  `lz4_flex::block::compress_into` and stored compressed only when that is smaller (`Ok(n) if n < raw_len`). No rule
+  that skips compression keeps every stored byte: whether a record shrinks is known only by compressing it, an early
+  abort can prove "will not shrink" only within the last 1/254 of the input (an LZ4 match encodes up to about 255
+  bytes per output byte), and acceleration or partial compression change the output. So S3 cannot be done without
+  changing what the journal stores (Y1 of `journal-page-diffs.prd.md`, J16): it becomes a PRD draft for the user, not
+  an implementation. T2 mapping delegated to a read-only explorer (opus, medium) while T1 measures.
+- **L3** (2026-11-17) — T2 map (explorer, opus medium): a W21 transaction (1,000 random fixed-size inserts) copies
+  each changed page twice on the committing thread: C1, copy-on-write into a pooled `PayloadBuf`
+  (`crates/krummi-tx/src/transaction.rs:704`), which isolates readers and keeps the journal's diff base, so it stays;
+  C2, sealing into a fresh temp-area slot (`crates/krummi-pager/src/format.rs:239` from `ScratchWriter::stage`). C2 can
+  go if the transaction's working buffer is an unpublished temp-area slot sealed in place at commit (`seal_run`'s
+  layout), with the same bytes in the journal and the data file. Estimated 300–500 lines in 6–8 files; risk: item 4
+  (the `Slot` immutability reasoning gains a writable, unpublished state) and item 3 (out-of-space errors would move
+  from the commit to `page_mut`, and open transactions would count against a maximum size) unless a slot shortage
+  falls back to today's buffer. Expected gain about 10 % of W21, some on every write load. To do after T1, delegated.
+- **L4** (2026-11-17) — T3: PRD draft `docs/prd/krummi/journal/journal-skip-compression.prd.md` (v0.1, open
+  questions). Reviewer (sonnet, high): fixed the draft's facts (W17's profile puts LZ4 at about 8 %, copies at 38 %;
+  T2's own gain on W17 was never isolated), named the rules it would amend (J16 first point, Y1, Y6, AC-J15; D7 and Y5
+  for a format change), added options (a deterministic rule without samples; value pages as literals in a valid LZ4
+  stream) and the questions on growth, disk-full and determinism. Recommendation in the draft: not doing it. Codex
+  review of the PRD waits for the user's answers (it runs once the draft is agreed). T3 done as a draft.
