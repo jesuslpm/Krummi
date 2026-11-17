@@ -25,9 +25,9 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| T1 | S1 | inline | pending | |
-| T2 | S2 | inline (background A/B) | pending | |
-| T3 | S3 | inline (background runs) | pending | |
+| T1 | S1 | inline | reverted by the user's decision (L14) | `aef6348`, `77be581`, `7d434e4`, `b12e08b`; revert `bbefd28` |
+| T2 | S2 | inline (background A/B) | done: W1 better, W3, W5 and W7 worse (L6–L13) | `work/owc/*.json` |
+| T3 | S3 | inline (background runs) | stopped by the user's decision (L14): Windows 29 of 29, WSL not finished | `work/owc/full/windows.md` |
 
 ## Log
 
@@ -131,3 +131,18 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
   rightmost leaf after a merge, an empty lower bound) each caught. `cargo test -q -p krummi-tree -p krummi-tx`: 226
   passed, 0 failed, 7 ignored. Advisories: the two of L4 (ancestors not read on a hit; `remember_leaf` public),
   already kept; the probe's runs with 30 % in-order adds hit less. Scratch removed.
+- **L13** (2026-11-17) — Repeat on Windows (`work/owc/ab3-short.json`, `ab3-w3.json`), variant 2 over `main`: W5
+  0.995 (11 of 20 slower) worse; W7 0.997 (12 of 20) worse; W12 1.002 (10 of 20) the same; W22 1.008 (5 of 20) and
+  W13 1.008 (6 of 20) better; **W3 0.970 (10 of 10) worse**. W12 and W22 clear; W7 only reads, through code this
+  change leaves as it was; W3 loses 3 % in every round. By S2, the closing report says so and the user decides.
+  RDD of `41a3703..` the log commit after `6836f90` (variant 2 and its records), lenses risk and reliability, item 1
+  named, lineage `review-af03f889b03835d4`: approved, acknowledged. Advisory R3-001 (WARNING: the equivalence tests
+  never check that the remembered leaf is used): dismissed with evidence, they assert more than 1,000 and 150 hits
+  (`crates/krummi-tree/src/tests.rs:1321`, `crates/krummi-tree/src/multi_tests.rs:1234`). Complete runs (T3)
+  launched on the final code (`work/owc/full.sh`).
+- **L14** (2026-11-17) — User, after the report of L13: «No merece la pena optimizar W1 si W3, W5 y W7 empeoran.»
+  The cache is not adopted. The complete runs were stopped at 18:18: the Windows one had finished at 18:08 (Krummi
+  meets 29 of 29 thresholds, `work/owc/full/windows.md`, not kept in `docs/benchmark/`: it measures code that is not
+  merged), the WSL one was at W12 and was killed. `bbefd28` restores `crates/` as at `0cb816c` (checked with `git
+  diff --quiet 0cb816c -- crates`). Checks: `cargo fmt --all --check` clean, `cargo clippy --workspace --all-targets
+  -- -D warnings` clean, `cargo test --workspace` 868 passed, 0 failed, 35 ignored.
