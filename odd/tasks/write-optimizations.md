@@ -151,3 +151,20 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   3) and W21 0.997 (3 of 3) measured again in 10 rounds (`q7-c.json`): W21 1.001 (same), **W23 0.998, slower in 8 of
   10**: by the letter of Q7 a worsening of 0.2 %, under the spread of one run; Q7 leaves it to the user, listed in
   the closing report. T2 is now not part of the run: its row of the task table reads reverted.
+- **L12** (2026-11-17) — RDD of the last slice `e0e4fbe..5bbeb4e` (the T2 revert `f45269d`, the fixes `cf8fd80` and
+  the records), lenses risk, resilience and reliability, lineage `review-56d68a6bfbe776dd`: approved and acknowledged
+  (authority burned). Risk and resilience found nothing. Reliability left two non-blocking advisories, kept as later
+  work: R3-001 (WARNING, inferential): the debug record of kept checks and the slot are two relaxed stores, ordered
+  for a reader only by the scratch area's lock, which no test exercises; it only touches the debug builds' extra
+  check, never what a read returns. R3-002 (SUGGESTION): `PageChange::new(true, true)` gives `Created` and drops the
+  keep-check flag; created pages are never marked, and a debug assertion would contradict the test that pins the
+  drop (`scratch_tests.rs:390`), so it stays as it is.
+- **L13** (2026-11-17) — R3, the Q7 matrix in WSL 2: the final code (`cf8fd80`, built from `git archive` in
+  `work/wm/linux/src.tar`) against the write-margin head (`10077aa`), bench power plan (`work/wm/linux/q7.sh`;
+  `q7-a.txt` 3 rounds, `q7-b.txt` 10 rounds), speed ratio: W27 1.166, W23 1.085, W3 1.071, W28 1.071, W17 1.036, W19
+  1.026, W22 1.021, W7 1.013, W26 1.012, W1 1.010, W2 1.009, W29 1.007, W6 1.004, W4 0.995; slower: W5 0.991 (9 of
+  10), W12 0.976 (7 of 10), W14 0.983, W15 0.975, W21 0.962, W24 0.974, W25 0.972. Measured again
+  (`work/wm/linux/q7r.sh`, 06:13–08:38; `q7r-a.txt` 20 rounds, `q7r-b.txt` 6 rounds), median of the rounds: W5 1.023
+  (slower in 7 of 20), W12 0.995 (11 of 20), W14 1.065 (2 of 6), W15 1.002 (3 of 6), W21 0.998 (3 of 6), W24 0.993 (3
+  of 6), W25 1.008 (3 of 6): every one slower in about half its rounds, so none is a worsening; the first figures were
+  WSL's spread over too few rounds. R3 complete: no load gets worse on Linux; on Windows only W23's 0.2 % (L11).

@@ -36,3 +36,7 @@
 2026-11-17T03:51:37+00:00	bg-start	acceptance	q7-linux
 2026-11-17T06:11:25+00:00	bg-end	acceptance	q7-linux
 2026-11-17T06:12:26+00:00	bg-start	acceptance	q7r-wsl
+2026-11-17T06:13:33+00:00	mark	review	rdd-fixes
+2026-11-17T06:14:58+00:00	mark	docs	L12
+2026-11-17T08:37:54+00:00	bg-end	acceptance	q7r-wsl
+2026-11-17T08:38:30+00:00	mark	checks	T7
