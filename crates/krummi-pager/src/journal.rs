@@ -6,8 +6,7 @@
 //! - a 64-byte header: magic, commit number (`txid`), `durable_upto` (the last commit that was durable when the
 //!   record was written, J9), page count, flags, stored and raw payload lengths, payload checksum and header
 //!   checksum;
-//! - the payload: one entry per page of the commit, compressed with LZ4 when that makes it smaller (J16); a payload of
-//!   several megabytes is compressed only when samples of it get smaller ([`worth_compressing`]). An entry
+//! - the payload: one entry per page of the commit, compressed with LZ4 when that makes it smaller (J16). An entry
 //!   is the page's number with its flags, then the runs of 8-byte words where the sealed page differs from the
 //!   version the commit copied it from, each as its offset, its length and its new bytes; a page the commit created
 //!   ([`CREATED_ENTRY`]) is compared with a page of zeros instead, and recovery writes it over zeros (Y1 and Y2 of the
@@ -354,10 +353,10 @@ fn encode_record_in(
     };
     record.set_len(most);
     let payload = &mut record[RECORD_HEADER..];
-    let compressed = worth_compressing(raw, &mut payload[..bound])
-        .then(|| compress(raw, &mut payload[..bound]))
-        .flatten()
-        .filter(|&n| n < raw_len);
+    let compressed = match lz4_flex::block::compress_into(raw, &mut payload[..bound]) {
+        Ok(n) if n < raw_len => Some(n),
+        _ => None,
+    };
     let stored_len = compressed.unwrap_or_else(|| {
         payload[..raw_len].copy_from_slice(raw);
         raw_len
@@ -377,61 +376,6 @@ fn encode_record_in(
     record[RECORD_HEADER + stored_len..len].fill(0);
     record.set_len(len);
     Ok(record)
-}
-
-/// Raw payloads of at least this many bytes are probed before they are compressed whole (S2 of the write
-/// optimizations): the probe costs at most a sixteenth of compressing them, and smaller payloads are always
-/// compressed, as before.
-const PROBE_FROM: usize = 4 << 20;
-/// Samples of a probe, one in the middle of each of as many equal parts of the payload, so that the node pages at the
-/// start of a commit of large values weigh no more than their share.
-const PROBE_SAMPLES: usize = 8;
-/// Bytes of a sample, enough for LZ4 to find the repeats that lie up to half of it apart.
-const PROBE_SAMPLE: usize = 32 << 10;
-
-/// Whether to compress `raw` whole (J16): always for a payload under [`PROBE_FROM`] bytes; for a larger one, only when
-/// its samples, compressed one by one into `out`, save at least a thirty-second of their bytes. A large commit of
-/// values that do not compress, as W17 makes, then does not spend the time of compressing all of it to store it raw
-/// anyway. Deterministic: the same payload always gets the same answer, and the record is valid either way.
-fn worth_compressing(raw: &[u8], out: &mut [u8]) -> bool {
-    if raw.len() < PROBE_FROM {
-        return true;
-    }
-    let part = raw.len() / PROBE_SAMPLES;
-    let sampled = PROBE_SAMPLES * PROBE_SAMPLE;
-    let compressed: usize = (0..PROBE_SAMPLES)
-        .map(|i| {
-            let at = i * part + (part - PROBE_SAMPLE) / 2;
-            compress(&raw[at..at + PROBE_SAMPLE], out).unwrap_or(PROBE_SAMPLE)
-        })
-        .sum();
-    compressed + sampled / 32 <= sampled
-}
-
-/// Compresses `input` into `out` with LZ4: the compressed length, or `None` when it does not fit.
-fn compress(input: &[u8], out: &mut [u8]) -> Option<usize> {
-    #[cfg(test)]
-    lz4_input::add(input.len());
-    lz4_flex::block::compress_into(input, out).ok()
-}
-
-/// The bytes given to LZ4 on this thread, for the tests of what the journal compresses.
-#[cfg(test)]
-mod lz4_input {
-    use std::cell::Cell;
-
-    thread_local! {
-        static BYTES: Cell<usize> = const { Cell::new(0) };
-    }
-
-    pub(super) fn add(len: usize) {
-        BYTES.set(BYTES.get() + len);
-    }
-
-    /// The bytes given to LZ4 on this thread since the last call.
-    pub(super) fn take() -> usize {
-        BYTES.take()
-    }
 }
 
 /// The smallest buffer of `spare` that holds `len` bytes, taken out of it.
@@ -1385,156 +1329,6 @@ mod tests {
             let mut damaged = record.to_vec();
             damaged[byte] ^= 0x10;
             assert!(RecordHeader::decode(&damaged).is_none(), "byte {byte}");
-        }
-    }
-
-    /// Pages of a value run for the probe tests, a little over the 4 MiB from which the journal probes a payload.
-    const RUN_PAGES: usize = 520;
-
-    /// `len` bytes of noise, which LZ4 cannot make smaller, the same on every target and never repeating within it.
-    fn noise(len: usize) -> Vec<u8> {
-        let mut x = 0x2545_F491_4F6C_DD1Du64;
-        (0..len)
-            .map(|_| {
-                x ^= x << 13;
-                x ^= x >> 7;
-                x ^= x << 17;
-                x as u8
-            })
-            .collect()
-    }
-
-    /// `len` bytes that compress well: in each page, half noise and half text.
-    fn compressible(len: usize) -> Vec<u8> {
-        let mut bytes = noise(len);
-        for (n, page) in bytes.chunks_mut(PAGE_SIZE).enumerate() {
-            let text = format!("key-{n:08} holds a value of text; ");
-            for (i, b) in page[PAGE_SIZE / 2..].iter_mut().enumerate() {
-                *b = text.as_bytes()[i % text.len()];
-            }
-        }
-        bytes
-    }
-
-    /// The entries of `nodes`, created, then of the pages of `run`, as a commit of large values puts them.
-    fn commit_entries<'a>(nodes: &'a [[u8; PAGE_SIZE]], run: &'a [u8]) -> Vec<JournalPage<'a>> {
-        let nodes = nodes
-            .iter()
-            .enumerate()
-            .map(|(n, page)| (2 + n as u64, page, None));
-        let run = run.as_chunks::<PAGE_SIZE>().0.iter().enumerate();
-        nodes
-            .chain(run.map(|(n, page)| ((100 + n as u64) | RAW_ENTRY, page, None)))
-            .collect()
-    }
-
-    /// The raw payload of `record`, after checking that it decodes into `count` entries.
-    fn payload_of(record: &[u8], count: usize) -> (RecordHeader, Vec<u8>) {
-        let header = RecordHeader::decode(record).unwrap();
-        let stored = &record[RECORD_HEADER..RECORD_HEADER + header.stored_len as usize];
-        let raw = decode_payload(&header, stored).unwrap();
-        assert_eq!(
-            decode_entries(&raw, header.page_count).unwrap().len(),
-            count
-        );
-        (header, raw)
-    }
-
-    /// S2 of the write optimizations (W17, `valores-grandes-carga`): a large record of data that does not get
-    /// smaller, a value run after a few node pages that compress well, as a commit of large values puts them, is
-    /// stored raw after LZ4 tried samples of it, a quarter of a megabyte, not all of it (J16).
-    #[test]
-    fn a_large_record_that_does_not_compress_is_stored_raw_after_trying_only_samples() {
-        let nodes = vec![[7u8; PAGE_SIZE]; 4];
-        let run = noise(RUN_PAGES * PAGE_SIZE);
-        let entries = commit_entries(&nodes, &run);
-        lz4_input::take();
-        let record = encode(&mut EncodeBuffers::default(), 3, 2, &entries);
-        let tried = lz4_input::take();
-        let (header, _) = payload_of(&record, entries.len());
-        assert!(!header.compressed);
-        assert_eq!(header.stored_len, header.raw_len);
-        assert!(
-            tried <= 256 << 10,
-            "LZ4 was given {tried} bytes of a payload of {}",
-            header.raw_len
-        );
-    }
-
-    /// S2: a large record of data that compresses well is compressed whole, into the same bytes as before the probe,
-    /// and so is one whose compressible pages are a small part, but more than a sample, after incompressible ones.
-    #[test]
-    fn a_large_record_that_compresses_is_stored_compressed_as_before() {
-        let run = compressible(RUN_PAGES * PAGE_SIZE);
-        let mut nodes = vec![[0u8; PAGE_SIZE]; RUN_PAGES / 8];
-        let text = compressible(nodes.len() * PAGE_SIZE);
-        for (page, bytes) in nodes.iter_mut().zip(text.chunks(PAGE_SIZE)) {
-            page.copy_from_slice(bytes);
-        }
-        let noisy = noise(RUN_PAGES * PAGE_SIZE);
-        for (nodes, run) in [(&[][..], &run[..]), (&nodes[..], &noisy[..])] {
-            let entries = commit_entries(nodes, run);
-            lz4_input::take();
-            let record = encode(&mut EncodeBuffers::default(), 3, 2, &entries);
-            let tried = lz4_input::take();
-            let (header, raw) = payload_of(&record, entries.len());
-            assert!(header.compressed && header.stored_len < header.raw_len);
-            let stored = &record[RECORD_HEADER..RECORD_HEADER + header.stored_len as usize];
-            assert!(
-                stored == lz4_flex::block::compress(&raw),
-                "the bytes of before"
-            );
-            assert!(tried >= raw.len());
-        }
-    }
-
-    /// S2: recovery, after a crash that left both commits only in the journal, reads back a large commit stored
-    /// compressed and one stored raw by the probe (J16: compression changes nothing transactions read).
-    #[test]
-    fn recovery_reads_back_large_records_stored_compressed_or_raw() {
-        use crate::format::seal_run;
-        use crate::pager::{DATA_FILE, OpenOptions};
-        use crate::recovery::recover;
-
-        let folder = tempfile::tempdir().unwrap();
-        Pager::open(folder.path(), &OpenOptions::default())
-            .unwrap()
-            .close()
-            .unwrap();
-        let mut runs = [
-            (2, compressible(RUN_PAGES * PAGE_SIZE), true),
-            (2 + RUN_PAGES as u64, noise(RUN_PAGES * PAGE_SIZE), false),
-        ];
-        for (first, run, _) in &mut runs {
-            seal_run(*first, run);
-        }
-        let mut pager = Pager::open(folder.path(), &OpenOptions::default()).unwrap();
-        let journal = Journal::start(folder.path(), &pager).unwrap();
-        let recovered = recover(&mut pager, folder.path()).unwrap();
-        journal.begin(recovered.last_txid, recovered.next_number);
-        for (txid, (first, run, compressed)) in (1..).zip(&runs) {
-            let entries: Vec<JournalPage<'_>> = run
-                .as_chunks::<PAGE_SIZE>()
-                .0
-                .iter()
-                .enumerate()
-                .map(|(n, page)| ((first + n as u64) | RAW_ENTRY, page, None))
-                .collect();
-            let record = encode(&mut EncodeBuffers::default(), txid, 0, &entries);
-            assert_eq!(payload_of(&record, RUN_PAGES).0.compressed, *compressed);
-            journal.enqueue(&pager, txid, &entries).unwrap();
-        }
-        journal.make_durable(&pager).unwrap();
-        // The crash: nothing reaches `krummi.data`, the journal holds both commits.
-        drop(journal);
-        drop(pager);
-
-        assert!(folder.path().join(DATA_FILE).exists());
-        let mut pager = Pager::open(folder.path(), &OpenOptions::default()).unwrap();
-        let recovered = recover(&mut pager, folder.path()).unwrap();
-        assert_eq!(recovered.last_txid, 2);
-        for (first, run, _) in &runs {
-            assert!(pager.run(*first, RUN_PAGES as u64).unwrap() == &run[..]);
         }
     }
 }
