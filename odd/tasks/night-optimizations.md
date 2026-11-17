@@ -35,7 +35,7 @@ PRD draft for the user, not an implementation).
 | T1 | S1, S5 | delegated diagnosis, inline change | code done, A/B pending | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers` |
 | T2 | S2, S5 | delegated writer (context backstop) | in progress | |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
-| T4 | S4, S5 | WSL profile first | pending | |
+| T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
 | T5 | S6 | inline | pending | |
 
 ## Log
@@ -86,3 +86,11 @@ PRD draft for the user, not an implementation).
   (no stored byte changes; item 6 covered by the new test). RDD assess (`--base-ref 2e45b31 --committed-only`):
   medium, `review_due` false, `under_budget`; pending in the slice. Acceptance A/B on Windows deferred to one run with
   T2's build (`main`, `t1`, `t2`) so the machine is measured once; T2's writer (opus, high) launched in the background.
+- **L6** (2026-11-17) — T4 profile on WSL 2 (samply, line tables, HEAD `2cb4db5`; script `work/night/t4/run.sh`,
+  aggregates `work/night/t4/out/`). W5 (4 threads, one-entry durable commits): 4,746 on-CPU samples over four
+  repetitions of about 24–26 s each; `write_group` 19.9 % inclusive, almost all of it `pwrite` (20.4 %), and the
+  group copy `AlignedBuf::from_parts` 0.3 %. W6 (16 threads): 4,459 samples, repetitions of about 6.0–7.1 s;
+  `write_group` 5.8 %, `pwrite` 7.3 %, `from_parts` 0.3 %. The samples are on-CPU only and the loads wait mostly on
+  `fsync`, so the copy's share of the elapsed time is smaller still. Removing it would mean laying records out in
+  place across threads (S4) for at most 0.3 %: not done. The T2 writer was building in parallel; the shares are of
+  this process's own samples, so they stand.
