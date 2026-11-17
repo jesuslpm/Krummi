@@ -7,6 +7,10 @@
 //! needs the code to equal the one remembered. The table has a fixed number of slots, one atomic word each, chosen by the page
 //! number, so a lookup never pairs one page's number with another's code (C5); remembering a content replaces
 //! whatever its slot held. Code `0` marks an empty slot and is never remembered.
+//!
+//! Debug builds keep a second array of atomic words, parallel to the slots: the code of the content its slot got from
+//! a version that kept its layout check without a check of its own (Q3 of the written pages PRD), so that their reads
+//! check that layout anyway (Q4). Like the slots, it is allocated when the store opens and read without a lock (C6).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -70,6 +74,11 @@ pub(crate) struct Checked {
     slots: Vec<AtomicU64>,
     /// Contents remembered so far: one per successful check of a verified page (tests count them).
     remembered: AtomicU64,
+    /// Per slot, the code of the content the transfer remembered in it from a version that kept its layout check
+    /// (Q3 of the written pages PRD), or `0`: debug builds check that layout on every read anyway (Q4). Allocated once
+    /// with `slots`, of the same length, and never resized.
+    #[cfg(debug_assertions)]
+    kept: Vec<AtomicU64>,
 }
 
 impl Checked {
@@ -82,12 +91,11 @@ impl Checked {
             .unwrap_or(CHECKED_SLOTS);
         #[cfg(not(feature = "test-hooks"))]
         let slots = CHECKED_SLOTS;
-        let mut table = Vec::new();
-        try_reserve(&mut table, slots)?;
-        table.resize_with(slots, || AtomicU64::new(0));
         Ok(Checked {
-            slots: table,
+            slots: zeroed_words(slots)?,
             remembered: AtomicU64::new(0),
+            #[cfg(debug_assertions)]
+            kept: zeroed_words(slots)?,
         })
     }
 
@@ -109,11 +117,32 @@ impl Checked {
     /// Remembers the content of page `page` with integrity code `code`, replacing what its slot held, as
     /// [`Checked::remember`] does, for a content whose layout passed the check, or kept it, as a version of the scratch
     /// area that the transfer has just written in place (Q2 of the written pages PRD). It is no check of a verified page,
-    /// so it does not count as one.
-    pub(crate) fn remember_written(&self, page: u64, code: u64) {
+    /// so it does not count as one. `kept` tells that the version kept that check without a check of its own (Q3), which
+    /// debug builds record for [`Checked::layout_kept`] (Q4).
+    ///
+    /// Only the transfer calls it, one write at a time. It records `kept` before the content, and a read finds the
+    /// written content only through the scratch area's lock, taken after both, so a read that finds the content also
+    /// finds whether it was kept.
+    pub(crate) fn remember_written(&self, page: u64, code: u64, kept: bool) {
         if code != 0 && ENABLED.load(Ordering::Relaxed) {
+            #[cfg(debug_assertions)]
+            self.kept[self.index(page)].store(if kept { code } else { 0 }, Ordering::Relaxed);
+            #[cfg(not(debug_assertions))]
+            let _ = kept;
             self.slot(page).store(code, Ordering::Relaxed);
         }
+    }
+
+    /// Whether the content of page `page` with integrity code `code` was remembered by the transfer from a version that
+    /// kept its layout check without a check of its own (Q3 of the written pages PRD), for debug builds, which check
+    /// such a layout on every read anyway (Q4). It takes no lock (C6).
+    ///
+    /// Other remembering in the slot leaves the record as it is: a record names one content by its code, which covers
+    /// the page number (C5), so it never matches another content; a content that a read checked again after it was
+    /// dropped from its slot may keep its record, which only adds a check of that same content in debug builds.
+    #[cfg(debug_assertions)]
+    pub(crate) fn layout_kept(&self, page: u64, code: u64) -> bool {
+        code != 0 && self.kept[self.index(page)].load(Ordering::Relaxed) == code
     }
 
     /// Remembers that the value run of `length` pages from page `page`, with stored code `code`, passed the integrity
@@ -150,9 +179,22 @@ impl Checked {
     }
 
     fn slot(&self, page: u64) -> &AtomicU64 {
-        // The remainder is below the slot count, a `usize`.
-        &self.slots[(page % self.slots.len() as u64) as usize]
+        &self.slots[self.index(page)]
     }
+
+    /// The slot of page `page`.
+    fn index(&self, page: u64) -> usize {
+        // The remainder is below the slot count, a `usize`.
+        (page % self.slots.len() as u64) as usize
+    }
+}
+
+/// `count` atomic words of value `0`, or the out-of-memory class if the system does not provide them (P13).
+fn zeroed_words(count: usize) -> Result<Vec<AtomicU64>> {
+    let mut words = Vec::new();
+    try_reserve(&mut words, count)?;
+    words.resize_with(count, || AtomicU64::new(0));
+    Ok(words)
 }
 
 #[cfg(test)]
@@ -208,14 +250,46 @@ mod tests {
 
     #[test]
     fn pages_that_share_a_slot_replace_each_other() {
-        let checked = Checked {
-            slots: (0..4).map(|_| AtomicU64::new(0)).collect(),
-            remembered: AtomicU64::new(0),
-        };
+        let checked = small_table();
         checked.remember(1, 10);
         checked.remember(5, 50);
         assert!(!checked.contains(1, 10), "replaced");
         assert!(checked.contains(5, 50));
         assert_eq!(checked.remembered(), 2);
+    }
+
+    /// A table of four slots.
+    fn small_table() -> Checked {
+        Checked {
+            slots: zeroed_words(4).unwrap(),
+            remembered: AtomicU64::new(0),
+            #[cfg(debug_assertions)]
+            kept: zeroed_words(4).unwrap(),
+        }
+    }
+
+    /// Q4 of the written pages PRD: the record of a kept check names the content the transfer remembered from a version
+    /// that kept it, and nothing else, without a lock (R4 of the code review of the written pages).
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_kept_check_is_recorded_for_its_content_only() {
+        let checked = small_table();
+        checked.remember_written(1, 10, true);
+        assert!(checked.contains(1, 10));
+        assert!(checked.layout_kept(1, 10));
+        assert!(!checked.layout_kept(1, 11), "another content of the page");
+        assert!(!checked.layout_kept(5, 50), "another page of the slot");
+        assert_eq!(checked.remembered(), 0, "no check is counted");
+        // A content of another page in the slot is not kept, and the record never matches it.
+        checked.remember(5, 50);
+        assert!(!checked.layout_kept(5, 50));
+        assert!(!checked.contains(1, 10));
+        // A version that passed a check of its own clears the record of its slot.
+        checked.remember_written(1, 10, true);
+        checked.remember_written(1, 12, false);
+        assert!(checked.contains(1, 12));
+        assert!(!checked.layout_kept(1, 12));
+        assert!(!checked.layout_kept(1, 10));
+        assert!(!checked.layout_kept(2, 0), "code 0 is never kept");
     }
 }

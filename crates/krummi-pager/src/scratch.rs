@@ -71,6 +71,32 @@ pub type RunBuf = Box<[u8]>;
 /// number, its slots and its index in them.
 pub struct Staged(Vec<(u64, Arc<Slot>, usize)>);
 
+/// How a write transaction got a page it commits, one small value per page, so that a commit carries both flags in one
+/// collection (Q6 of the written pages PRD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageChange {
+    /// The transaction created the page, zeroed: the journal keeps what differs from zeros (Y1 of the journal page
+    /// diffs PRD).
+    Created,
+    /// The transaction copied the page's newest version: the journal keeps what differs from that version (Y1).
+    Copied,
+    /// As [`PageChange::Copied`], and the page is a node that keeps the layout check of the page it was copied from,
+    /// because the transaction only overwrote values in it with others of the same length (Q3 of the written pages
+    /// PRD): its version is published as checked.
+    KeepsCheck,
+}
+
+impl PageChange {
+    /// The change of a page that the transaction `created`, or else copied, keeping its layout check when `keeps_check`.
+    pub fn new(created: bool, keeps_check: bool) -> PageChange {
+        match (created, keeps_check) {
+            (true, _) => PageChange::Created,
+            (false, false) => PageChange::Copied,
+            (false, true) => PageChange::KeepsCheck,
+        }
+    }
+}
+
 /// Where the bytes of a reference live (tests: AC20, AC-V3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Memory {
@@ -1400,29 +1426,26 @@ impl<'a> ScratchWriter<'a> {
     /// Commits the payloads of `pages` and the value `runs`, each sealed with
     /// [`seal_run`](crate::format::seal_run) for its first page: seals the pages into the temporary area, puts them
     /// in the journal's queue from there, a run's pages as raw entries (D5 of the large values execution), and
-    /// publishes them for the next writer (E2). `created[i]` tells whether the transaction created page `pages[i]`,
-    /// zeroed, rather than copying its newest version: the journal keeps what differs from that version, or from
-    /// zeros (Y1 of the journal page diffs PRD). `kept[i]` tells whether page `pages[i]` is a node that keeps the layout
-    /// check of the page it was copied from, because the transaction only overwrote values in it with others of the
-    /// same length (Q3 of the written pages PRD): its version is published as checked. Returns the number of the
+    /// publishes them for the next writer (E2). `changes[i]` tells how the transaction got page `pages[i]`: created,
+    /// zeroed, or copied from its newest version, the journal keeping what differs from zeros or from that version
+    /// (Y1 of the journal page diffs PRD); and whether it is a node that keeps the layout check of the page it was
+    /// copied from, its version then published as checked (Q3 of the written pages PRD). Returns the number of the
     /// commit, which read snapshots see once it is durable (E3; [`Scratch::wait_durable`]). On failure nothing is
     /// published (J12).
     ///
     /// # Panics
     ///
-    /// If `created` or `kept` and `pages` differ in length.
+    /// If `changes` and `pages` differ in length.
     pub fn commit(
         &mut self,
         pages: &[(u64, PayloadBuf)],
-        created: &[bool],
-        kept: &[bool],
+        changes: &[PageChange],
         runs: &[(u64, RunBuf)],
     ) -> Result<u64> {
-        assert_eq!(created.len(), pages.len(), "one flag per page");
-        assert_eq!(kept.len(), pages.len(), "one flag per page");
+        assert_eq!(changes.len(), pages.len(), "one change per page");
         let mut staged = self.stage(pages, runs)?;
         // The staged pages come first, in the order of `pages`, each in slots of its own that nobody shares yet: a
-        // flag of `kept` goes to the slot of its own page only (R4-001 of the RDD review of T1).
+        // kept check goes to the slot of its own page only (R4-001 of the RDD review of T1).
         debug_assert!(
             staged
                 .0
@@ -1431,7 +1454,12 @@ impl<'a> ScratchWriter<'a> {
                 .all(|((staged, _, _), (page, _))| staged == page),
             "the staged pages come first, in the order of the pages given"
         );
-        for ((_, slot, _), _) in staged.0.iter_mut().zip(kept).filter(|(_, kept)| **kept) {
+        for ((_, slot, _), _) in staged
+            .0
+            .iter_mut()
+            .zip(changes)
+            .filter(|(_, change)| **change == PageChange::KeepsCheck)
+        {
             Arc::get_mut(slot)
                 .expect("a staged page is not shared before it is published")
                 .keep_check();
@@ -1444,11 +1472,11 @@ impl<'a> ScratchWriter<'a> {
                 // or else in the store, which no transfer writes again until a newer version exists (J5).
                 let bases: Vec<Option<(Arc<Slot>, usize)>> = pages
                     .iter()
-                    .zip(created)
-                    .map(|((number, _), &created)| {
+                    .zip(changes)
+                    .map(|((number, _), &change)| {
                         let newest = state.versions.get(number)?.last();
                         newest
-                            .filter(|_| !created)
+                            .filter(|_| change != PageChange::Created)
                             .map(|version| (Arc::clone(&version.page), version.index))
                     })
                     .collect();
@@ -1466,7 +1494,7 @@ impl<'a> ScratchWriter<'a> {
                     if i >= pages.len() {
                         return Ok((number | RAW_ENTRY, page, None));
                     }
-                    let base = if created[i] {
+                    let base = if changes[i] == PageChange::Created {
                         None
                     } else if let Some((slot, index)) = &bases[i] {
                         Some(slot.page_at(*index))

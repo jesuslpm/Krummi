@@ -343,7 +343,7 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     for text in ["b", "c", "d"] {
         let mut writer = scratch.begin_write().unwrap();
         let txid = writer
-            .commit(&[(PAGE, payload(text))], &[true], &[false], &[])
+            .commit(&[(PAGE, payload(text))], &[PageChange::Created], &[])
             .unwrap();
         drop(writer);
         scratch.wait_durable(txid).unwrap();
@@ -355,6 +355,61 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     assert_eq!(retired, 0);
     assert_eq!(text(scratch.snapshot().unwrap().page(PAGE).unwrap()), "d");
     scratch.close().unwrap();
+}
+
+/// Q3 of the written pages PRD: one commit of a created page, a copied one and a copied one that keeps its layout
+/// check, in one collection of page changes (R2 of the code review of the written pages): only the last one's version
+/// is published as checked and kept, and the commit publishes every page's payload, in a store on disk, through the
+/// journal, and in a temporary one.
+#[test]
+fn a_commit_publishes_as_checked_only_the_pages_that_keep_their_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    for folder in [Some(tmp.path()), None] {
+        let pager = match folder {
+            Some(folder) => Pager::open(folder, &OpenOptions::default()).unwrap(),
+            None => Pager::open_temporary(&OpenOptions::default()).unwrap(),
+        };
+        pager.ensure_pages(PAGE + 3).unwrap();
+        let scratch = Scratch::open(pager).unwrap();
+        // The pages stay in the scratch area while the test reads them.
+        scratch.set_transfer_paused(true);
+        let changes = [
+            PageChange::new(false, true),
+            PageChange::new(false, false),
+            PageChange::new(true, false),
+        ];
+        assert_eq!(
+            changes,
+            [
+                PageChange::KeepsCheck,
+                PageChange::Copied,
+                PageChange::Created
+            ]
+        );
+        assert_eq!(PageChange::new(true, true), PageChange::Created);
+        let pages = [
+            (PAGE, payload("kept")),
+            (PAGE + 1, payload("copied")),
+            (PAGE + 2, payload("created")),
+        ];
+        let mut writer = scratch.begin_write().unwrap();
+        let txid = writer.commit(&pages, &changes, &[]).unwrap();
+        drop(writer);
+        scratch.wait_durable(txid).unwrap();
+        let snapshot = scratch.snapshot().unwrap();
+        for ((page, written), change) in pages.iter().zip(changes) {
+            let (read, origin) = snapshot.page_and_code(*page).unwrap();
+            assert_eq!(text(read), text(&written[..]), "page {page}");
+            let Origin::Version { checked, kept, .. } = origin else {
+                panic!("page {page}: a version");
+            };
+            let keeps = change == PageChange::KeepsCheck;
+            assert_eq!((checked, kept), (keeps, keeps), "page {page}: {change:?}");
+        }
+        drop(snapshot);
+        scratch.set_transfer_paused(false);
+        scratch.close().unwrap();
+    }
 }
 
 /// U1 of the version checks PRD: a pass is kept only by the version whose read returned the mark it was reported

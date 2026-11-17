@@ -11,7 +11,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
-use krummi_pager::{PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, growth_target};
+use krummi_pager::{
+    PageChange, PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, growth_target,
+};
 
 #[cfg(feature = "test-hooks")]
 use crate::LayoutEvent;
@@ -601,14 +603,18 @@ impl<'e> WriteTransaction<'e> {
         let meta_written = self.dirty.contains_key(&META_PAGE);
         // The pager seals the pages straight into the temporary area (O5 of the performance plan).
         let dirty = std::mem::take(&mut self.dirty);
-        let kept: Vec<bool> = dirty.values().map(|changed| changed.keeps_check).collect();
-        let (pages, created): (Vec<(u64, PayloadBuf)>, Vec<bool>) = dirty
+        // One small value per page carries both flags, in the one collection besides the pages (Q6 of the written
+        // pages PRD).
+        let (pages, changes): (Vec<(u64, PayloadBuf)>, Vec<PageChange>) = dirty
             .into_iter()
-            .map(|(page, changed)| ((page, changed.payload), changed.created))
+            .map(|(page, changed)| {
+                let change = PageChange::new(changed.created, changed.keeps_check);
+                ((page, changed.payload), change)
+            })
             .unzip();
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
-        let committed = self.writer.commit(&pages, &created, &kept, &runs);
+        let committed = self.writer.commit(&pages, &changes, &runs);
         // The pages and the runs are copied into the temporary area now, or the commit failed: their buffers serve
         // the next copies and runs.
         self.engine.keep_payloads(pages);

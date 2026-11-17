@@ -650,6 +650,63 @@ fn ac_q7_debug_builds_check_a_leaf_that_kept_its_check() {
     });
 }
 
+/// Q4 and C6 of the remembered node layout check PRD (R4 of the code review of the written pages): four threads read at
+/// once, many rounds each, the leaves of AC-Q5 that the transfer wrote from versions that kept their check, which debug
+/// builds check on every read, and every other key of tree `n`, whose leaves passed a check of their own: every read
+/// returns the committed values and none fails or waits for another.
+#[cfg(debug_assertions)]
+#[test]
+fn debug_reads_of_kept_and_checked_leaves_run_at_once() {
+    const READERS: usize = 4;
+    const ROUNDS: usize = 50;
+    on_both(|store| {
+        store.engine.set_transfer_paused(true);
+        let leaves = commit_q5(store);
+        overwrite_q5(store, 1);
+        transfer(store);
+        // Whether the read of a leaf of `n` finds it kept, so that debug builds check its layout.
+        let kept = |page: u64| {
+            let read = store.read().unwrap();
+            let krummi_tx::PageCheck::Verified(code) = read.inner.page_and_check(page).unwrap().1
+            else {
+                panic!("leaf {page} in the store's pages");
+            };
+            read.inner.layout_kept(page, code)
+        };
+        let root = root_of(store, "n");
+        let other = leaf(store, root, &long_key(0, 64));
+        assert_ne!(other, leaves.normal, "a leaf of its own");
+        assert!(kept(leaves.normal), "the overwritten leaf kept its check");
+        assert!(!kept(other), "the other leaf passed a check of its own");
+        thread::scope(|scope| {
+            let readers: Vec<_> = (0..READERS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        for _ in 0..ROUNDS {
+                            read_q5(store, 1);
+                            let read = store.read().unwrap();
+                            let tree = read.open_tree("n").unwrap();
+                            for i in (0..200).filter(|i| i % 4 != 3) {
+                                let round = u8::from(i == 100 || i == 101);
+                                assert_eq!(
+                                    read.get(&tree, &long_key(i, 64)).unwrap(),
+                                    Some(&value_of(i, round)[..]),
+                                    "key {i}"
+                                );
+                            }
+                        }
+                    })
+                })
+                .collect();
+            for reader in readers {
+                reader.join().unwrap();
+            }
+        });
+        assert!(kept(leaves.normal), "reads add nothing to what was kept");
+        store.engine.set_transfer_paused(false);
+    });
+}
+
 /// AC-Q9 (Q1–Q3, I7): four threads read every key of a tree of several leaves at once, a thousand rounds each at
 /// least, while a write commits overwrites of the same length, values of another length and added and removed keys,
 /// and the transfer writes them: every read returns the data of its snapshot and none fails.
