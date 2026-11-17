@@ -62,7 +62,9 @@ fn store(folder: Option<&std::path::Path>) -> Scratch {
 fn commit(scratch: &Scratch, text: &str) -> u64 {
     let mut writer = scratch.begin_write().unwrap();
     writer.flush().unwrap();
-    let staged = writer.stage(&[(PAGE, payload(text))], &[]).unwrap();
+    let staged = writer
+        .stage(vec![(PAGE, payload(text).into())], &[], &mut Vec::new())
+        .unwrap();
     writer.publish(staged)
 }
 
@@ -189,7 +191,9 @@ fn a_snapshot_opened_without_versions_keeps_its_page_while_newer_ones_are_writte
 fn the_writers_snapshot_does_not_see_what_it_publishes() {
     both_modes(|scratch| {
         let mut writer = scratch.begin_write().unwrap();
-        let staged = writer.stage(&[(PAGE, payload("b"))], &[]).unwrap();
+        let staged = writer
+            .stage(vec![(PAGE, payload("b").into())], &[], &mut Vec::new())
+            .unwrap();
         assert_eq!(writer.publish(staged), 1);
         assert_eq!(writer.snapshot().txid(), 0);
         assert_eq!(text(writer.snapshot().page(PAGE).unwrap()), "a");
@@ -276,7 +280,11 @@ fn a_run_is_read_only_whole_and_from_one_place() {
         scratch.pager().ensure_pages(first + 4).unwrap();
         let mut writer = scratch.begin_write().unwrap();
         let staged = writer
-            .stage(&[], &[(first, sealed_run(first, 3, 7))])
+            .stage(
+                Vec::new(),
+                &[(first, sealed_run(first, 3, 7))],
+                &mut Vec::new(),
+            )
             .unwrap();
         writer.publish(staged);
         drop(writer);
@@ -308,7 +316,7 @@ fn staging_a_run_that_is_not_whole_pages_panics() {
     scratch.pager().ensure_pages(PAGE + 3).unwrap();
     let writer = scratch.begin_write().unwrap();
     let run: RunBuf = vec![0; PAGE_SIZE + 1].into_boxed_slice();
-    let _ = writer.stage(&[], &[(PAGE + 1, run)]);
+    let _ = writer.stage(Vec::new(), &[(PAGE + 1, run)], &mut Vec::new());
 }
 
 #[test]
@@ -343,7 +351,12 @@ fn the_journal_thread_closes_the_file_a_commit_rolls_away_from() {
     for text in ["b", "c", "d"] {
         let mut writer = scratch.begin_write().unwrap();
         let txid = writer
-            .commit(&[(PAGE, payload(text))], &[PageChange::Created], &[])
+            .commit(
+                vec![(PAGE, payload(text).into())],
+                &[PageChange::Created],
+                &[],
+                &mut Vec::new(),
+            )
             .unwrap();
         drop(writer);
         scratch.wait_durable(txid).unwrap();
@@ -393,7 +406,12 @@ fn a_commit_publishes_as_checked_only_the_pages_that_keep_their_check() {
             (PAGE + 2, payload("created")),
         ];
         let mut writer = scratch.begin_write().unwrap();
-        let txid = writer.commit(&pages, &changes, &[]).unwrap();
+        let buffers = pages
+            .iter()
+            .map(|(page, written)| (*page, payload(text(&written[..])).into()));
+        let txid = writer
+            .commit(buffers.collect(), &changes, &[], &mut Vec::new())
+            .unwrap();
         drop(writer);
         scratch.wait_durable(txid).unwrap();
         let snapshot = scratch.snapshot().unwrap();
@@ -473,12 +491,12 @@ fn the_filter_of_pages_with_versions_follows_them() {
             if round % 3 == 2 {
                 writer.flush().unwrap();
             }
-            let staged: Vec<(u64, PayloadBuf)> = pages
+            let staged: Vec<(u64, PageBuf)> = pages
                 .iter()
                 .take(1 + usize::from(round % 3))
-                .map(|&page| (page, payload(&format!("{round}"))))
+                .map(|&page| (page, payload(&format!("{round}")).into()))
                 .collect();
-            let staged = writer.stage(&staged, &[]).unwrap();
+            let staged = writer.stage(staged, &[], &mut Vec::new()).unwrap();
             writer.publish(staged);
             drop(writer);
             assert!(scratch.lock().filter_agrees(), "round {round}");
@@ -516,4 +534,88 @@ fn page_numbers_spread_over_the_buckets() {
             (high.iter().min(), high.iter().max())
         );
     }
+}
+
+/// Commits "b" to `PAGE` and writes it in place, so that the temporary area has a free slot that held it.
+fn with_a_free_slot(scratch: &Scratch) {
+    commit(scratch, "b");
+    let mut writer = scratch.begin_write().unwrap();
+    writer.flush().unwrap();
+    assert_eq!(scratch.shared.area.held(), 0, "every version left");
+}
+
+/// S2 of the night optimizations: a page changed in a free slot, copied or created zeroed, is sealed in place into the
+/// same bytes that sealing its payload from memory gives, and is published from that slot.
+#[test]
+fn a_page_sealed_in_its_slot_is_the_page_sealed_from_memory() {
+    both_modes(|scratch| {
+        with_a_free_slot(&scratch);
+        let writer = scratch.begin_write().unwrap();
+        let mut copied = writer.page_buf(false, || panic!("a slot is free")).unwrap();
+        let written = payload("copied");
+        copied.copy_from_slice(&written[..]);
+        let created = writer
+            .page_buf(true, || panic!("the area holds a free slot"))
+            .unwrap();
+        assert!(created.iter().all(|&b| b == 0), "created zeroed");
+        for page in [&copied, &created] {
+            assert_eq!(page.len(), PAGE_PAYLOAD_SIZE);
+            assert_eq!(scratch.memory_of(page), Some(Memory::Versions));
+        }
+        scratch.pager().ensure_pages(PAGE + 2).unwrap();
+        let staged = writer
+            .stage(
+                vec![(PAGE, copied), (PAGE + 1, created)],
+                &[],
+                &mut Vec::new(),
+            )
+            .unwrap();
+        let mut expected = [[0; PAGE_SIZE]; 2];
+        format::seal_page(PAGE, &written[..], &mut expected[0]);
+        format::seal_page(PAGE + 1, &[], &mut expected[1]);
+        for ((_, slot, _), expected) in staged.0.iter().zip(&expected) {
+            assert!(slot.page() == expected);
+        }
+        assert_eq!(scratch.shared.area.held(), 2);
+    });
+}
+
+/// S2 of the night optimizations: without a free slot, or with page slots off, a page is changed in memory from the
+/// fallback; a slot taken and dropped, or one whose memory point fails, goes back to the area, and the failure is the
+/// fallback's (P13).
+#[test]
+fn a_page_slot_goes_back_and_fails_as_the_payload_it_stands_for() {
+    both_modes(|scratch| {
+        let writer = scratch.begin_write().unwrap();
+        let in_memory = writer.page_buf(false, alloc_payload).unwrap();
+        assert_eq!(scratch.memory_of(&in_memory), None, "no free slot yet");
+        drop(writer);
+        with_a_free_slot(&scratch);
+        let writer = scratch.begin_write().unwrap();
+        set_page_slots(false);
+        let off = writer.page_buf(false, alloc_payload);
+        set_page_slots(true);
+        assert_eq!(scratch.memory_of(&off.unwrap()), None, "page slots off");
+        assert_eq!(scratch.shared.area.held(), 0);
+        drop(writer.page_buf(false, alloc_payload).unwrap());
+        assert_eq!(scratch.shared.area.held(), 0, "a dropped slot goes back");
+        let fail = || {
+            faults::reset();
+            faults::inject(Op::Alloc, 0, Action::Fail(io::ErrorKind::OutOfMemory));
+        };
+        fail();
+        let from_slot = writer.page_buf(true, alloc_payload).err().unwrap();
+        assert_eq!(
+            scratch.shared.area.held(),
+            0,
+            "a failure gives the slot back"
+        );
+        set_page_slots(false);
+        fail();
+        let from_memory = writer.page_buf(true, alloc_payload).err().unwrap();
+        set_page_slots(true);
+        faults::reset();
+        assert_eq!(from_slot.kind(), ErrorKind::OutOfMemory);
+        assert_eq!(from_slot.to_string(), from_memory.to_string());
+    });
 }

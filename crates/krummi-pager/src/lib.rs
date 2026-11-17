@@ -27,8 +27,8 @@ pub use pager::{
 };
 pub use random::fill_random;
 pub use scratch::{
-    Memory, Origin, PageChange, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged,
-    VersionMark, alloc_payload, alloc_run, reuse_payload, reuse_run, try_reserve,
+    Memory, Origin, PageBuf, PageChange, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot,
+    Staged, VersionMark, alloc_payload, alloc_run, reuse_payload, reuse_run, try_reserve,
 };
 pub use temp::TEMP_DIR;
 
@@ -39,6 +39,7 @@ pub mod testing {
     pub use crate::checked::with_checked_slots;
     pub use crate::journal::entry_sizes;
     pub use crate::remembered::with_remembered_commits_failing;
+    pub use crate::scratch::set_page_slots;
     pub use crate::sys::Op;
     pub use crate::sys::faults::{
         Action, Context, Model, Recorded, abort_at, adopt, context, count, inject, materialize,

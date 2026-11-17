@@ -27,8 +27,10 @@
 //! whole for the maximum size until its last version leaves, not page by page (`State::hold` in the `scratch`
 //! module).
 //!
-//! A slot is written once, by [`TempArea::store_with`] or [`TempArea::store_run`], before anyone else can see it, and
-//! only read afterwards. Dropping it gives all its pages back to the area at once, merged with the free ranges next
+//! A slot is written only while it is a [`SlotMut`], before anyone else can see it: by [`TempArea::store_with`] or
+//! [`TempArea::store_run`], or by a write transaction that changes a page in a free slot taken with
+//! [`TempArea::take_free_page`] and has the commit seal it there (S2 of the night optimizations). Once it is a
+//! [`Slot`] it is only read. Dropping it gives all its pages back to the area at once, merged with the free ranges next
 //! to them, and the area may hand them out again; the scratch area drops a version only when no snapshot can hold a
 //! reference to it, so a slot is never rewritten or released while it is borrowed.
 
@@ -111,8 +113,8 @@ enum Keep {
     Heap,
 }
 
-// SAFETY: the chunks own their memory like a `Box<[u8]>` or an `MmapMut` do. Slots are written only by
-// `TempArea::store_with` before anyone else can reach them, and read through shared references afterwards (see the
+// SAFETY: the chunks own their memory like a `Box<[u8]>` or an `MmapMut` do. Slots are written only through the one
+// `SlotMut` that holds them, before anyone else can reach them, and read through shared references afterwards (see the
 // module documentation), so sharing the area between threads is sound.
 unsafe impl Send for TempArea {}
 // SAFETY: see `Send`.
@@ -215,11 +217,33 @@ impl TempArea {
             Some(slots) => slots,
             None => self.grow(&mut state, pager, pages)?,
         };
+        // Built first, so that a panic in `fill` gives the slots back.
+        let mut slot = SlotMut(self.hand_out(&mut state, chunk, index, pages));
+        drop(state);
+        fill(slot.bytes_mut());
+        Ok(slot.0)
+    }
+
+    /// Takes one free slot without growing the area, for a page a write transaction changes in place (S2 of the night
+    /// optimizations), or `None` when no slot is free: the caller then changes the page in memory as before, so the
+    /// area grows, and fails, only where it did, at the commit. The slot is nobody else's until it is published.
+    pub(crate) fn take_free_page(self: &Arc<TempArea>) -> Option<SlotMut> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let (chunk, index) = state.take(1)?;
+        Some(SlotMut(self.hand_out(&mut state, chunk, index, 1)))
+    }
+
+    /// The [`Slot`] of `pages` slots from (chunk, index), just taken under the lock of `state`.
+    fn hand_out(
+        self: &Arc<TempArea>,
+        state: &mut AreaState,
+        chunk: usize,
+        index: usize,
+        pages: usize,
+    ) -> Slot {
         let ptr = slot_ptr(state.chunk(chunk), index, pages);
         state.held += 1;
-        drop(state);
-        // Built first, so that a panic in `fill` gives the slots back.
-        let slot = Slot {
+        Slot {
             area: Arc::clone(self),
             ptr,
             chunk,
@@ -228,15 +252,7 @@ impl TempArea {
             layout_checked: AtomicBool::new(false),
             kept: false,
             value_run: false,
-        };
-        // SAFETY: `ptr` points to `pages` slots of a live chunk, taken under the lock from its free ranges or from the
-        // chunk `grow` just added: nobody holds a reference to them (a slot is free only once its `Slot` is dropped,
-        // and a new chunk was never handed out, nor is `slot` yet) and nobody else writes them (nobody else can take
-        // them now). Their bytes are initialized: a heap chunk is allocated zeroed and a file chunk is mapped. The
-        // reference ends before `slot` is returned, after which they are only read.
-        let bytes = unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), pages * PAGE_SIZE) };
-        fill(bytes);
-        Ok(slot)
+        }
     }
 
     /// Adds a chunk for `pages` slots that no free range fits and takes them from it, returning its number and the
@@ -347,6 +363,15 @@ impl TempArea {
             let at = bytes.as_ptr() as usize;
             at >= start && at + bytes.len() <= start + chunk.pages * PAGE_SIZE
         })
+    }
+
+    /// Slots handed out and not dropped yet (tests).
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .held
     }
 
     /// Bytes of every chunk the area holds, free slots included (tests).
@@ -461,7 +486,7 @@ pub struct Slot {
     index: usize,
     pages: usize,
     /// Whether the node in the slot passed the layout check of the layers above (U1 of the version checks PRD). Its
-    /// bytes never change while the slot lives, so the pass holds as long as the slot does; a failure is never kept.
+    /// bytes never change once it is a `Slot`, so the pass holds as long as the slot does; a failure is never kept.
     layout_checked: AtomicBool,
     /// Whether the node in the slot kept the layout check of the page it was copied from, because the write only
     /// overwrote values in it with others of the same length (Q3 of the written pages PRD): `layout_checked` is set
@@ -472,8 +497,8 @@ pub struct Slot {
     value_run: bool,
 }
 
-// SAFETY: a Slot only reads the bytes it points to, which nobody writes while it lives (see the module
-// documentation), and its area is `Send + Sync`.
+// SAFETY: a Slot only reads the bytes it points to, which nobody writes while it lives, except its own `SlotMut`
+// through `&mut` before it becomes a `Slot` (see the module documentation), and its area is `Send + Sync`.
 unsafe impl Send for Slot {}
 // SAFETY: see `Send`.
 unsafe impl Sync for Slot {}
@@ -538,8 +563,8 @@ impl Slot {
     pub fn bytes(&self) -> &[u8] {
         // SAFETY: `ptr` points to the `pages` contiguous slots of this `Slot`, inside a chunk the area keeps while the
         // slot lives: a shared chunk until the area is removed, which happens only once every slot is dropped, and a
-        // run's own chunk until this slot is dropped. The bytes were written before the slot was returned and are
-        // never written again while it lives.
+        // run's own chunk until this slot is dropped. The bytes are written only through the `SlotMut` that holds
+        // this slot, which then lends it out only through `&self`, and never once it is a `Slot`.
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.pages * PAGE_SIZE) }
     }
 }
@@ -547,6 +572,35 @@ impl Slot {
 impl Drop for Slot {
     fn drop(&mut self) {
         self.area.release(self.chunk, self.index, self.pages);
+    }
+}
+
+/// Slots of the temporary area taken and not published yet, written only through `&mut` by their one owner: the fill
+/// of [`TempArea::store_with`], or a write transaction that changes a page in place and has the commit seal it there
+/// (S2 of the night optimizations). Nobody else can reach them: they were free, which a slot is only once no version
+/// and no snapshot holds it, they were taken under the area's lock, and the [`Slot`] inside is private. Only
+/// [`SlotMut::into_slot`] turns them into a [`Slot`], whose bytes never change again; dropping them gives them back.
+pub(crate) struct SlotMut(Slot);
+
+impl SlotMut {
+    /// Every page in the slots, as one contiguous sequence, as last written.
+    pub(crate) fn bytes(&self) -> &[u8] {
+        self.0.bytes()
+    }
+
+    /// Every page in the slots, to write them.
+    pub(crate) fn bytes_mut(&mut self) -> &mut [u8] {
+        let slot = &self.0;
+        // SAFETY: `ptr` points to the `pages` slots of a live chunk that this `SlotMut` alone holds (see the type's
+        // documentation): no reference to them exists but those borrowed from `self`, and `&mut self` rules out the
+        // others while this one lives. Their bytes are initialized: a heap chunk is allocated zeroed and a file chunk is
+        // mapped.
+        unsafe { std::slice::from_raw_parts_mut(slot.ptr.as_ptr(), slot.pages * PAGE_SIZE) }
+    }
+
+    /// The slots, written for good: from now on they are only read, and may be shared and published.
+    pub(crate) fn into_slot(self) -> Slot {
+        self.0
     }
 }
 
