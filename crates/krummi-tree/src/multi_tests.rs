@@ -1168,3 +1168,75 @@ fn writes_in_the_leaf_found_store_what_set_stores() {
         assert!(a == b, "page {page} differs");
     }
 }
+
+/// The results, roots and every page of the parent tree and of its subtrees, after the same adds and removals, are the
+/// same bytes whether operations go to the leaf the write transaction remembers or always walk from the root (S1 of
+/// the ordered-write cache execution). Runs of increasing keys, which find the remembered leaf near the tree's end,
+/// alternate with keys at random; the values of the add above make leaves split and merge and keys move to subtrees and back, so the
+/// remembered leaf is now the parent's, now a subtree's; commits in between.
+#[test]
+fn the_remembered_leaf_stores_what_walking_stores() {
+    type Outcome = (Vec<(u64, u64, bool)>, Vec<(u64, Vec<u8>)>);
+    let run = |walk: bool| -> (Outcome, usize) {
+        crate::testing::WALK_FROM_ROOT.set(walk);
+        crate::testing::REMEMBERED.set(0);
+        let engine = temporary();
+        let mut rng = Rng(29);
+        let mut results = Vec::new();
+        let mut root = {
+            let mut tx = engine.write(None).unwrap();
+            let root = create(&mut tx).unwrap();
+            tx.commit().unwrap();
+            root
+        };
+        // Runs of increasing keys climb the last tenth of the keys, about the tree's last leaf.
+        let mut next = 360;
+        for _ in 0..10 {
+            let mut tx = engine.write(None).unwrap();
+            for i in 0..2000 {
+                let key = if i / 100 % 2 == 0 {
+                    next = 360 + (next - 360 + 1 + rng.below(2) as u32) % 40;
+                    next
+                } else {
+                    rng.below(400) as u32
+                };
+                let key = sixteen(key);
+                let update = match rng.below(10) {
+                    0..=5 => add(&mut tx, root, &key, &rng.value()).unwrap(),
+                    6..=8 => remove_value(&mut tx, root, &key, &rng.value()).unwrap(),
+                    _ => remove_key(&mut tx, root, &key).unwrap(),
+                };
+                results.push((update.root, update.values, update.key_changed));
+                root = update.root;
+            }
+            tx.commit().unwrap();
+        }
+        let tx = engine.read().unwrap();
+        let mut pages = Vec::new();
+        pages_of(&tx, root, &mut pages);
+        for key in 0..400 {
+            if let Some(subtree) = subtree_of(&tx, root, &sixteen(key)).unwrap() {
+                pages_of(&tx, subtree, &mut pages);
+            }
+        }
+        let bytes = pages
+            .into_iter()
+            .map(|page| (page, tx.page(page).unwrap().to_vec()))
+            .collect();
+        crate::testing::WALK_FROM_ROOT.set(false);
+        ((results, bytes), crate::testing::REMEMBERED.get())
+    };
+    let (walked, none) = run(true);
+    let (remembered, found) = run(false);
+    assert_eq!(none, 0);
+    assert!(
+        found > 150,
+        "only {found} changes went to the remembered leaf"
+    );
+    assert!(walked.0 == remembered.0, "the results differ");
+    assert_eq!(walked.1.len(), remembered.1.len());
+    for ((page, a), (other, b)) in walked.1.iter().zip(&remembered.1) {
+        assert_eq!(page, other);
+        assert!(a == b, "page {page} differs");
+    }
+}
