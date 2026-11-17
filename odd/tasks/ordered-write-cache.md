@@ -113,3 +113,21 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
   the greatest key (an add at the end is now the only way to remember a leaf; the old runs, within the keys at
   random, found it 1 and 24 times) and the transaction's docs reworded. Checks: fmt and clippy clean, `cargo test
   --workspace` 873 passed, 0 failed, 36 ignored.
+- **L11** (2026-11-17) — T2 A/B on Windows, `main` against variant 2 (`work/wm/owc2-target`, the code of `b12e08b`:
+  later commits change only tests and docs), digests equal (`work/owc/ab2-long.json`, `ab2-short.json`), op/s ratio
+  and rounds slower; by S2's rule: W1 **1.135** (0 of 3) better; W2 1.011 (0), W4 1.006 (0), W14 1.006 (1), W15 1.004
+  (0), W17 1.009 (1), W19 1.007 (1), W24 1.001 (0), W25 1.014 (1), W26 1.007 (1), W29 1.006 (1), W27 1.025 (1 of
+  10) better; W21 1.000 (2), W23 0.999 (1), W28 1.000 (1), W6 1.001 (5 of 10), W13 1.060 (6 of 10) the same; **W3
+  0.985 (3 of 3), W5 0.988 (6 of 10), W7 0.989 (7 of 10), W12 0.992 (6 of 10), W22 0.996 (6 of 10) worse**. W7 and
+  W22 only read, through code this change leaves as it was. Repeat, as the write optimizations execution did for
+  its marked loads: W5, W7, W12 and W22 in 20 rounds, W3 in 10 (`work/owc/ab7.sh`), after the verifier of `b12e08b`.
+- **L12** (2026-11-17) — Verifier of `b12e08b` (sonnet, high): S1 pass, no blocker. `change_leaf` fills `LastLeaf`
+  only for a new key that becomes the tree's greatest, in its last leaf; removals and replaced keys never fill it;
+  `try_add_at_last` never remembers; every merge that fits clears it, and `fix_root` runs before the remember, which
+  uses the final root. Probes in a scratch copy: 375 randomized runs (300 over three slotted trees, three key styles,
+  five value profiles, 30–95 % in-order adds past the greatest key, `try_add_at_last` + `append_last` bursts, aborted
+  transactions; 75 multi-value runs), digests of every result and every page byte identical between `0cb816c` and
+  `b12e08b` in release and debug, 529,911 hits; three mutations (no `forget_leaf()` in `free`, no reset of the
+  rightmost leaf after a merge, an empty lower bound) each caught. `cargo test -q -p krummi-tree -p krummi-tx`: 226
+  passed, 0 failed, 7 ignored. Advisories: the two of L4 (ancestors not read on a hit; `remember_leaf` public),
+  already kept; the probe's runs with 30 % in-order adds hit less. Scratch removed.
