@@ -35,12 +35,12 @@ Out of scope: anything the PRD's «Fuera de alcance» lists; R2 of the write-mar
 
 | ID | Specs | Route | Status | Commit / evidence |
 |---|---|---|---|---|
-| T1 | S1 (Q1–Q7) | delegated writer (context backstop; parallel with T2, T3) | pending | |
-| T2 | S2 | delegated writer (parallel) | pending | |
-| T3 | S3 | delegated writer (parallel) | pending | |
-| T4 | S4 | delegated writer after T1 (shares `krummi-tree/src/lib.rs`) | pending | |
-| T5 | S5 | inline, at the end | pending | |
-| T6 | S6 | inline, background runs | pending | |
+| T1 | S1 (Q1–Q7) | delegated writer (context backstop; parallel with T2, T3) | done | `56f8a79`, `757901b`, `0c8bea7`; L2–L4 |
+| T2 | S2 | delegated writer (parallel) | done | `0a5603c`; L2, L4 |
+| T3 | S3 | delegated writer (parallel) | done | `ce8a668`; L2, L3 |
+| T4 | S4 | delegated writer after T1 | reverted (L6) | `3f35631`, `49fc00d`, `197d41c`, `3c11fba`; revert `8b54d0b` |
+| T5 | S5 | inline, at the end | not adopted (L7) | measurement only |
+| T6 | S6 | inline, background runs | done | L6–L9 |
 | T7 | — | close: RDD of the last slice, Codex review, report, archive | pending | |
 
 Route evidence: the parent context is past the long-session backstop (this session carries two earlier runs), and
@@ -99,3 +99,34 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   second when a forget was removed; 84 workload digests identical to `0c8bea7`. Its advisory, a stale hit inside a
   transaction that already failed (the tree is already inconsistent there at the baseline too), was hardened in
   `49fc00d`: a failed transaction skips the cache. Tree, tx and krummi tests after it: 626 passed, 0 failed.
+- **L6** (2026-11-16) — T6 A/B, the write-margin head (`cur`, same code as `1ee31df`) against this run's head, worker
+  on the performance cores, bench power plan, digests equal (`work/wm/ab.py`; `opt-a.json`, `opt-b.json`, `opt-c.json`).
+  With T1–T4 (`49fc00d`), 3 rounds: W11 1.162, W1 1.130, W27 1.082, W28 1.077, W26 1.045, W17 1.042, W23 1.008, W21
+  1.005, W24 0.995, W2 0.992, W19 0.991, **W3 0.974 (slower in 3 of 3)**. A back-off of the leaf cache (`197d41c`)
+  made W3 worse (0.947). Bisection, 5 rounds (`bis.json`), W3 ns per insert: base 2423, after T2 2452, after T1 2354,
+  after T4 2497, with the back-off 2528: T4 costs W3 about 6 %; W9 (8 rounds) spreads 190–242 ns in every build:
+  noise. The T4 writer restructured the cache (`3c11fba`: a miss takes the usual single walk, which remembers the
+  leaf; only a hit goes to it): its micro-measurement put W3 within noise, but the bench, 5 rounds (`t4b.json`), still
+  gave W3 2486 against 2363 before T4 (slower in 5 of 5) and 2443 at the base, while W1 gained 9 % on the base (12 %
+  on the head before T4). S4 keeps the cache only if nothing gets worse: T4 was reverted (`8b54d0b`, reverting
+  `3f35631`, `49fc00d`, `197d41c`, `3c11fba`); the code is the same as at `0c8bea7`. Decision taken during the run,
+  listed in the closing report: a cache limited to ordered writes may keep W1's gain; not tried.
+- **L7** (2026-11-17) — T5 (S5), loop alignment. The head code (same as `0c8bea7`) built with and without
+  `-C llvm-args=-align-loops=64`, A/B on every load but W16 (`al-a.json` 3 rounds, `al-b.json` 10 rounds for the short
+  and multithreaded loads): W20 0.998 (slower in 6 of 10), so W20 does not come back; W6 0.964, W18 0.973, and W2, W4,
+  W21 about 0.994 slower in 3 of 3; the rest within ±2.5 %. S5 keeps it only if W20 comes back and nothing gets
+  worse: not adopted, nothing committed. Against the write-margin head, this run's W20 already measures 1.014
+  (`opt-b.json`, 10 rounds).
+- **L8** (2026-11-17) — T6, complete runs with `--solo-krummi-voron` on the final code (`8b54d0b`, same code as
+  `0c8bea7`). Windows, performance cores, bench power plan: **29 of 29**
+  (`docs/benchmark/2026-11-17-windows-write-optimizations.md`). Against the write-margin run of 2026-11-16, ratio to
+  Voron: tabla-actualizacion (W28) 0.88 → 0.95 (Krummi +14 %), tabla-lecturas 0.90 → 0.99, intervalos 1.08 → 1.23,
+  recorrido 2.47 → 3.00, carga-en-orden 1.33 → 1.42, tamano-fijo-carga 0.96 → 1.00; the concurrent reads that fell in
+  that run are back (W8 1.21, W9 1.44, W12 1.70, W13 1.72), as its A/B had shown. The first WSL run stopped at once:
+  the previous report was still in `~/wm` and the bench does not overwrite one; the script now removes it first.
+- **L9** (2026-11-17) — WSL 2, complete run under the bench power plan, final code (00:54–01:39): **29 of 29**
+  (`docs/benchmark/2026-11-17-linux-write-optimizations.md`). WSL moves a lot between days (recorrido 2.51 → 1.51,
+  apertura 106.81 → 177.74 with the same engines' code for Voron); the ratios that fell more than 0.05 against
+  2026-11-16 were checked with an A/B in WSL, the write-margin head against this run's head, 5 rounds
+  (`work/wm/linux/ab2.txt`): W10 1.141, W28 1.064, W24 1.007, W23 0.988 (slower in 5 of 5); a bisection of W23, 6
+  rounds (`work/wm/linux/bis.txt`): base 7262, after T2 7206, head 7260 ns per row: no drop. T6 done.
