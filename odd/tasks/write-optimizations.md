@@ -177,8 +177,16 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   release builds unchanged). R3 (reduced to minor): the figures of L11 and L13 are corrected here, by Q7's rule (median
   after below before, and below in most rounds), the median of each round's repetitions, W12 and W13 apart (`ab2.sh`
   labelled both W12). Windows: W6 0.998 (6 of 10), W19 0.995 (2 of 3) and W23 0.998 (8 of 10) get worse; measured
-  again in 20 rounds (`work/wm/q7-d.json`, 09:01–09:34): **W6 0.997, slower in 11 of 20: a worsening of 0.3 %**, W19
+  again in 20 rounds (`work/wm/q7-d.json`, the builds of L11, `fin` from `cf8fd80`, whose release code `b025d58` keeps; 09:04–09:34 by
+  the phase log): **W6 0.997, slower in 11 of 20: a worsening of 0.3 %**, W19
   1.001 (10 of 20) and W23 1.005 (13 of 20) do not. WSL, first matrix: W12 1.028 (1 of 10), W13 0.956 (8 of 10), W14
   0.983, W15 0.975, W21 0.962, W24 0.974, W25 0.972, W5 0.991 get worse; measured again: W5 1.014 (7 of 20), W12 1.036
   (2 of 20), W13 1.001 (12 of 20), W14 1.005 (2 of 6), W15 1.000 (3 of 6), W21 1.001 (3 of 6), W24 0.990 (3 of 6), W25
   0.998 (3 of 6): none does. What still gets worse by the letter of Q7 is W6 on Windows, 0.3 %, for the user.
+- **L15** (2026-11-17) — RDD of the slice `5bbeb4e..6dc29e0` (R5's fix `b025d58` and the records), lenses
+  reliability and resilience, lineage `review-c10d9a58577cf96f`: approved and acknowledged (authority burned).
+  Resilience found nothing. Reliability left three non-blocking advisories: R3-001 (WARNING): the fix holds across
+  threads by its store and load order, which the one-thread test does not exercise (as L12's R3-001), kept as later
+  work; R3-002 (SUGGESTION): `layout_kept` answers yes for any content its slot does not hold, so it only means
+  something after a hit, as its documentation says («A read asks it after finding the content in its slot»); R3-003
+  (SUGGESTION): L14's time and measured code, corrected there from the phase log.
