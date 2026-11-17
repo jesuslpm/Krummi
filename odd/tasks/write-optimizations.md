@@ -168,3 +168,17 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   (slower in 7 of 20), W12 0.995 (11 of 20), W14 1.065 (2 of 6), W15 1.002 (3 of 6), W21 0.998 (3 of 6), W24 0.993 (3
   of 6), W25 1.008 (3 of 6): every one slower in about half its rounds, so none is a worsening; the first figures were
   WSL's spread over too few rounds. R3 complete: no load gets worse on Linux; on Windows only W23's 0.2 % (L11).
+- **L14** (2026-11-17) — Codex code review, round 2, of `2417fd9..df8abb1`
+  ([report](../../docs/reviews/write-optimizations/2026-11-17-code-02.md), resolutions as in L11): `findings`. R1, R2
+  and R4 verified resolved. R5 (major, new, from R4's fix): a read that finds a kept leaf in its slot loses its record
+  when the transfer writes another page of the same slot before the read asks, and the debug check of Q4 is skipped;
+  fixed in `b025d58` (the record is not trusted once the slot changed; test
+  `a_kept_content_replaced_after_its_hit_is_still_checked`, RED then GREEN; suite 868 passed, 0 failed, 35 ignored;
+  release builds unchanged). R3 (reduced to minor): the figures of L11 and L13 are corrected here, by Q7's rule (median
+  after below before, and below in most rounds), the median of each round's repetitions, W12 and W13 apart (`ab2.sh`
+  labelled both W12). Windows: W6 0.998 (6 of 10), W19 0.995 (2 of 3) and W23 0.998 (8 of 10) get worse; measured
+  again in 20 rounds (`work/wm/q7-d.json`, 09:01–09:34): **W6 0.997, slower in 11 of 20: a worsening of 0.3 %**, W19
+  1.001 (10 of 20) and W23 1.005 (13 of 20) do not. WSL, first matrix: W12 1.028 (1 of 10), W13 0.956 (8 of 10), W14
+  0.983, W15 0.975, W21 0.962, W24 0.974, W25 0.972, W5 0.991 get worse; measured again: W5 1.014 (7 of 20), W12 1.036
+  (2 of 20), W13 1.001 (12 of 20), W14 1.005 (2 of 6), W15 1.000 (3 of 6), W21 1.001 (3 of 6), W24 0.990 (3 of 6), W25
+  0.998 (3 of 6): none does. What still gets worse by the letter of Q7 is W6 on Windows, 0.3 %, for the user.

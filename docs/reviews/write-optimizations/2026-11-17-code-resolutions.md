@@ -78,3 +78,52 @@ entry per slot) replaces the mutex map; `Checked::layout_kept` is one relaxed lo
 (`crates/krummi-pager/src/checked.rs`). Checks as in R2.
 
 Status: claimed, unverified until a follow-up review.
+
+## 2026-11-17 (verification)
+
+Follow-up report: [2026-11-17-code-02.md](2026-11-17-code-02.md), fix range `2417fd9..df8abb1`, verdict «Changes
+required.» Per ID, quoted: R1 «Verified resolved.»; R2 «Verified resolved.»; R3 «Partially resolved; still open as R3,
+reduced to minor.»; R4 «Verified resolved for the original blocking defect.», with the new R5 (major) introduced by its
+fix.
+
+Review record: [2026-11-17-code-02.md](2026-11-17-code-02.md), wrapper status `findings` (R5 major, R3 minor open; no
+open question), thread `01a1e8ad-e6d2-7de0-a313-2e5992c6af6e`. Telemetry: coordinator `gpt-6.1-sol` / `high`;
+reviewer `krummi-review-critical` (Galileo) `gpt-6-astra` / `xhigh`.
+
+## 2026-11-17 (round 2 resolutions)
+
+Artifact versions: the fix in `b025d58`; the corrected figures in the execution document, L14.
+
+### R5 — major: colliding transfer can suppress Q4's debug validation
+
+Disposition: fixed in `b025d58`. The finding holds: a read finds the content in its slot, the transfer writes another
+page of the same slot, and the read then asks for a record that now names the other page. `Checked::layout_kept` now
+answers yes when the slot no longer holds the content the read found, as well as when its record names it: the read
+checks a layout that may have kept its check. The transfer stores the slot before the record, releasing it, and the read
+acquires the record before it looks at the slot, so a read that sees a later record also sees the slot change before it.
+Only debug builds change: in release builds `remember_written` still stores the slot alone, as before. No lock (C6).
+
+Fix: test `checked::tests::a_kept_content_replaced_after_its_hit_is_still_checked` (RED before the fix, at its
+`layout_kept(1, 10)` after `remember_written(5, 50, false)`, GREEN after), the interleaving of the report's probes
+with the lookups in their order; `a_kept_check_is_recorded_for_its_content_only` keeps its cases for the contents the
+slot holds. Checks: `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo
+test --workspace` 868 passed, 0 failed, 35 ignored; `cargo test --release -p krummi --lib written_pages_tests` 7
+passed.
+
+Status: claimed, unverified until a follow-up review.
+
+### R3 — minor: Q7 assessment omits two measured Windows worsenings
+
+Disposition: fixed in the record. The finding holds on both points: by Q7's rule (median after below before, and below
+in most rounds) W6 (0.998, slower in 6 of 10) and W19 (0.995, 2 of 3) also get worse on Windows, which the summary had
+put under «the rest»; in WSL, `ab2.sh` labels W12's two results (W12 and W13) as W12, so they were mixed. Recalculated
+with Q7's rule and the median of each round's repetitions, W12 and W13 apart (L14): Windows worsens W6, W19 and W23, by
+0.2 %, 0.5 % and 0.2 %; WSL worsens nothing after the second measurement (W13 1.001, slower in 12 of 20). W6, W19 and
+W23 are measured again on Windows in 20 rounds (L14); the closing report lists what still gets worse for the user's
+decision, as Q7 says.
+
+Status: claimed, unverified until a follow-up review.
+
+Addendum to R3, same date: the 20-round Windows measurement (`work/wm/q7-d.json`) gives W6 0.997 (slower in 11 of 20),
+W19 1.001 (10 of 20) and W23 1.005 (13 of 20). By Q7's rule only W6 still gets worse, by 0.3 %; the closing report
+lists it for the user's decision (L14).
