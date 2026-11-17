@@ -1309,11 +1309,11 @@ fn the_remembered_leaf_changes_trees_as_walking_does() {
     let (walked, none) = run(true);
     let (remembered, found) = run(false);
     assert_eq!(none, 0);
-    // Random keys over three trees make the transaction back off from remembering (`RECENT_RETRY` in krummi-tx), so
-    // only a share of the walks can find the leaf; enough still do to compare both paths.
+    // Only changes in a tree's last leaf find it, and random keys and moves between the three trees forget it, so only
+    // a share of the changes go there; enough still do to compare both paths.
     assert!(
         found > 1_000,
-        "only {found} walks went to the remembered leaf"
+        "only {found} changes went to the remembered leaf"
     );
     assert!(walked.0 == remembered.0, "the results differ");
     assert_eq!(walked.1.len(), remembered.1.len());
