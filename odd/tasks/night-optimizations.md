@@ -94,3 +94,24 @@ PRD draft for the user, not an implementation).
   `fsync`, so the copy's share of the elapsed time is smaller still. Removing it would mean laying records out in
   place across threads (S4) for at most 0.3 %: not done. The T2 writer was building in parallel; the shares are of
   this process's own samples, so they stand.
+- **L7** (2026-11-17) — T2 writer (opus, high) returned: `cdf0164`. A write transaction takes a free temporary-area
+  slot, unpublished (`SlotMut`, `TempArea::take_free_page`, which never grows the area), as the working copy of a
+  page it copies or creates (`ScratchWriter::page_buf`, `PageBuf`), and the commit seals it in place with
+  `seal_run`; without a free slot the page stays in a `PayloadBuf` as before, so errors and the area's size stay at
+  the commit. Tests: `crates/krummi-tx/tests/page_slots.rs` (7; RED 5 of 7 before the slot code), pager tests
+  `a_page_sealed_in_its_slot_is_the_page_sealed_from_memory`, `a_page_slot_goes_back_and_fails_as_the_payload_it_stands_for`,
+  `a_copy_in_a_free_slot_takes_no_payload`. Checks: fmt and clippy clean, `cargo test --workspace` 879 passed, 0
+  failed; parent spot check `cargo test -p krummi-tx --test page_slots` 7 passed. Data digests of W21, W19, W2 and
+  W17 equal to `t1`'s. Risk: item 4 (an unpublished writable slot state) and item 3 (internal pager/transaction
+  signatures only; the `krummi` API is untouched).
+  Acceptance A/B on Windows (`work/night/ab/ab.sh`, `main` = `0cb816c`, `t1` = `d96b9c2`, `t2` = `cdf0164`; 3 rounds
+  for W1–W4, W14, W15, W17, W19, W21, W23–W26, W28, W29, 10 rounds for W5–W7, W12, W13, W22, W27; digests equal in
+  every run). Ratios are op/s, "slower" the rounds where the newer build was slower:
+  - `t1`/`main`: W21 1.025 (1/3), W17 1.208 (0/3), W19 1.017 (0/3), W2 1.021 (0/3), W1 1.027; marked (median lower,
+    slower in most rounds): W23 0.980 (3/3), W12 0.856 (7/10), W13 0.826 (7/10), W5 0.998 (6/10), W22 0.993 (6/10),
+    W27 0.994 (7/10), W26 0.996 (2/3), W29 0.998 (2/3). Repeated in 20 rounds (`rep1.sh`).
+  - `t2`/`t1`: W21 1.052 (0/3), W19 1.061 (0/3), W2 1.045, W14 1.038, W15 1.042, W24 1.042, W28 1.034, W29 1.042, W23
+    1.033 (all 0/3), W6 1.043 (0/10); worse: W7 0.976 (10/10), W3 0.972 (3/3), W26 0.993 (3/3), W17 0.966 (2/3).
+    W7 and W26 only read, and the change touches no read path, so their cost points to code layout, as with the
+    ordered-write cache; W3 (one bulk transaction) may pay for writing pages in mapped temporary-area memory. Under S5
+    T2 does not stay as it is; a diagnosis follows once the 20-round repeats end.
