@@ -130,3 +130,10 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   2026-11-16 were checked with an A/B in WSL, the write-margin head against this run's head, 5 rounds
   (`work/wm/linux/ab2.txt`): W10 1.141, W28 1.064, W24 1.007, W23 0.988 (slower in 5 of 5); a bisection of W23, 6
   rounds (`work/wm/linux/bis.txt`): base 7262, after T2 7206, head 7260 ns per row: no drop. T6 done.
+- **L10** (2026-11-17) — RDD of the last slice `3f35631..e0e4fbe` (the T4 revert and the records), lenses
+  reliability and readability, lineage `review-d6eb8d83236a06a9`: approved and acknowledged. Its findings on the
+  identity of the measured code, answered here: the Windows report's «con cambios sin confirmar» were this execution
+  document and its phase log only, no code (R2-002); the WSL report's «Krummi: desconocido» is because the WSL worker
+  is built from `git archive` of `8b54d0b` (`work/wm/linux/src.tar`, made at that commit) and carries no `.git`, as
+  in the earlier Linux reports (R2-001). `8b54d0b` has the same code as `0c8bea7` (`git diff 0c8bea7 8b54d0b --
+  crates` is empty).
