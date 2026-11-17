@@ -8,7 +8,7 @@ the agent and listed in the closing report.
 
 ## Specs
 
-- **S1** — The PRD [pager-written-pages.prd.md](../../docs/prd/krummi/pager/pager-written-pages.prd.md) (Spanish,
+- **S1** — The PRD [pager-written-pages.prd.md](../../../docs/prd/krummi/pager/pager-written-pages.prd.md) (Spanish,
   authoritative), decisions Q1–Q7 and criteria AC-Q1–AC-Q10, with its annotations to the ancestry. Quoted, Q1: «Las
   páginas que I4 deja de recordar antes de que el traslado las escriba (…), salvo las de un valor fuera de su hoja,
   quedan recordadas como comprobadas, con ese código, en cuanto sus bytes quedan escritos en su sitio»; Q3: «La
@@ -138,8 +138,8 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   in the earlier Linux reports (R2-001). `8b54d0b` has the same code as `0c8bea7` (`git diff 0c8bea7 8b54d0b --
   crates` is empty).
 - **L11** (2026-11-17) — Codex code review, round 1, of `10077aa..2417fd9`
-  ([report](../../docs/reviews/write-optimizations/2026-11-17-code.md),
-  [resolutions](../../docs/reviews/write-optimizations/2026-11-17-code-resolutions.md)): `findings`, R1–R3 major, R4
+  ([report](../../../docs/reviews/write-optimizations/2026-11-17-code.md),
+  [resolutions](../../../docs/reviews/write-optimizations/2026-11-17-code-resolutions.md)): `findings`, R1–R3 major, R4
   minor. R1 (the T2 samples miss a repetition longer than 32 KiB: a value run that compresses 31× was stored raw,
   against Y1 and J16): T2 reverted in `f45269d`; no sampling rule keeps Y1 for every record, so W17's gain is given
   up. R2 (a new `Vec<bool>` of keep-check flags allocated during commit, against Q6) and R4 (a debug mutex on every
@@ -169,7 +169,7 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   of 6), W25 1.008 (3 of 6): every one slower in about half its rounds, so none is a worsening; the first figures were
   WSL's spread over too few rounds. R3 complete: no load gets worse on Linux; on Windows only W23's 0.2 % (L11).
 - **L14** (2026-11-17) — Codex code review, round 2, of `2417fd9..df8abb1`
-  ([report](../../docs/reviews/write-optimizations/2026-11-17-code-02.md), resolutions as in L11): `findings`. R1, R2
+  ([report](../../../docs/reviews/write-optimizations/2026-11-17-code-02.md), resolutions as in L11): `findings`. R1, R2
   and R4 verified resolved. R5 (major, new, from R4's fix): a read that finds a kept leaf in its slot loses its record
   when the transfer writes another page of the same slot before the read asks, and the debug check of Q4 is skipped;
   fixed in `b025d58` (the record is not trusted once the slot changed; test
@@ -191,7 +191,7 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   something after a hit, as its documentation says («A read asks it after finding the content in its slot»); R3-003
   (SUGGESTION): L14's time and measured code, corrected there from the phase log.
 - **L16** (2026-11-17) — Codex code review, round 3, of `df8abb1..8bff765`
-  ([report](../../docs/reviews/write-optimizations/2026-11-17-code-03.md), resolutions as in L11): `approved`. R5 and
+  ([report](../../../docs/reviews/write-optimizations/2026-11-17-code-03.md), resolutions as in L11): `approved`. R5 and
   R3 verified resolved; R1, R2 and R4 had been in round 2. Its one open question is Q7's decision for the user: W6 on
   Windows, 0.33 % slower in the 20-round measurement; it goes to the closing report, to be asked after the run.
 - **L17** (2026-11-17) — T6, complete `--solo-krummi-voron` runs on the final code (`886db96`; its code is

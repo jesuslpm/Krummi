@@ -44,7 +44,7 @@ thread `01a1e74e-39be-7ef0-a0de-7880a2b86b9e`. Telemetry: coordinator `gpt-6.1-s
 ## 2026-11-17 (update)
 
 Artifact versions: the fixes in `f45269d` and `cf8fd80`; the matrix and the RDD record in the execution document,
-`odd/tasks/write-optimizations.md` L11–L13. Fix range for the follow-up: `2417fd9..HEAD`.
+`odd/done/pager/write-optimizations.md` L11–L13. Fix range for the follow-up: `2417fd9..HEAD`.
 
 ### R2 — major: Q3 metadata adds an allocation that can fail during commit
 

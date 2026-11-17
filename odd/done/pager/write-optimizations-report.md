@@ -1,7 +1,7 @@
 # Optimizaciones de escritura terminadas: W28 +7 % en las dos plataformas, W6 −0,33 % en Windows para tu decisión; rama verificada
 
 Informe de cierre de `write-optimizations` (2026-11-17). Enfoque de ejecución: ODD.
-Fuente de producto: [pager-written-pages.prd.md](../../docs/prd/krummi/pager/pager-written-pages.prd.md) (S1); S2–S5
+Fuente de producto: [pager-written-pages.prd.md](../../../docs/prd/krummi/pager/pager-written-pages.prd.md) (S1); S2–S5
 son optimizaciones sin cambio de comportamiento. Documento de ejecución:
 [write-optimizations.md](write-optimizations.md).
 
@@ -56,12 +56,12 @@ publicar: queda para la revisión del usuario.
   - **Primera corrida:**
     - Windows: **27 de 29**; incumplen `lecturas-con-escritor` (0,73) y `escritor-con-lectores` (0,79).
     - WSL: **28 de 29**; incumple `lecturas-al-azar-16` (0,68).
-    - Informes: [Windows](../../docs/benchmark/2026-11-17-windows-write-optimizations-final-1.md) y
-      [WSL](../../docs/benchmark/2026-11-17-linux-write-optimizations-final-1.md).
+    - Informes: [Windows](../../../docs/benchmark/2026-11-17-windows-write-optimizations-final-1.md) y
+      [WSL](../../../docs/benchmark/2026-11-17-linux-write-optimizations-final-1.md).
     - Voron se movió tanto como Krummi, y los A/B no dan caída en esas cargas, así que se repitió sin cambios.
   - **Segunda corrida: 29 de 29 en las dos plataformas.** Informes:
-    [Windows](../../docs/benchmark/2026-11-17-windows-write-optimizations-final-2.md) y
-    [WSL](../../docs/benchmark/2026-11-17-linux-write-optimizations-final-2.md).
+    [Windows](../../../docs/benchmark/2026-11-17-windows-write-optimizations-final-2.md) y
+    [WSL](../../../docs/benchmark/2026-11-17-linux-write-optimizations-final-2.md).
   - Los informes del código intermedio `8b54d0b` (L8, L9; 29 de 29) siguen en `docs/benchmark/` con su fecha.
 - **Revisiones y verificación:**
   - **Verificadores independientes:**
@@ -70,14 +70,14 @@ publicar: queda para la revisión del usuario.
     - El arreglo `b025d58` (solo depuración) no tuvo verificador propio; lo revisaron RDD y la ronda 3 de Codex.
   - **RDD:** aprobó los siete tramos (tabla de abajo).
   - **Codex:**
-    - PRD: dos rondas, aprobado ([ronda 1](../../docs/reviews/pager-written-pages/2026-11-16-prd.md),
-      [ronda 2](../../docs/reviews/pager-written-pages/2026-11-16-prd-02.md),
-      [resoluciones](../../docs/reviews/pager-written-pages/2026-11-16-prd-resolutions.md)).
+    - PRD: dos rondas, aprobado ([ronda 1](../../../docs/reviews/pager-written-pages/2026-11-16-prd.md),
+      [ronda 2](../../../docs/reviews/pager-written-pages/2026-11-16-prd-02.md),
+      [resoluciones](../../../docs/reviews/pager-written-pages/2026-11-16-prd-resolutions.md)).
     - Código: tres rondas, aprobado en la tercera
-      ([ronda 1](../../docs/reviews/write-optimizations/2026-11-17-code.md),
-      [ronda 2](../../docs/reviews/write-optimizations/2026-11-17-code-02.md),
-      [ronda 3](../../docs/reviews/write-optimizations/2026-11-17-code-03.md),
-      [resoluciones](../../docs/reviews/write-optimizations/2026-11-17-code-resolutions.md)).
+      ([ronda 1](../../../docs/reviews/write-optimizations/2026-11-17-code.md),
+      [ronda 2](../../../docs/reviews/write-optimizations/2026-11-17-code-02.md),
+      [ronda 3](../../../docs/reviews/write-optimizations/2026-11-17-code-03.md),
+      [resoluciones](../../../docs/reviews/write-optimizations/2026-11-17-code-resolutions.md)).
 - **Hallazgos corregidos por el camino:**
   - **R1 de Codex** (las muestras de T2 no ven repeticiones largas): T2 revertida (`f45269d`).
   - **R2 de Codex** (un `Vec<bool>` nuevo en cada confirmación, contra Q6) y **R4 de Codex** (un mutex de depuración en
