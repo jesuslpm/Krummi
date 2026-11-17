@@ -201,8 +201,17 @@ T1, T2 and T3 are independent units with disjoint edit surfaces, each several fi
   (`docs/benchmark/2026-11-17-{windows,linux}-write-optimizations-final-1.md`). Voron moved as much (Windows
   `lecturas-con-escritor` 1.67 M → 2.32 M op/s; WSL `lecturas-al-azar-16` 4.10 M → 3.13 M), and Q7's A/Bs, interleaved
   over 10–20 rounds, give these loads no worsening (L14), so the run was repeated unchanged. Second run
-  (10:52–11:59): **29 of 29** on both (`…-final-2.md`): Windows W9 1.15, W12 0.97, W13 0.96; WSL W9 1.17, W12 1.19,
-  W13 1.08. Against the `8b54d0b` runs (L8, L9), Krummi's `valores-grandes-carga` (W17) on Windows fell 6,563 → 5,617
-  → 4,696 op/s while Voron stayed at 5,500–5,700; an A/B of W17 on Windows, 10 rounds, the write-margin head against
-  the final code (`work/wm/q7-w17.json`): **1.010, slower in 4 of 10**: no worsening; the runs' figure is the
-  machine's state, and the T2 gain was given up (L11). T6 done.
+  (10:52–11:59): **29 of 29** on both (`…-final-2.md`): Windows `lecturas-al-azar-16` (W9) 1.15,
+  `lecturas-con-escritor` (W12) 0.97, `escritor-con-lectores` (W13) 0.96; WSL W9 1.17, W12 1.19, W13 1.08. Against the
+  `8b54d0b` runs (L8, L9), Krummi's `valores-grandes-carga` (W17) on Windows fell 6,563 → 5,617 → 4,696 op/s while
+  Voron stayed at 5,500–5,700; an A/B of W17 on Windows, 10 rounds, the write-margin head against the final code
+  (`work/wm/q7-w17.json`): **1.010, slower in 4 of 10**: no worsening; the runs' figure is the machine's state, and the
+  T2 gain was given up (L11). The phase log shows two W17 A/Bs: the first (`ab-w17-10rounds`) ran its ten rounds but
+  `ab.py`'s summary expects a build named `base` and failed before saving any time, so it gave no figure; the second
+  (`ab-w17-10rounds-2`), with the summary keyed on the first build (`work/wm/abq.py`), is the one above. T6 done.
+- **L18** (2026-11-17) — RDD of the last slice `6dc29e0..9bb3c00` (records only), lens readability, lineage
+  `review-a242d2b9304e896e`: approved and acknowledged. R2-001 (WARNING, L17 named one W17 A/B while the phase log
+  holds two) and R2-003 (SUGGESTION, L17 mixed load names and W ids): L17 now says what the first A/B was and gives
+  both. R2-002 (SUGGESTION): the round-3 resolutions put my Spanish wording of the report's open question in
+  guillemets after «Per ID, quoted»; the resolutions file is append-only, so a dated note there says it is a
+  translation, not a quotation.

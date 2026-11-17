@@ -139,3 +139,10 @@ según lo previsto en Q7?»
 Review record: [2026-11-17-code-03.md](2026-11-17-code-03.md), wrapper status `approved`, thread
 `01a1e8dd-8535-7b92-b250-a253490bd0e3`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review-critical` (Poincare) `gpt-6-astra` / `xhigh`.
+
+## 2026-11-17 (note on round 3)
+
+The open question in «(verification, round 3)» is my Spanish translation, not a quotation. The report's words
+(`2026-11-17-code-03.md:107`): «Q7 reserves acceptance of the measured Windows W6 tradeoff (approximately 0.33% lower
+throughput in the rerun) to the user. Does the user accept closing the change with this result?» (RDD R2-002,
+lineage `review-a242d2b9304e896e`).
