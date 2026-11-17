@@ -115,3 +115,9 @@ PRD draft for the user, not an implementation).
     W7 and W26 only read, and the change touches no read path, so their cost points to code layout, as with the
     ordered-write cache; W3 (one bulk transaction) may pay for writing pages in mapped temporary-area memory. Under S5
     T2 does not stay as it is; a diagnosis follows once the 20-round repeats end.
+- **L8** (2026-11-17) — T1's marked loads repeated in 20 rounds (`work/night/ab/rep1.sh`, `main` against `t1`): W5
+  1.002 (11/20), W12 1.036 (8/20), W13 1.024 (7/20), W22 1.000 (12/20), W23 0.997 (10/20), W26 1.002 (5/20), W29 1.002
+  (6/20) clear; W27 0.992 (14/20) stays marked. W27 only reads (table ranges) and T1 changes only how the journal
+  sizes its buffers. Diagnosis delegated (opus, high; scratch `work/night/t2d/`, machine to itself): placebo builds to
+  measure how far a build with no behavior change moves W7, W26, W27 and W3, then the mechanism of T2's W3 and W17
+  costs and narrow fixes that keep W21's gain.
