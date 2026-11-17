@@ -29,13 +29,12 @@
 //! of the same length keeps the check of the node it copied (Q3 of the written pages PRD): those overwrites go through
 //! [`WriteTransaction::page_mut_same_layout`], every other change through `page_mut`.
 //!
-//! A write transaction remembers the last leaf of a tree that a change's walk from the root reached on the tree's
-//! right edge, with the first key it held, until it reserves or frees pages, the only way a tree changes its shape, or
-//! a change of that tree comes with a key below it (see [`WriteTransaction::recent_leaf`]). A change by key from that
-//! one on that stays in the leaf, without a split or a merge, changes it there without the walk (S1 of the ordered-
-//! write cache execution, as Voron's recently found pages): keys that come in order, as an ordered load, walk the
-//! tree once per leaf, and keys at random reach the right edge too seldom to pay for remembering it. Any other change
-//! walks as it always did. Reads walk from the root.
+//! A write transaction remembers the last leaf of a tree after an add that went to its end, with the key added, until
+//! it reserves or frees pages, the only way a tree changes its shape, or a change of that tree comes with a key below
+//! it (see [`WriteTransaction::recent_leaf`]). A change by key from that one on that stays in the leaf, without a split
+//! or a merge, changes it there without the walk (S1 of the ordered-write cache execution, as Voron's recently found
+//! pages): keys that come in order, as an ordered load, walk the tree once per leaf, and keys at random seldom add at
+//! the tree's end. Any other change walks as it always did. Reads walk from the root.
 //!
 //! The memory an operation needs besides pages (the copy of a node that splits or merges, its cells, a separator
 //! key, the children of a node freed, the list of trees) is reserved through [`reserve`]: running out of it fails
@@ -960,7 +959,7 @@ pub(crate) enum Outcome<K = Vec<u8>> {
 /// Applies `op` to the tree at `root`. `last`, when given, receives the rightmost leaf when the entry was added at its
 /// end and nothing above it changed (see [`try_add_at_last`]). Otherwise a change that stays in the leaf the
 /// transaction remembers for `key` is made there, without a walk (see [`change_in_leaf`]); any other change walks the
-/// tree, and remembers its leaf when it is on the tree's right edge, unless the change reshapes the tree.
+/// tree, and an add that goes to the end of the tree's last leaf, changing nothing above it, remembers that leaf.
 fn update(
     tx: &mut WriteTransaction<'_>,
     root: u64,
@@ -979,7 +978,7 @@ fn update(
         );
     }
     let mut not_asked = None;
-    let mut walk = None;
+    let asked = last.is_some();
     let last = match last {
         Some(last) => last,
         None => {
@@ -989,11 +988,6 @@ fn update(
                     count_changed,
                 });
             }
-            #[cfg(test)]
-            let remembers = !testing::WALK_FROM_ROOT.get();
-            #[cfg(not(test))]
-            let remembers = true;
-            walk = remembers.then_some(root);
             &mut not_asked
         }
     };
@@ -1008,12 +1002,21 @@ fn update(
         &mut count_changed,
         Some(Beside::Root),
         last,
-        walk,
     )?;
     if !matches!(outcome, Outcome::Done | Outcome::Underfull) {
         *last = None;
     }
     let root = fix_root(tx, root, outcome)?;
+    // An add went to the end of the tree's last leaf, which nothing else changed: the keys after it, as an ordered
+    // load brings, go there too (S1 of the ordered-write cache execution). The tests' switch walks every time.
+    #[cfg(test)]
+    let asked = asked || testing::WALK_FROM_ROOT.get();
+    if !asked
+        && let Some(leaf) = last.as_ref().map(|last| last.page)
+        && leaf != root
+    {
+        tx.remember_leaf(root, leaf, key);
+    }
     Ok(Update {
         root,
         count_changed,
@@ -1061,8 +1064,7 @@ fn fix_root(tx: &mut WriteTransaction<'_>, root: u64, outcome: Outcome) -> Resul
 /// Applies `op` to the subtree at `page`, a node of `level` when given; `count_changed` reports whether the number
 /// of entries changed. It checks `page`, which the functions it calls for it read again without checking.
 /// `edge` is what is beside `page` when it is on the tree's right edge, and `last` receives the rightmost leaf when
-/// an entry is added at its end and nothing above it changes (see [`try_add_at_last`]). With `walk`, the root the walk
-/// started from, the leaf reached on the tree's right edge is remembered unless the change reshapes the tree.
+/// an entry is added at its end and nothing above it changes (see [`try_add_at_last`]).
 #[allow(clippy::too_many_arguments)]
 fn change(
     tx: &mut WriteTransaction<'_>,
@@ -1073,20 +1075,10 @@ fn change(
     count_changed: &mut bool,
     edge: Option<Beside>,
     last: &mut Option<LastLeaf>,
-    walk: Option<u64>,
 ) -> Result<Outcome> {
     let node = node_at(&*tx, page, level)?;
     if node::is_leaf(node) {
         let found = node::search(node, key);
-        // Remembered before the change, with the keys it holds now: a change that reshapes the tree reserves or frees
-        // pages, which forgets it again.
-        if let Some(root) = walk
-            && page != root
-            && edge.is_some()
-            && node::count(node) > 0
-        {
-            tx.remember_leaf(root, page, node::key(node, 0));
-        }
         return change_leaf(tx, page, key, found, op, count_changed, edge, last);
     }
     let index = node::child_index(node, key);
@@ -1098,17 +1090,7 @@ fn change(
         _ => None,
     };
     let below = child_level(node);
-    match change(
-        tx,
-        child,
-        below,
-        key,
-        op,
-        count_changed,
-        child_edge,
-        last,
-        walk,
-    )? {
+    match change(tx, child, below, key, op, count_changed, child_edge, last)? {
         Outcome::Done => Ok(Outcome::Done),
         Outcome::Split { key, right } => {
             *last = None;

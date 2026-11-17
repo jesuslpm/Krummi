@@ -1235,7 +1235,8 @@ fn the_remembered_leaf_changes_trees_as_walking_does() {
                     i / 40 % 3
                 } as usize;
                 let n = if i / 150 % 2 == 0 {
-                    next[t] = (next[t] + 1 + rng.below(3)) % 2_000;
+                    // Past the keys at random: adds at the end of the tree's last leaf.
+                    next[t] = next[t].max(2_000) + 1 + rng.below(3);
                     next[t]
                 } else {
                     rng.below(2_000)

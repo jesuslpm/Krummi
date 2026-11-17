@@ -1189,13 +1189,14 @@ fn the_remembered_leaf_stores_what_walking_stores() {
             tx.commit().unwrap();
             root
         };
-        // Runs of increasing keys climb the last tenth of the keys, about the tree's last leaf.
-        let mut next = 360;
+        // Runs of increasing keys add past the greatest key, at the end of the tree's last leaf, and change what they
+        // added; the keys at random stay below them.
+        let mut next = 400;
         for _ in 0..10 {
             let mut tx = engine.write(None).unwrap();
             for i in 0..2000 {
                 let key = if i / 100 % 2 == 0 {
-                    next = 360 + (next - 360 + 1 + rng.below(2) as u32) % 40;
+                    next += 1 + rng.below(2) as u32;
                     next
                 } else {
                     rng.below(400) as u32
@@ -1214,7 +1215,7 @@ fn the_remembered_leaf_stores_what_walking_stores() {
         let tx = engine.read().unwrap();
         let mut pages = Vec::new();
         pages_of(&tx, root, &mut pages);
-        for key in 0..400 {
+        for key in 0..=next {
             if let Some(subtree) = subtree_of(&tx, root, &sixteen(key)).unwrap() {
                 pages_of(&tx, subtree, &mut pages);
             }

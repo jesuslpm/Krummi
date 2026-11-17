@@ -197,7 +197,7 @@ pub struct WriteTransaction<'e> {
     freed: BTreeSet<u64>,
     /// Regions where this transaction made pages free, whose longest free run the engine must forget.
     gained: BTreeSet<u64>,
-    /// The leaf a tree layer above last found on a tree's right edge, for [`recent_leaf`](Self::recent_leaf); a
+    /// The last leaf of a tree that a tree layer above last named, for [`recent_leaf`](Self::recent_leaf); a
     /// mutex, never contended, so that it adds no type that cannot be shared between threads to those the compile-fail
     /// tests list.
     recent_leaf: std::sync::Mutex<RecentLeaf>,
@@ -227,13 +227,13 @@ struct Changed {
     keeps_check: bool,
 }
 
-/// The leaf on a tree's right edge that a layer above found in this transaction, and the first key it held (S1 of the
-/// ordered-write cache execution, as Voron's recently found pages, for keys that come in order).
+/// The last leaf of a tree that a layer above named in this transaction, and a key from which it holds every key (S1 of
+/// the ordered-write cache execution, as Voron's recently found pages, for keys that come in order).
 #[derive(Default)]
 struct RecentLeaf {
     /// The tree's root and the leaf's page, `None` when nothing is remembered.
     at: Option<(u64, u64)>,
-    /// The first key the leaf held: it holds every key from it on.
+    /// The key the layer gave: the leaf holds every key from it on.
     lower: Vec<u8>,
 }
 
@@ -421,12 +421,12 @@ impl<'e> WriteTransaction<'e> {
     }
 
     /// The leaf on the right edge of the tree at `root` that holds `key`, as [`remember_leaf`](Self::remember_leaf)
-    /// last named it, when `key` is not below the first key it gave. A key of that tree below it forgets the leaf:
+    /// last named it, when `key` is not below the key it gave. A key of that tree below it forgets the leaf:
     /// keys are not coming in order, and remembering would cost a lock on every change for nothing (W3 of the write
     /// optimizations execution). The transaction also forgets that leaf whenever it reserves or frees pages, or an
     /// operation fails: a tree layer above changes the shape of a tree (splits, merges, a new root, a tree freed) only
     /// by reserving or freeing pages, and freed pages are not reserved again in the same transaction (F6), so until
-    /// then the leaf is the same tree's last and holds every key from that first one on. A change of a remembered leaf
+    /// then the leaf is the same tree's last and holds every key from the one given on. A change of a remembered leaf
     /// skips the walk from the root (S1 of the ordered-write cache execution). A transaction that failed (T11)
     /// remembers nothing: a failed operation can leave a tree half changed, where only a walk names the leaf the other
     /// operations of the transaction would.
@@ -450,8 +450,8 @@ impl<'e> WriteTransaction<'e> {
 
     /// Remembers `leaf` as the last leaf of the tree at `root`, holding every key from `lower` on, in place of the leaf
     /// remembered before. The caller vouches for the leaf as the tree is now; see [`recent_leaf`](Self::recent_leaf).
-    /// Without memory for the key it remembers nothing. Meant only for the tree layer, which names a leaf it has just
-    /// reached by walking the tree's right edge (R1-001 of the RDD review of T4 of the write optimizations
+    /// Without memory for the key it remembers nothing. Meant only for the tree layer, which names the leaf where it
+    /// has just added `lower` at the end of the tree (R1-001 of the RDD review of T4 of the write optimizations
     /// execution): a wrong leaf would send later changes to it.
     #[doc(hidden)]
     pub fn remember_leaf(&self, root: u64, leaf: u64, lower: &[u8]) {
