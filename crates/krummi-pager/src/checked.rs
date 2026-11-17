@@ -120,16 +120,17 @@ impl Checked {
     /// so it does not count as one. `kept` tells that the version kept that check without a check of its own (Q3), which
     /// debug builds record for [`Checked::layout_kept`] (Q4).
     ///
-    /// Only the transfer calls it, one write at a time. It records `kept` before the content, and a read finds the
-    /// written content only through the scratch area's lock, taken after both, so a read that finds the content also
-    /// finds whether it was kept.
+    /// Only the transfer calls it, one write at a time. A read finds the written content only through the scratch
+    /// area's lock, taken after both stores, so a read that finds the content also finds whether it was kept. It stores
+    /// the content before the record, releasing it, so that a read of an earlier content of the slot that sees the new
+    /// record also sees that the slot changed ([`Checked::layout_kept`]).
     pub(crate) fn remember_written(&self, page: u64, code: u64, kept: bool) {
         if code != 0 && ENABLED.load(Ordering::Relaxed) {
+            self.slot(page).store(code, Ordering::Relaxed);
             #[cfg(debug_assertions)]
-            self.kept[self.index(page)].store(if kept { code } else { 0 }, Ordering::Relaxed);
+            self.kept[self.index(page)].store(if kept { code } else { 0 }, Ordering::Release);
             #[cfg(not(debug_assertions))]
             let _ = kept;
-            self.slot(page).store(code, Ordering::Relaxed);
         }
     }
 
@@ -140,9 +141,17 @@ impl Checked {
     /// Other remembering in the slot leaves the record as it is: a record names one content by its code, which covers
     /// the page number (C5), so it never matches another content; a content that a read checked again after it was
     /// dropped from its slot may keep its record, which only adds a check of that same content in debug builds.
+    ///
+    /// A read asks it after finding the content in its slot ([`Checked::contains`]). When the slot no longer holds that
+    /// content, a write of another page of the slot came in between and its record no longer tells, so the answer is
+    /// yes: the read checks a layout that may have kept its check (R5 of the code review of the written pages). The
+    /// record is read first, acquiring what the transfer released with it, so a read that sees a later record also
+    /// sees the slot change that came before it.
     #[cfg(debug_assertions)]
     pub(crate) fn layout_kept(&self, page: u64, code: u64) -> bool {
-        code != 0 && self.kept[self.index(page)].load(Ordering::Relaxed) == code
+        code != 0
+            && (self.kept[self.index(page)].load(Ordering::Acquire) == code
+                || self.slot(page).load(Ordering::Relaxed) != code)
     }
 
     /// Remembers that the value run of `length` pages from page `page`, with stored code `code`, passed the integrity
@@ -277,19 +286,36 @@ mod tests {
         checked.remember_written(1, 10, true);
         assert!(checked.contains(1, 10));
         assert!(checked.layout_kept(1, 10));
-        assert!(!checked.layout_kept(1, 11), "another content of the page");
-        assert!(!checked.layout_kept(5, 50), "another page of the slot");
         assert_eq!(checked.remembered(), 0, "no check is counted");
         // A content of another page in the slot is not kept, and the record never matches it.
         checked.remember(5, 50);
+        assert!(checked.contains(5, 50));
         assert!(!checked.layout_kept(5, 50));
-        assert!(!checked.contains(1, 10));
         // A version that passed a check of its own clears the record of its slot.
         checked.remember_written(1, 10, true);
         checked.remember_written(1, 12, false);
         assert!(checked.contains(1, 12));
         assert!(!checked.layout_kept(1, 12));
-        assert!(!checked.layout_kept(1, 10));
         assert!(!checked.layout_kept(2, 0), "code 0 is never kept");
+    }
+
+    /// Q4 of the written pages PRD, R5 of the code review of the written pages: a read that found a kept content in its
+    /// slot still checks its layout when the transfer writes another page of the slot before the read asks whether it
+    /// was kept, because the slot no longer tells.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_kept_content_replaced_after_its_hit_is_still_checked() {
+        let checked = small_table();
+        checked.remember_written(1, 10, true);
+        assert!(checked.contains(1, 10), "the read finds the kept content");
+        // The transfer writes page 5, of the same slot, between the read's two lookups.
+        checked.remember_written(5, 50, false);
+        assert!(checked.layout_kept(1, 10), "the read checks it");
+        assert!(checked.contains(5, 50));
+        assert!(!checked.layout_kept(5, 50), "the new content kept no check");
+        // The same after a check of another page of the slot, which leaves the record.
+        checked.remember_written(1, 10, true);
+        checked.remember(5, 50);
+        assert!(checked.layout_kept(1, 10));
     }
 }
