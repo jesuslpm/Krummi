@@ -64,3 +64,52 @@ whose keys come in order. Branch `feat/ordered-write-cache` from `0cb816c`; deli
   of their bytes since is the hardware-fault case the PRDs accept (P16); (2) a test comment still named T4's back-off:
   fixed in `77be581`; (3) `remember_leaf` is public and trusts its caller: kept, as T4's R1-001 (another crate calls
   it; hidden from the docs). Scratch removed.
+- **L5** (2026-11-17) — RDD of `0cb816c..41a3703` (T1, the comment fix and this document), lenses risk and
+  reliability, item 1 named, lineage `review-7fb7fdf34f3669c3`: approved, acknowledged (authority burned). Advisory
+  findings: R1-001 and R3-001 (WARNING): the leaf's first key stays right only while every move of entries between
+  leaves reserves or frees pages; a redistribution between siblings would break it silently, and no test mixed
+  `try_add_at_last` with the remembered leaf. Checked: `merge_child` returns `Done` without moving anything when the
+  pair does not fit, so no redistribution exists; hardened in `7d434e4` with a comment on that branch naming the
+  invariant and `try_add_at_last` in the three-tree equivalence test. R1-002 (SUGGESTION, `remember_leaf` public):
+  kept, as L4's advisory 3. Checks after `7d434e4`: fmt and clippy clean, `cargo test --workspace` 873 passed, 0
+  failed, 36 ignored. Reviewed boundary: `41a3703`.
+- **L6** (2026-11-17) — T2 A/B on Windows, `main` (`0cb816c`, `work/wm/main-target`) against T1 (`aef6348`,
+  `work/wm/owc-target`; later commits change only comments and tests), bench power plan, performance cores, digests
+  equal (`work/wm/abq.py`, `AB_BUILDS=main,owc`, `work/owc/ab-long.json`), 3 rounds, head/main op/s and rounds slower:
+  W1 1.110 (0 of 3), W2 0.995 (2), **W3 0.969 (3 of 3)**, W4 1.015 (1), **W14 0.970 (3 of 3)**, **W15 0.974 (3 of
+  3)**, W17 1.000 (1), W19 0.994 (2), W21 1.010 (2), W23 0.999 (2), W24 0.998 (2), W25 0.995 (2), W26 1.000 (1),
+  W28 1.002 (1), W29 0.996 (2). W1 gains 11 %, but three loads worsen by the rule of S2. The short loads stopped at
+  W13, which the worker does not run alone (W12's run reports it): rerun without it. The micro measurement, which
+  switches the cache in one build, saw no cost on W3, so the cost is in the code the walk now carries (the `walk`
+  argument of `change` and the remembering on every right-edge leaf), not in the hits. Variant 2 (uncommitted):
+  `change` back as at `0cb816c`; the leaf is remembered from the `LastLeaf` that `change_leaf` already fills when an
+  add goes to the end of the tree's last leaf and nothing above it changes (and that `set`, `try_add` and `remove`
+  discarded), with the key added as its lower bound, after `fix_root`. A/B of `main`, variant 2 and T1 on W1, W3,
+  W14 and W15 (`work/owc/ab-v2.json`).
+- **L7** (2026-11-17) — Variant A/B, 3 rounds, over `main` (ns/op) as op/s ratio and rounds slower: W1 1061.1 —
+  variant 2 1.126 (0 of 3), T1 1.125 (0); W3 2342.6 — variant 2 **0.966 (3 of 3)**, T1 0.963 (3); W14 8076.6 —
+  variant 2 1.009 (0), T1 0.973 (3); W15 8622.4 — variant 2 1.003 (1), T1 0.972 (3). Variant 2 removes the cost on
+  removals and keeps W1's gain; W3 still loses. Variant 3 (uncommitted): `change` and `change_leaf` byte for byte as
+  at `0cb816c` (the search back inside `change_leaf`; a hit searches the leaf twice). A/B of `main` and variant 3 on
+  W1, W2, W3, W14 and W15, 5 rounds (`work/owc/ab-v3.json`).
+- **L8** (2026-11-17) — Variant 3 over `main`, 5 rounds: W1 1.072 (0 of 5 slower), W2 1.001 (2), **W3 0.982 (5 of
+  5)**, W14 1.005 (1), W15 0.998 (2). The second search of a hit costs about half of W1's gain, and W3 still loses
+  with the walk identical to `main`'s. To place W3's cost: a build of `main` with only T1's `transaction.rs` (the
+  new fields, `forget_leaf` on every reservation and free, the unused hooks; `work/wm/txo-target`), A/B of `main`,
+  that build and variant 2 on W3, 5 rounds (`work/owc/ab-txo.json`).
+- **L9** (2026-11-17) — W3, 5 rounds, `main` 2342.0 ns: transaction-only build 0.997 (3 of 5 slower), variant 2
+  0.975 (4 of 5). The transaction's part costs nothing; the cost is in the tree's `update`. Hypothesis: `change_leaf`
+  now has two callers (`change` and `change_in_leaf`), so it is no longer inlined in `change`'s leaf step and every
+  change pays a call. Variant 5: variant 2 with `#[inline(always)]` on `change_leaf` and `#[inline(never)]` on
+  `change_in_leaf`; A/B of `main`, variant 5 and variant 2 on W1 and W3, 5 rounds (`work/owc/ab-v5.json`).
+- **L10** (2026-11-17) — 5 rounds over `main`: W1 1069.3 ns — variant 5 1.129 (0 of 5 slower), variant 2 1.148
+  (0); W3 2351.0 ns — variant 5 0.971 (5 of 5), variant 2 0.981 (5 of 5). The inlining hypothesis is wrong: forcing
+  it does not help. What is known: the cache's work at run time costs W3 nothing (the in-process on/off measurement
+  of L3), nor does the transaction's part (L9), and every variant that changes the tree's `update` loses 2–3.7 % on
+  W3 whatever it changes, as the loop alignment of T5 of the write optimizations execution moved W6 by 3.6 %: most
+  likely the layout of the compiled code, not measured. Decision taken during the run (listed in the closing
+  report): keep variant 2, the best for W1 (+12.6 to +14.8 %) and neutral on W14 and W15, and finish the
+  acceptance; by S2, W3 goes to the user. Variant 2 committed with the equivalence tests' in-order runs adding past
+  the greatest key (an add at the end is now the only way to remember a leaf; the old runs, within the keys at
+  random, found it 1 and 24 times) and the transaction's docs reworded. Checks: fmt and clippy clean, `cargo test
+  --workspace` 873 passed, 0 failed, 36 ignored.
