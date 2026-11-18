@@ -640,6 +640,19 @@ pub fn try_add_at_last(
     Ok((update, last))
 }
 
+/// [`set`], and the tree's rightmost leaf, for [`append_last`], when `key` was new and went to the end of that leaf
+/// and nothing above the leaf changed, as [`try_add_at_last`] reports it. It reads only what [`set`] reads.
+pub fn set_at_last(
+    tx: &mut WriteTransaction<'_>,
+    root: u64,
+    key: &[u8],
+    value: &[u8],
+) -> Result<(Update, Option<LastLeaf>)> {
+    let mut last = None;
+    let update = update(tx, root, key, Op::Set(value), &mut last)?;
+    Ok((update, last))
+}
+
 /// The rightmost leaf of a tree, for [`append_last`], as [`try_add_at_last`] finds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LastLeaf {

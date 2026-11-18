@@ -1056,6 +1056,40 @@ fn appending_to_the_last_leaf_changes_the_tree_as_adding_does() {
     assert_eq!(entries(&read, root_b).len(), 4_000);
 }
 
+/// `set_at_last` stores a new key as `try_add_at_last` adds it: the same nodes byte for byte and the same last leaf
+/// reported, through splits and values off their leaf; and a key that is there is overwritten, with no leaf reported.
+#[test]
+fn setting_a_new_key_reports_the_last_leaf_as_adding_it_does() {
+    let (plain, fast) = (temporary(), temporary());
+    let (mut root_a, mut root_b) = (new_tree(&plain), new_tree(&fast));
+    let mut a = plain.write(None).unwrap();
+    let mut b = fast.write(None).unwrap();
+    let mut reported = 0;
+    for i in 0..3_000usize {
+        let key = format!("{i:08}").into_bytes();
+        let len = if i % 97 == 0 { 5_000 } else { 20 + i % 300 };
+        let value: Vec<u8> = (0..len).map(|j| (i + j) as u8).collect();
+        let (added, found_a) = try_add_at_last(&mut a, root_a, &key, &value).unwrap();
+        let (set, found_b) = set_at_last(&mut b, root_b, &key, &value).unwrap();
+        assert_eq!(
+            (set.count_changed, set.root),
+            (added.count_changed, added.root),
+            "{i}"
+        );
+        assert_eq!(found_b, found_a, "{i}");
+        reported += usize::from(found_b.is_some());
+        (root_a, root_b) = (added.root, set.root);
+    }
+    assert!(reported > 100, "{reported}");
+    assert_eq!(node_pages(&a, root_a), node_pages(&b, root_b));
+    let key = format!("{:08}", 2_999).into_bytes();
+    let (set, found) = set_at_last(&mut b, root_b, &key, b"new").unwrap();
+    assert_eq!((set.count_changed, found), (false, None));
+    assert_eq!(get(&b, set.root, &key).unwrap(), Some(&b"new"[..]));
+    a.commit().unwrap();
+    b.commit().unwrap();
+}
+
 /// `append_last` against `try_add` with removals in between, which leave leaves under a quarter full beside the last
 /// one: after any change but its own, the caller finds the last leaf again; the trees stay the same, node for node.
 #[test]

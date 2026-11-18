@@ -92,6 +92,8 @@ const MAX_NAME: usize = 1024;
 const MAX_MULTI_VALUE: usize = krummi_tree::MAX_KEY;
 
 #[cfg(test)]
+mod append_tests;
+#[cfg(test)]
 mod check_tests;
 #[cfg(test)]
 mod fixed_tests;
@@ -488,6 +490,13 @@ struct TreeState {
     deleted: bool,
     /// Its root or count differ from its catalog entry, which the commit then rewrites.
     dirty: bool,
+    /// The rightmost leaf of the tree whose root was the first page, which [`WriteTransaction::set`] and
+    /// [`WriteTransaction::try_add`] append to without walking the tree: one that `set_at_last` or `try_add_at_last`
+    /// returned, kept only while nothing else changes the tree.
+    last: Option<(u64, krummi_tree::LastLeaf)>,
+    /// How many keys were added at the end of `last`.
+    #[cfg(test)]
+    appended: u64,
 }
 
 impl<'s> ReadTransaction<'s> {
@@ -943,10 +952,7 @@ impl<'s> WriteTransaction<'s> {
     pub fn set(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<()> {
         self.folder.check_key(key)?;
         self.folder.check_value(value)?;
-        let (root, _) = self.live(tree)?;
-        let update = krummi_tree::set(&mut self.inner, root, key, value)?;
-        self.apply(tree, update.root, update.count_changed, true);
-        Ok(())
+        self.put(tree, key, value, true).map(drop)
     }
 
     /// Stores `value` under `key` in `tree` only if the key is not there, and returns whether it did. The sizes
@@ -955,9 +961,43 @@ impl<'s> WriteTransaction<'s> {
     pub fn try_add(&mut self, tree: &WriteTree<'_>, key: &[u8], value: &[u8]) -> Result<bool> {
         self.folder.check_key(key)?;
         self.folder.check_value(value)?;
+        self.put(tree, key, value, false)
+    }
+
+    /// Stores `value` under `key` in the normal tree of `tree`, replacing the value of a key that is there only when
+    /// `replace`, and returns whether the key is new. A key greater than every key of the tree goes to the end of its
+    /// remembered last leaf without walking the tree (`krummi_tree::append_last`); otherwise the tree is walked, and
+    /// its last leaf is remembered when the key went to the end of it. Anything else, a failure included, forgets it.
+    fn put(
+        &mut self,
+        tree: &WriteTree<'_>,
+        key: &[u8],
+        value: &[u8],
+        replace: bool,
+    ) -> Result<bool> {
         let (root, _) = self.live(tree)?;
-        let update = krummi_tree::try_add(&mut self.inner, root, key, value)?;
+        // Taken out, so that a failure leaves nothing remembered.
+        let last = self.tree_state(tree).last.take();
+        if let Some((at, leaf)) = last
+            && at == root
+            && krummi_tree::append_last(&mut self.inner, &leaf, key, value)?
+        {
+            self.apply(tree, root, true, true);
+            let state = self.tree_state(tree);
+            state.last = last;
+            #[cfg(test)]
+            {
+                state.appended += 1;
+            }
+            return Ok(true);
+        }
+        let (update, found) = if replace {
+            krummi_tree::set_at_last(&mut self.inner, root, key, value)?
+        } else {
+            krummi_tree::try_add_at_last(&mut self.inner, root, key, value)?
+        };
         self.apply(tree, update.root, update.count_changed, true);
+        self.tree_state(tree).last = found.map(|leaf| (update.root, leaf));
         Ok(update.count_changed)
     }
 
@@ -965,6 +1005,7 @@ impl<'s> WriteTransaction<'s> {
     pub fn remove(&mut self, tree: &WriteTree<'_>, key: &[u8]) -> Result<bool> {
         self.folder.check_key(key)?;
         let (root, _) = self.live(tree)?;
+        self.tree_state(tree).last = None;
         let update = krummi_tree::remove(&mut self.inner, root, key)?;
         self.apply(tree, update.root, update.count_changed, false);
         Ok(update.count_changed)
@@ -993,6 +1034,7 @@ impl<'s> WriteTransaction<'s> {
     ) -> Result<u64> {
         let interval = self.folder.interval(prefix, &bounds)?;
         let (root, _) = self.live(tree)?;
+        self.tree_state(tree).last = None;
         let update = krummi_tree::remove_range(&mut self.inner, root, interval)?;
         self.apply_removed(tree, update);
         Ok(update.removed)
@@ -1265,6 +1307,9 @@ impl<'s> WriteTransaction<'s> {
                     count: entry.count,
                     deleted: false,
                     dirty: false,
+                    last: None,
+                    #[cfg(test)]
+                    appended: 0,
                 },
             );
         }
@@ -1299,6 +1344,14 @@ impl<'s> WriteTransaction<'s> {
             return Err(self.folder.not_found(&state.name));
         }
         Ok((state.root, state.count))
+    }
+
+    /// The state of the tree of a live handle.
+    fn tree_state(&mut self, tree: &WriteTree<'_>) -> &mut TreeState {
+        self.trees
+            .get_mut()
+            .get_mut(tree.id)
+            .expect("a live handle")
     }
 
     /// Records what a key operation did to the tree of `tree`: its new `root`, and whether its count changed by one,
@@ -1390,6 +1443,7 @@ impl<'s> WriteTransaction<'s> {
         state.root = root;
         state.count = 0;
         state.dirty = true;
+        state.last = None;
         Ok(emptied)
     }
 
@@ -1401,6 +1455,7 @@ impl<'s> WriteTransaction<'s> {
         if let Some(state) = self.trees.get_mut().get_mut(entry.id) {
             state.deleted = true;
             state.dirty = false;
+            state.last = None;
         }
         Ok(())
     }
