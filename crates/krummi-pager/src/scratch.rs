@@ -1624,6 +1624,13 @@ impl<'a> ScratchWriter<'a> {
             .map_err(|_| Error::OutOfMemory {
                 requested: (entries * size_of::<(u64, Arc<Slot>, usize)>()) as u64,
             })?;
+        // Room for every payload this commit gives back, so that a large commit fails here with `OutOfMemory`, before
+        // anything is staged, rather than in the loop.
+        spare
+            .try_reserve(pages.len())
+            .map_err(|_| Error::OutOfMemory {
+                requested: (pages.len() * size_of::<PayloadBuf>()) as u64,
+            })?;
         for (page_number, page) in pages {
             assert!(
                 (HEADER_PAGES..page_count).contains(&page_number),

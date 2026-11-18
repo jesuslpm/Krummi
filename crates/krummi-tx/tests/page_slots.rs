@@ -177,6 +177,8 @@ fn a_copied_page_is_changed_in_a_free_slot_and_published_from_it() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = disk(tmp.path());
     let pages = with_free_slots(&engine, 4);
+    // A transfer between the commit and the read would serve the page from the store instead of its slot.
+    engine.set_transfer_paused(true);
     let mut tx = engine.write(None).unwrap();
     put(&mut tx, pages[1], "new 1");
     let own = tx.page(pages[1]).unwrap();
@@ -193,6 +195,7 @@ fn a_copied_page_is_changed_in_a_free_slot_and_published_from_it() {
     );
     assert_eq!(text(read.page(pages[0]).unwrap()), "old 0");
     drop(read);
+    engine.set_transfer_paused(false);
     engine.close().unwrap();
     let engine = disk(tmp.path());
     assert_eq!(read_text(&engine, pages[1]), "new 1");
