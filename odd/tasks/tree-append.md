@@ -82,3 +82,18 @@ PRD: nothing observable changes.
   29 umbrales**; carga-en-orden 150,562 op/s, 1.08 (the night's run on the base's code: 154,783, 1.09), so on Linux,
   where the load runs at about a tenth of Windows' rate, the walk it saves does not show; W12 1.20, W13 1.16. Reports
   in `work/ta/full/` (ignored by git).
+- **L9** (2026-11-18) — RDD of `504cd84..0a9c354`. Assess: `high`, `review_due` (item 3 escalated: «set and try_add
+  of the public key-value API now keep a remembered last leaf per tree that every other change must forget»); the
+  untracked `docs/reviews/tables-indexes/` (not this run's) excluded. Lenses risk, resilience and reliability; lineage
+  `review-6b998102177bc84b`; **approved**, acknowledged (authority burned). Advisory findings:
+  - **Risk:** none.
+  - R4-unverified-write-regression, WARNING (`odd/tasks/tree-append.md`, L5–L8): the marks of L5 (W12 0.946, W17
+    0.903) were accepted without a base-against-candidate repeat, and W1 does not gain on Linux. Not changed: the
+    user stopped the repeats («No hagas más rondas», L6) and accepted the marks (L7); the complete runs meet 29 of 29
+    on both systems (L8). The closing report lists them as pending.
+  - R3-set-at-last-non-rightmost-coverage, WARNING (`crates/krummi-tree/src/tests.rs`): no test of `set_at_last`
+    with a new key before the tree's end, as at the end of a leaf that is not the rightmost, nor of an API `set` of a
+    new middle key. Fixed: `setting_a_new_key_before_the_end_reports_no_leaf` (1,499 new keys between those of a tree
+    of many leaves, each reporting no leaf; the tree validates) and a `set` of a new middle key in
+    `every_other_change_forgets_the_last_leaf`. Both passed on the first run (no defect, coverage only).
+  Checks: fmt and clippy clean, `cargo test --workspace` 874 passed, 0 failed.

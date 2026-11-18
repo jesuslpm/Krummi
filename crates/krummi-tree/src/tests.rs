@@ -1090,6 +1090,32 @@ fn setting_a_new_key_reports_the_last_leaf_as_adding_it_does() {
     b.commit().unwrap();
 }
 
+/// `set_at_last` reports no leaf for a new key below the tree's greatest, also when the key goes to the end of a leaf
+/// that is not the rightmost one: the odd keys between the even keys of a tree of many leaves, each just after its
+/// predecessor, which for the first key of every right sibling is the last key of the leaf before it.
+#[test]
+fn setting_a_new_key_before_the_end_reports_no_leaf() {
+    let store = temporary();
+    let mut root = new_tree(&store);
+    let mut tx = store.write(None).unwrap();
+    let key_of = |i: usize| format!("{i:08}").into_bytes();
+    for i in (0..3_000).step_by(2) {
+        root = set(&mut tx, root, &key_of(i), &[i as u8; 40]).unwrap().root;
+    }
+    assert!(height(&tx, root) > 1, "a tree of many leaves");
+    assert_eq!(last_leaf(&tx, root).unwrap().1, Some(key_of(2_998)));
+    for i in (1..2_998).step_by(2) {
+        let (update, found) = set_at_last(&mut tx, root, &key_of(i), &[i as u8; 40]).unwrap();
+        assert!(update.count_changed, "{i}");
+        assert_eq!(found, None, "{i}");
+        root = update.root;
+    }
+    tx.commit().unwrap();
+    let read = store.read().unwrap();
+    validate(&read, root, None, None, true);
+    assert_eq!(entries(&read, root).len(), 2_999);
+}
+
 /// `append_last` against `try_add` with removals in between, which leave leaves under a quarter full beside the last
 /// one: after any change but its own, the caller finds the last leaf again; the trees stay the same, node for node.
 #[test]

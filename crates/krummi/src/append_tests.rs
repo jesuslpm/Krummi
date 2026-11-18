@@ -108,6 +108,12 @@ fn every_other_change_forgets_the_last_leaf() {
     forgot(&mut write, "a set of a key that is there");
 
     append(&mut write, &mut model, &mut next);
+    let middle = format!("{:08}.5", 15).into_bytes();
+    write.set(&tree, &middle, b"m").unwrap();
+    model.insert(middle, b"m".to_vec());
+    forgot(&mut write, "a set of a new key in the middle");
+
+    append(&mut write, &mut model, &mut next);
     assert!(!write.try_add(&tree, &key(20), b"x").unwrap());
     forgot(&mut write, "a try_add of a key that is there");
 
