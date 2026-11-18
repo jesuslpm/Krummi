@@ -44,7 +44,7 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1, S3: index key encoding (direction, nulls, entry key = index columns ‖ primary key), decoding into owned values, value bounds of IX9 per direction; unit and property tests of order | delegated (backstop) | done (RED: `index_key_tests` did not compile; GREEN 14 of 14; six injected encoding defects each failed 3–7 tests) | `2657249` |
-| T2 | S1: definitions in the catalog (format 12, IX1, IX3, IX14), create (both modes, in-memory sort over rows) and drop (IX2, IX4, IX11), schema changes (IX5), Describe with identities and index state (IX6), changes and references (IX13), error data (IX10); AC-IX1, AC-IX7 (in-memory), AC-IX9–AC-IX12, AC-IX15 | delegated (backstop) | pending | |
+| T2 | S1: definitions in the catalog (format 12, IX1, IX3, IX14), create (both modes, in-memory sort over rows) and drop (IX2, IX4, IX11), schema changes (IX5), Describe with identities and index state (IX6), changes and references (IX13), error data (IX10); AC-IX1, AC-IX7 (in-memory), AC-IX9–AC-IX12, AC-IX15 | delegated (backstop) | done (7 injected defects each caught; `table_indexes` 16 of 16; independent verifier pending) | `9d57e7f`, `e7b95e9` |
 | T3 | S1: maintenance in every row write (IX7, IX10, IX12), bulk load, empty; AC-IX2, AC-IX6, AC-IX8, AC-IX13 | delegated (backstop) | pending | |
 | T4 | S1: index scans returning rows or entries, intervals (IX8, IX9); AC-IX3–AC-IX5 | delegated (backstop) | pending | |
 | T5 | S1: external sort in `krummi.sort` and its cleanup (IX2: open step 8, close, failures, memory-only temporary store); AC-IX14 | delegated (backstop) | pending | |
@@ -79,3 +79,32 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   Checks by the writer: fmt, clippy and the workspace tests pass; parent spot check: `cargo test -p krummi --lib
   index_key` 14 of 14. RDD assess (base `0158fd4`, committed only): `medium`, `under_budget`. Risk: none (the shared
   `fit` keeps its only reachable primary-key case).
+- **L4** (2026-11-18) — T2: definitions after the primary key in the catalog extra bytes (index state, then each index
+  in name order: identity, name, root, unique, key columns with direction and nulls, included columns, an empty
+  reserved partial-index condition), `FORMAT_VERSION = 12`; public `IndexDefinition`, `IndexKey`, `IndexMode`,
+  `Direction`, `Nulls`, `create_index`, `drop_index`, Describe's `indexes()`, `index(name)` and `index_state()`;
+  identities and index states recorded in the schema history tree so later draws avoid them; creation over rows reads
+  without checking content, checks entry sizes and duplicates on the sorted entries before allocating, then appends in
+  order through a memory-only `Sorter` (the seam of T5). Errors: optional index fields in `TreeAlreadyExists`,
+  `DuplicateKey`, `InvalidSchema` and `InvalidSize`, new `SizeSubject::IndexName`/`IndexEntry`, seven `SchemaRule`
+  and three `SchemaDifference` values, and a separate `Error::DifferentIndex` of the different-schema kind because
+  `DifferentSchema` is already at clippy's error-size limit on Windows (pinned by a `size_of::<Error>() <= 120` test);
+  existing Display output is unchanged. Row writes on a table with indexes panic in `live_rows` before changing
+  anything, the hook point T3 fills. S5 decisions by the writer: column names of a definition are size-checked like
+  the index name; included columns are stored as nullable; an included value over the row maximum fails with the row
+  size error before allocating. The format bump needed mechanical edits in nine more test files (approved by the
+  parent: pins of 11, a recomputed data-file hash, full-field error patterns, one more identity in `ac_py5`).
+- **L5** (2026-11-18) — RDD: the first candidate (T1 + T2, `0158fd4..0cb4c39`, 4 lenses) and then T2 alone stopped
+  with `lens_context_budget_exceeded` before creating any authority. The local, unpushed T2 commit `0cb4c39` was
+  undone with `git reset --soft 036c982` and recommitted in two slices. Reviews, all approved and acknowledged:
+  T1 slice `0158fd4..036c982` (reliability, readability; lineage `review-fa901f8836220898`; advisories: two vacuous
+  assertions in `index_key_tests.rs` around `:984`, malformed entries not tested in `key.rs:128-161`, a doc
+  suggestion); T2a `036c982..9d57e7f` (code, unit tests and format pins; risk, resilience, readability, reliability;
+  `review-37246ff2b6d8aa00`; 13 advisories: the row-write panic until T3, the in-memory build until T5, undocumented
+  row-size error, and the claim that an index key layout follows column changes, checked and dismissed: a non-null
+  value encodes the same whether or not the column admits nulls, `nullable` only gates the null element and the null
+  exclusion of bounds, `key.rs:149`, `:186`, `:443`, `:449`); T2b `9d57e7f..e7b95e9` (integration tests; reliability;
+  `review-6793bcb98f2f04dd`; advisories: allow-nulls test is a no-op at `table_indexes.rs:1509`, dropping an included
+  column unproved at `:1487`, weak page-free assertion at `:1576`, read-open damage untested at `:1975`). The
+  untracked integration test file was kept outside the worktree during the T1 and T2a reviews because an untracked
+  file blocks a committed-only preflight.
