@@ -2,8 +2,8 @@
 
 Informe de cierre de `night-optimizations` (2026-11-18). Enfoque de ejecución: ODD.
 Fuente de producto: ninguna. Son optimizaciones sin cambio de comportamiento, tomadas de los pendientes del
-[plan de rendimiento](../../docs/performance/plan.md). La de T3 cambiaría bytes guardados, así que quedó en un
-borrador de PRD: [journal-skip-compression.prd.md](../../docs/prd/krummi/journal/journal-skip-compression.prd.md).
+[plan de rendimiento](../../../docs/performance/plan.md). La de T3 cambiaría bytes guardados, así que quedó en un
+borrador de PRD: [journal-skip-compression.prd.md](../../../docs/prd/krummi/journal/journal-skip-compression.prd.md).
 Documento de ejecución: [night-optimizations.md](night-optimizations.md).
 
 Rama `feat/night-optimizations`, creada desde `feat/ordered-write-cache` (`2e45b31`, código igual a `main` `0cb816c`).
@@ -66,16 +66,16 @@ Sin fusionar y sin publicar. La ejecución tuvo dos sesiones:
     - El diagnóstico de T2 con builds placebo (opus, alta).
     - El verificador de T2 restaurada (sonnet, alta; ítem 4): pasó las seis preguntas, sin bloqueantes (L16).
   - Codex, cadena 1, sobre `2e45b31..a8052be`: dos correcciones menores en el borrador del PRD, y aprobado en el
-    seguimiento. [Informe](../../docs/reviews/night-optimizations/2026-11-18-code.md),
-    [seguimiento](../../docs/reviews/night-optimizations/2026-11-18-code-02.md),
-    [resoluciones](../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md).
+    seguimiento. [Informe](../../../docs/reviews/night-optimizations/2026-11-18-code.md),
+    [seguimiento](../../../docs/reviews/night-optimizations/2026-11-18-code-02.md),
+    [resoluciones](../../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md).
   - Codex, cadena 2, sobre `5a00edc..a4a6bef` (T2 restaurada): sin defectos de código.
     - R1 (menor): el A/B de Krummi solo no demuestra los umbrales frente a Voron.
     - R1 se corrigió en `e66de37`, y eso llevó a repetir las ejecuciones completas y a la reversión. El seguimiento
       lo aprobó.
-    - [Informe](../../docs/reviews/night-optimizations/2026-11-18-code-03.md),
-      [seguimiento](../../docs/reviews/night-optimizations/2026-11-18-code-04.md),
-      [resoluciones](../../docs/reviews/night-optimizations/2026-11-18-code-03-resolutions.md).
+    - [Informe](../../../docs/reviews/night-optimizations/2026-11-18-code-03.md),
+      [seguimiento](../../../docs/reviews/night-optimizations/2026-11-18-code-04.md),
+      [resoluciones](../../../docs/reviews/night-optimizations/2026-11-18-code-03-resolutions.md).
 - **Hallazgos corregidos por el camino:**
   - Codex R1 y R2 del borrador de PRD (`4cd6aa1`).
   - RDD: la reserva de los buffers de sobra y el momento del test del puntero publicado (`96ef635`). Se fueron con la

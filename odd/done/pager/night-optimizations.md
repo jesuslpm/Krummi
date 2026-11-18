@@ -158,12 +158,12 @@ PRD draft for the user, not an implementation).
   `d48f747`), single runs of three repetitions moved Krummi between 0.71 (lecturas-con-escritor) and 1.22
   (valores-grandes-carga); they are not an A/B and decide nothing (S5's A/Bs are L7–L9).
 - **L12** (2026-11-18) — Codex code review R1 of `2e45b31..a8052be`
-  ([report](../../docs/reviews/night-optimizations/2026-11-18-code.md),
-  [resolutions](../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md)): status `findings`. There
+  ([report](../../../docs/reviews/night-optimizations/2026-11-18-code.md),
+  [resolutions](../../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md)): status `findings`. There
   are no code defects; Codex's checks passed. R1 (minor, the draft named format `11`, already the current one) was
   fixed, and so was R2 (minor, the draft reversed the encoding and the space reservation). Both fixes are in `4cd6aa1`.
   The draft's five product questions stay for the user.
-- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
+- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
   `approved`, R1 and R2 verified resolved, no findings open. T5 done.
 - **L14** (2026-11-18) — User, after the closing report and the question whether to restore T2: «Cual es W3?», then
   «A ver si lo entiendo, W3 paga la búsqueda de un hueco libre en el área temporal y no hay huecos libres. ¿Por qué es
@@ -255,14 +255,14 @@ PRD draft for the user, not an implementation).
   29/29) and the `not2` run above (Windows 29/29). The diagnosis of why T2 slows W12 and W13 only in the complete run
   is a follow-up, and it would also explain the A/B's blind spot.
 - **L21** (2026-11-18) — Codex code review of `5a00edc..a4a6bef` (the restored T2;
-  [report](../../docs/reviews/night-optimizations/2026-11-18-code-03.md),
-  [resolutions](../../docs/reviews/night-optimizations/2026-11-18-code-03-resolutions.md)): status `findings`, no code
+  [report](../../../docs/reviews/night-optimizations/2026-11-18-code-03.md),
+  [resolutions](../../../docs/reviews/night-optimizations/2026-11-18-code-03-resolutions.md)): status `findings`, no code
   defect, Codex's checks passed. R1 (minor: the Krummi-only A/B of L19 does not show the thresholds against Voron)
   fixed in `e66de37` (L19's wording and the two complete runs of L20). RDD of the last slice `7314419..e66de37`
   (assess `medium`, `under_budget`, the revert and its records): lenses resilience and reliability; lineage
   `review-2f04a54e307bd2e5`; **approved** with no findings, acknowledged (authority burned).
 - **L22** (2026-11-18) — Codex follow-up of `a4a6bef..8ef2d10`
-  ([report](../../docs/reviews/night-optimizations/2026-11-18-code-04.md)): `approved`, R1 verified resolved, no
+  ([report](../../../docs/reviews/night-optimizations/2026-11-18-code-04.md)): `approved`, R1 verified resolved, no
   findings open. T5 done.
 
 ## Closing
