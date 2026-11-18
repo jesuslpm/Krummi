@@ -38,6 +38,14 @@ pub enum Op {
     Probe,
     /// Reading random bytes from the operating system's generator (P20 of the table design).
     Random,
+    /// Creating the folder or a file of the sort that creates an index (IX2 of the secondary indexes PRD).
+    SortCreate,
+    /// Writing a file of the sort.
+    SortWrite,
+    /// Opening or reading a file of the sort.
+    SortRead,
+    /// Removing the folder of the sort, when there is one.
+    SortRemove,
 }
 
 #[inline]
@@ -425,6 +433,77 @@ pub(crate) fn remove_temp_file(path: &Path) {
 pub(crate) fn remove_temp_dir(path: &Path) -> io::Result<()> {
     before(Op::Temp, path)?;
     match fs::remove_dir_all(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// Creates the folder of the sort that creates an index (IX2 of the secondary indexes PRD).
+pub(crate) fn create_sort_dir(path: &Path) -> io::Result<()> {
+    before(Op::SortCreate, path)?;
+    fs::create_dir(path)
+}
+
+/// Creates a file of the sort for writing. Like the temporary area's, its operations are not recorded: the sort's
+/// files never take part in recovery.
+pub(crate) fn create_sort_file(path: &Path) -> io::Result<File> {
+    before(Op::SortCreate, path)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // Windows then keeps the file's pages in memory while it has memory to spare, as for the temporary area.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY;
+        options.attributes(FILE_ATTRIBUTE_TEMPORARY);
+    }
+    options.open(path)
+}
+
+/// Appends `bytes` to a file of the sort.
+pub(crate) fn write_sort(file: &mut File, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    before(Op::SortWrite, path)?;
+    file.write_all(bytes)
+}
+
+/// Opens a file of the sort for reading.
+pub(crate) fn open_sort(path: &Path) -> io::Result<File> {
+    before(Op::SortRead, path)?;
+    File::open(path)
+}
+
+/// Reads the next bytes of a file of the sort into `buf`: as many as fit, fewer only at its end.
+pub(crate) fn read_sort(file: &mut File, path: &Path, buf: &mut [u8]) -> io::Result<usize> {
+    use std::io::Read;
+    before(Op::SortRead, path)?;
+    let mut filled = 0;
+    while filled < buf.len() {
+        match file.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(filled)
+}
+
+/// Removes `path`, the folder of the sort, with everything in it, also when it is a file; a missing one is not an
+/// error and is no fault point.
+pub(crate) fn remove_sort(path: &Path) -> io::Result<()> {
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    before(Op::SortRemove, path)?;
+    let removed = if meta.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    match removed {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         other => other,
     }

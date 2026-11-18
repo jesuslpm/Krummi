@@ -10,9 +10,10 @@
 //!   later ones; otherwise the journal is damaged and the opening fails without touching the store.
 //!
 //! Pass 2 writes the pages of the commits that apply, flushes `krummi.data`, records the last one in both header
-//! copies and removes the journal and the temporary area. Each sealed page is checked before anything is written;
-//! the pages of a value run travel as raw entries, which the record's checksum covers. An interruption at any point
-//! leaves what the next opening needs to do the same again.
+//! copies and removes the journal and the temporary area, and then `krummi.sort`, the files of a sort a crash
+//! interrupted (IX2 of the secondary indexes PRD). Each sealed page is checked before anything is written; the pages
+//! of a value run travel as raw entries, which the record's checksum covers. An interruption at any point leaves what
+//! the next opening needs to do the same again.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -25,6 +26,7 @@ use crate::journal::{
     ALIGN, PageEntry, RECORD_HEADER, RecordHeader, decode_entries, decode_payload, parse_file_name,
 };
 use crate::pager::Pager;
+use crate::sort::SORT_DIR;
 use crate::sys;
 use crate::temp::TEMP_DIR;
 
@@ -44,7 +46,11 @@ struct Found {
 /// Recovers the store `pager` opened from `folder` (J8).
 pub(crate) fn recover(pager: &mut Pager, folder: &Path) -> Result<Recovered> {
     let header = pager.header();
-    let (journal_files, temp_present) = list(folder)?;
+    let Listed {
+        journal_files,
+        temp_present,
+        sort_present,
+    } = list(folder)?;
     let needed: Vec<&(u64, PathBuf)> = journal_files
         .iter()
         .filter(|(number, _)| *number >= header.journal_first)
@@ -99,17 +105,32 @@ pub(crate) fn recover(pager: &mut Pager, folder: &Path) -> Result<Recovered> {
     if temp_present {
         sys::remove_temp_dir(&folder.join(TEMP_DIR)).map_err(|e| access(folder, e))?;
     }
+    // The files of a sort that a crash interrupted (IX2 of the secondary indexes PRD), never read: whatever is there,
+    // also a file of that name.
+    if sort_present {
+        sys::remove_sort(&folder.join(SORT_DIR)).map_err(|e| access(folder, e))?;
+    }
     Ok(Recovered {
         last_txid,
         next_number,
     })
 }
 
-/// The journal files in `folder`, sorted by number, and whether `krummi.temp` is there. An entry with a reserved
-/// name of the wrong kind is damage (J9).
-fn list(folder: &Path) -> Result<(Vec<(u64, PathBuf)>, bool)> {
+/// What recovery finds in the store's folder.
+struct Listed {
+    /// The journal files, sorted by number.
+    journal_files: Vec<(u64, PathBuf)>,
+    /// Whether `krummi.temp` is there.
+    temp_present: bool,
+    /// Whether `krummi.sort` is there, of any kind.
+    sort_present: bool,
+}
+
+/// The reserved entries of `folder`. A journal file or `krummi.temp` of the wrong kind is damage (J9).
+fn list(folder: &Path) -> Result<Listed> {
     let mut files = Vec::new();
     let mut temp = false;
+    let mut sort = false;
     for entry in fs::read_dir(folder).map_err(|e| access(folder, e))? {
         let entry = entry.map_err(|e| access(folder, e))?;
         let name = entry.file_name();
@@ -119,21 +140,28 @@ fn list(folder: &Path) -> Result<(Vec<(u64, PathBuf)>, bool)> {
                 return Err(damaged(folder));
             }
             files.push((number, entry.path()));
-        } else if is_temp_dir(&name) {
+        } else if is_reserved(&name, TEMP_DIR) {
             if !kind.is_dir() {
                 return Err(damaged(folder));
             }
             temp = true;
+        } else if is_reserved(&name, SORT_DIR) {
+            sort = true;
         }
     }
     files.sort_unstable_by_key(|(number, _)| *number);
-    Ok((files, temp))
+    Ok(Listed {
+        journal_files: files,
+        temp_present: temp,
+        sort_present: sort,
+    })
 }
 
-fn is_temp_dir(name: &std::ffi::OsStr) -> bool {
+/// Whether the folder entry `name` is the reserved `reserved`: case-insensitively on Windows.
+fn is_reserved(name: &std::ffi::OsStr, reserved: &str) -> bool {
     match name.to_str() {
-        Some(name) if cfg!(windows) => name.eq_ignore_ascii_case(TEMP_DIR),
-        Some(name) => name == TEMP_DIR,
+        Some(name) if cfg!(windows) => name.eq_ignore_ascii_case(reserved),
+        Some(name) => name == reserved,
         None => false,
     }
 }

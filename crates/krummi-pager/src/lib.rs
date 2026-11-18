@@ -12,6 +12,7 @@ mod random;
 mod recovery;
 mod remembered;
 mod scratch;
+mod sort;
 mod sys;
 mod temp;
 mod transfer;
@@ -30,6 +31,7 @@ pub use scratch::{
     Memory, Origin, PageChange, PayloadBuf, RunBuf, Scratch, ScratchWriter, Snapshot, Staged,
     VersionMark, alloc_payload, alloc_run, reuse_payload, reuse_run, try_reserve,
 };
+pub use sort::{SORT_DIR, SortFiles, SortReader, SortRun, SortWriter};
 pub use temp::TEMP_DIR;
 
 /// Fault injection for the tests of the engine crates (feature `test-hooks`). Faults are per thread; a thread can

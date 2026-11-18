@@ -556,6 +556,13 @@ impl<'e> WriteTransaction<'e> {
         self.track::<()>(Err(error)).unwrap_err()
     }
 
+    /// The temporary files of a sort of this transaction, in `krummi.sort` of the store's folder (IX2 of the secondary
+    /// indexes PRD), or `None` for a temporary store, which sorts in memory only (G9). Their failures are not the
+    /// transaction's until a layer above makes them so with [`WriteTransaction::fail`].
+    pub fn sort_files(&self) -> Option<krummi_pager::SortFiles<'e>> {
+        krummi_pager::SortFiles::new(self.engine.scratch.pager())
+    }
+
     /// Whether an operation of this transaction failed, so that it can no longer be committed (T11).
     pub fn has_failed(&self) -> bool {
         self.failure.borrow().is_some()

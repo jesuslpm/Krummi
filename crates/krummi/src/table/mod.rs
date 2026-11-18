@@ -26,6 +26,7 @@ mod row_tests;
 mod rows;
 pub mod schema;
 mod sequence;
+mod sort;
 #[cfg(test)]
 mod update_tests;
 pub mod value;
@@ -52,4 +53,5 @@ pub mod testing {
     pub use super::catalog::TableTrees;
     pub use super::identity::testing::with_identity_source;
     pub use super::index::StoredIndexEntry;
+    pub use super::sort::testing::{with_sort_memory, with_sort_pause};
 }

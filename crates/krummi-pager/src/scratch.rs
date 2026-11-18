@@ -58,6 +58,7 @@ use crate::format::{HEADER_PAGES, PAGE_HEADER_SIZE, PAGE_PAYLOAD_SIZE, PAGE_SIZE
 use crate::journal::{Journal, JournalPage, RAW_ENTRY};
 use crate::pager::{Info, Integrity, Pager};
 use crate::recovery;
+use crate::sort::SORT_DIR;
 use crate::sys;
 use crate::temp::{Slot, TempArea};
 use crate::transfer::{self, Demand, Pacing, Signal};
@@ -901,7 +902,8 @@ impl Shared {
     }
 
     /// Makes the journal durable, writes the newest version of every page to the data file, records it in both
-    /// header copies and removes the journal and the temporary area (J14).
+    /// header copies and removes the journal, the temporary area (J14) and `krummi.sort` (IX2 of the secondary indexes
+    /// PRD).
     fn flush_all(&mut self) -> Result<()> {
         let pager = self.pager.as_mut().expect("the store is open");
         pager.allow_writes_again();
@@ -949,7 +951,14 @@ impl Shared {
             }
             journal.remove_files(pager, applied, true)?;
         }
-        self.area.remove().map_err(|e| pager.fail_write(e, 0))
+        self.area.remove().map_err(|e| pager.fail_write(e, 0))?;
+        // The files of a sort that its index creation could not remove (IX2 of the secondary indexes PRD).
+        match pager.folder() {
+            Some(folder) => {
+                sys::remove_sort(&folder.join(SORT_DIR)).map_err(|e| pager.fail_write(e, 0))
+            }
+            None => Ok(()),
+        }
     }
 }
 

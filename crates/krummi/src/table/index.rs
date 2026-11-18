@@ -9,8 +9,9 @@
 //! ([`TableSchema::encode`]), so Describe reads only the catalog.
 //!
 //! Creating an index over a table with rows reads every row as the reads do, without checking its content (L1, IX12),
-//! encodes and sorts the entries, and finds an entry too large and two rows that repeat the key of a unique index
-//! before it allocates any page; only then does it write the tree, in order. So a failure of public validation leaves
+//! encodes and sorts the entries (in memory and, past the sort's memory, in the files of `krummi.sort`, `sort`), and
+//! finds an entry too large and two rows that repeat the key of a unique index before it allocates any page; only
+//! then does it write the tree, in order. So a failure of public validation leaves
 //! the store as it was and the transaction free to commit its other changes (IX11, H15).
 //!
 //! ```
@@ -104,6 +105,7 @@ use super::key::{Direction, KeyColumn, KeyRange, MAX_KEY, Nulls};
 use super::row::{MAX_ROW, RowColumn, RowLayout};
 use super::rows::{At, Reader, Versions};
 use super::schema::{Different, Invalid, TableSchema};
+use super::sort::{Sorted, Sorter};
 use super::value::{ColumnType, Value, key_text};
 use crate::{Folder, ReadTransaction, WriteTransaction};
 
@@ -586,29 +588,6 @@ pub(super) enum TooLarge {
     Included(usize),
 }
 
-/// Sorts the entries of an index being created by their keys (IX2, H15). This version keeps them in memory only; the
-/// sort in the files of `krummi.sort`, for entries past a memory budget, comes behind this same interface (T5 of the
-/// secondary indexes execution).
-#[derive(Default)]
-struct Sorter {
-    entries: Vec<RowEntry>,
-}
-
-impl Sorter {
-    /// Adds `entry`; running out of memory fails with the transaction's out-of-memory failure (P13, T11).
-    fn push<S: PageSource + ?Sized>(&mut self, tx: &S, entry: RowEntry) -> Result<()> {
-        krummi_tree::reserve(tx, &mut self.entries, 1)?;
-        self.entries.push(entry);
-        Ok(())
-    }
-
-    /// The entries in the order of their keys, which are distinct: each ends with its row's primary key.
-    fn sorted(mut self) -> Vec<RowEntry> {
-        self.entries.sort_unstable_by(|a, b| a.key.cmp(&b.key));
-        self.entries
-    }
-}
-
 /// What creating an index needs once its definition passed the checks that read only the catalog.
 struct Build {
     /// The index, with a placeholder identity.
@@ -680,7 +659,7 @@ impl Folder<'_> {
 /// failures of public validation ([`Error::InvalidSize`], [`Error::TreeNotFound`], [`Error::TreeAlreadyExists`],
 /// [`Error::DifferentIndex`], [`Error::InvalidSchema`], [`Error::DuplicateKey`] and [`Error::Misuse`] for a handle of
 /// another transaction) have no effect and do not prevent the commit; any other failure does (T11), damage included.
-impl WriteTransaction<'_> {
+impl<'s> WriteTransaction<'s> {
     /// Creates the index of `definition` in `table`, in `mode` (IX2), and reads every row of the table to write its
     /// entries, so that the index has the entries of the rows there are, each with the values a read of its row gives
     /// (E11): an added column's default or null. Creating an index changes neither the schema version nor the schema
@@ -696,11 +675,15 @@ impl WriteTransaction<'_> {
     /// the first in this order: no key columns, a column that does not exist, a vector in the key, a repeated column,
     /// more than 32 key columns, a key that is the primary key or, not unique, an ascending prefix of it, the key of
     /// another index, more than 64 indexes, and a schema too large for its catalog entry (see [`SchemaRule`]); with the
-    /// failures of reading the table's pages, damage included; then, after reading every row, with
+    /// failures of reading the table's pages, damage included, and in a store on disk those of creating, writing or
+    /// reading the files of the sort in the subfolder `krummi.sort`, where entries past the sort's memory go (access,
+    /// disk full, out of memory or I/O, an I/O failure writing them also making the store refuse writes until it is
+    /// reopened, T12), the first that happens; then, after reading every row, with
     /// [`Error::InvalidSize`] for an entry of more than 2,048 bytes ([`SizeSubject::IndexEntry`]: the key columns and
     /// the primary key in their stored form), the first row's in the order of the primary key; and last, for a unique
     /// index, with [`Error::DuplicateKey`] for two rows with the same values in its key columns, none of them null:
-    /// the second of the first two in the index's order. None of these allocates a page (IX11).
+    /// the second of the first two in the index's order. None of these allocates a page (IX11). Reading the files of
+    /// the sort while the index is written, and writing its pages, can fail too, as the transaction's failures (T11).
     pub fn create_index(
         &mut self,
         table: &WriteTable<'_>,
@@ -714,12 +697,12 @@ impl WriteTransaction<'_> {
         let Some(build) = self.plan_index(table, definition, mode)? else {
             return Ok(());
         };
-        let entries = self.sorted_entries(&build)?;
+        let sorted = self.sorted_entries(&build)?;
         let history = build.history;
         let known = move |tx: &Self, id: u64| tx.known_identity(history, id);
         let id = self.draw_identity(known)?;
         let index_state = self.draw_identity(|tx, state| Ok(state == id || known(tx, state)?))?;
-        let root = self.write_index(entries)?;
+        let root = self.write_index(sorted)?;
         let history = self.record_identities(history, [id, index_state])?;
         let state = self
             .tables
@@ -801,13 +784,15 @@ impl WriteTransaction<'_> {
         }))
     }
 
-    /// The entries of the index of `build` for every row of its table, sorted, after reading every row (its page
-    /// failures come first) and then checking the size of each entry, the first row's in the order of the primary
-    /// key, and, for a unique index, that no two rows repeat its key (IX10, IX11). It changes nothing.
+    /// The entries of the index of `build` for every row of its table, sorted (in memory, and past its memory in the
+    /// files of `krummi.sort`, IX2), after reading every row (its page failures and those of the sort's files come
+    /// first, the first that happens) and then checking the size of each entry, the first row's in the order of the
+    /// primary key, and, for a unique index, that no two rows repeat its key (IX10, IX11). It changes nothing in the
+    /// store; the files of the sort go when the entries are dropped.
     ///
     /// The rows are read as a scan reads them, without checking their content (L1, IX12): a malformed row may give
     /// values that are not the written ones, or panic, before anything changes.
-    fn sorted_entries(&self, build: &Build) -> Result<Vec<RowEntry>> {
+    fn sorted_entries(&self, build: &Build) -> Result<Sorted<'s>> {
         let layout = &build.layout;
         let at = At {
             name: &build.table,
@@ -820,7 +805,7 @@ impl WriteTransaction<'_> {
             upper: Unbounded,
         };
         let mut versions = Versions::default();
-        let mut sorter = Sorter::default();
+        let mut sorter = Sorter::new(self.inner.sort_files());
         let mut too_large = None;
         for entry in krummi_tree::Range::new(&self.inner, build.rows_root, every_row)? {
             let (key, bytes) = entry?;
@@ -849,40 +834,50 @@ impl WriteTransaction<'_> {
         if let Some(error) = too_large {
             return Err(error);
         }
-        let entries = sorter.sorted();
+        let sorted = sorter.sorted(&self.inner)?;
         if build.index.unique {
-            self.check_unique(build, &entries)?;
+            self.check_unique(build, &sorted)?;
         }
-        Ok(entries)
+        Ok(sorted)
     }
 
-    /// Fails with [`Error::DuplicateKey`] when two of the sorted `entries` of the unique index of `build` have the same
+    /// Fails with [`Error::DuplicateKey`] when two of the `sorted` entries of the unique index of `build` have the same
     /// key columns, none of them null (N7): the first two, which are neighbours in the index's order, with the primary
     /// key of the second. Their key columns are compared whole, never as a byte prefix (document 3).
-    fn check_unique(&self, build: &Build, entries: &[RowEntry]) -> Result<()> {
-        for pair in entries.windows(2) {
-            let (first, second) = (&pair[0], &pair[1]);
-            let (Some(a), Some(b)) = (first.prefix, second.prefix) else {
+    fn check_unique(&self, build: &Build, sorted: &Sorted<'_>) -> Result<()> {
+        let mut cursor = sorted.cursor().map_err(|e| self.inner.fail(e))?;
+        // The key columns of the entry before, when none of them is null.
+        let mut previous = Vec::new();
+        krummi_tree::reserve(&self.inner, &mut previous, MAX_KEY)?;
+        let mut comparable = false;
+        while let Some(entry) = cursor.next().map_err(|e| self.inner.fail(e))? {
+            let Some(len) = entry.prefix else {
+                comparable = false;
                 continue;
             };
-            if first.key[..a] == second.key[..b] {
+            let columns = &entry.key[..len];
+            if comparable && previous == columns {
                 return Err(self.folder.index_duplicate(
                     &build.table,
                     &build.index.name,
                     &build.layout,
-                    &second.key,
+                    &entry.key,
                 ));
             }
+            previous.clear();
+            previous.extend_from_slice(columns);
+            comparable = true;
         }
         Ok(())
     }
 
-    /// Writes the sorted `entries` into a new tree and returns its root: each goes to the end of the tree's last leaf
-    /// while it fits there, so the tree is written in one pass.
-    fn write_index(&mut self, entries: Vec<RowEntry>) -> Result<u64> {
+    /// Writes the `sorted` entries into a new tree and returns its root: each goes to the end of the tree's last leaf
+    /// while it fits there, so the tree is written in one pass. The files of the sort go once it returns.
+    fn write_index(&mut self, sorted: Sorted<'_>) -> Result<u64> {
         let mut root = krummi_tree::create(&mut self.inner)?;
         let mut last: Option<LastLeaf> = None;
-        for entry in entries {
+        let mut cursor = sorted.cursor().map_err(|e| self.inner.fail(e))?;
+        while let Some(entry) = cursor.next().map_err(|e| self.inner.fail(e))? {
             if let Some(leaf) = &last
                 && krummi_tree::append_last(&mut self.inner, leaf, &entry.key, &entry.value)?
             {

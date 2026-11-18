@@ -139,7 +139,8 @@ impl Store {
     /// Opens the store in `folder`. A missing folder is created with its parents, and an empty folder gets a
     /// new store. If the store closed in a crash, opening recovers it first: every commit that was durable is
     /// there, and no part of one that was not. Besides `krummi.data`, an open store may keep in its folder the
-    /// journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a clean close removes them.
+    /// journal files `krummi.journal.<number>` and the `krummi.temp` subfolder, and while an index is created the
+    /// `krummi.sort` subfolder of its sort; a clean close removes them, and so does the next open after a crash.
     pub fn open(folder: impl AsRef<Path>, options: &StoreOptions) -> Result<Store> {
         let engine = krummi_tx::Engine::open(folder, &engine_options(options))?;
         Ok(Store::with(engine))
