@@ -44,3 +44,30 @@ The fixes are in the commit that adds this file.
   Salida, K9). Another block sits before `## Flujo` in `krummi.prd.md` (G6). Each `*.prd.en.md` translation carries
   the same blocks in English.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-18 (verification)
+
+Review record: [2026-11-18-prd-03.md](2026-11-18-prd-03.md), follow-up over `d7fe899..5d1ce3b`, wrapper status
+`findings`, verdict «Not ready for implementation: R1 and R2 are verified resolved, but R3 remains open.» `threadId`
+`01a1efcb-e180-7b82-8d7b-c7b6e383faa9`; telemetry: coordinator `gpt-6.1-sol`/`high`, reviewer
+`krummi-review-critical` (Socrates) `gpt-6-astra`/`xhigh`.
+
+- R1: «The ownership defect and its product question are resolved.»
+- R2: «Verified resolved».
+- R3: new, caused by the R1 fix; handled below.
+
+## 2026-11-18 (round 2 fixes)
+
+The fix is in the commit that adds this section.
+
+### R3 — major: AC-IX9 contradicts raw validation for invalid definitions that normalize to an existing index
+
+- Disposition: fixed.
+- Fix: IX2 now says Crear si no existe does nothing only when the definitions are the same and the given definition
+  meets IX3. When they are the same but the given one breaks IX3, for example with a primary-key column repeated
+  among its included columns, it fails with esquema no válido. This follows IX1's «las reglas de IX3 se comprueban
+  antes, sobre la definición tal como se da». It also follows IX10's order: esquema distinto goes only to a different
+  definition, then esquema no válido. AC-IX9 limits esquema distinto to a definition that differs once primary-key
+  included columns are left out. It adds Codex's case: included `[id, id]` over an index with no included columns and
+  primary key `id` gives esquema no válido with the repeated column. No product rule changes.
+- Status: claimed fixed, unverified until a follow-up review.
