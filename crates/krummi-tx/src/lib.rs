@@ -285,14 +285,15 @@ impl Engine {
         krummi_pager::reuse_payload(spare)
     }
 
-    /// Keeps the payloads of a commit's pages for the next copies, up to [`SPARE_PAYLOADS`], in a store on disk.
-    fn keep_payloads(&self, pages: Vec<(u64, PayloadBuf)>) {
+    /// Keeps the payloads of a commit's pages changed in memory for the next copies, up to [`SPARE_PAYLOADS`], in a
+    /// store on disk.
+    fn keep_payloads(&self, payloads: Vec<PayloadBuf>) {
         if self.folder.is_none() {
             return;
         }
         let mut spare = self.payloads.lock().unwrap_or_else(PoisonError::into_inner);
         let room = SPARE_PAYLOADS.saturating_sub(spare.len());
-        spare.extend(pages.into_iter().take(room).map(|(_, payload)| payload));
+        spare.extend(payloads.into_iter().take(room));
     }
 
     /// A zeroed buffer for a value run of `pages` pages: one of that length kept from an earlier commit, or a new one.

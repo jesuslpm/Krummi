@@ -24,7 +24,9 @@ PRD draft for the user, not an implementation).
   W1 si W3, W5 y W7 empeoran.» A change stays only if its target load improves and no load worsens, by the rule of Q7
   of `pager-written-pages.prd.md` (a load worsens when its median is lower and it is slower in most rounds), in an
   A/B of Krummi alone against the code before it on Windows (at least ten rounds for loads under one second per
-  repetition or with several threads, three for the others; a marked load is repeated in twenty rounds).
+  repetition or with several threads, three for the others; a marked load is repeated in twenty rounds). Exception
+  agreed with the user on 2026-11-18 (L14): W3 and W25, the bulk loads in a single transaction, may lose up to about
+  2 % when the usual loads gain in exchange.
 - **S6** — Closing: complete runs (Krummi and Voron) on Windows and WSL 2 on the final code if any change stays; the
   Codex review and the closing report.
 
@@ -33,7 +35,7 @@ PRD draft for the user, not an implementation).
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S5 | delegated diagnosis, inline change | done | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers`; A/B L7–L9 |
-| T2 | S2, S5 | delegated writer (context backstop) | reverted (S5) | `cdf0164`, reverted `131a172`; diagnosis L9 |
+| T2 | S2, S5 | delegated writer (context backstop); restored inline | reopened (L14) | `cdf0164`, reverted `131a172`; diagnosis L9 |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
 | T5 | S6 | inline | done | complete runs L11; Codex L12–L13 |
@@ -156,13 +158,22 @@ PRD draft for the user, not an implementation).
   `d48f747`), single runs of three repetitions moved Krummi between 0.71 (lecturas-con-escritor) and 1.22
   (valores-grandes-carga); they are not an A/B and decide nothing (S5's A/Bs are L7–L9).
 - **L12** (2026-11-18) — Codex code review R1 of `2e45b31..a8052be`
-  ([report](../../../docs/reviews/night-optimizations/2026-11-18-code.md),
-  [resolutions](../../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md)): status `findings`. There
+  ([report](../../docs/reviews/night-optimizations/2026-11-18-code.md),
+  [resolutions](../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md)): status `findings`. There
   are no code defects; Codex's checks passed. R1 (minor, the draft named format `11`, already the current one) was
   fixed, and so was R2 (minor, the draft reversed the encoding and the space reservation). Both fixes are in `4cd6aa1`.
   The draft's five product questions stay for the user.
-- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
+- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
   `approved`, R1 and R2 verified resolved, no findings open. T5 done.
+- **L14** (2026-11-18) — User, after the closing report and the question whether to restore T2: «Cual es W3?», then
+  «A ver si lo entiendo, W3 paga la búsqueda de un hueco libre en el área temporal y no hay huecos libres. ¿Por qué es
+  caro? ¿no podemos optimizar el caso de "no huecos libres"?», then «No estoy seguro. Depende de cuanta importancia
+  le demos a W3. Carga inicial gigante al azar en una sóla transacción. No es algo que se vaya a hacer cada 5
+  minutos.» Proposed: restore T2 with c1, with S5 amended so that W3 and W25 (bulk loads in a single transaction) may
+  lose up to about 2 % when the usual loads gain. User: «Sí». Estimate «Entre 2 h 30 min y 4 h», confirmed «Sí»;
+  start 06:35:10 (`date`). Execution reopened. Plan: restore `cdf0164` and apply c1; checks; an A/B on WSL 2 of `t1`
+  against c1 on W21, W19 and W3 (T2's gains were measured only on Windows); an independent verifier (item 4); RDD of
+  the slice with item 4 escalated; complete runs; Codex; closing report.
 
 ## Closing
 
