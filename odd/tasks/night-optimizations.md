@@ -36,7 +36,7 @@ PRD draft for the user, not an implementation).
 | T2 | S2, S5 | delegated writer (context backstop) | reverted (S5) | `cdf0164`, reverted `131a172`; diagnosis L9 |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
-| T5 | S6 | inline | pending | |
+| T5 | S6 | inline | done | complete runs L11; Codex L12–L13 |
 
 ## Log
 
@@ -161,3 +161,5 @@ PRD draft for the user, not an implementation).
   are no code defects; Codex's checks passed. R1 (minor, the draft named format `11`, already the current one) was
   fixed, and so was R2 (minor, the draft reversed the encoding and the space reservation). Both fixes are in `4cd6aa1`.
   The draft's five product questions stay for the user.
+- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
+  `approved`, R1 and R2 verified resolved, no findings open. T5 done.

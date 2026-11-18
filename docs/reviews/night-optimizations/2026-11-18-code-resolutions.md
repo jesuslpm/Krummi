@@ -32,3 +32,11 @@ The five questions of the compression draft stay `pending` for the user. They ar
 Review record: [2026-11-18-code.md](2026-11-18-code.md), wrapper status `findings` (R1, R2), thread
 `01a1ece2-3616-7b20-b572-9ac1e052fe20`. Telemetry: coordinator `gpt-6.1-sol` with effort `high`, reviewer
 `krummi-review` `gpt-6.1-sol` with effort `high`.
+
+## 2026-11-18 (verification)
+
+Follow-up report: [2026-11-18-code-02.md](2026-11-18-code-02.md), wrapper status `approved`, thread
+`01a1ece9-62c2-7463-919d-0d71f4b02ba0`. Telemetry: coordinator `gpt-6.1-sol` with effort `high`, reviewer
+`krummi-review` `gpt-6.1-sol` with effort `high`. Verdict: «Approved for the requested follow-up scope: R1 and R2
+verified resolved; no findings remain open.» R1 and R2: resolved. The draft's five product questions stay for the
+user.
