@@ -54,7 +54,7 @@ sin publicar.
   - No hubo verificador independiente. El ítem 3 se escaló en RDD, y los tests de equivalencia con el recorrido del
     árbol fijan los bytes, la raíz y la cuenta.
   - Codex aprobó en la primera ronda: «Approved: no introduced findings in the reviewed range»
-    ([informe](../../docs/reviews/tree-append/2026-11-18-code.md)). Anota como limitación, no como defecto, que las
+    ([informe](../../../docs/reviews/tree-append/2026-11-18-code.md)). Anota como limitación, no como defecto, que las
     marcas del A/B quedan aceptadas sin repetir y que no se probó de forma independiente qué build midió cada corrida
     completa.
 

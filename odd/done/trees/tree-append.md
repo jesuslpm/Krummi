@@ -87,7 +87,7 @@ PRD: nothing observable changes.
   untracked `docs/reviews/tables-indexes/` (not this run's) excluded. Lenses risk, resilience and reliability; lineage
   `review-6b998102177bc84b`; **approved**, acknowledged (authority burned). Advisory findings:
   - **Risk:** none.
-  - R4-unverified-write-regression, WARNING (`odd/tasks/tree-append.md`, L5–L8): the marks of L5 (W12 0.946, W17
+  - R4-unverified-write-regression, WARNING (`odd/done/trees/tree-append.md`, L5–L8): the marks of L5 (W12 0.946, W17
     0.903) were accepted without a base-against-candidate repeat, and W1 does not gain on Linux. Not changed: the
     user stopped the repeats («No hagas más rondas», L6) and accepted the marks (L7); the complete runs meet 29 of 29
     on both systems (L8). The closing report lists them as pending.
@@ -100,7 +100,7 @@ PRD: nothing observable changes.
 - **L10** (2026-11-18) — RDD of the last slice `0a9c354..1bcbf5f` (assess `medium`, `under_budget`; the added tests
   and the record): lens reliability; lineage `review-4cec57d602188637`; **approved** with no findings, acknowledged.
 - **L11** (2026-11-18) — Codex code review of `504cd84..85b9979`
-  ([report](../../docs/reviews/tree-append/2026-11-18-code.md)): status `approved` in the first round, thread
+  ([report](../../../docs/reviews/tree-append/2026-11-18-code.md)): status `approved` in the first round, thread
   `01a1eeef-59be-7ab2-8a5f-001dcec0dce3`; telemetry: coordinator `gpt-6.1-sol` (high), reviewer
   `krummi-review-critical` `gpt-6-astra` (xhigh). Verdict: «Approved: no introduced findings in the reviewed range.»
   It records as a limitation, not a defect, that the accepted A/B marks stand and that the complete runs' build
