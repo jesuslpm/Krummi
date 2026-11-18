@@ -144,3 +144,17 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   after a removal; an already-present entry is damage). Advisories: every row write on a table without indexes now
   looks up its maintained indexes (one extra lookup; to watch in T7's runs); a stale entry in a unique index reads as
   a duplicate key (IX12 allows it). Workspace in scratch: 944 passed. Scratch removed by the parent.
+- **L9** (2026-11-18) — T4 (`025531a`, tests `ba3d843`): `index_rows` and `index_entries` on both transactions with
+  `(table, index, prefix, bounds)`; rows reuse `ReadRows`/`WriteRows` through an optional `Through` in the shared
+  `ranges::Scan` (lending and projection binding unchanged); entries (`IndexEntry`: `len`, `name`, `value`, `get`,
+  `values`, `columns`) decode index-key and primary-key values lazily into owned copies and lend included columns;
+  stepping never decodes, so a malformed entry is returned and reading a bad value panics (S5 decision, IX12/L2); an
+  entry that cannot be split or whose row is missing is damage of its index leaf when rows are requested. A missing
+  index is `DifferentIndex` with the new `SchemaDifference::MissingIndex`; an oversized prefix is `InvalidSize` with
+  `SizeSubject::Prefix`. The T2 test hook became `stored_index_entries`. Splitting the diff (2,818 lines) up front:
+  T4a code `ba9de2e..025531a` (reliability, readability, resilience; escalated item 3, the shared scan): approved,
+  `review-f1a75d485521db85`; T4b tests `025531a..ba3d843` (reliability): approved, `review-6074aa258a6f86ef`.
+  Advisories to address in a test-quality pass: the property test's model is rebuilt from the table under test
+  (`table_index_scans.rs:1036`), row scans compare only identities (`:195`), the post-commit whole-index check
+  (`:1077`), and an untested accept side of the combined prefix limit (`:692`). Risk: item 3. Independent verifier of
+  T4 launched; T5 launched.
