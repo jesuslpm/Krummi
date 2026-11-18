@@ -34,6 +34,16 @@ other PRDs*).
 | L3 | **Update and insert or update keep checking** the row that already exists and that they replace, and fail with damage to its page if it is malformed, as today (E19, E17), so they do not rewrite it with values that are not its own. Inside a write transaction, reading by the key and traversing follow L1. Insert, the bulk load, delete, delete a range, count rows and the sequences do not read the content of existing rows and do not change (E19). A malformed row that another write does not read, in a page that this write rewrites, keeps its bytes with the new integrity code of the page, as the G6 annotation of 2026-11-06 already admits. |
 | L4 | **K7 in the table loads that read rows** (makes K7 of the benchmark precise for W26 and W27): Voron reads its rows without checking their content and, from this PRD, the reads of Krummi do not check it either, so those loads compare the same work. The thresholds do not change. |
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](tables-indexes.prd.md), Spanish,
+authoritative):*
+
+- *L1 and L2: reads through an index follow L1 and L2, also in their entries (decision IX12).*
+- *L2: exception: a panic caught when deleting a range of a table with indexes may arrive with part of the range
+  deleted, and then the write can no longer be committed, as with damage (T11; decision IX12, user decision).*
+- *L3: in a table with indexes, deleting a row, deleting a range and creating an index read the values of the rows that
+  already exist without checking their content, as L1 and L2 do; update and insert or update keep checking the row they
+  replace (decision IX12).*
+
 ### Starting state
 
 - 7.1 treats as damage to its page a row that is read whose content is not what Krummi writes: each row is checked

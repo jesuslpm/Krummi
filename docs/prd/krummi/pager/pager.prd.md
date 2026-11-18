@@ -100,6 +100,11 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 - *P5: la versión de formato vigente pasa a ser `10`; un almacén de formato `9` es de formato anterior (decisión
   Y5).*
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](../tables/tables-indexes.prd.md)):*
+
+- *P3: `krummi.sort` es un nombre reservado de la carpeta del almacén, para los archivos temporales de crear un índice, que la apertura borra (decisión IX2 y anotación del 2026-11-18 a J2 del diario).*
+- *P13: crear un índice falla con memoria agotada cuando el sistema no da la memoria con que ordena sus entradas, también en un almacén temporal, donde solo se ordenan en memoria (decisión IX2).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

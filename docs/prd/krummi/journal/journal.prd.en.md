@@ -106,6 +106,15 @@ from earlier rules is declared in its decisions and annotated in the affected do
   (decisions Y2 and Y3).*
 - *J3: the current format version becomes `10`; a store of format `9` is of an earlier format (decision Y5).*
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](../tables/tables-indexes.prd.md),
+Spanish, authoritative):*
+
+- *J2, J8 and J14: `krummi.sort` is another reserved subfolder of the store folder, for the temporary files used to sort
+  the entries when creating an index, and it follows the rules of `krummi.temp`: a folder with `krummi.sort` and without
+  `krummi.data` is not a store; opening deletes it in its step 8, after checking the journal, an opening that fails does
+  not delete it, and one that cannot delete it fails with the access class; and closing the store, or ceasing to use it
+  without closing it, deletes it (decision IX2).*
+
 ### Starting state
 
 Verified on 2026-10-22:

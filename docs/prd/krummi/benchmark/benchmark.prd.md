@@ -117,6 +117,13 @@ sus filas con una proyección, la lectura con las capacidades reales del motor, 
 cuenta en el tiempo medido de cada repetición; Voron lee sus campos por su posición. Las cargas y los umbrales no
 cambian (PY7).*
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](../tables/tables-indexes.prd.md)):*
+
+- *Cargas: la tabla añade W30 `tabla-insercion-con-indices`, W31 `tabla-busqueda-por-indice` y W32 `tabla-intervalos-de-indice`, definidas en las *Cargas del banco* de ese PRD (decisión IX15).*
+- *K4: W31 y W32 empiezan en el almacén que deja W30, cada una en su copia.*
+- *K7 y *Salida*: el informe cuenta 32 umbrales; los de W30–W32 son frente a las tablas de Voron con sus índices, y los demás motores dicen `no aplica` en esas cargas.*
+- *K9: el tamaño del almacén se mide también tras W30.*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

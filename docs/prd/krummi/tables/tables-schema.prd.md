@@ -109,6 +109,15 @@ Krummi lee las columnas de las filas con una proyección, y preparar la proyecci
 repetición; también lo harán las cargas de tablas futuras que lean valores de columnas, salvo que su PRD diga otra
 cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](tables-indexes.prd.md)):*
+
+- *E2: Describir devuelve además los índices de la tabla y el estado de los índices (decisión IX6).*
+- *E5: crear un índice sigue las reglas de definición de IX3; el esquema demasiado grande cuenta también las definiciones de los índices, así que añadir o renombrar una columna puede fallar con esa regla en una tabla con índices; y la regla «quitar una columna de la clave primaria o, desde 7.2, de un índice» nombra además el índice cuando la columna no es de la clave primaria (decisiones IX3 e IX5).*
+- *E6: esquema distinto cubre también crear si no existe un índice con otra definición, con la primera diferencia, y recorrer un índice que no existe (decisiones IX2 e IX9).*
+- *E16: crear un índice y borrar uno que existe son cambios para T10, y los dos terminan las referencias anteriores (decisión IX13).*
+- *E17: clave duplicada en un índice único lleva además el índice y los valores de su clave que se repiten; tamaño no válido distingue también una entrada de índice; y los errores de los índices siguen la precedencia de IX10 (decisión IX10).*
+- *E19: en una tabla con índices, borrar una fila, borrar un intervalo y crear un índice leen el contenido de las filas sin comprobarlo, y recorrer un índice no comprueba sus entradas (decisión IX12).*
+
 ### Estado de partida
 
 - No hay tablas ni secuencias en el código: el catálogo guarda árboles normales, multivalor y de tamaño fijo, cada

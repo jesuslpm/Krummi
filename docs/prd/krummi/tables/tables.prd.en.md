@@ -77,6 +77,15 @@ found.
 *Annotation of 2026-11-15 from the projections ([tables-projection.prd.md](tables-projection.prd.md), Spanish, authoritative): N10: different
 schema also covers the uses of a projection that depend on the schema (PY1–PY3).*
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](tables-indexes.prd.md), Spanish,
+authoritative):*
+
+- *N5: a vector column may be an included column of an index, but not a column of its key (decision IX1).*
+- *N10: different schema also covers create if it does not exist an index with another definition and traversing an
+  index that does not exist (decisions IX2 and IX9).*
+- *Output: the values of the columns of an index key and of the primary key read from an entry are returned decoded into
+  a copy the application owns, text and bytes too (decision IX8).*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

@@ -110,6 +110,10 @@ anteriores está declarado en sus decisiones y anotado en los documentos afectad
 - *J3: la versión de formato vigente pasa a ser `10`; un almacén de formato `9` es de formato anterior (decisión
   Y5).*
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](../tables/tables-indexes.prd.md)):*
+
+- *J2, J8 y J14: `krummi.sort` es otra subcarpeta reservada de la carpeta del almacén, para los archivos temporales con que se ordenan las entradas al crear un índice, y sigue las reglas de `krummi.temp`: una carpeta con `krummi.sort` y sin `krummi.data` no es un almacén; la apertura la borra en su paso 8, después de comprobar el diario, una apertura que falla no la borra y una que no la puede borrar falla con la clase de acceso; y cerrar el almacén, o dejar de usarlo sin cerrarlo, la borra (decisión IX2).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

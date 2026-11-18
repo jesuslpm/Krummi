@@ -97,6 +97,14 @@ declared in its decisions and annotated in the parent (see [Annotations to the p
 
 - *P5: the current format version becomes `10`; a store of format `9` is of an earlier format (decision Y5).*
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](../tables/tables-indexes.prd.md),
+Spanish, authoritative):*
+
+- *P3: `krummi.sort` is a reserved name in the store folder, for the temporary files of creating an index, which opening
+  deletes (decision IX2 and annotation of 2026-11-18 to J2 of the journal).*
+- *P13: creating an index fails with out of memory when the system does not give the memory with which it sorts its
+  entries, also in a temporary store, where they are only sorted in memory (decision IX2).*
+
 ### Starting state
 
 Verified on 2026-10-22:

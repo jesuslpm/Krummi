@@ -43,6 +43,12 @@ W26 and W27 and K7 of the benchmark read their rows; all of them carry its annot
 | PY6 | **Content of the row** (L1, L2 of the parent): reading with the projection does not check the content of the row. A malformed row is read as L2 says: a column, also one of the key, may give a value that is not the one written or end with a normal panic of the thread, and a text that is not UTF-8 read as text always ends with a panic; read as its bytes, it is returned as it is. With a build of the engine that aborts on panics, each panic of this PRD ends the process (L2). |
 | PY7 | **The benchmark loads** (K7): Krummi reads with a projection the rows of W26 and W27, and of the table loads of the benchmark that read column values in future PRDs, unless their PRD says otherwise. It is the read with the real capabilities of the engine, the rule that W28 already follows. Preparing the projection counts in the measured time of each repetition, before its first row, whether the store returns it kept or not. The loads do not change: the same rows, the same columns and the same checksum in both engines. The thresholds do not change. |
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](tables-indexes.prd.md), Spanish,
+authoritative):*
+
+- *PY3: the rows of an index traversal are tied to a projection like those of a primary key traversal; the entries of an
+  index are not (decision IX8).*
+
 ### Starting state
 
 - A row that is read or traversed is read column by column, by the name or the position of the column among the live

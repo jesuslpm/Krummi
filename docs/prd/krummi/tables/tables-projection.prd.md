@@ -42,6 +42,10 @@ filas W26 y W27 y K7 del banco; todos llevan su anotación (*Anotaciones a otros
 | PY6 | **Contenido de la fila** (L1, L2 del padre): leer con la proyección no comprueba el contenido de la fila. Una fila mal formada se lee como dice L2: una columna, también una de la clave, puede dar un valor que no es el escrito o terminar con un pánico normal del hilo, y un texto que no es UTF-8 leído como texto termina siempre con un pánico; leído como sus bytes, se devuelve tal cual. Con una compilación del motor que aborta en los pánicos, cada pánico de este PRD termina el proceso (L2). |
 | PY7 | **Las cargas del banco** (K7): Krummi lee con una proyección las filas de W26 y W27, y de las cargas de tablas del banco que lean valores de columnas en PRD futuros, salvo que su PRD diga otra cosa. Es la lectura con las capacidades reales del motor, la regla que ya sigue W28. Preparar la proyección cuenta en el tiempo medido de cada repetición, antes de su primera fila, la devuelva guardada el almacén o no. Las cargas no cambian: las mismas filas, las mismas columnas y la misma suma de comprobación en los dos motores. Los umbrales no cambian. |
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](tables-indexes.prd.md)):*
+
+- *PY3: las filas de un recorrido de un índice se ligan a una proyección como las de un recorrido de la clave primaria; las entradas de un índice no (decisión IX8).*
+
 ### Estado de partida
 
 - Una fila leída o recorrida se lee columna a columna, por el nombre o la posición de la columna entre las columnas

@@ -132,6 +132,10 @@ no contiene un almacén de Krummi (D10, decisión R6).*
   leída como texto se devuelve sin copia si no tiene escapes, y decodificada en una copia propia de la aplicación si
   los tiene, porque su valor decodificado no está contiguo en la memoria del motor.*
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](tables/tables-indexes.prd.md)):*
+
+- *D11 y AC20: los valores de las columnas de la clave de un índice y de la clave primaria leídos de una entrada de un índice se devuelven decodificados en una copia propia de la aplicación, también el texto y los bytes; los de sus columnas incluidas, como los de una fila (decisión IX8).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:
@@ -223,6 +227,10 @@ que D10 dice de lo legible sin clave dejan de aplicarse al almacén; la gestión
 alcance.*
 
 *Anotación del 2026-11-11 desde las lecturas de filas ([tables-row-reads.prd.md](tables/tables-row-reads.prd.md)): Excepción a G6: leer por la clave y recorrer las filas de las tablas no comprueban su contenido. Una fila mal formada en una página cuya integridad pasó G6 (un fallo del motor, un archivo alterado con el almacén cerrado que recalcula los códigos de integridad, o una página recordada alterada con el almacén abierto) puede devolver datos que no son los escritos o terminar en un pánico en lugar de un error. Actualizar e insertar o actualizar siguen comprobando la fila que reemplazan; AC10 no cambia (decisiones L1–L3 de [tables-row-reads.prd.md](tables/tables-row-reads.prd.md)).*
+
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](tables/tables-indexes.prd.md)):*
+
+- *G6: la excepción de las lecturas de filas (anotación del 2026-11-11) vale también para las entradas de los índices, y para las filas que se borran, una a una o en un intervalo, en una tabla con índices y las que lee la creación de un índice: Krummi lee sus valores sin comprobar su contenido, y una fila o una entrada mal formada puede dar datos que no son los escritos o terminar en un pánico en lugar de un error (decisión IX12).*
 
 ## Flujo
 

@@ -133,6 +133,13 @@ contain a Krummi store (D10, decision R6).*
   read as text is returned without a copy if it has no escapes, and decoded into a copy the application owns if it
   has them, because its decoded value is not contiguous in the engine's memory.*
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](tables/tables-indexes.prd.md), Spanish,
+authoritative):*
+
+- *D11 and AC20: the values of the columns of an index key and of the primary key read from an index entry are returned
+  decoded into a copy the application owns, text and bytes too; those of its included columns, as those of a row
+  (decision IX8).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:
@@ -222,6 +229,14 @@ messages, step 6 of the checks on opening, AC13 and what D10 says about what is 
 apply to the store; key management and custody stay out of scope.*
 
 *Annotation of 2026-11-11 from the row reads ([tables-row-reads.prd.md](tables/tables-row-reads.prd.md), Spanish, authoritative): Exception to G6: reading by the key and traversing the rows of the tables do not check their content. A malformed row in a page whose integrity passed G6 (a failure of the engine, a file altered with the store closed that recalculates the integrity codes, or a remembered page altered with the store open) may return data that is not the one written or end in a panic instead of an error. Update and insert or update keep checking the row they replace; AC10 does not change (decisions L1–L3 of [tables-row-reads.prd.en.md](tables/tables-row-reads.prd.en.md)).*
+
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](tables/tables-indexes.prd.md), Spanish,
+authoritative):*
+
+- *G6: the exception of the row reads (annotation of 2026-11-11) also holds for the entries of the indexes, for the rows
+  that are deleted, one by one or in a range, in a table with indexes, and for those read by creating an index: Krummi
+  reads their values without checking their content, and a malformed row or entry may give data that is not the one
+  written or end in a panic instead of an error (decision IX12).*
 
 ## Flow
 

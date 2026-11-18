@@ -76,6 +76,12 @@ pueden encontrar filas.
 *Anotación del 2026-11-15 desde las proyecciones ([tables-projection.prd.md](tables-projection.prd.md)): N10: esquema
 distinto también cubre los usos de una proyección que dependen del esquema (PY1–PY3).*
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](tables-indexes.prd.md)):*
+
+- *N5: una columna vector puede ser columna incluida de un índice, pero no columna de su clave (decisión IX1).*
+- *N10: esquema distinto cubre también crear si no existe un índice con otra definición y recorrer un índice que no existe (decisiones IX2 e IX9).*
+- *Salida: los valores de las columnas de la clave de un índice y de la clave primaria leídos de una entrada se devuelven decodificados en una copia propia de la aplicación, también el texto y los bytes (decisión IX8).*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

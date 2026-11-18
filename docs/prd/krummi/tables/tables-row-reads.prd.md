@@ -31,6 +31,12 @@ excepción a G6 de la raíz y precisa K7 del banco; los tres llevan su anotació
 | L3 | **Actualizar e insertar o actualizar siguen comprobando** la fila que ya existe y que reemplazan, y fallan con daño de su página si está mal formada, como hoy (E19, E17), así que no la reescriben con valores que no son los suyos. Dentro de una transacción de escritura, leer por la clave y recorrer siguen L1. Insertar, la carga masiva, borrar, borrar un intervalo, contar filas y las secuencias no leen el contenido de filas existentes y no cambian (E19). Una fila mal formada que otra escritura no lee, en una página que esa escritura reescribe, conserva sus bytes con el nuevo código de integridad de la página, como ya admite la anotación de G6 del 2026-11-06. |
 | L4 | **K7 en las cargas de tablas que leen filas** (precisa K7 del banco para W26 y W27): Voron lee sus filas sin comprobar su contenido y, desde este PRD, las lecturas de Krummi tampoco lo comprueban, así que esas cargas comparan el mismo trabajo. Los umbrales no cambian. |
 
+*Anotaciones del 2026-11-18 desde los índices secundarios ([tables-indexes.prd.md](tables-indexes.prd.md)):*
+
+- *L1 y L2: las lecturas por un índice siguen L1 y L2, también en sus entradas (decisión IX12).*
+- *L2: excepción: un pánico capturado al borrar un intervalo de una tabla con índices puede llegar con parte del intervalo borrado, y entonces la escritura ya no puede confirmarse, como con un daño (T11; decisión IX12, decisión del usuario).*
+- *L3: en una tabla con índices, borrar una fila, borrar un intervalo y crear un índice leen los valores de las filas que ya existen sin comprobar su contenido, como L1 y L2; actualizar e insertar o actualizar siguen comprobando la fila que reemplazan (decisión IX12).*
+
 ### Estado de partida
 
 - 7.1 trata como daño de su página una fila leída cuyo contenido no es el que Krummi escribe: cada fila se comprueba

@@ -117,6 +117,16 @@ projection, the read with the real capabilities of the engine, as in W28, and pr
 measured time of each repetition; Voron reads its fields by their position. The loads and the thresholds do not change
 (PY7).*
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](../tables/tables-indexes.prd.md),
+Spanish, authoritative):*
+
+- *Loads: the table adds W30 `tabla-insercion-con-indices`, W31 `tabla-busqueda-por-indice` and W32
+  `tabla-intervalos-de-indice`, defined in the *Cargas del banco* of that PRD (decision IX15).*
+- *K4: W31 and W32 start in the store that W30 leaves, each in its own copy.*
+- *K7 and *Output*: the report counts 32 thresholds; those of W30–W32 are against Voron's tables with their indexes, and
+  the other engines say `no aplica` in those loads.*
+- *K9: the size of the store is also measured after W30.*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

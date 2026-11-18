@@ -113,6 +113,23 @@ Krummi reads the columns of the rows with a projection, and preparing the projec
 repetition; so will the loads of future tables that read column values, unless their PRD says otherwise. The loads, their
 checksums and their thresholds do not change (PY7).*
 
+*Annotations of 2026-11-18 from the secondary indexes ([tables-indexes.prd.md](tables-indexes.prd.md), Spanish,
+authoritative):*
+
+- *E2: Describe also returns the indexes of the table and the state of the indexes (decision IX6).*
+- *E5: creating an index follows the definition rules of IX3; the too-large schema also counts the definitions of the
+  indexes, so adding or renaming a column may fail with that rule in a table with indexes; and the rule «dropping a
+  column from the primary key or, from 7.2, from an index» also names the index when the column is not in the primary
+  key (decisions IX3 and IX5).*
+- *E6: different schema also covers create if it does not exist an index with another definition, with the first
+  difference, and traversing an index that does not exist (decisions IX2 and IX9).*
+- *E16: creating an index and deleting one that exists are changes for T10, and both end the earlier references
+  (decision IX13).*
+- *E17: duplicate key in a unique index also carries the index and the values of its key that are repeated; invalid size
+  also distinguishes an index entry; and the errors of the indexes follow the precedence of IX10 (decision IX10).*
+- *E19: in a table with indexes, deleting a row, deleting a range and creating an index read the content of the rows
+  without checking it, and traversing an index does not check its entries (decision IX12).*
+
 ### Starting state
 
 - There are no tables or sequences in the code: the catalog stores normal, multi-value and fixed-size trees, each
