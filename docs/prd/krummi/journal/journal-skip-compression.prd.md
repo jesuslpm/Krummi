@@ -45,8 +45,8 @@ Ninguna fijada. Ver *Preguntas abiertas*.
    - (b) Sí: elegir en la pregunta 2.
 2. **¿Qué registros pueden guardarse con más bytes que hoy?**
    - (a) Los de valores grandes: las páginas de los valores fuera de su hoja se guardan siempre sin comprimir, y el
-     resto del registro como hoy. Cambia el formato del registro: el formato pasa a `11` y los almacenes de formato
-     `10` quedan como formato anterior, sin migración (D7). Un valor grande que se comprime bien, como un texto,
+     resto del registro como hoy. Cambia el formato del registro: el formato pasa a `12` y los almacenes de formato
+     `11` quedan como formato anterior, sin migración (D7). Un valor grande que se comprime bien, como un texto,
      ocuparía su tamaño entero.
    - (b) Los registros grandes que, por una regla rápida y determinista, parecen no comprimirse (como T2, que fallaba
      con repeticiones largas). No cambia el formato: un registro sin comprimir ya es válido.
@@ -64,12 +64,12 @@ Ninguna fijada. Ver *Preguntas abiertas*.
 ## Fuera de alcance
 
 - Cambiar lo que contiene `krummi.data` o lo que leen las transacciones (segundo punto de J16).
-- Leer o migrar diarios de formato `10` si se cambia el formato, y que el motor anterior lea diarios del nuevo.
+- Leer o migrar diarios de formato `11` si se cambia el formato, y que el motor anterior lea diarios del nuevo.
 - Cambiar el tamaño máximo de un registro, el límite de los archivos del diario o los umbrales de disco lleno (J5, J12).
 - Una opción pública o una configuración para elegir.
 - La compresión de las páginas hoja (5.6), el cifrado y otro algoritmo de compresión.
-- Comprimir fuera del hilo que confirma: no cambia los bytes, pero la confirmación reserva su sitio en el archivo
-  antes de codificar, y es otro cambio.
+- Comprimir fuera del hilo que confirma: no cambia los bytes, pero la confirmación codifica su registro antes de
+  reservar su sitio en el archivo, porque la reserva necesita su tamaño, y es otro cambio.
 
 ## Dejado a la implementación
 
