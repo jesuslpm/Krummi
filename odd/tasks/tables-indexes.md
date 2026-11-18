@@ -193,3 +193,17 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   gets T12. Not tested: P10/P12 exclusion (separate files the pager never accounts). Risk: item 1 (the open deletes
   the reserved folder's contents) and item 3 (shared recovery and close paths). RDD and an independent verifier
   launched.
+- **L13** (2026-11-18) — RDD of T5 `e340580..7c33f57` (risk, resilience, reliability, readability; escalated items 1
+  and 3): approved, lineage `review-a4fa65d8e5d34771`. A docs commit (`f058814`) made during the review moved HEAD,
+  so the driver's re-query offered a fresh START for the new target (a consent envelope, nothing created); the
+  approved lineage was then acknowledged with its own provider-issued acknowledgement (authority burned). Lesson: no
+  commits while a review runs. Advisories: a run file's end is not verified (`sort.rs:283`, a truncated run would read
+  as a normal end: fixed in the fix pass), the sort failure order doc (`index.rs:787`), the 64 KiB buffer boundary
+  untested. Independent verifier of T5 over `7c33f57`: no blockers. The open removes only `krummi.sort` (folder,
+  file, any case on Windows), never on a failed open, a locked store, a damaged journal or a format mismatch; user
+  files and look-alike names stay byte-identical; a folder holding only `krummi.sort` is not a store and is
+  untouched; open, close and drop byte-identical to `e340580` in 26 scenarios; spilling and memory-only builds give
+  the same entries and info; a 1 MiB-maximum store gives the same info and max-size error either way. Advisories:
+  `README.md:82` does not list `krummi.sort` (fix pass); a junction named `krummi.sort` makes every open fail with
+  access (the target is never followed; allowed by IX2). Scratch removed by the parent. A fix-pass writer was
+  launched for the accumulated advisories (L5, L7, L9, L10, this entry).
