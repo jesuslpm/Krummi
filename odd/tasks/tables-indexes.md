@@ -207,3 +207,16 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   `README.md:82` does not list `krummi.sort` (fix pass); a junction named `krummi.sort` makes every open fail with
   access (the target is never followed; allowed by IX2). Scratch removed by the parent. A fix-pass writer was
   launched for the accumulated advisories (L5, L7, L9, L10, this entry).
+- **L14** (2026-11-18) — Fix pass (`1de443b`, delegated): `SortWriter` counts the bytes it writes and `SortRun`
+  keeps them; `SortReader` reads exactly that many, so a run file that ends early or a record header that runs past
+  the run or has a prefix longer than its key fails the creation with the I/O class (G12) with T11 (RED:
+  `ac_ix14_a_damaged_run_file_fails_the_creation_with_the_io_class` succeeded with a smaller index before; four
+  damages × two budgets × two indexes); the doc of `sorted_entries` gives the real failure order; `README.md` lists
+  `krummi.sort`; the crate doc names `index_rows`/`index_entries`; tests strengthened (an independent model in
+  AC-IX5, full row comparison, whole index after commit, the 2,048-byte accept side, exact page counts after drop and
+  after emptying, Describe and table reads in a read transaction after index damage, records across the 64 KiB
+  buffers, caught only by the new test when injected). Workspace 963 passed. RDD `7c33f57..1de443b` (resilience,
+  reliability): approved, `review-a5da2fc5ba9c4e33`; advisory: a header damaged inside a run that still fits is read
+  as data (sort files carry no checksum; the PRD does not ask for one; noted for the closing report). T7 launched on
+  `e808a33`'s successor `1de443b`: `work/ti/full.sh` (power plan, Windows `--solo-krummi-voron`, then WSL 2 from a
+  `git archive` of HEAD).
