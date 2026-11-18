@@ -355,3 +355,13 @@ traducciones también):
 - Pager: [pager.prd.md](../pager/pager.prd.md) (F11, P12).
 - Banco: [benchmark.prd.md](../benchmark/benchmark.prd.md) (K4, K7, K9, K11, K13).
 - Diseño: `docs/design/tables/` (documentos 2, 3 y 11; README, H15).
+
+## Tiempo de elaboración
+
+Medido con el historial de la sesión de Claude Code. Si la persona tarda más de 10 min en responder, se cuentan 10 min y el resto se descarta como inactividad. Intervenciones: mensajes y respuestas de la persona después del pedido inicial.
+
+| Sesión | Inicio | Reloj | Descartado | Activo | Agente | Persona | Intervenciones |
+|---|---|---|---|---|---|---|---|
+| bdd88ebe | 2026-11-16 10:50 UTC+00:00 | 55 h 16 min | 52 h 29 min | 2 h 46 min | 1 h 49 min | 57 min | 14 |
+
+<!-- prd-time: [{"session": "bdd88ebe-15fe-4364-8a18-4410e2ba4ed3", "start": "2026-11-16T10:50:01.910000+00:00", "wall": 198936, "discarded": 188965, "agent": 6533, "human": 3438, "interventions": 14, "idle_minutes": 10}] -->
