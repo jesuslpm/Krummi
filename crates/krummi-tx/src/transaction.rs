@@ -12,7 +12,7 @@ use std::path::Path;
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SIZE_U64, seal_run};
 use krummi_pager::{
-    PageBuf, PageChange, RunBuf, ScratchWriter, Snapshot, alloc_payload, growth_target,
+    PageChange, PayloadBuf, RunBuf, ScratchWriter, Snapshot, alloc_payload, growth_target,
 };
 
 #[cfg(feature = "test-hooks")]
@@ -210,9 +210,7 @@ pub struct WriteTransaction<'e> {
 /// A page this transaction changed, and how. Its layout is never checked by this transaction (H1 of the commit checks
 /// PRD).
 struct Changed {
-    /// In a free slot of the temporary area, which the commit seals in place, or else in memory (S2 of the night
-    /// optimizations).
-    payload: PageBuf,
+    payload: PayloadBuf,
     /// The transaction created the page, zeroed, rather than copying its newest version: the journal keeps what
     /// differs from zeros, not from that version (Y1 of the journal page diffs PRD).
     created: bool,
@@ -225,7 +223,7 @@ struct Changed {
 impl Changed {
     /// A page just created, zeroed, or copied for this transaction; `keeps_check` for a copy of a checked page that
     /// is about to change only by same-length value overwrites (Q3).
-    fn new(payload: PageBuf, created: bool, keeps_check: bool) -> Changed {
+    fn new(payload: PayloadBuf, created: bool, keeps_check: bool) -> Changed {
         Changed {
             payload,
             created,
@@ -603,12 +601,11 @@ impl<'e> WriteTransaction<'e> {
         let finished = self.finish_space();
         self.track(finished)?;
         let meta_written = self.dirty.contains_key(&META_PAGE);
-        // The pager seals the pages in their slots, or straight into the temporary area (O5 of the performance plan,
-        // S2 of the night optimizations).
+        // The pager seals the pages straight into the temporary area (O5 of the performance plan).
         let dirty = std::mem::take(&mut self.dirty);
         // One small value per page carries both flags, in the one collection besides the pages (Q6 of the written
         // pages PRD).
-        let (pages, changes): (Vec<(u64, PageBuf)>, Vec<PageChange>) = dirty
+        let (pages, changes): (Vec<(u64, PayloadBuf)>, Vec<PageChange>) = dirty
             .into_iter()
             .map(|(page, changed)| {
                 let change = PageChange::new(changed.created, changed.keeps_check);
@@ -617,11 +614,10 @@ impl<'e> WriteTransaction<'e> {
             .unzip();
         let runs = self.seal_runs();
         self.engine.hook(Point::CommitPublish);
-        let mut payloads = Vec::new();
-        let committed = self.writer.commit(pages, &changes, &runs, &mut payloads);
-        // The pages and the runs are in the temporary area now, or the commit failed: the buffers of the ones copied
-        // there serve the next copies and runs.
-        self.engine.keep_payloads(payloads);
+        let committed = self.writer.commit(&pages, &changes, &runs);
+        // The pages and the runs are copied into the temporary area now, or the commit failed: their buffers serve
+        // the next copies and runs.
+        self.engine.keep_payloads(pages);
         self.engine.keep_runs(runs);
         let txid = self.track(committed)?;
         // The point of no return (E2): the commit is in the journal's queue and the next writer sees it, and the
@@ -702,8 +698,7 @@ impl<'e> WriteTransaction<'e> {
     /// (C2), or a version of the scratch area that passed or kept it (U1, Q3 of the written pages PRD).
     fn copy_for_write(&mut self, page_number: u64, same_layout: bool) -> Result<()> {
         self.reserve(1, 0)?;
-        let engine = self.engine;
-        let mut payload = self.writer.page_buf(false, || engine.payload_for_copy())?;
+        let mut payload = self.engine.payload_for_copy()?;
         let snapshot = self.writer.snapshot();
         let (page, origin) = snapshot.page_and_code(page_number)?;
         payload.copy_from_slice(page);
@@ -722,8 +717,8 @@ impl<'e> WriteTransaction<'e> {
     /// Adds zeroed pages to this transaction.
     fn add_zeroed(&mut self, pages: impl IntoIterator<Item = u64>) -> Result<()> {
         for page in pages {
-            let payload = self.writer.page_buf(true, alloc_payload)?;
-            self.dirty.insert(page, Changed::new(payload, true, false));
+            self.dirty
+                .insert(page, Changed::new(alloc_payload()?, true, false));
             #[cfg(feature = "test-hooks")]
             self.log(LayoutEvent::Change(page));
         }
