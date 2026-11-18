@@ -59,7 +59,7 @@ use crate::journal::{Journal, JournalPage, RAW_ENTRY};
 use crate::pager::{Info, Integrity, Pager};
 use crate::recovery;
 use crate::sys;
-use crate::temp::{Slot, SlotMut, TempArea};
+use crate::temp::{Slot, TempArea};
 use crate::transfer::{self, Demand, Pacing, Signal};
 
 /// The payload of a page being changed by a write transaction.
@@ -70,46 +70,6 @@ pub type RunBuf = Box<[u8]>;
 /// Pages of a commit copied into the temporary area, ready to be published (J7 of the Journal PRD): each page's
 /// number, its slots and its index in them.
 pub struct Staged(Vec<(u64, Arc<Slot>, usize)>);
-
-/// The payload of a page being changed by a write transaction, which reads and writes it as a slice of
-/// [`PAGE_PAYLOAD_SIZE`] bytes: in a free slot of the temporary area, after the page's header, which the commit seals
-/// in place and publishes without copying it (S2 of the night optimizations), or else in memory, which the commit
-/// seals into a slot. Both give the commit the same sealed page. [`ScratchWriter::page_buf`] chooses; dropping it
-/// gives a slot back.
-pub struct PageBuf(Buf);
-
-enum Buf {
-    Payload(PayloadBuf),
-    /// Boxed, so that a page buffer stays two words in a transaction's map of changed pages: unboxed, the slot made each
-    /// entry of that map 56 bytes, and the larger entries slowed the loads that change many pages.
-    Slot(Box<SlotMut>),
-}
-
-impl From<PayloadBuf> for PageBuf {
-    fn from(payload: PayloadBuf) -> PageBuf {
-        PageBuf(Buf::Payload(payload))
-    }
-}
-
-impl std::ops::Deref for PageBuf {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        match &self.0 {
-            Buf::Payload(payload) => &payload[..],
-            Buf::Slot(slot) => &slot.bytes()[PAGE_HEADER_SIZE..],
-        }
-    }
-}
-
-impl std::ops::DerefMut for PageBuf {
-    fn deref_mut(&mut self) -> &mut [u8] {
-        match &mut self.0 {
-            Buf::Payload(payload) => &mut payload[..],
-            Buf::Slot(slot) => &mut slot.bytes_mut()[PAGE_HEADER_SIZE..],
-        }
-    }
-}
 
 /// How a write transaction got a page it commits, one small value per page, so that a commit carries both flags in one
 /// collection (Q6 of the written pages PRD).
@@ -144,19 +104,6 @@ pub enum Memory {
     Data,
     /// The versions of the temporary area (J7).
     Versions,
-}
-
-#[cfg(any(test, feature = "test-hooks"))]
-thread_local! {
-    /// Whether the writers of this thread change pages in free slots of the temporary area (tests).
-    static PAGE_SLOTS: Cell<bool> = const { Cell::new(true) };
-}
-
-/// Lets the writers of this thread change pages in free slots of the temporary area, as they do by default, or not, so
-/// that tests compare both ways (S2 of the night optimizations).
-#[cfg(any(test, feature = "test-hooks"))]
-pub fn set_page_slots(enabled: bool) {
-    PAGE_SLOTS.with(|slots| slots.set(enabled));
 }
 
 /// A zeroed page payload, or the out-of-memory class if the system does not provide it (P13).
@@ -1476,65 +1423,39 @@ impl<'a> ScratchWriter<'a> {
         outcome
     }
 
-    /// A buffer for a page this writer changes, holding zeros when `zeroed`, or else bytes the caller all overwrites:
-    /// a free slot of the temporary area, taken without growing it (S2 of the night optimizations), or else the
-    /// payload of `fallback`, the allocation the page took before slots. The slot passes the fault point of that
-    /// allocation (P13), so a change fails where, when and as it did; the area still grows, and fails to grow, only at
-    /// the commit, for the pages changed in memory.
-    pub fn page_buf(
-        &self,
-        zeroed: bool,
-        fallback: impl FnOnce() -> Result<PayloadBuf>,
-    ) -> Result<PageBuf> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        if !PAGE_SLOTS.with(Cell::get) {
-            return fallback().map(PageBuf::from);
-        }
-        let Some(mut slot) = self.snapshot.scratch.shared.area.take_free_page() else {
-            return fallback().map(PageBuf::from);
-        };
-        // A failure gives the slot back.
-        sys::alloc_point().map_err(|_| Error::OutOfMemory {
-            requested: PAGE_PAYLOAD_SIZE as u64,
-        })?;
-        if zeroed {
-            slot.bytes_mut()[PAGE_HEADER_SIZE..].fill(0);
-        }
-        Ok(PageBuf(Buf::Slot(Box::new(slot))))
-    }
-
     /// Commits the payloads of `pages` and the value `runs`, each sealed with
     /// [`seal_run`](crate::format::seal_run) for its first page: seals the pages into the temporary area, puts them
     /// in the journal's queue from there, a run's pages as raw entries (D5 of the large values execution), and
     /// publishes them for the next writer (E2). `changes[i]` tells how the transaction got page `pages[i]`: created,
     /// zeroed, or copied from its newest version, the journal keeping what differs from zeros or from that version
     /// (Y1 of the journal page diffs PRD); and whether it is a node that keeps the layout check of the page it was
-    /// copied from, its version then published as checked (Q3 of the written pages PRD). The payloads in memory go to
-    /// `spare` once sealed, for the next copies. Returns the number of the commit, which read snapshots see once it is
-    /// durable (E3; [`Scratch::wait_durable`]). On failure nothing is published (J12).
+    /// copied from, its version then published as checked (Q3 of the written pages PRD). Returns the number of the
+    /// commit, which read snapshots see once it is durable (E3; [`Scratch::wait_durable`]). On failure nothing is
+    /// published (J12).
     ///
     /// # Panics
     ///
     /// If `changes` and `pages` differ in length.
     pub fn commit(
         &mut self,
-        pages: Vec<(u64, PageBuf)>,
+        pages: &[(u64, PayloadBuf)],
         changes: &[PageChange],
         runs: &[(u64, RunBuf)],
-        spare: &mut Vec<PayloadBuf>,
     ) -> Result<u64> {
         assert_eq!(changes.len(), pages.len(), "one change per page");
-        let count = pages.len();
-        let mut staged = self.stage(pages, runs, spare)?;
+        let mut staged = self.stage(pages, runs)?;
         // The staged pages come first, in the order of `pages`, each in slots of its own that nobody shares yet: a
         // kept check goes to the slot of its own page only (R4-001 of the RDD review of T1).
         debug_assert!(
-            staged.0[..count].iter().all(|(_, slot, index)| *index == 0
-                && !slot.is_value_run()
-                && Arc::strong_count(slot) == 1),
-            "the staged pages come first, each in slots of its own"
+            staged
+                .0
+                .iter()
+                .zip(pages)
+                .all(|((staged, _, _), (page, _))| staged == page),
+            "the staged pages come first, in the order of the pages given"
         );
-        for ((_, slot, _), _) in staged.0[..count]
+        for ((_, slot, _), _) in staged
+            .0
             .iter_mut()
             .zip(changes)
             .filter(|(_, change)| **change == PageChange::KeepsCheck)
@@ -1549,10 +1470,10 @@ impl<'a> ScratchWriter<'a> {
                 let state = scratch.read();
                 // The version each copied page comes from is the newest one: in the scratch area while it is there,
                 // or else in the store, which no transfer writes again until a newer version exists (J5).
-                let bases: Vec<Option<(Arc<Slot>, usize)>> = staged.0[..count]
+                let bases: Vec<Option<(Arc<Slot>, usize)>> = pages
                     .iter()
                     .zip(changes)
-                    .map(|((number, _, _), &change)| {
+                    .map(|((number, _), &change)| {
                         let newest = state.versions.get(number)?.last();
                         newest
                             .filter(|_| change != PageChange::Created)
@@ -1570,7 +1491,7 @@ impl<'a> ScratchWriter<'a> {
                 .enumerate()
                 .map(|(i, (number, slot, index))| {
                     let page = slot.page_at(*index);
-                    if i >= count {
+                    if i >= pages.len() {
                         return Ok((number | RAW_ENTRY, page, None));
                     }
                     let base = if changes[i] == PageChange::Created {
@@ -1595,21 +1516,15 @@ impl<'a> ScratchWriter<'a> {
         Ok(self.publish(staged))
     }
 
-    /// Seals the payloads of `pages` for their numbers into the temporary area, those in a slot in place and those in
-    /// memory straight into a new slot, which they then leave for `spare`, and copies the value `runs`, each sealed for
-    /// its first page, into it, a run into contiguous slots (D5), ready to be published (J7). Nothing is visible yet;
-    /// dropping the result gives the slots back. The staged pages are those of `pages`, in order, then those of each
-    /// run.
+    /// Seals the payloads of `pages` for their numbers straight into the temporary area, and copies the value `runs`,
+    /// each sealed for its first page, into it, a run into contiguous slots (D5), ready to be published (J7). Nothing
+    /// is visible yet; dropping the result gives the slots back. The staged pages are those of `pages`, in order,
+    /// then those of each run.
     ///
     /// # Panics
     ///
     /// If a page is a header page or beyond the end of the store, or a run is not a whole number of pages.
-    pub fn stage(
-        &self,
-        pages: Vec<(u64, PageBuf)>,
-        runs: &[(u64, RunBuf)],
-        spare: &mut Vec<PayloadBuf>,
-    ) -> Result<Staged> {
+    pub fn stage(&self, pages: &[(u64, PayloadBuf)], runs: &[(u64, RunBuf)]) -> Result<Staged> {
         let scratch = self.snapshot.scratch;
         let pager = scratch.pager();
         let page_count = pager.page_count();
@@ -1624,35 +1539,16 @@ impl<'a> ScratchWriter<'a> {
             .map_err(|_| Error::OutOfMemory {
                 requested: (entries * size_of::<(u64, Arc<Slot>, usize)>()) as u64,
             })?;
-        // Room for every payload this commit gives back, so that a large commit fails here with `OutOfMemory`, before
-        // anything is staged, rather than in the loop.
-        spare
-            .try_reserve(pages.len())
-            .map_err(|_| Error::OutOfMemory {
-                requested: (pages.len() * size_of::<PayloadBuf>()) as u64,
-            })?;
-        for (page_number, page) in pages {
+        for (page_number, payload) in pages {
             assert!(
-                (HEADER_PAGES..page_count).contains(&page_number),
+                (HEADER_PAGES..page_count).contains(page_number),
                 "page {page_number} cannot be published"
             );
-            let slot = match page.0 {
-                Buf::Payload(payload) => {
-                    let slot = scratch.shared.area.store_with(1, pager, |slot| {
-                        let page = slot.try_into().expect("one page");
-                        format::seal_page(page_number, &payload[..], page);
-                    })?;
-                    spare.push(payload);
-                    slot
-                }
-                // The payload is in place after the header, whole: sealing the page there gives the bytes that
-                // `seal_page` gives from a payload in memory.
-                Buf::Slot(mut slot) => {
-                    format::seal_run(page_number, slot.bytes_mut());
-                    (*slot).into_slot()
-                }
-            };
-            staged.push((page_number, Arc::new(slot), 0));
+            let slot = scratch.shared.area.store_with(1, pager, |slot| {
+                let page = slot.try_into().expect("one page");
+                format::seal_page(*page_number, &payload[..], page);
+            })?;
+            staged.push((*page_number, Arc::new(slot), 0));
         }
         for (first, run) in runs {
             let count = (run.len() / PAGE_SIZE) as u64;

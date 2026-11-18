@@ -35,10 +35,10 @@ PRD draft for the user, not an implementation).
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S5 | delegated diagnosis, inline change | done | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers`; A/B L7–L9 |
-| T2 | S2, S5 | delegated writer (context backstop); restored inline | in verification | `cdf0164`, reverted `131a172`, restored with c1 `dfb391e`; L9, L14, L15 |
+| T2 | S2, S5 | delegated writer (context backstop); restored inline | reverted (L20) | `cdf0164`, reverted `131a172`, restored with c1 `dfb391e`, fixed `96ef635`, reverted again (L20); L9, L14–L20 |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
-| T5 | S6 | inline | reopened (L14) | complete runs L11 and Codex L12–L13 on the code without T2; to redo |
+| T5 | S6 | inline | done | complete runs L11 and L20 on the code without T2; Codex L12–L13 and L21 |
 
 ## Log
 
@@ -236,8 +236,24 @@ PRD draft for the user, not an implementation).
   two loads already moved between 0.71 and 1.22 (L11), and W12 and W13 are the loads whose 10-round marks cleared
   at 20 rounds (L8), so a 20-round A/B on Windows decides: `not2` = `5a00edc` (the code without T2) against
   `t2f` = `7314419`, script `work/night/w12/ab.sh`. Result (`t2f`/`not2`, op/s; rounds where `t2f` was slower): W12
-  1.062 (5/20), W13 1.127 (1/20). T2 does not worsen them; the two failures of the complete run are noise of single
-  runs, and the thresholds are met on Windows when the loads are measured in rounds.
+  1.062 (5/20), W13 1.127 (1/20). T2 does not worsen them (S5). The A/B measures Krummi only, so it does not show
+  that the thresholds against Voron are met (K7): the observed result of the final complete Windows run stays 27 of
+  29. As an indication only, the complete run's Krummi figures (1,312,549 and 47,977 op/s) lie below every one of
+  the A/B's 20 rounds of the same code (W12 1,635,323–2,146,383, W13 59,802–75,845 op/s). The bench cannot measure
+  Voron in rounds; a repeated complete run on Windows is a follow-up.
+- **L20** (2026-11-18) — The repeated complete Windows run on `a4a6bef` (code equal to `7314419`), 09:37:20–09:59:37:
+  **Krummi cumple 27 de 29 umbrales. Incumple: `lecturas-con-escritor`, `escritor-con-lectores`** (0.60 and 0.75;
+  Krummi 1,426,444 and 53,669 op/s). Then, in the same session, a complete run with the `not2` exe (`5a00edc`, the
+  code without T2; the report names the checkout `a4a6bef`), 10:00:16–10:22:39: **Krummi cumple 29 de 29 umbrales**,
+  W12 1.19 and W13 1.15 (Krummi 2,687,734 and 88,011 op/s). In the complete run T2 halves W12 and costs W13 about
+  40 %, in two runs out of two; the 20-round A/B did not see it (L19), and neither did a 10-round A/B whose base store
+  was prepared by the T2 build (`t2f` first, `work/night/w12/ab-t2base.json`: W12 `not2`/`t2f` 0.988, W13 0.909), so
+  the base store does not explain it. What the complete run does that the A/B does not is not diagnosed. Default
+  without asking: S5's exception covers only W3 and W25, and the complete run is the benchmark K7 measures, so T2 is
+  reverted again: `crates/` restored to `5a00edc` (the T2 test file `page_slots.rs` removed). Checks: fmt and clippy
+  clean, `cargo test --workspace` 869 passed, 0 failed. No new complete run: the code equals `67d92b8`'s (L11, WSL
+  29/29) and the `not2` run above (Windows 29/29). The diagnosis of why T2 slows W12 and W13 only in the complete run
+  is a follow-up, and it would also explain the A/B's blind spot.
 
 ## Closing
 
