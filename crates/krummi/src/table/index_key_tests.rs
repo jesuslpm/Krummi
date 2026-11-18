@@ -10,8 +10,8 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use krummi_pager::ValueRule;
 
 use super::index_key::{
-    decode_entry, encode_entry, entry_len, index_key_len, index_range, split_entry,
-    uniqueness_range,
+    decode_entry, decode_entry_value, encode_entry, entry_len, index_key_len, index_range,
+    split_entry, uniqueness_range,
 };
 use super::key::{Direction, KeyColumn, KeyError, KeyRange, MAX_KEY, Nulls, encode_key};
 use super::value::{
@@ -977,18 +977,19 @@ fn ix9_with_a_bound_the_nulls_are_outside_and_without_bounds_inside() {
         let shape = format!("{direction:?} {nulls:?}");
         let all = index_range(&columns, &[], Unbounded, Unbounded).unwrap();
         assert!(contains(&all, &null) && contains(&all, &five), "{shape}");
-        let v = Value::I32(0);
-        for (lower, upper) in [
-            (Included(&v), Unbounded),
-            (Unbounded, Included(&Value::I32(9))),
+        // With a bound on either side, the null is outside and a value within the bound inside, while one beyond the
+        // bound is outside too.
+        let below = encode_entry(&columns, &[Value::I32(-1)], &pk).unwrap();
+        let above = encode_entry(&columns, &[Value::I32(10)], &pk).unwrap();
+        let (zero, nine) = (Value::I32(0), Value::I32(9));
+        for (lower, upper, beyond) in [
+            (Included(&zero), Unbounded, &below),
+            (Unbounded, Included(&nine), &above),
         ] {
             let range = index_range(&columns, &[], lower, upper).unwrap();
             assert!(!contains(&range, &null), "{shape} {range:?}");
-            assert!(
-                contains(&range, &five) == matches!(lower, Included(_))
-                    || matches!(upper, Included(_)),
-                "{shape}"
-            );
+            assert!(contains(&range, &five), "{shape} {range:?}");
+            assert!(!contains(&range, beyond), "{shape} {range:?}");
         }
         let nulls_only = index_range(&columns, &[Value::Null], Unbounded, Unbounded).unwrap();
         assert!(
@@ -1232,4 +1233,52 @@ fn ix9_bounds_past_2048_bytes_become_2048_byte_bounds_of_the_same_entries() {
         false,
     )];
     check(&columns, &primary, &rows, &ranges);
+}
+
+/// IX8, IX12: an entry's values decode one at a time, each into a copy, without decoding the elements before it
+/// (`decode_entry_value`, the reads of an index scan); bytes that are not an entry's do not decode, with the whole
+/// entry (`decode_entry`) or a value at or after the malformed element, while a value before it still does.
+#[test]
+fn malformed_entries_do_not_decode_and_their_earlier_values_do() {
+    let columns = [
+        col(ColumnType::String, Direction::Descending, Nulls::Last, true),
+        col(ColumnType::I32, Direction::Ascending, Nulls::First, true),
+    ];
+    let elements = [columns[0], columns[1], KeyColumn::primary(ColumnType::I64)];
+    let values = [s("a\0b"), Value::Null];
+    let pk = encode_key(&[ColumnType::I64], &[Value::I64(7)]).unwrap();
+    let entry = encode_entry(&columns, &values, &pk).unwrap();
+    let decoded: Vec<Value<'static>> = (0..3)
+        .map(|at| decode_entry_value(&elements, &entry, at).unwrap())
+        .collect();
+    assert_eq!(decoded, [s("a\0b"), Value::Null, Value::I64(7)]);
+    assert!(matches!(decoded[0], Value::String(Cow::Owned(_))));
+    assert_eq!(
+        decode_entry(&columns, &[ColumnType::I64], &entry),
+        Some((values.to_vec(), vec![Value::I64(7)]))
+    );
+    // The text's element cut short, a code of another type after it, and bytes after the primary key.
+    let text_end = split_entry(&columns[..1], &entry).unwrap().0.len();
+    let cut = &entry[..text_end - 1];
+    let wrong = [&entry[..text_end], &[0xFF][..]].concat();
+    let longer = [entry.as_slice(), &[0]].concat();
+    for (what, bytes) in [("cut", cut), ("wrong code", wrong.as_slice())] {
+        assert_eq!(
+            decode_entry(&columns, &[ColumnType::I64], bytes),
+            None,
+            "{what}"
+        );
+        assert_eq!(split_entry(&columns, bytes), None, "{what}");
+        assert_eq!(decode_entry_value(&elements, bytes, 1), None, "{what}");
+        assert_eq!(decode_entry_value(&elements, bytes, 2), None, "{what}");
+    }
+    assert_eq!(decode_entry_value(&elements, &wrong, 0), Some(s("a\0b")));
+    assert_eq!(decode_entry_value(&elements, cut, 0), None);
+    // Bytes after the last element: the whole entry does not decode, its values one at a time still do (IX12 lets a
+    // malformed entry give a value).
+    assert_eq!(decode_entry(&columns, &[ColumnType::I64], &longer), None);
+    assert_eq!(
+        decode_entry_value(&elements, &longer, 2),
+        Some(Value::I64(7))
+    );
 }

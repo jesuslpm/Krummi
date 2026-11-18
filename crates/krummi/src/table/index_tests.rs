@@ -11,15 +11,17 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use krummi_tx::LayoutEvent;
 
+use super::index_key::encode_entry;
+use super::key::KeyColumn;
 use super::malformed_tests::{
-    BAD, ROWS, alter, bad_text_store, damaged_page, id_key, row_page, store_with, stored, text_row,
-    texts,
+    BAD, ROWS, alter, bad_text_store, damaged_page, id_key, panics, row_page, store_with, stored,
+    text_row, texts,
 };
 use super::schema::version_key;
 use crate::table::value::{ColumnType, Value};
 use crate::{
-    Column, ErrorKind, IndexDefinition, IndexKey, IndexMode, Store, StoreOptions, TableMode,
-    WriteTransaction,
+    Column, Direction, ErrorKind, IndexDefinition, IndexEntry, IndexKey, IndexMode, Nulls, Store,
+    StoreOptions, TableMode, WriteTransaction,
 };
 
 /// The index on `n` of [`texts`].
@@ -48,7 +50,7 @@ fn indexed_store(definition: &IndexDefinition) -> Store {
 fn entry_ids(write: &WriteTransaction<'_>, name: &str) -> Vec<Value<'static>> {
     let table = write.open_table("t").unwrap();
     (write
-        .index_entries(&table, name)
+        .stored_index_entries(&table, name)
         .unwrap()
         .unwrap()
         .into_iter())
@@ -78,7 +80,7 @@ fn ac_ix13_a_row_malformed_outside_the_index_does_not_fail_its_creation() {
     write
         .create_index(&table, &on_n(), IndexMode::CreateNew)
         .unwrap();
-    let entries = write.index_entries(&table, "ix_n").unwrap().unwrap();
+    let entries = write.stored_index_entries(&table, "ix_n").unwrap().unwrap();
     let found: Vec<(Value<'static>, Value<'static>)> = entries
         .into_iter()
         .map(|entry| (entry.key[0].clone(), entry.primary_key[0].clone()))
@@ -122,7 +124,7 @@ fn ac_ix13_a_row_malformed_outside_the_index_deletes_without_failing() {
 fn remove_entry(store: &Store, name: &str, id: i64) -> Vec<u8> {
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();
-    let entries = write.index_entries(&table, name).unwrap().unwrap();
+    let entries = write.stored_index_entries(&table, name).unwrap().unwrap();
     let entry = entries
         .into_iter()
         .find(|entry| entry.primary_key == [Value::I64(id)])
@@ -362,7 +364,10 @@ fn ac_ix13_a_panic_while_deleting_a_range_leaves_the_write_unable_to_commit() {
         "nothing applied"
     );
     assert_eq!(
-        read.index_entries(&table, "ix_s").unwrap().unwrap().len(),
+        read.stored_index_entries(&table, "ix_s")
+            .unwrap()
+            .unwrap()
+            .len(),
         ROWS as usize
     );
     drop(read);
@@ -448,4 +453,142 @@ fn ac_ix2_an_identical_update_writes_no_page_of_the_indexes() {
         update(vec![("id", Value::I64(3)), ("n", Value::I32(31))]),
     );
     assert!(key.contains(&root), "a key column of the index");
+}
+
+/// Adds the entry `key`, `value` to the tree of the index `name` of the table `t`, in a write that commits: an entry
+/// that no row write made, written through the tree, so its page's integrity holds.
+fn add_entry(store: &Store, name: &str, key: &[u8], value: &[u8]) {
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let at = (write.table_schema(&table).unwrap().indexes().iter())
+        .position(|index| index.name == name)
+        .unwrap();
+    let root = index_root(&write, name);
+    let update = krummi_tree::try_add(&mut write.inner, root, key, value).unwrap();
+    assert!(update.count_changed);
+    let state = write.tables.get_mut().get_mut(table.id).unwrap();
+    state.index_roots[at] = update.root;
+    state.dirty = true;
+    write.commit().unwrap();
+}
+
+/// The key of the entry of `ix_n` for `n` and the primary key `id`.
+fn n_entry(n: i32, id: i64) -> Vec<u8> {
+    let column = KeyColumn {
+        ty: ColumnType::I32,
+        direction: Direction::Ascending,
+        nulls: Nulls::First,
+        nullable: true,
+    };
+    encode_entry(&[column], &[Value::I32(n)], &id_key(id)).unwrap()
+}
+
+/// AC-IX13 (IX12, L2): malformed entries in a page whose integrity holds come from a scan without error, the other
+/// entries with their values; reading a value of a malformed entry panics: a key that is not an index element, and
+/// included columns that are not a row.
+#[test]
+fn ac_ix13_a_malformed_entry_is_returned_and_reading_it_panics() {
+    let with_s = on_n().with_included(&["s"]);
+    let store = indexed_store(&with_s);
+    // A key that no element of `n` starts with sorts after every entry; then a well-formed key with a value that
+    // is not a row of the included columns, after the entry of `n` 50.
+    add_entry(&store, "ix_n", &[0xFF, 0xFF, 0xFF], b"");
+    add_entry(&store, "ix_n", &n_entry(50, 900), &[0xEE; 3]);
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let entries: Vec<IndexEntry<'_>> = (read.index_entries(&table, "ix_n", &[], ..).unwrap())
+        .map(|entry| entry.unwrap())
+        .collect();
+    assert_eq!(entries.len(), ROWS as usize + 2);
+    let (bad_key, rest) = entries.split_last().unwrap();
+    assert!(panics(|| bad_key.value(0)));
+    assert!(panics(|| bad_key.get("id")));
+    let bad_value = &rest[6];
+    assert_eq!(bad_value.get("id"), Some(Value::I64(900)));
+    assert_eq!(bad_value.get("n"), Some(Value::I32(50)));
+    assert!(panics(|| bad_value.get("s")));
+    let good: Vec<(Value<'_>, Value<'_>, Value<'_>)> = (rest.iter())
+        .filter(|entry| entry.get("id") != Some(Value::I64(900)))
+        .map(|entry| {
+            (
+                entry.value(0).unwrap(),
+                entry.value(1).unwrap(),
+                entry.value(2).unwrap(),
+            )
+        })
+        .collect();
+    let expected: Vec<(Value<'_>, Value<'_>, Value<'_>)> = (0..ROWS)
+        .map(|id| {
+            let row = text_row(id);
+            (row[1].1.clone(), row[2].1.clone(), Value::I64(id))
+        })
+        .collect();
+    assert_eq!(good, expected);
+    // Backward, the malformed key comes first.
+    let mut back = read.index_entries(&table, "ix_n", &[], ..).unwrap().rev();
+    assert!(panics(|| back.next().unwrap().unwrap().value(0)));
+    assert_eq!(back.count(), ROWS as usize + 1);
+}
+
+/// AC-IX13 (IX12, T11): with rows requested, an entry whose row is not in the table fails with damage of the index
+/// page that holds it, a key that does not split as such an entry too, from either end, and then the scan gives
+/// nothing more; an interval without them scans; in a write, the failure is the transaction's.
+#[test]
+fn ac_ix13_an_entry_whose_row_is_missing_fails_a_row_scan_with_damage() {
+    for (what, entry) in [
+        ("missing row", n_entry(50, 900)),
+        ("malformed key", vec![0xFF, 0xFF]),
+    ] {
+        let store = indexed_store(&on_n());
+        add_entry(&store, "ix_n", &entry, b"");
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let root = read.index_trees(&table).unwrap()[0].1;
+        let page = krummi_tree::leaf_of(&read.inner, root, &entry).unwrap();
+        let mut rows = read.index_rows(&table, "ix_n", &[], ..).unwrap();
+        let before: Vec<_> = rows.by_ref().take_while(Result::is_ok).collect();
+        assert!(before.len() < ROWS as usize + 1, "{what}");
+        assert!(rows.next().is_none(), "{what}: nothing after a failure");
+        let mut rows = read.index_rows(&table, "ix_n", &[], ..).unwrap();
+        let failed = rows.find(Result::is_err).unwrap();
+        assert_eq!(damaged_page(failed), page, "{what}");
+        let back = read
+            .index_rows(&table, "ix_n", &[], ..)
+            .unwrap()
+            .rev()
+            .find(Result::is_err);
+        assert_eq!(damaged_page(back.unwrap()), page, "{what}");
+        let mut lent = read.index_rows(&table, "ix_n", &[], ..).unwrap();
+        let failed = loop {
+            match lent.next_row() {
+                Ok(Some(_)) => {}
+                outcome => break outcome.map(|_| ()),
+            }
+        };
+        assert_eq!(damaged_page(failed), page, "{what}: lent");
+        assert_eq!(lent.next_row().unwrap().map(drop), None);
+        // The entries scan, and an interval of the other rows scans their rows.
+        assert_eq!(
+            read.index_entries(&table, "ix_n", &[], ..).unwrap().count(),
+            ROWS as usize + 1
+        );
+        let below = read
+            .index_rows(&table, "ix_n", &[], ..Value::I32(50))
+            .unwrap();
+        assert_eq!(below.map(Result::unwrap).count(), 5, "{what}");
+        drop(read);
+
+        let write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let failed = write
+            .index_rows(&table, "ix_n", &[], ..)
+            .unwrap()
+            .find(Result::is_err);
+        assert_eq!(damaged_page(failed.unwrap()), page, "{what}");
+        assert_eq!(
+            write.commit().unwrap_err().kind(),
+            ErrorKind::Damaged,
+            "{what}: T11"
+        );
+    }
 }

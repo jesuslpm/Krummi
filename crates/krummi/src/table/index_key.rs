@@ -98,6 +98,22 @@ pub(crate) fn decode_entry(
     Some((index, decode_key(primary, rest)?))
 }
 
+/// The value of the element at `at` of `entry`, a key of the elements of `columns` (an index's key columns followed by
+/// its primary key columns as [`KeyColumn::primary`] gives them), decoded into a copy of its own (IX8) without
+/// decoding the elements before it; `None` when the bytes up to it are not such elements. The bytes after it are not
+/// looked at.
+pub(crate) fn decode_entry_value(
+    columns: &[KeyColumn],
+    entry: &[u8],
+    at: usize,
+) -> Option<Value<'static>> {
+    let mut rest = entry;
+    for column in &columns[..at] {
+        column.skip(&mut rest)?;
+    }
+    columns[at].decode(&mut rest)
+}
+
 /// The byte bounds of an interval of an index (IX9): the values `prefix` for its first k columns, a null asking for
 /// the entries whose column is null, and, when k is less than the number of columns, a `lower` and an `upper` bound on
 /// column k in the order of N5 of its type, whatever its direction. With a bound, the nulls of column k are outside the

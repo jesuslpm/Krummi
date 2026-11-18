@@ -1,6 +1,7 @@
 //! Ranges of the primary key of a table (E12 of the tables with schema PRD; document 3 of the table design,
 //! *Composite keys and prefix scans*; document 2, *Scans* and *Range delete*): scans forward and backward, and range
-//! removal.
+//! removal. The scans of the rows through a secondary index (`index_scan`) share their machinery: each entry of the
+//! index leads to the row its key ends with.
 //!
 //! A range gives equal values for the first k columns of the primary key (the prefix, from none to all) and, when k
 //! is less than the number of key columns, an optional lower and upper bound on the next column, each included or
@@ -62,14 +63,16 @@ use krummi_pager::Result;
 use krummi_tree::{Interval, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
-use super::key::KeyRange;
+use super::index_key::split_entry;
+use super::key::{KeyColumn, KeyRange};
 use super::rows::{At, Reader, RowCount, TableRow, Versions, write_key};
 use super::value::Value;
 use crate::{ReadTransaction, WriteTransaction};
 
-/// A scan of the rows of a range of a table's primary key.
-struct Scan<'t, S: PageSource + ?Sized> {
+/// A scan of the rows of a range of a table's primary key, or of an interval of one of its indexes.
+pub(super) struct Scan<'t, S: PageSource + ?Sized> {
     tx: &'t S,
+    /// The entries of the rows tree in the range, or those of the index's tree in the interval.
     entries: krummi_tree::Range<'t, S>,
     reader: &'t Arc<Reader>,
     /// The name of the table's catalog entry and the roots of its trees.
@@ -81,13 +84,30 @@ struct Scan<'t, S: PageSource + ?Sized> {
     failed: bool,
     /// The row that [`Scan::lend`] lent last, whose place the next one takes.
     current: Option<TableRow<'t>>,
+    /// The index the scan goes through, `None` for a scan of the primary key.
+    through: Option<Through>,
+}
+
+/// The index a scan of rows goes through (IX8 of the secondary indexes PRD): the root of its tree and its key columns,
+/// whose entries end with the primary key of their rows.
+pub(super) struct Through {
+    pub(super) root: u64,
+    pub(super) key: Vec<KeyColumn>,
 }
 
 impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
-    fn new(tx: &'t S, reader: &'t Arc<Reader>, table: At<'_>, range: &KeyRange) -> Result<Self> {
+    /// A scan of the rows of `table` in `range`: of its primary key, or of the index `through` goes through.
+    pub(super) fn new(
+        tx: &'t S,
+        reader: &'t Arc<Reader>,
+        table: At<'_>,
+        range: &KeyRange,
+        through: Option<Through>,
+    ) -> Result<Self> {
+        let root = through.as_ref().map_or(table.rows_root, |index| index.root);
         Ok(Scan {
             tx,
-            entries: krummi_tree::Range::new(tx, table.rows_root, interval(range))?,
+            entries: krummi_tree::Range::new(tx, root, interval(range))?,
             reader,
             name: krummi_tree::copy_str(tx, table.name)?,
             rows_root: table.rows_root,
@@ -95,6 +115,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
             versions: Versions::default(),
             failed: false,
             current: None,
+            through,
         })
     }
 
@@ -106,8 +127,12 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
         }
         let entry = match self.entries.next() {
             None => return Ok(None),
-            Some(Ok(entry)) => entry,
-            Some(Err(error)) => {
+            Some(entry) => entry
+                .and_then(|entry| locate(self.tx, self.rows_root, self.through.as_ref(), entry)),
+        };
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
                 self.failed = true;
                 return Err(error);
             }
@@ -137,24 +162,51 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
         if self.failed {
             return None;
         }
-        let row = step(&mut self.entries)?.and_then(|(key, bytes)| {
-            let table = At {
-                name: &self.name,
-                rows_root: self.rows_root,
-                history: self.history,
-            };
-            self.reader.decode(
-                self.tx,
-                table,
-                &mut self.versions,
-                std::borrow::Cow::Borrowed(key),
-                bytes,
-                false,
-            )
-        });
+        let row = (step(&mut self.entries)?)
+            .and_then(|entry| locate(self.tx, self.rows_root, self.through.as_ref(), entry))
+            .and_then(|(key, bytes)| {
+                let table = At {
+                    name: &self.name,
+                    rows_root: self.rows_root,
+                    history: self.history,
+                };
+                self.reader.decode(
+                    self.tx,
+                    table,
+                    &mut self.versions,
+                    std::borrow::Cow::Borrowed(key),
+                    bytes,
+                    false,
+                )
+            });
         self.failed = row.is_err();
         Some(row)
     }
+}
+
+/// The primary key and the stored row of `entry`, an entry of the scan's tree: itself in a scan of the primary key; in
+/// one through an index, the row its key ends with, read from the rows tree at `rows_root`. An entry whose row is not
+/// there, or whose key does not split into the index's elements and a primary key, is damage of the index page that
+/// holds it (IX12).
+#[inline]
+fn locate<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    rows_root: u64,
+    through: Option<&Through>,
+    entry: (&'t [u8], &'t [u8]),
+) -> Result<(&'t [u8], &'t [u8])> {
+    let Some(index) = through else {
+        return Ok(entry);
+    };
+    if let Some((_, primary)) = split_entry(&index.key, entry.0)
+        && let Some(row) = krummi_tree::get(tx, rows_root, primary)?
+    {
+        return Ok((primary, row));
+    }
+    Err(match krummi_tree::leaf_of(tx, index.root, entry.0) {
+        Ok(page) => tx.damaged(page),
+        Err(error) => error,
+    })
 }
 
 /// The tree's interval of the byte bounds of `range`, which fold the prefix in.
@@ -168,14 +220,15 @@ pub(super) fn interval(range: &KeyRange) -> Interval<'_> {
 }
 
 /// A scan of a range of a table's primary key in a read transaction, from [`ReadTransaction::range_rows`]: a
-/// double-ended iterator of rows in the order of N5 (E12). It can be sent to another thread, like its transaction.
-/// After a failure it returns nothing more from either end.
-pub struct ReadRows<'t>(Scan<'t, krummi_tx::ReadTransaction<'t>>);
+/// double-ended iterator of rows in the order of N5 (E12); or of an interval of one of its indexes, from
+/// [`ReadTransaction::index_rows`], in the index's order (IX8). It can be sent to another thread, like its
+/// transaction. After a failure it returns nothing more from either end.
+pub struct ReadRows<'t>(pub(super) Scan<'t, krummi_tx::ReadTransaction<'t>>);
 
-/// A scan of a range of a table's primary key in a write transaction, from [`WriteTransaction::range_rows`], like
-/// [`ReadRows`]. It stays on its transaction's thread and ends at the transaction's next operation that may modify
+/// A scan of a range of a table's primary key in a write transaction, from [`WriteTransaction::range_rows`], or of an
+/// interval of one of its indexes, from [`WriteTransaction::index_rows`], like [`ReadRows`]. It stays on its transaction's thread and ends at the transaction's next operation that may modify
 /// it.
-pub struct WriteRows<'t>(Scan<'t, krummi_tx::WriteTransaction<'t>>);
+pub struct WriteRows<'t>(pub(super) Scan<'t, krummi_tx::WriteTransaction<'t>>);
 
 macro_rules! rows_iterator {
     ($scan:ident) => {
@@ -243,6 +296,7 @@ impl ReadTransaction<'_> {
                 .reader,
             table.at(),
             &range,
+            None,
         )?))
     }
 }
@@ -274,6 +328,7 @@ impl WriteTransaction<'_> {
                 .reader,
             state.at(),
             &range,
+            None,
         )?))
     }
 

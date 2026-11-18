@@ -1,9 +1,10 @@
-//! Secondary indexes through the public API (secondary indexes PRD 7.2, T2 of its execution): their definitions in
-//! the catalog, creating them over the rows a table has and dropping them (AC-IX1, AC-IX7 in memory), their rules and
-//! errors (AC-IX9), the schema changes and the table operations that keep or drop them (AC-IX10), Describe with their
-//! identities and the index state (AC-IX11), what is a change (AC-IX12), damage (the parts of AC-IX13 that create,
-//! drop and Describe) and the format (AC-IX15). The entries of an index are read through a test hook, since the scans
-//! of an index come later (T4).
+//! Secondary indexes through the public API (secondary indexes PRD 7.2, T2–T4 of its execution): their definitions in
+//! the catalog, creating them over the rows a table has and dropping them (AC-IX1, AC-IX7 in memory), scanning every
+//! index for rows and for entries (AC-IX3), their rules and errors (AC-IX9), the schema changes and the table
+//! operations that keep or drop them (AC-IX10), Describe with their identities and the index state (AC-IX11), what is
+//! a change (AC-IX12), damage (the parts of AC-IX13 that create, drop, Describe and scan), the format (AC-IX15) and the
+//! row writes that keep them (AC-IX2, AC-IX6, AC-IX8). The entries are also read through a test hook that gives their
+//! stored bytes; the intervals of a scan and the property test are in `table_index_scans.rs`.
 //!
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the store's
 //! files, which run on disk only.
@@ -13,7 +14,6 @@ mod common;
 mod support;
 
 use std::borrow::Cow;
-use std::cmp::Ordering;
 use std::convert::Infallible;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -22,7 +22,7 @@ use std::time::Duration;
 use common::Run;
 use krummi::ids::{Ulid, Uuid};
 use krummi::table::key::key_len;
-use krummi::table::testing::{IndexEntry, with_identity_source};
+use krummi::table::testing::{StoredIndexEntry, with_identity_source};
 use krummi::table::value::{
     ColumnType, DATE_MAX, DATE_MIN, DURATION_MAX, Decimal, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN,
     UuidOrder, Value, VectorElement, VectorType,
@@ -104,17 +104,21 @@ fn commit_people(store: &Store, rows: &[Vec<(&'static str, Value<'static>)>]) ->
 }
 
 /// The entries of the index `name` of `table`, through the test hook.
-fn entries(write: &WriteTransaction<'_>, table: &WriteTable<'_>, name: &str) -> Vec<IndexEntry> {
+fn entries(
+    write: &WriteTransaction<'_>,
+    table: &WriteTable<'_>,
+    name: &str,
+) -> Vec<StoredIndexEntry> {
     write
-        .index_entries(table, name)
+        .stored_index_entries(table, name)
         .unwrap()
         .expect("the index exists")
 }
 
 /// The entries of the index `name` of the table `t` that a new read sees.
-fn read_entries(store: &Store, name: &str) -> Vec<IndexEntry> {
+fn read_entries(store: &Store, name: &str) -> Vec<StoredIndexEntry> {
     let read = store.read().unwrap();
-    read.index_entries(&read.open_table("t").unwrap(), name)
+    read.stored_index_entries(&read.open_table("t").unwrap(), name)
         .unwrap()
         .expect("the index exists")
 }
@@ -241,100 +245,6 @@ fn some(text: &str) -> Option<String> {
     Some(text.to_owned())
 }
 
-/// Two values that are the same: floats by their bits, so that NaN is itself.
-fn same(a: &Value<'_>, b: &Value<'_>) -> bool {
-    match (a, b) {
-        (Value::F32(a), Value::F32(b)) => a.to_bits() == b.to_bits(),
-        (Value::F64(a), Value::F64(b)) => a.to_bits() == b.to_bits(),
-        (a, b) => a == b,
-    }
-}
-
-fn same_all(a: &[Value<'_>], b: &[Value<'_>]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
-}
-
-/// SQL Server's order of a `uniqueidentifier` given in RFC 9562 bytes, as `SqlGuid` compares: the bytes of
-/// `Guid.ToByteArray()` (the first three fields little-endian) in the order 10-15, 8-9, 6-7, 4-5, 0-3.
-fn sql_server_cmp(a: &[u8; 16], b: &[u8; 16]) -> Ordering {
-    let dotnet = |r: &[u8; 16]| -> [u8; 16] {
-        let mut d = *r;
-        d[..4].reverse();
-        d[4..6].reverse();
-        d[6..8].reverse();
-        d
-    };
-    let (a, b) = (dotnet(a), dotnet(b));
-    const ORDER: [usize; 16] = [10, 11, 12, 13, 14, 15, 8, 9, 6, 7, 4, 5, 0, 1, 2, 3];
-    ORDER
-        .iter()
-        .map(|&i| a[i].cmp(&b[i]))
-        .find(|o| o.is_ne())
-        .unwrap_or(Ordering::Equal)
-}
-
-/// N5 on two normalized values of a column of type `ty`, neither null, by their type and never by their encoding.
-fn model_cmp(ty: &ColumnType, a: &Value<'_>, b: &Value<'_>) -> Ordering {
-    fn float(a: f64, b: f64) -> Ordering {
-        match (a.is_nan(), b.is_nan()) {
-            (true, true) => Ordering::Equal,
-            (true, false) => Ordering::Greater,
-            (false, true) => Ordering::Less,
-            (false, false) => a.partial_cmp(&b).unwrap(),
-        }
-    }
-    match (a, b) {
-        (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
-        (Value::I8(a), Value::I8(b)) => a.cmp(b),
-        (Value::I16(a), Value::I16(b)) => a.cmp(b),
-        (Value::I32(a), Value::I32(b)) => a.cmp(b),
-        (Value::I64(a), Value::I64(b)) => a.cmp(b),
-        (Value::U8(a), Value::U8(b)) => a.cmp(b),
-        (Value::U16(a), Value::U16(b)) => a.cmp(b),
-        (Value::U32(a), Value::U32(b)) => a.cmp(b),
-        (Value::U64(a), Value::U64(b)) => a.cmp(b),
-        (Value::F32(a), Value::F32(b)) => float(f64::from(*a), f64::from(*b)),
-        (Value::F64(a), Value::F64(b)) => float(*a, *b),
-        (Value::Decimal(a), Value::Decimal(b)) => a.mantissa.cmp(&b.mantissa),
-        (Value::String(a), Value::String(b)) => a.as_bytes().cmp(b.as_bytes()),
-        (Value::Bytes(a), Value::Bytes(b)) => a.cmp(b),
-        (Value::Date(a), Value::Date(b)) => a.cmp(b),
-        (Value::Time(a), Value::Time(b)) => a.cmp(b),
-        (Value::Timestamp(a), Value::Timestamp(b)) => a.cmp(b),
-        (Value::Duration(a), Value::Duration(b)) => a.cmp(b),
-        (Value::Ulid(a), Value::Ulid(b)) => a.0.cmp(&b.0),
-        (Value::Uuid(a), Value::Uuid(b)) => match ty {
-            ColumnType::Uuid(UuidOrder::SqlServer) => sql_server_cmp(&a.0, &b.0),
-            _ => a.0.cmp(&b.0),
-        },
-        _ => panic!("values of different types: {a:?} and {b:?}"),
-    }
-}
-
-/// The order of N5 of an index column (IX1, IX8): nulls first or last in the forward order whatever the direction,
-/// and the other values in their type's order or in its reverse.
-fn column_cmp(
-    ty: &ColumnType,
-    direction: Direction,
-    nulls: Nulls,
-    a: &Value<'_>,
-    b: &Value<'_>,
-) -> Ordering {
-    let null_first = match nulls {
-        Nulls::First => Ordering::Less,
-        Nulls::Last => Ordering::Greater,
-    };
-    match (a, b) {
-        (Value::Null, Value::Null) => Ordering::Equal,
-        (Value::Null, _) => null_first,
-        (_, Value::Null) => null_first.reverse(),
-        (a, b) => match direction {
-            Direction::Ascending => model_cmp(ty, a, b),
-            Direction::Descending => model_cmp(ty, a, b).reverse(),
-        },
-    }
-}
-
 /// The entries that `index` of a table with `schema` must have for `rows` (each a map of its columns' values), in the
 /// order of N5: its key columns' values, the primary key `id` and its included columns' values; equal keys in the
 /// order of the primary key (IX8).
@@ -389,7 +299,7 @@ fn model_entries(
 /// Asserts that `entries` are those of [`model_entries`], in its order.
 #[track_caller]
 fn assert_entries(
-    entries: &[IndexEntry],
+    entries: &[StoredIndexEntry],
     schema: &TableSchema,
     index: &SchemaIndex,
     rows: &[Vec<(String, Value<'static>)>],
@@ -663,6 +573,54 @@ fn typed_indexes() -> Vec<IndexDefinition> {
     indexes
 }
 
+/// The table `t` of [`all_types`] with 64 rows of [`typed_row`], an entry at the most bytes of a key, columns added
+/// after 60 of the rows (`late_d`, not null with the default 5, and `late_n`) and the indexes of [`typed_indexes`],
+/// created over the rows in a write that has not committed them.
+fn typed_write(store: &Store) -> (WriteTransaction<'_>, WriteTable<'_>) {
+    let mut rng = Lcg(7);
+    let mut write = store.write().unwrap();
+    let table = create_table(&mut write, "t", &all_types());
+    for id in 0..60 {
+        write.insert_row(&table, &typed_row(id, &mut rng)).unwrap();
+    }
+    // An entry of the most bytes of a key: the text's element and the primary key's take 2,048 bytes.
+    let pk = key_len(&[ColumnType::I64], &[Value::I64(0)]);
+    let big = "x".repeat(2048 - pk - 2);
+    assert_eq!(key_len(&[ColumnType::String], &[text(&big)]) + pk, 2048);
+    write
+        .update_row(&table, &[("id", Value::I64(0)), ("big", text(&big))])
+        .unwrap();
+    write.commit().unwrap();
+
+    // Columns added after the rows, with and without a default; rows after them give them values.
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .add_column(
+            &table,
+            &Column::new("late_d", ColumnType::I32)
+                .not_null()
+                .with_default(Value::I32(5)),
+        )
+        .unwrap();
+    write
+        .add_column(&table, &Column::new("late_n", ColumnType::I64))
+        .unwrap();
+    for id in 60..64 {
+        let mut row = typed_row(id, &mut rng);
+        row.push(("late_d", Value::I32(i32::try_from(id).unwrap() % 2)));
+        row.push(("late_n", Value::I64(-id)));
+        write.insert_row(&table, &row).unwrap();
+    }
+    let definitions = typed_indexes();
+    for definition in &definitions {
+        write
+            .create_index(&table, definition, IndexMode::CreateNew)
+            .unwrap();
+    }
+    (write, table)
+}
+
 /// AC-IX1 (IX1, IX2, N5, AC-N7): over a table with rows of every sortable type, with the extremes of their domains,
 /// `-0`, NaNs of several bits, both orders of `uuid`, nulls and repeated values, and with columns added after the
 /// rows with and without a default, unique and non-unique indexes in every combination of direction and null order,
@@ -673,47 +631,8 @@ fn typed_indexes() -> Vec<IndexDefinition> {
 #[test]
 fn ac_ix1_indexes_created_over_rows_have_their_entries_in_n5_order() {
     stores(|store, _| {
-        let mut rng = Lcg(7);
-        let mut write = store.write().unwrap();
-        let table = create_table(&mut write, "t", &all_types());
-        for id in 0..60 {
-            write.insert_row(&table, &typed_row(id, &mut rng)).unwrap();
-        }
-        // An entry of the most bytes of a key: the text's element and the primary key's take 2,048 bytes.
-        let pk = key_len(&[ColumnType::I64], &[Value::I64(0)]);
-        let big = "x".repeat(2048 - pk - 2);
-        assert_eq!(key_len(&[ColumnType::String], &[text(&big)]) + pk, 2048);
-        write
-            .update_row(&table, &[("id", Value::I64(0)), ("big", text(&big))])
-            .unwrap();
-        write.commit().unwrap();
-
-        // Columns added after the rows, with and without a default; rows after them give them values.
-        let mut write = store.write().unwrap();
-        let table = write.open_table("t").unwrap();
-        write
-            .add_column(
-                &table,
-                &Column::new("late_d", ColumnType::I32)
-                    .not_null()
-                    .with_default(Value::I32(5)),
-            )
-            .unwrap();
-        write
-            .add_column(&table, &Column::new("late_n", ColumnType::I64))
-            .unwrap();
-        for id in 60..64 {
-            let mut row = typed_row(id, &mut rng);
-            row.push(("late_d", Value::I32(i32::try_from(id).unwrap() % 2)));
-            row.push(("late_n", Value::I64(-id)));
-            write.insert_row(&table, &row).unwrap();
-        }
+        let (write, table) = typed_write(store);
         let definitions = typed_indexes();
-        for definition in &definitions {
-            write
-                .create_index(&table, definition, IndexMode::CreateNew)
-                .unwrap();
-        }
         let schema = write.table_schema(&table).unwrap();
         assert_eq!(schema.indexes().len(), definitions.len());
         let rows = rows_of(&write, &table);
@@ -742,7 +661,7 @@ fn ac_ix1_indexes_created_over_rows_have_their_entries_in_n5_order() {
         let covering = schema.index("covering").unwrap();
         let included: Vec<&str> = covering.included.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(included, ["ve", "by"]);
-        let written: Vec<(String, Vec<IndexEntry>)> = schema
+        let written: Vec<(String, Vec<StoredIndexEntry>)> = schema
             .indexes()
             .iter()
             .map(|ix| (ix.name.clone(), entries(&write, &table, &ix.name)))
@@ -750,7 +669,7 @@ fn ac_ix1_indexes_created_over_rows_have_their_entries_in_n5_order() {
         write.commit().unwrap();
         for (name, written) in written {
             let read = read_entries(store, &name);
-            let same_entry = |(a, b): (&IndexEntry, &IndexEntry)| {
+            let same_entry = |(a, b): (&StoredIndexEntry, &StoredIndexEntry)| {
                 a.bytes == b.bytes && same_all(&a.key, &b.key) && same_all(&a.included, &b.included)
             };
             assert!(
@@ -758,6 +677,305 @@ fn ac_ix1_indexes_created_over_rows_have_their_entries_in_n5_order() {
                 "{name}"
             );
         }
+    });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX3: scanning every index for rows and for entries
+
+/// Whether `value` is text, bytes or a vector that borrows the page (D11).
+fn borrows(value: &Value<'_>) -> bool {
+    matches!(
+        value,
+        Value::String(Cow::Borrowed(_))
+            | Value::Bytes(Cow::Borrowed(_))
+            | Value::Vector(Cow::Borrowed(_))
+    )
+}
+
+/// Asserts that `entry`, an entry of `index`, has the values of the model's entry `(key, primary, included)` (IX8):
+/// its key columns, its included ones and the primary key column `id`, in that order, by position and by name; the
+/// key and primary key values in a copy, the included text, bytes and vectors borrowing the page.
+#[track_caller]
+#[allow(clippy::type_complexity)]
+fn assert_entry(
+    entry: &krummi::IndexEntry<'_>,
+    index: &SchemaIndex,
+    (key, primary, included): &(
+        Vec<Value<'static>>,
+        Vec<Value<'static>>,
+        Vec<Value<'static>>,
+    ),
+) {
+    let names: Vec<&str> = (index.key.iter().map(|k| k.name.as_str()))
+        .chain(index.included.iter().map(|c| c.name.as_str()))
+        .chain(["id"])
+        .collect();
+    let expected: Vec<&Value<'static>> = key.iter().chain(included).chain(primary).collect();
+    assert_eq!(entry.len(), names.len(), "{}", index.name);
+    assert!(!entry.is_empty());
+    assert_eq!(entry.value(names.len()), None);
+    assert_eq!(entry.name(names.len()), None);
+    for (at, (name, value)) in names.iter().zip(&expected).enumerate() {
+        assert_eq!(entry.name(at), Some(*name), "{}", index.name);
+        let found = entry.value(at).unwrap();
+        assert!(
+            same(&found, value),
+            "{}: {name} is {found:?}, expected {value:?}",
+            index.name
+        );
+        assert!(
+            same(&entry.get(name).unwrap(), value),
+            "{}: {name} by name",
+            index.name
+        );
+        let in_copy = at < key.len() || at >= key.len() + included.len();
+        let shared = matches!(found, Value::String(_) | Value::Bytes(_) | Value::Vector(_));
+        assert!(
+            !shared || borrows(&found) != in_copy,
+            "{}: {name} is {found:?}, which should be in a copy: {in_copy}",
+            index.name
+        );
+    }
+    let columns: Vec<(&str, Value<'_>)> = entry.columns().collect();
+    assert_eq!(entry.values().len(), names.len());
+    assert!(columns.iter().map(|(n, _)| *n).eq(names.iter().copied()));
+    assert!(entry.get("not a column").is_none());
+}
+
+/// Asserts that the scans of the whole of every index of `schema` give, for entries and for rows, forward and
+/// backward, those of [`model_entries`] over `rows` in IX8's order, each row whole; in a read or in a write.
+macro_rules! assert_index_scans {
+    ($tx:expr, $table:expr, $schema:expr, $rows:expr) => {{
+        let (schema, rows): (&TableSchema, &[Vec<(String, Value<'static>)>]) = ($schema, $rows);
+        let row_of = |id: &Value<'_>| {
+            rows.iter()
+                .find(|row| row.iter().any(|(n, v)| n == "id" && same(v, id)))
+                .unwrap()
+        };
+        for ix in schema.indexes() {
+            let model = model_entries(schema, ix, rows);
+            let forward: Vec<krummi::IndexEntry<'_>> =
+                ($tx.index_entries($table, &ix.name, &[], ..))
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect();
+            assert_eq!(forward.len(), model.len(), "{}", ix.name);
+            for (entry, model) in forward.iter().zip(&model) {
+                assert_entry(entry, ix, model);
+            }
+            let backward: Vec<krummi::IndexEntry<'_>> =
+                ($tx.index_entries($table, &ix.name, &[], ..))
+                    .unwrap()
+                    .rev()
+                    .map(Result::unwrap)
+                    .collect();
+            assert_eq!(backward.len(), model.len(), "{}", ix.name);
+            for (entry, model) in backward.iter().zip(model.iter().rev()) {
+                assert_entry(entry, ix, model);
+            }
+            for back in [false, true] {
+                let scan = $tx.index_rows($table, &ix.name, &[], ..).unwrap();
+                let found: Vec<_> = if back {
+                    scan.rev().collect()
+                } else {
+                    scan.collect()
+                };
+                let expected: Vec<_> = if back {
+                    model.iter().rev().collect()
+                } else {
+                    model.iter().collect()
+                };
+                assert_eq!(found.len(), expected.len(), "{}", ix.name);
+                for (row, (_, primary, _)) in found.into_iter().zip(expected) {
+                    let row = row.unwrap();
+                    assert!(same(&row.get("id").unwrap(), &primary[0]), "{}", ix.name);
+                    let written = row_of(&primary[0]);
+                    assert!(
+                        (row.columns().zip(written))
+                            .all(|((n, v), (wn, wv))| n == wn && same(&v, wv)),
+                        "{}",
+                        ix.name
+                    );
+                }
+            }
+        }
+    }};
+}
+
+/// AC-IX3 (IX8, AC-N7): over the indexes of AC-IX1, whose rows repeat their keys, nulls included, scanning each index
+/// whole forward and backward gives its entries and its rows in IX8's order (equal keys by the primary key, and the
+/// exact reverse backward): the entries with their key columns, their included columns and the primary key, by
+/// position and by name, the key's values in a copy and the included text, bytes and vectors borrowing the page, the
+/// `uuid` of SQL Server's order in RFC 9562's bytes; the rows whole, also lent one at a time and read through a
+/// projection; in the write that created the indexes and in a read after it commits.
+#[test]
+fn ac_ix3_scans_of_every_index_give_its_rows_and_entries_in_order() {
+    stores(|store, _| {
+        let (write, table) = typed_write(store);
+        let schema = write.table_schema(&table).unwrap();
+        let rows = rows_of(&write, &table);
+        assert_index_scans!(write, &table, &schema, &rows);
+        write.commit().unwrap();
+
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        assert_index_scans!(read, &table, &schema, &rows);
+        // Repeated keys, nulls among them, in the order of the primary key.
+        let ids = |name: &str, prefix: &[Value<'_>]| -> Vec<Value<'static>> {
+            (read.index_entries(&table, name, prefix, ..).unwrap())
+                .map(|entry| entry.unwrap().get("id").unwrap().into_owned())
+                .collect()
+        };
+        for prefix in [vec![Value::Null], vec![Value::Bool(true)]] {
+            let found = ids("one_bo", &prefix);
+            assert!(found.len() > 1, "{prefix:?}");
+            assert!(
+                found
+                    .windows(2)
+                    .all(|w| model_cmp(&ColumnType::I64, &w[0], &w[1]).is_lt())
+            );
+        }
+        // The `uuid`s of SQL Server's order come in RFC 9562's bytes, in the order of SQL Server.
+        let u2: Vec<Value<'static>> = (read.index_entries(&table, "one_u2", &[], ..).unwrap())
+            .map(|entry| entry.unwrap().value(0).unwrap().into_owned())
+            .filter(|value| !matches!(value, Value::Null))
+            .collect();
+        assert!(u2.len() > 10);
+        let sql = ColumnType::Uuid(UuidOrder::SqlServer);
+        let at = sortable().iter().position(|(n, _)| *n == "u2").unwrap();
+        let (direction, _) = ORDERS[at % 4];
+        assert!(u2.windows(2).all(|w| {
+            let order = model_cmp(&sql, &w[0], &w[1]);
+            match direction {
+                Direction::Ascending => order.is_lt(),
+                Direction::Descending => order.is_gt(),
+            }
+        }));
+        // Lent one at a time, and through a projection.
+        let projection = read.projection(&table, &["s", "id"]).unwrap();
+        let id = projection.column::<i64>(1).unwrap();
+        let mut scan = read.index_rows(&table, "covering", &[], ..).unwrap();
+        let mut lent = Vec::new();
+        while let Some(row) = scan.next_row().unwrap() {
+            lent.push(projection.bind(row).unwrap().get(&id).unwrap());
+        }
+        let projected: Vec<i64> = (read.index_rows(&table, "covering", &[], ..).unwrap())
+            .map(|row| projection.bind(&row.unwrap()).unwrap().get(&id).unwrap())
+            .collect();
+        let expected: Vec<i64> = model_entries(&schema, schema.index("covering").unwrap(), &rows)
+            .into_iter()
+            .map(|(_, primary, _)| match primary[0] {
+                Value::I64(id) => id,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(lent, expected);
+        assert_eq!(projected, expected);
+    });
+}
+
+/// `name string not null, id i64 not null, n i32, t string, by bytes, ve vector(f32, 2)`, primary key `(name, id)`.
+fn named_pairs() -> Schema {
+    Schema::new(
+        vec![
+            Column::new("name", ColumnType::String).not_null(),
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I32),
+            Column::new("t", ColumnType::String),
+            Column::new("by", ColumnType::Bytes),
+            Column::new("ve", vector(2)),
+        ],
+        &["name", "id"],
+    )
+}
+
+/// AC-IX3 (IX1, IX8): with a primary key column in the index's key and the other, a text, among its included columns,
+/// an entry has each column once: the key columns, the included ones without the primary key's, and then the text of
+/// the primary key, in a copy; the included text, bytes and vector borrow the page and read as the row's; and equal
+/// keys, a null among them, come in the order of the primary key.
+#[test]
+fn ac_ix3_a_primary_key_column_among_the_included_comes_once_in_a_copy() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let table = create_table(&mut write, "c", &named_pairs());
+        let rows = [
+            ("b", 1, Some(2)),
+            ("a", 1, Some(2)),
+            ("a", 2, None),
+            ("c", 1, Some(1)),
+            ("a", 3, Some(2)),
+        ];
+        for (i, (name, id, n)) in rows.into_iter().enumerate() {
+            let row = [
+                ("name", text(name)),
+                ("id", Value::I64(id)),
+                ("n", n.map_or(Value::Null, Value::I32)),
+                ("t", text(&format!("t{i}"))),
+                (
+                    "by",
+                    Value::Bytes(Cow::Owned(vec![0, u8::try_from(i).unwrap()])),
+                ),
+                ("ve", floats(&[i as f32, 1.0])),
+            ];
+            write.insert_row(&table, &row).unwrap();
+        }
+        let definition = index("ix", &[key("n"), key("id").descending()])
+            .with_included(&["t", "name", "by", "ve"]);
+        write
+            .create_index(&table, &definition, IndexMode::CreateNew)
+            .unwrap();
+        write.commit().unwrap();
+
+        let read = store.read().unwrap();
+        let table = read.open_table("c").unwrap();
+        let described = read.describe_table("c").unwrap();
+        let included: Vec<&str> = (described.index("ix").unwrap().included.iter())
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(included, ["t", "by", "ve"]);
+        let entries: Vec<krummi::IndexEntry<'_>> = (read.index_entries(&table, "ix", &[], ..))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let order: Vec<(String, i64)> = entries
+            .iter()
+            .map(
+                |entry| match (entry.get("name").unwrap(), entry.get("id").unwrap()) {
+                    (Value::String(name), Value::I64(id)) => (name.into_owned(), id),
+                    other => panic!("{other:?}"),
+                },
+            )
+            .collect();
+        let expected =
+            [("a", 2), ("c", 1), ("a", 3), ("a", 1), ("b", 1)].map(|(n, id)| (n.to_owned(), id));
+        assert_eq!(order, expected);
+        for entry in &entries {
+            let names: Vec<&str> = (0..entry.len()).map(|i| entry.name(i).unwrap()).collect();
+            assert_eq!(names, ["n", "id", "t", "by", "ve", "name"]);
+            assert!(matches!(entry.value(5), Some(Value::String(Cow::Owned(_)))));
+            assert!(matches!(
+                entry.get("t"),
+                Some(Value::String(Cow::Borrowed(_)))
+            ));
+            assert!(matches!(
+                entry.get("by"),
+                Some(Value::Bytes(Cow::Borrowed(_)))
+            ));
+            assert!(matches!(
+                entry.get("ve"),
+                Some(Value::Vector(Cow::Borrowed(_)))
+            ));
+            let key = [entry.get("name").unwrap(), entry.get("id").unwrap()];
+            let row = read.get_row(&table, &key).unwrap().unwrap();
+            for name in ["n", "t", "by", "ve"] {
+                assert!(
+                    same(&entry.get(name).unwrap(), &row.get(name).unwrap()),
+                    "{name}"
+                );
+            }
+        }
+        assert_eq!(format!("{:?}", entries[0]).matches("\"name\"").count(), 1);
     });
 }
 
@@ -802,7 +1020,7 @@ fn after_a_write(
     store: &Store,
     extra: &[Row],
     attempt: impl FnOnce(&mut WriteTransaction<'_>, &WriteTable<'_>),
-) -> (krummi::StoreInfo, Vec<IndexEntry>) {
+) -> (krummi::StoreInfo, Vec<StoredIndexEntry>) {
     let rows: Vec<Row> = repeating_rows()
         .into_iter()
         .chain(extra.iter().cloned())
@@ -1467,7 +1685,7 @@ fn indexed(store: &Store) {
 }
 
 /// The entries of every index of `table`, in the order of the indexes.
-fn all_entries(write: &WriteTransaction<'_>, table: &WriteTable<'_>) -> Vec<Vec<IndexEntry>> {
+fn all_entries(write: &WriteTransaction<'_>, table: &WriteTable<'_>) -> Vec<Vec<StoredIndexEntry>> {
     let schema = write.table_schema(table).unwrap();
     schema
         .indexes()
@@ -1548,7 +1766,7 @@ fn ac_ix10_dropping_an_index() {
         let rows_before = rows_of(&write, &table);
         write.drop_index(&table, "ix_n").unwrap();
         assert_eq!(index_names(&write.table_schema(&other).unwrap()), ["ix_ms"]);
-        assert_eq!(write.index_entries(&other, "ix_n").unwrap(), None);
+        assert_eq!(write.stored_index_entries(&other, "ix_n").unwrap(), None);
         write.drop_index(&table, "ix_n").unwrap();
         write.drop_index(&table, "missing").unwrap();
         let definition = index("ix_n", &[key("s").descending()]);
@@ -1628,7 +1846,10 @@ fn ac_ix10_table_operations_and_indexes() {
         let read = store.read().unwrap();
         let renamed = read.open_table("renamed").unwrap();
         assert_eq!(read.table_schema(&renamed).unwrap(), before);
-        assert_eq!(read.index_entries(&renamed, "ix_ms").unwrap(), Some(ix_ms));
+        assert_eq!(
+            read.stored_index_entries(&renamed, "ix_ms").unwrap(),
+            Some(ix_ms)
+        );
         drop(read);
 
         // Overwritten by a rename, the table goes with its indexes.
@@ -1856,9 +2077,10 @@ fn ac_ix11_identities_equal_to_known_ones_are_drawn_again() {
 
 /// AC-IX12 (IX13, T10): in a write that does nothing else, creating an index, dropping one that exists, and creating
 /// and dropping one in the same write are changes; Create if not exists over the same index, dropping one that does
-/// not exist and every creation that fails public validation, a duplicate key and an entry too large included, are
-/// not. (That creating and dropping end the references read before is checked when compiling: see the documentation
-/// of the module that creates indexes.)
+/// not exist, every creation that fails public validation, a duplicate key and an entry too large included, and
+/// scanning an index, also a scan that fails, are not. (That creating and dropping end the references read before, and
+/// that a write ends what a scan lends, is checked when compiling: see the documentation of the modules that create
+/// and scan indexes.)
 #[test]
 fn ac_ix12_what_changes_and_what_does_not() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1920,6 +2142,12 @@ fn ac_ix12_what_changes_and_what_does_not() {
                 ErrorKind::InvalidSize,
             ]
         );
+        // Scanning an index, for rows and for entries, and a scan that fails (IX13).
+        let rows = write.index_rows(&table, "ix", &[], ..).unwrap().count();
+        let entries = write.index_entries(&table, "ix", &[], ..).unwrap().count();
+        assert_eq!((rows, entries), (2, 2));
+        let missing = write.index_entries(&table, "missing", &[], ..).err();
+        assert_eq!(missing.unwrap().kind(), ErrorKind::DifferentSchema);
         write.commit().unwrap();
     });
     assert!(unchanged, "nothing was a change");
@@ -2011,6 +2239,62 @@ fn ac_ix13_damage_and_the_operations_on_indexes() {
         .create_index(&table, &index("ix_a", &[key("a")]), IndexMode::CreateNew)
         .unwrap_err();
     assert_eq!(damaged_page(error), rows);
+    assert_eq!(
+        write.commit().unwrap_err().kind(),
+        ErrorKind::Damaged,
+        "T11"
+    );
+    store.close().unwrap();
+}
+
+/// The damage of a scan that fails: when it starts or at a step.
+#[track_caller]
+fn scan_damage<T>(scan: krummi::Result<impl Iterator<Item = krummi::Result<T>>>) -> u64 {
+    let error = match scan {
+        Err(error) => error,
+        Ok(mut scan) => scan.find_map(Result::err).expect("a scan that fails"),
+    };
+    damaged_page(error)
+}
+
+/// AC-IX13 (IX12, T11): with the page of an index damaged, scanning it fails with the damage of that page, for entries
+/// and for rows, forward and backward, in a read and in a write, which then cannot commit; another index of the table
+/// scans.
+#[test]
+fn ac_ix13_scanning_a_damaged_index_page_fails_with_its_damage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    indexed(&store);
+    let read = store.read().unwrap();
+    let ix_n = read.index_trees(&read.open_table("t").unwrap()).unwrap()[1].clone();
+    assert_eq!(ix_n.0, "ix_n");
+    drop(read);
+    store.close().unwrap();
+    damage(tmp.path(), ix_n.1);
+
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    assert_eq!(
+        scan_damage(read.index_entries(&table, "ix_n", &[], ..)),
+        ix_n.1
+    );
+    assert_eq!(
+        scan_damage(read.index_rows(&table, "ix_n", &[], ..)),
+        ix_n.1
+    );
+    let back = read.index_rows(&table, "ix_n", &[], ..).map(Iterator::rev);
+    assert_eq!(scan_damage(back), ix_n.1);
+    let other = read.index_rows(&table, "ix_ms", &[], ..).unwrap();
+    assert_eq!(other.map(Result::unwrap).count(), 40);
+    drop(read);
+    let write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let interval = [Value::I32(3)];
+    assert_eq!(
+        scan_damage(write.index_entries(&table, "ix_n", &interval, ..)),
+        ix_n.1
+    );
     assert_eq!(
         write.commit().unwrap_err().kind(),
         ErrorKind::Damaged,
@@ -2174,14 +2458,17 @@ fn snapshot(
     store: &Store,
 ) -> (
     Vec<Vec<(String, Value<'static>)>>,
-    Vec<(String, Vec<IndexEntry>)>,
+    Vec<(String, Vec<StoredIndexEntry>)>,
 ) {
     let read = store.read().unwrap();
     let table = read.open_table("t").unwrap();
     let rows = owned_rows(read.range_rows(&table, &[], ..).unwrap());
     let indexes = (read.table_schema(&table).unwrap().indexes().iter())
         .map(|ix| {
-            let entries = read.index_entries(&table, &ix.name).unwrap().unwrap();
+            let entries = read
+                .stored_index_entries(&table, &ix.name)
+                .unwrap()
+                .unwrap();
             (ix.name.clone(), entries)
         })
         .collect();
@@ -2429,7 +2716,7 @@ fn table_state(
     table: &WriteTable<'_>,
 ) -> (
     Vec<Vec<(String, Value<'static>)>>,
-    Vec<Vec<IndexEntry>>,
+    Vec<Vec<StoredIndexEntry>>,
     u64,
 ) {
     (
@@ -2647,7 +2934,7 @@ fn load_state(
 ) -> (
     (
         Vec<Vec<(String, Value<'static>)>>,
-        Vec<(String, Vec<IndexEntry>)>,
+        Vec<(String, Vec<StoredIndexEntry>)>,
     ),
     i64,
 ) {

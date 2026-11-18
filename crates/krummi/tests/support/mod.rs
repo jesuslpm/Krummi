@@ -1,8 +1,9 @@
 //! Helpers shared by the tree tests: stores on disk and temporary, error matchers, file comparison, page damage,
-//! scans, and the models of a multi-value tree and of a fixed-size tree.
+//! scans, the models of a multi-value tree and of a fixed-size tree, and the order of N5 of column values.
 
 #![allow(dead_code)]
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,9 +13,10 @@ use krummi_pager::format::PAGE_SIZE;
 use krummi_tree::{catalog, fixed};
 use krummi_tx::{Engine, OpenOptions as EngineOptions};
 
+use krummi::table::value::{ColumnType, UuidOrder, Value};
 use krummi::{
-    Error, OpenMode, Result, SizeSubject, Store, StoreOptions, TreeKind, WriteFixedTree,
-    WriteMultiTree, WriteTransaction, WriteTree,
+    Direction, Error, Nulls, OpenMode, Result, SizeSubject, Store, StoreOptions, TreeKind,
+    WriteFixedTree, WriteMultiTree, WriteTransaction, WriteTree,
 };
 
 pub const NORMAL: TreeKind = TreeKind::Normal;
@@ -469,4 +471,101 @@ pub fn long_key(i: usize, len: usize) -> Vec<u8> {
     let mut key = format!("{i:05}").into_bytes();
     key.resize(len, b'.');
     key
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The order of N5 of the values of a table's columns, for the models of the secondary indexes (7.2)
+
+/// Two values that are the same: floats by their bits, so that NaN is itself.
+pub fn same(a: &Value<'_>, b: &Value<'_>) -> bool {
+    match (a, b) {
+        (Value::F32(a), Value::F32(b)) => a.to_bits() == b.to_bits(),
+        (Value::F64(a), Value::F64(b)) => a.to_bits() == b.to_bits(),
+        (a, b) => a == b,
+    }
+}
+
+pub fn same_all(a: &[Value<'_>], b: &[Value<'_>]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
+}
+
+/// SQL Server's order of a `uniqueidentifier` given in RFC 9562 bytes, as `SqlGuid` compares: the bytes of
+/// `Guid.ToByteArray()` (the first three fields little-endian) in the order 10-15, 8-9, 6-7, 4-5, 0-3.
+pub fn sql_server_cmp(a: &[u8; 16], b: &[u8; 16]) -> Ordering {
+    let dotnet = |r: &[u8; 16]| -> [u8; 16] {
+        let mut d = *r;
+        d[..4].reverse();
+        d[4..6].reverse();
+        d[6..8].reverse();
+        d
+    };
+    let (a, b) = (dotnet(a), dotnet(b));
+    const ORDER: [usize; 16] = [10, 11, 12, 13, 14, 15, 8, 9, 6, 7, 4, 5, 0, 1, 2, 3];
+    ORDER
+        .iter()
+        .map(|&i| a[i].cmp(&b[i]))
+        .find(|o| o.is_ne())
+        .unwrap_or(Ordering::Equal)
+}
+
+/// N5 on two normalized values of a column of type `ty`, neither null, by their type and never by their encoding.
+pub fn model_cmp(ty: &ColumnType, a: &Value<'_>, b: &Value<'_>) -> Ordering {
+    fn float(a: f64, b: f64) -> Ordering {
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => a.partial_cmp(&b).unwrap(),
+        }
+    }
+    match (a, b) {
+        (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+        (Value::I8(a), Value::I8(b)) => a.cmp(b),
+        (Value::I16(a), Value::I16(b)) => a.cmp(b),
+        (Value::I32(a), Value::I32(b)) => a.cmp(b),
+        (Value::I64(a), Value::I64(b)) => a.cmp(b),
+        (Value::U8(a), Value::U8(b)) => a.cmp(b),
+        (Value::U16(a), Value::U16(b)) => a.cmp(b),
+        (Value::U32(a), Value::U32(b)) => a.cmp(b),
+        (Value::U64(a), Value::U64(b)) => a.cmp(b),
+        (Value::F32(a), Value::F32(b)) => float(f64::from(*a), f64::from(*b)),
+        (Value::F64(a), Value::F64(b)) => float(*a, *b),
+        (Value::Decimal(a), Value::Decimal(b)) => a.mantissa.cmp(&b.mantissa),
+        (Value::String(a), Value::String(b)) => a.as_bytes().cmp(b.as_bytes()),
+        (Value::Bytes(a), Value::Bytes(b)) => a.cmp(b),
+        (Value::Date(a), Value::Date(b)) => a.cmp(b),
+        (Value::Time(a), Value::Time(b)) => a.cmp(b),
+        (Value::Timestamp(a), Value::Timestamp(b)) => a.cmp(b),
+        (Value::Duration(a), Value::Duration(b)) => a.cmp(b),
+        (Value::Ulid(a), Value::Ulid(b)) => a.0.cmp(&b.0),
+        (Value::Uuid(a), Value::Uuid(b)) => match ty {
+            ColumnType::Uuid(UuidOrder::SqlServer) => sql_server_cmp(&a.0, &b.0),
+            _ => a.0.cmp(&b.0),
+        },
+        _ => panic!("values of different types: {a:?} and {b:?}"),
+    }
+}
+
+/// The order of N5 of an index column (IX1, IX8): nulls first or last in the forward order whatever the direction,
+/// and the other values in their type's order or in its reverse.
+pub fn column_cmp(
+    ty: &ColumnType,
+    direction: Direction,
+    nulls: Nulls,
+    a: &Value<'_>,
+    b: &Value<'_>,
+) -> Ordering {
+    let null_first = match nulls {
+        Nulls::First => Ordering::Less,
+        Nulls::Last => Ordering::Greater,
+    };
+    match (a, b) {
+        (Value::Null, Value::Null) => Ordering::Equal,
+        (Value::Null, _) => null_first,
+        (_, Value::Null) => null_first.reverse(),
+        (a, b) => match direction {
+            Direction::Ascending => model_cmp(ty, a, b),
+            Direction::Descending => model_cmp(ty, a, b).reverse(),
+        },
+    }
 }

@@ -430,16 +430,16 @@ pub(super) fn compare_definition(
 /// How the entries of an index are made from the rows of its table's current schema, and read back.
 pub(super) struct EntryLayout {
     /// The index's key columns as their elements are encoded, in key order.
-    key: Vec<KeyColumn>,
+    pub(super) key: Vec<KeyColumn>,
     /// The place in schema order of each key column, in key order, and of each included column, in their order.
     key_places: Vec<usize>,
     included_places: Vec<usize>,
     /// The row format of an entry's value: the included columns, every one allowing nulls, so that allowing nulls in
     /// a column later (N3) keeps the layout of the entries written before; `None` without included columns, whose
     /// entries have an empty value.
-    included: Option<RowLayout>,
+    pub(super) included: Option<RowLayout>,
     /// The types of the primary key columns, in key order, which end every entry's key.
-    primary: Vec<ColumnType>,
+    pub(super) primary: Vec<ColumnType>,
 }
 
 impl EntryLayout {
@@ -460,22 +460,29 @@ impl EntryLayout {
             })
             .collect();
         EntryLayout {
-            key: (index.key.iter())
-                .map(|key| {
-                    let column = column(key.id);
-                    KeyColumn {
-                        ty: column.ty,
-                        direction: key.direction,
-                        nulls: key.nulls,
-                        nullable: column.nullable,
-                    }
-                })
-                .collect(),
+            key: EntryLayout::key_columns(schema, index),
             key_places: index.key.iter().map(|key| place(key.id)).collect(),
             included_places: index.included.iter().map(|c| place(c.id)).collect(),
             included: (!included.is_empty()).then(|| RowLayout::new(0, included)),
             primary: (schema.key_ids().iter()).map(|id| column(*id).ty).collect(),
         }
+    }
+
+    /// The key columns of `index`, an index of `schema`, as their elements are encoded, in key order.
+    pub(super) fn key_columns(schema: &TableSchema, index: &SchemaIndex) -> Vec<KeyColumn> {
+        (index.key.iter())
+            .map(|key| {
+                let column = schema
+                    .column_by_id(key.id)
+                    .expect("a live column of the index");
+                KeyColumn {
+                    ty: column.ty,
+                    direction: key.direction,
+                    nulls: key.nulls,
+                    nullable: column.nullable,
+                }
+            })
+            .collect()
     }
 
     /// The text of the values of the key columns of the entry `key`, and that of its primary key, for the data of a
@@ -616,7 +623,7 @@ struct Build {
 
 impl Folder<'_> {
     /// Fails with [`Error::InvalidSize`] unless the index name has 1 to 1,024 bytes (IX1, IX3).
-    fn check_index_name(self, name: &str) -> Result<()> {
+    pub(super) fn check_index_name(self, name: &str) -> Result<()> {
         self.check_size(SizeSubject::IndexName, name.len(), 1, MAX_INDEX_NAME)
     }
 
@@ -899,7 +906,7 @@ impl WriteTransaction<'_> {
 /// as the tree stores it.
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq)]
-pub struct IndexEntry {
+pub struct StoredIndexEntry {
     pub key: Vec<Value<'static>>,
     pub primary_key: Vec<Value<'static>>,
     pub included: Vec<Value<'static>>,
@@ -912,12 +919,12 @@ pub struct IndexEntry {
 /// # Panics
 ///
 /// For an entry that does not decode.
-fn index_entries<S: PageSource + ?Sized>(
+fn stored_index_entries<S: PageSource + ?Sized>(
     tx: &S,
     schema: &TableSchema,
     roots: &[u64],
     name: &str,
-) -> Result<Option<Vec<IndexEntry>>> {
+) -> Result<Option<Vec<StoredIndexEntry>>> {
     let Some(at) = schema.index_position(name) else {
         return Ok(None);
     };
@@ -940,7 +947,7 @@ fn index_entries<S: PageSource + ?Sized>(
                     .collect()
             }
         };
-        entries.push(IndexEntry {
+        entries.push(StoredIndexEntry {
             key: index,
             primary_key: primary,
             included,
@@ -954,13 +961,13 @@ impl ReadTransaction<'_> {
     /// A test hook, not part of the interface: the entries of the index `name` of `table`, or `None` when the table
     /// has no index of the name.
     #[doc(hidden)]
-    pub fn index_entries(
+    pub fn stored_index_entries(
         &self,
         table: &ReadTable<'_>,
         name: &str,
-    ) -> Result<Option<Vec<IndexEntry>>> {
+    ) -> Result<Option<Vec<StoredIndexEntry>>> {
         self.check_table(table)?;
-        index_entries(&self.inner, &table.schema, &table.index_roots, name)
+        stored_index_entries(&self.inner, &table.schema, &table.index_roots, name)
     }
 
     /// A test hook, not part of the interface: the name and the tree root of each index of `table`, in the order of
@@ -976,13 +983,13 @@ impl WriteTransaction<'_> {
     /// A test hook, not part of the interface: the entries of the index `name` of `table`, with this transaction's
     /// changes, or `None` when the table has no index of the name.
     #[doc(hidden)]
-    pub fn index_entries(
+    pub fn stored_index_entries(
         &self,
         table: &WriteTable<'_>,
         name: &str,
-    ) -> Result<Option<Vec<IndexEntry>>> {
+    ) -> Result<Option<Vec<StoredIndexEntry>>> {
         let state = self.live_table(table)?;
-        index_entries(&self.inner, &state.schema, &state.index_roots, name)
+        stored_index_entries(&self.inner, &state.schema, &state.index_roots, name)
     }
 
     /// A test hook, not part of the interface: the name and the tree root of each index of `table`, in the order of

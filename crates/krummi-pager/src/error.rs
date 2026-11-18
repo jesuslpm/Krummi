@@ -89,7 +89,8 @@ pub enum SizeSubject {
     Key,
     /// A value of a tree.
     Value,
-    /// The prefix of a scan or a range removal of a tree.
+    /// The prefix of a scan or a range removal of a tree, or the prefix of an interval of an index with its bound,
+    /// encoded as in an entry (IX9 of the secondary indexes PRD).
     Prefix,
     /// A column name, measured in bytes of UTF-8 (E18).
     ColumnName,
@@ -219,6 +220,8 @@ pub enum SchemaDifference {
     IndexKey,
     /// An included column of an index at a position, or the number of its included columns.
     IndexIncluded,
+    /// An index that the table does not have, named by a scan of an index (IX9 of the secondary indexes PRD).
+    MissingIndex,
 }
 
 /// An engine error. The texts of the data that only the errors of secondary indexes carry are boxed (`Box<str>`), as
@@ -265,7 +268,8 @@ pub enum Error {
     },
     /// See [`ErrorKind::InvalidSize`]. `folder` is `None` for a temporary store; sizes are in bytes and `min` and
     /// `max` are inclusive. `table` and `index` name the index whose entry is too large ([`SizeSubject::IndexEntry`],
-    /// IX10 of the secondary indexes PRD); both are `None` for every other subject.
+    /// IX10 of the secondary indexes PRD) or whose scan has a prefix that does not fit ([`SizeSubject::Prefix`], IX9);
+    /// both are `None` for every other error.
     InvalidSize {
         folder: Option<PathBuf>,
         what: SizeSubject,
@@ -328,7 +332,9 @@ pub enum Error {
     },
     /// Of the class [`ErrorKind::DifferentSchema`], for an index (IX2 of the secondary indexes PRD): the definition
     /// given to create the index `index` of `table` differs from the table's index of that name in `difference`;
-    /// `expected` and `found` describe in text what the definition gives and what the index has. A variant of its own,
+    /// `expected` and `found` describe in text what the definition gives and what the index has. A scan of an index
+    /// that `table` does not have (IX9) gives [`SchemaDifference::MissingIndex`], expecting `an index` and finding
+    /// `no index`. A variant of its own,
     /// so that [`Error::DifferentSchema`] keeps its data and the size of a result.
     DifferentIndex {
         folder: Option<PathBuf>,
@@ -875,6 +881,7 @@ fn difference_text(difference: SchemaDifference) -> &'static str {
         SchemaDifference::IndexUniqueness => "uniqueness",
         SchemaDifference::IndexKey => "key",
         SchemaDifference::IndexIncluded => "included columns",
+        SchemaDifference::MissingIndex => "index",
     }
 }
 
@@ -1103,6 +1110,33 @@ mod tests {
         assert_eq!(
             different.to_string(),
             "different index \"ix\" of table \"t\" of temporary store: uniqueness expected unique, found not unique"
+        );
+        let missing = Error::DifferentIndex {
+            folder: None,
+            table: "t".to_owned(),
+            index: "ix".to_owned(),
+            difference: SchemaDifference::MissingIndex,
+            expected: "an index".into(),
+            found: "no index".into(),
+        };
+        assert_eq!(missing.kind(), ErrorKind::DifferentSchema);
+        assert_eq!(
+            missing.to_string(),
+            "different index \"ix\" of table \"t\" of temporary store: index expected an index, found no index"
+        );
+        let prefix = Error::InvalidSize {
+            folder: None,
+            what: SizeSubject::Prefix,
+            received: 2049,
+            min: 1,
+            max: 2048,
+            table: Some("t".into()),
+            index: Some("ix".into()),
+        };
+        assert_eq!(
+            prefix.to_string(),
+            "invalid prefix size in index \"ix\" of table \"t\" of temporary store: 2049 bytes, but it must have 1 to \
+             2048"
         );
     }
 
