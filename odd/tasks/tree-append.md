@@ -28,7 +28,7 @@ PRD: nothing observable changes.
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S2 | inline | done | RED/GREEN `append_tests` (3 tests); `setting_a_new_key_reports_the_last_leaf_as_adding_it_does`; L4 |
-| T2 | S3 | inline (background runs) | pending | |
+| T2 | S3 | inline (background runs) | done (marks accepted by the user, L7) | A/B L5; repeats stopped L6 |
 | T3 | S4 | inline | pending | |
 
 ## Log
@@ -63,3 +63,15 @@ PRD: nothing observable changes.
   fail to compile before the wrapper (no behavior of its own). GREEN after. Checks: fmt and clippy clean, `cargo test
   --workspace` 873 passed, 0 failed. Risk: item 6 covered (the equivalence tests pin the tree's bytes, root and count
   against walking).
+- **L5** (2026-11-18) — S3 A/B on Windows 11:27:44–12:12:17 (`work/ta/ab.sh`; `not2` = `5a00edc`, the base's code,
+  `app` = `bf4b998`; power plan on). Ratios `app`/`not2` in op/s, with the rounds where `app` was slower: W1 1.482
+  (0/3), W14 1.013, W23 1.014, W29 1.012, W25 1.009 (0/3), W2 1.004, W15 1.008, W19 1.007, W5 1.001, W22 1.005, W27
+  1.008. Marked (median lower, slower in most rounds): W3 0.978 (3/3), W4 0.973 (3/3), W17 0.903 (2/3), W21 0.993
+  (3/3), W24 0.981 (2/3), W26 0.985 (3/3), W28 0.999 (2/3), W6 0.998 (7/10), W7 0.978 (9/10), W12 0.946 (6/10); W13
+  0.970 (5/10) not marked. W7 and W26 only read, and W17's values are off their leaf, so `append_last` declines
+  before reading a page. The marked loads are repeated in 20 rounds (`work/ta/rep.sh`).
+- **L6** (2026-11-18) — The 20-round repeats started at 12:12:37 and were stopped at the user's request at 12:26: «No
+  hagas más rondas.» No repeat finished; the bench workers were killed, the power plan restored and the leftover run
+  stores removed. The run waits for the user's decision on the marks of L5 (wait from 12:26:12).
+- **L7** (2026-11-18) — Recommended keeping the change (W1 +48 %; the marks are small, W7 and W26 only read, W17's
+  `append_last` declines before reading a page; W12 is checked by the complete run). User: «Sí» (the wait's end is in the phase log). T2 done with the marks of L5 accepted by the user; complete runs next (T3).
