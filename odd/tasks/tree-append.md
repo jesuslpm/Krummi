@@ -75,3 +75,10 @@ PRD: nothing observable changes.
   stores removed. The run waits for the user's decision on the marks of L5 (wait from 12:26:12).
 - **L7** (2026-11-18) — Recommended keeping the change (W1 +48 %; the marks are small, W7 and W26 only read, W17's
   `append_last` declines before reading a page; W12 is checked by the complete run). User: «Sí» (the wait's end is in the phase log). T2 done with the marks of L5 accepted by the user; complete runs next (T3).
+- **L8** (2026-11-18) — S4 complete runs on `605d0ff` (code `bf4b998`; script `work/ta/full.sh`). Windows
+  12:28:39–12:50:43: **Krummi cumple 29 de 29 umbrales**; carga-en-orden 1,295,570 against Voron's 677,189 op/s,
+  1.91 (1.38 and 1.45 in the night's runs of the base's code); lecturas-con-escritor 0.99 (Krummi 1,433,150, Voron
+  1,441,159: both engines low in this run), escritor-con-lectores 1.11. WSL 2 12:52:01–13:37:55: **Krummi cumple 29 de
+  29 umbrales**; carga-en-orden 150,562 op/s, 1.08 (the night's run on the base's code: 154,783, 1.09), so on Linux,
+  where the load runs at about a tenth of Windows' rate, the walk it saves does not show; W12 1.20, W13 1.16. Reports
+  in `work/ta/full/` (ignored by git).
