@@ -166,3 +166,30 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   hold; two mutations caught. Advisories: the crate doc in `lib.rs:32-36` does not mention scans (to fix);
   `IndexEntry::value(i)` skips earlier elements on each call (quadratic in key columns); `Scan` carries an optional
   `Through` on every primary-key scan (watch W27 in T7). Scratch removed by the parent.
+- **L11** (2026-11-18) — T6 (`e340580`, a parallel writer with a disjoint surface while T5 ran): W30–W32 in
+  `workload.rs` (`Load::ALL` 32, `SIZED` 13 with W30), data helpers `n`, `ts`, `ts_order`, `index_range_starts`,
+  `expected_index_ranges`; the Krummi worker creates the table and both indexes before the timer (the PRD's starting
+  point «Almacén vacío con la tabla y sus dos índices»), W31 uses `index_rows(ix_n, [n])` and checks one row, W32
+  `index_rows(ix_ts, [], ts..)` up to 100 rows, both with a projection (PY7). Voron: a new `Indexed` schema laid out
+  `n, ts, id, x, flag, name` with `n` and `ts` big-endian sign-flipped, `ix_ts` over `ts, id` so equal `ts` follow the
+  primary key (S5 decision), `ix_n` over `n`. Report tests pin 32 thresholds. Checks: `cargo test -p krummi-bench`,
+  clippy on the crate, the Voron selftest (known digests W30 `04ee91a577139ff6`, W31 `b3118bdd51c932a8`, W32
+  `2d301645b54fc739`), the all-engine reduced test (181 s) and a reduced `--solo-krummi-voron` run with matching
+  digests (cold, one repetition: W30 5.28, W31 7.55, W32 8.51 Krummi/Voron). Risk: item 6 (the C# harness has no
+  cargo test; the selftest and the reduced run are its checks). RDD `ba3d843..e340580` (reliability, readability):
+  approved, `review-38cf23bdc604d2e6`, no advisories (T5's three new files were kept outside the worktree during the
+  preflight).
+- **L12** (2026-11-18) — T5: `krummi-pager/src/sort.rs` (`SortFiles`, `SortWriter`, `SortReader`, `SortRun`,
+  `SORT_DIR`; folder created on the first run file, removing any leftover first; 64 KiB buffers; drop removes it best
+  effort; fault points `SortCreate`, `SortWrite`, `SortRead`, `SortRemove`; an I/O failure while writing goes through
+  `fail_write`, T12); open step 8 removes `krummi.sort`, folder or file, after the journal and `krummi.temp`, an
+  access failure there fails the open; close and drop remove it after the temporary area. `krummi/src/table/sort.rs`
+  replaces T2's memory-only `Sorter`: budget `SORT_MEMORY` = 64 MiB, run records with a 12-byte header, heap merge of
+  up to 64 runs, group merges beyond; a temporary store never spills; test hooks `with_sort_memory`,
+  `with_sort_pause`. AC-IX14 in `table_index_sort.rs` (8 tests, about 136 runs with the reduced budget), AC-IX7
+  re-checked through the spill path; 8 injected defects caught; workspace 961 passed (with T6 in the tree, the seam
+  check). S5 decisions: a failure to remove `krummi.sort` at close is classed like the temporary area's; a leftover
+  that cannot be removed at the start of a sort fails that creation with access; only an I/O failure while writing
+  gets T12. Not tested: P10/P12 exclusion (separate files the pager never accounts). Risk: item 1 (the open deletes
+  the reserved folder's contents) and item 3 (shared recovery and close paths). RDD and an independent verifier
+  launched.
