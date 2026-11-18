@@ -158,3 +158,11 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   (`table_index_scans.rs:1036`), row scans compare only identities (`:195`), the post-commit whole-index check
   (`:1077`), and an untested accept side of the combined prefix limit (`:692`). Risk: item 3. Independent verifier of
   T4 launched; T5 launched.
+- **L10** (2026-11-18) — Independent verifier of T4 over `ba3d843`: no blockers. Primary-key scans byte-identical to
+  `ba9de2e` across a 534-line transcript (prefixes with `-0`, NaN, null, sizes 2048–5000; forward, backward,
+  lending, projection binding, write scans, `delete_range`). Entry column order, copy versus borrow (observable as
+  the `Cow` variant of `Value`), descending/nulls-last bounds, `-0`/NaN, equal keys in primary-key order and exact
+  reverse, missing index, the exact 2,048-byte prefix boundary, and scan-only writes leaving files byte-identical all
+  hold; two mutations caught. Advisories: the crate doc in `lib.rs:32-36` does not mention scans (to fix);
+  `IndexEntry::value(i)` skips earlier elements on each call (quadratic in key columns); `Scan` carries an optional
+  `Through` on every primary-key scan (watch W27 in T7). Scratch removed by the parent.
