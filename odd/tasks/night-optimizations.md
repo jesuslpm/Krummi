@@ -254,6 +254,13 @@ PRD draft for the user, not an implementation).
   clean, `cargo test --workspace` 869 passed, 0 failed. No new complete run: the code equals `67d92b8`'s (L11, WSL
   29/29) and the `not2` run above (Windows 29/29). The diagnosis of why T2 slows W12 and W13 only in the complete run
   is a follow-up, and it would also explain the A/B's blind spot.
+- **L21** (2026-11-18) — Codex code review of `5a00edc..a4a6bef` (the restored T2;
+  [report](../../docs/reviews/night-optimizations/2026-11-18-code-03.md),
+  [resolutions](../../docs/reviews/night-optimizations/2026-11-18-code-03-resolutions.md)): status `findings`, no code
+  defect, Codex's checks passed. R1 (minor: the Krummi-only A/B of L19 does not show the thresholds against Voron)
+  fixed in `e66de37` (L19's wording and the two complete runs of L20). RDD of the last slice `7314419..e66de37`
+  (assess `medium`, `under_budget`, the revert and its records): lenses resilience and reliability; lineage
+  `review-2f04a54e307bd2e5`; **approved** with no findings, acknowledged (authority burned).
 
 ## Closing
 
