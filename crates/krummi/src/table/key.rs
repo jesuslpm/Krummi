@@ -1,6 +1,8 @@
-//! Primary key encoding (document 3 of the table design, *Key encoding, per type*): ascending columns without
-//! nulls, as the elements of FoundationDB's tuple layer, so that the byte order of keys is the order of N5. A key
-//! is the concatenation of its elements, each a type code and its bytes; every element is self-delimiting.
+//! Key encoding (document 3 of the table design, *Key encoding, per type*): the elements of FoundationDB's tuple
+//! layer, so that the byte order of keys is the order of N5. A key is the concatenation of its elements, each a type
+//! code and its bytes; every element is self-delimiting. A primary key has ascending columns without nulls; an index
+//! column ([`KeyColumn`]) may also be descending and nullable, with its nulls first or last (*Nulls* and
+//! *Descending columns*).
 
 use std::borrow::Cow;
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
@@ -28,6 +30,149 @@ const UUID: u8 = 0x30;
 const DECIMAL: u8 = 0x40;
 /// The byte that follows `00` inside an escaped `string` or `bytes`, and that no element starts with.
 const ESCAPE: u8 = 0xFF;
+/// The byte after the `00` terminator of a descending `string` or `bytes`, before the inversion (`00 01`, CockroachDB's
+/// descending terminator), so that the byte after an inverted terminator or escape is never `FF` (document 3).
+const DESCENDING_END: u8 = 0x01;
+
+/// The direction of an index column (N5): its values in their type's order, or in the reverse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub(crate) enum Direction {
+    #[default]
+    Ascending,
+    Descending,
+}
+
+/// Where the nulls of an index column sort in the forward order of the index, whatever its direction (N5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub(crate) enum Nulls {
+    #[default]
+    First,
+    Last,
+}
+
+/// A column of a key as its elements are encoded: its type, direction and null order, and whether its values may be
+/// null. A primary key column is [`KeyColumn::primary`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct KeyColumn {
+    pub ty: ColumnType,
+    pub direction: Direction,
+    pub nulls: Nulls,
+    pub nullable: bool,
+}
+
+impl KeyColumn {
+    /// A primary key column: ascending, never null.
+    pub(crate) fn primary(ty: ColumnType) -> KeyColumn {
+        KeyColumn {
+            ty,
+            direction: Direction::Ascending,
+            nulls: Nulls::First,
+            nullable: false,
+        }
+    }
+
+    fn descending(&self) -> bool {
+        self.direction == Direction::Descending
+    }
+
+    /// The null element of the column (document 3, *Nulls*): `00` and `4F` ascending, `B0` and `FE FF FF` descending,
+    /// with the nulls first and last. No value element starts like one of them.
+    fn null(&self) -> &'static [u8] {
+        match (self.direction, self.nulls) {
+            (Direction::Ascending, Nulls::First) => &[0x00],
+            (Direction::Ascending, Nulls::Last) => &[0x4F],
+            (Direction::Descending, Nulls::First) => &[0xB0],
+            (Direction::Descending, Nulls::Last) => &[0xFE, 0xFF, 0xFF],
+        }
+    }
+
+    /// Whether the descending element of the column ends with the two-byte terminator.
+    fn escaped(&self) -> bool {
+        matches!(self.ty, ColumnType::String | ColumnType::Bytes)
+    }
+
+    /// The encoded length of the element of `value` in this column, without encoding it.
+    pub(crate) fn element_len(&self, value: &Value<'_>) -> usize {
+        match value {
+            Value::Null => self.null().len(),
+            _ => element_len(value) + usize::from(self.descending() && self.escaped()),
+        }
+    }
+
+    /// Appends the element of `value`, normalized, to `key`; or the rule it breaks: a null in a column without nulls,
+    /// a value of another type.
+    pub(crate) fn encode(&self, value: &Value<'_>, key: &mut Vec<u8>) -> Result<(), ValueRule> {
+        if let Value::Null = value {
+            return if self.nullable {
+                key.extend(self.null());
+                Ok(())
+            } else {
+                Err(ValueRule::NullNotAllowed)
+            };
+        }
+        let start = key.len();
+        if !encode_element(&self.ty, value, key) {
+            return Err(ValueRule::WrongType);
+        }
+        if self.descending() {
+            if self.escaped() {
+                key.push(DESCENDING_END);
+            }
+            key[start..].iter_mut().for_each(|b| *b = !*b);
+        }
+        Ok(())
+    }
+
+    /// The value of the element at the front of `rest`, which it takes, with the checks of [`decode_element`]; a
+    /// null only in a column with nulls. `string` and `bytes` values are copied.
+    pub(crate) fn decode(&self, rest: &mut &[u8]) -> Option<Value<'static>> {
+        if self.nullable && rest.starts_with(self.null()) {
+            *rest = &rest[self.null().len()..];
+            return Some(Value::Null);
+        }
+        if !self.descending() {
+            return decode_element(&self.ty, rest);
+        }
+        let code = !*rest.first()?;
+        match self.ty {
+            ColumnType::String | ColumnType::Bytes => {
+                *rest = &rest[1..];
+                let bytes = unescape(rest, true)?;
+                match self.ty {
+                    ColumnType::String if code == STRING => {
+                        Some(Value::String(Cow::Owned(String::from_utf8(bytes).ok()?)))
+                    }
+                    ColumnType::Bytes if code == BYTES => Some(Value::Bytes(Cow::Owned(bytes))),
+                    _ => None,
+                }
+            }
+            _ => {
+                // A fixed element: its type and code give its length; decode it with its bytes inverted back.
+                let len = fixed_element_len(&self.ty, code)?;
+                let mut element = [0u8; 17];
+                for (to, from) in element.iter_mut().zip(take(rest, len)?) {
+                    *to = !*from;
+                }
+                let mut inverted = &element[..len];
+                let value = decode_element(&self.ty, &mut inverted)?;
+                inverted.is_empty().then_some(value)
+            }
+        }
+    }
+
+    /// Takes the element at the front of `rest` with the checks of [`KeyColumn::decode`], without copying an
+    /// ascending text or byte element.
+    pub(crate) fn skip(&self, rest: &mut &[u8]) -> Option<()> {
+        if self.nullable && rest.starts_with(self.null()) {
+            *rest = &rest[self.null().len()..];
+            Some(())
+        } else if self.descending() {
+            self.decode(rest).map(drop)
+        } else {
+            skip_element(&self.ty, rest)
+        }
+    }
+}
 
 /// The bytes of a `uuid` key in SQL Server's order: key byte i is RFC 9562 byte `SQL_SERVER[i]` (document 3,
 /// *UUID and ULID*: `r10..r15, r8 r9, r7 r6, r5 r4, r3 r2 r1 r0`).
@@ -220,37 +365,78 @@ pub fn key_range<'v>(
         });
     }
     let p = encode_key(&types[..k], &prefix)?;
-    let with = |value: &Value<'_>, escape: bool| -> Result<Vec<u8>, KeyError> {
-        let ty = &types[k..=k];
-        let received = p.len() + key_len(ty, std::slice::from_ref(value));
-        if received > MAX_KEY {
-            return Err(KeyError::Size { received });
+    let next = types.get(k).copied().map(KeyColumn::primary);
+    range_bounds(p, next.as_ref(), lower.as_ref(), upper.as_ref())
+}
+
+/// The byte bounds of the entries that start with the encoded prefix `p` and, when `lower` or `upper` is given, whose
+/// next element is a value of `next` within them, by the table of document 3 (*Composite keys and prefix scans*):
+/// the bounds are values in the order of N5 of the column's type, so a descending column swaps them, and the nulls of
+/// `next` are outside the range when it has a bound and inside when it has none. `lower` and `upper` are normalized
+/// values, not null; `next` is the column after the prefix, `None` when the prefix covers the key and there are no
+/// bounds.
+///
+/// Fails with the size of `p` followed by a bound value, lower first, that does not fit in a key. A bound of more than
+/// [`MAX_KEY`] bytes (`B ‖ FF` of 2,049 bytes, or a null element after a long prefix) becomes its first [`MAX_KEY`]
+/// bytes with the opposite inclusiveness ([`fit`]), so that every bound has at most [`MAX_KEY`] bytes.
+pub(crate) fn range_bounds(
+    p: Vec<u8>,
+    next: Option<&KeyColumn>,
+    lower: Bound<&Value<'_>>,
+    upper: Bound<&Value<'_>>,
+) -> Result<KeyRange, KeyError> {
+    // `start` and `end` as document 3 writes them, in the bytes' order: an included start and an excluded end, or
+    // none for an empty P.
+    let mut start = (!p.is_empty()).then(|| p.clone());
+    let mut end = (!p.is_empty()).then(|| [p.as_slice(), &[ESCAPE]].concat());
+    if let Some(column) = next.filter(|_| !matches!((lower, upper), (Unbounded, Unbounded))) {
+        for value in [lower, upper] {
+            if let Included(v) | Excluded(v) = value {
+                let received = p.len() + column.element_len(v);
+                if received > MAX_KEY {
+                    return Err(KeyError::Size { received });
+                }
+            }
         }
-        let mut bound = p.clone();
-        bound.extend(encode_key(ty, std::slice::from_ref(value))?);
-        if escape {
-            bound.push(ESCAPE);
-        }
-        Ok(bound)
-    };
-    // `start` and `end` as document 3 writes them: an included start and an excluded end, or none for an empty P.
-    let start = match &lower {
-        Included(lo) => Some(with(lo, false)?),
-        Excluded(lo) => Some(with(lo, true)?),
-        Unbounded => (!p.is_empty()).then(|| p.clone()),
-    };
-    let end = match &upper {
-        Included(hi) => Some(with(hi, true)?),
-        Excluded(hi) => Some(with(hi, false)?),
-        Unbounded => (!p.is_empty()).then(|| [p.as_slice(), &[ESCAPE]].concat()),
-    };
+        // P followed by the element of `value` (a null for `None`), and by `FF` when `escape`.
+        let with = |value: Option<&Value<'_>>, escape: bool| -> Vec<u8> {
+            let mut bound = p.clone();
+            match value {
+                Some(value) => column
+                    .encode(value, &mut bound)
+                    .expect("a normalized value of its column"),
+                None => bound.extend(column.null()),
+            }
+            if escape {
+                bound.push(ESCAPE);
+            }
+            bound
+        };
+        // The value bound that limits each end of the bytes.
+        let (low, high) = match column.direction {
+            Direction::Ascending => (lower, upper),
+            Direction::Descending => (upper, lower),
+        };
+        start = match low {
+            Included(v) => Some(with(Some(v), false)),
+            Excluded(v) => Some(with(Some(v), true)),
+            Unbounded if column.nullable && column.nulls == Nulls::First => Some(with(None, true)),
+            Unbounded => start,
+        };
+        end = match high {
+            Included(v) => Some(with(Some(v), true)),
+            Excluded(v) => Some(with(Some(v), false)),
+            Unbounded if column.nullable && column.nulls == Nulls::Last => Some(with(None, false)),
+            Unbounded => end,
+        };
+    }
     Ok(KeyRange {
         lower: start.map_or(Unbounded, |start| fit(start, Included, Excluded)),
         upper: end.map_or(Unbounded, |end| fit(end, Excluded, Included)),
     })
 }
 
-fn bound_map<'a, T, E>(
+pub(crate) fn bound_map<'a, T, E>(
     bound: Bound<&Value<'a>>,
     f: impl Fn(&Value<'a>) -> Result<T, E>,
 ) -> Result<Bound<T>, E> {
@@ -261,8 +447,10 @@ fn bound_map<'a, T, E>(
     })
 }
 
-/// A bound of the side `as_is`, unless it is `B ‖ FF` with B of [`MAX_KEY`] bytes: no key extends such a B, so
-/// the keys at or after `B ‖ FF` are those after B, and the bound becomes B on the side `shrunk` (document 3).
+/// A bound of the side `as_is`, unless it is longer than [`MAX_KEY`], as `B ‖ FF` with B of [`MAX_KEY`] bytes: no key
+/// extends such a B, so the keys at or after `B ‖ FF` are those after B, and the bound becomes B on the side `shrunk`
+/// (document 3). In general, a key of at most [`MAX_KEY`] bytes is below a longer bound exactly when it is at most
+/// the bound's first [`MAX_KEY`] bytes.
 fn fit(
     bound: Vec<u8>,
     as_is: fn(Vec<u8>) -> Bound<Vec<u8>>,
@@ -270,7 +458,7 @@ fn fit(
 ) -> Bound<Vec<u8>> {
     if bound.len() > MAX_KEY {
         let mut b = bound;
-        b.pop();
+        b.truncate(MAX_KEY);
         shrunk(b)
     } else {
         as_is(bound)
@@ -496,25 +684,46 @@ fn decode_element(ty: &ColumnType, rest: &mut &[u8]) -> Option<Value<'static>> {
             }))
         }
         ColumnType::Ulid => Value::Ulid(Ulid(take_array(rest)?)),
-        ColumnType::String => Value::String(Cow::Owned(String::from_utf8(unescape(rest)?).ok()?)),
-        ColumnType::Bytes => Value::Bytes(Cow::Owned(unescape(rest)?)),
+        ColumnType::String => {
+            Value::String(Cow::Owned(String::from_utf8(unescape(rest, false)?).ok()?))
+        }
+        ColumnType::Bytes => Value::Bytes(Cow::Owned(unescape(rest, false)?)),
         _ => unreachable!("the other types return above"),
     })
 }
 
-/// The bytes of an escaped element up to its terminator, which it consumes.
-fn unescape(rest: &mut &[u8]) -> Option<Vec<u8>> {
+/// The bytes of an escaped element up to its terminator, which it consumes: `00` ascending, or the inverted `00 01`
+/// of a `descending` element, whose bytes are all inverted.
+fn unescape(rest: &mut &[u8], descending: bool) -> Option<Vec<u8>> {
+    let flip = if descending { 0xFF } else { 0x00 };
     let mut bytes = Vec::new();
     loop {
-        let b = take(rest, 1)?[0];
+        let b = take(rest, 1)?[0] ^ flip;
         if b != 0 {
             bytes.push(b);
-        } else if rest.first() == Some(&ESCAPE) {
+        } else if rest.first().map(|&next| next ^ flip) == Some(ESCAPE) {
             *rest = &rest[1..];
             bytes.push(0);
-        } else {
+        } else if !descending {
             return Some(bytes);
+        } else {
+            return (take(rest, 1)?[0] ^ flip == DESCENDING_END).then_some(bytes);
         }
+    }
+}
+
+/// The length of the element of a value of the fixed-width type `ty` that starts with `code`, or `None` when no such
+/// element starts with it.
+fn fixed_element_len(ty: &ColumnType, code: u8) -> Option<usize> {
+    match ty {
+        ColumnType::String | ColumnType::Bytes | ColumnType::Vector(_) => None,
+        ColumnType::Bool => Some(1),
+        ColumnType::F32 => Some(5),
+        ColumnType::F64 => Some(9),
+        ColumnType::Decimal { .. } | ColumnType::Uuid(_) | ColumnType::Ulid => Some(17),
+        _ => (ZERO - 8..=ZERO + 8)
+            .contains(&code)
+            .then(|| 1 + usize::from(code.abs_diff(ZERO))),
     }
 }
 

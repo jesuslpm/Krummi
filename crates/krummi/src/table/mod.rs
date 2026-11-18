@@ -4,6 +4,11 @@
 mod bulk;
 pub mod catalog;
 mod identity;
+// Used by the index catalog, maintenance and scans of the secondary indexes PRD (T2–T4 of its execution).
+#[allow(dead_code)]
+mod index_key;
+#[cfg(test)]
+mod index_key_tests;
 pub mod key;
 #[cfg(test)]
 mod malformed_tests;
