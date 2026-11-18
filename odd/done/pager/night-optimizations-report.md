@@ -2,8 +2,8 @@
 
 Informe de cierre de `night-optimizations` (2026-11-18). Enfoque de ejecución: ODD.
 Fuente de producto: ninguna. Son optimizaciones sin cambio de comportamiento, tomadas de los pendientes del
-[plan de rendimiento](../../docs/performance/plan.md). La de T3 cambiaría bytes guardados, así que quedó en un
-borrador de PRD: [journal-skip-compression.prd.md](../../docs/prd/krummi/journal/journal-skip-compression.prd.md).
+[plan de rendimiento](../../../docs/performance/plan.md). La de T3 cambiaría bytes guardados, así que quedó en un
+borrador de PRD: [journal-skip-compression.prd.md](../../../docs/prd/krummi/journal/journal-skip-compression.prd.md).
 Documento de ejecución: [night-optimizations.md](night-optimizations.md).
 
 Rama `feat/night-optimizations`, creada desde `feat/ordered-write-cache` (`2e45b31`, código igual a `main` `0cb816c`).
@@ -48,9 +48,9 @@ mensaje de estimación.
     verificación.
   - No hubo verificador independiente de T1: su línea de riesgo no nombra ningún ítem de alto riesgo.
   - Codex, en la primera ronda, pidió dos correcciones menores en el borrador del PRD, sin defectos de código. En la
-    segunda ronda aprobó: [informe](../../docs/reviews/night-optimizations/2026-11-18-code.md),
-    [seguimiento](../../docs/reviews/night-optimizations/2026-11-18-code-02.md) y
-    [resoluciones](../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md).
+    segunda ronda aprobó: [informe](../../../docs/reviews/night-optimizations/2026-11-18-code.md),
+    [seguimiento](../../../docs/reviews/night-optimizations/2026-11-18-code-02.md) y
+    [resoluciones](../../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md).
 - **Hallazgos corregidos por el camino:**
   - El borrador nombraba el formato `11`, que ya es el vigente (Codex R1).
   - El borrador invertía el orden entre codificar y reservar sitio (Codex R2).

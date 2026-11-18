@@ -156,12 +156,12 @@ PRD draft for the user, not an implementation).
   `d48f747`), single runs of three repetitions moved Krummi between 0.71 (lecturas-con-escritor) and 1.22
   (valores-grandes-carga); they are not an A/B and decide nothing (S5's A/Bs are L7–L9).
 - **L12** (2026-11-18) — Codex code review R1 of `2e45b31..a8052be`
-  ([report](../../docs/reviews/night-optimizations/2026-11-18-code.md),
-  [resolutions](../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md)): status `findings`. There
+  ([report](../../../docs/reviews/night-optimizations/2026-11-18-code.md),
+  [resolutions](../../../docs/reviews/night-optimizations/2026-11-18-code-resolutions.md)): status `findings`. There
   are no code defects; Codex's checks passed. R1 (minor, the draft named format `11`, already the current one) was
   fixed, and so was R2 (minor, the draft reversed the encoding and the space reservation). Both fixes are in `4cd6aa1`.
   The draft's five product questions stay for the user.
-- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
+- **L13** (2026-11-18) — Codex follow-up R2 ([report](../../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
   `approved`, R1 and R2 verified resolved, no findings open. T5 done.
 
 ## Closing
