@@ -48,7 +48,8 @@ sin publicar.
   - En WSL 2 hace 150.562 op/s, frente a 154.783 del código de la base anoche. En Linux esa carga va a una décima del
     ritmo de Windows, así que el recorrido que se ahorra no se nota.
   - En Windows, W12 pasa con Krummi en 1,43 M op/s, porque Voron también bajó en esa corrida (1,44 M).
-  - Los informes están en `work/ta/full/`, ignorado por git.
+  - Los informes están en [Windows](../../../docs/benchmark/2026-11-18-windows-tree-append.md) y
+    [Linux](../../../docs/benchmark/2026-11-18-linux-tree-append.md).
 - **Revisiones y verificación:**
   - Dos revisiones RDD aprobadas (tabla abajo).
   - No hubo verificador independiente. El ítem 3 se escaló en RDD, y los tests de equivalencia con el recorrido del

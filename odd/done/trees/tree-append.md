@@ -81,7 +81,8 @@ PRD: nothing observable changes.
   1,441,159: both engines low in this run), escritor-con-lectores 1.11. WSL 2 12:52:01–13:37:55: **Krummi cumple 29 de
   29 umbrales**; carga-en-orden 150,562 op/s, 1.08 (the night's run on the base's code: 154,783, 1.09), so on Linux,
   where the load runs at about a tenth of Windows' rate, the walk it saves does not show; W12 1.20, W13 1.16. Reports
-  in `work/ta/full/` (ignored by git).
+  in `work/ta/full/` (ignored by git), saved on 2026-11-18 as `docs/benchmark/2026-11-18-windows-tree-append.md` and
+  `docs/benchmark/2026-11-18-linux-tree-append.md`.
 - **L9** (2026-11-18) — RDD of `504cd84..0a9c354`. Assess: `high`, `review_due` (item 3 escalated: «set and try_add
   of the public key-value API now keep a remembered last leaf per tree that every other change must forget»); the
   untracked `docs/reviews/tables-indexes/` (not this run's) excluded. Lenses risk, resilience and reliability; lineage
