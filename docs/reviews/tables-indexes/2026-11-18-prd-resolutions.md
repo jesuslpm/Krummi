@@ -71,3 +71,12 @@ The fix is in the commit that adds this section.
   included columns are left out. It adds Codex's case: included `[id, id]` over an index with no included columns and
   primary key `id` gives esquema no válido with the repeated column. No product rule changes.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-18 (verification)
+
+Review record: [2026-11-18-prd-04.md](2026-11-18-prd-04.md), follow-up over `5d1ce3b..3e8d714`, wrapper status
+`approved`, verdict «Ready for implementation within the requested follow-up scope: R3 is verified resolved and no
+causal regression remains open.» `threadId` `01a1efd0-b8a3-71f3-82f0-e4dbeaca02e7`; telemetry: coordinator
+`gpt-6.1-sol`/`high`, reviewer `krummi-review` (Gauss) `gpt-6.1-sol`/`high`.
+
+- R3: verified resolved.
