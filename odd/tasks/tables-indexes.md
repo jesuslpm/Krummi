@@ -45,7 +45,7 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
 |---|---|---|---|---|
 | T1 | S1, S3: index key encoding (direction, nulls, entry key = index columns ‖ primary key), decoding into owned values, value bounds of IX9 per direction; unit and property tests of order | delegated (backstop) | done (RED: `index_key_tests` did not compile; GREEN 14 of 14; six injected encoding defects each failed 3–7 tests) | `2657249` |
 | T2 | S1: definitions in the catalog (format 12, IX1, IX3, IX14), create (both modes, in-memory sort over rows) and drop (IX2, IX4, IX11), schema changes (IX5), Describe with identities and index state (IX6), changes and references (IX13), error data (IX10); AC-IX1, AC-IX7 (in-memory), AC-IX9–AC-IX12, AC-IX15 | delegated (backstop) | done (7 injected defects each caught; `table_indexes` 16 of 16; verified, L6) | `9d57e7f`, `e7b95e9` |
-| T3 | S1: maintenance in every row write (IX7, IX10, IX12), bulk load, empty; AC-IX2, AC-IX6, AC-IX8, AC-IX13 | delegated (backstop) | done (RED: 7 new tests hit the T2 stopgap panic; GREEN `table_indexes` 24 of 24; 7 injected defects caught; verifier pending) | `4a4c345` |
+| T3 | S1: maintenance in every row write (IX7, IX10, IX12), bulk load, empty; AC-IX2, AC-IX6, AC-IX8, AC-IX13 | delegated (backstop) | done (RED: 7 new tests hit the T2 stopgap panic; GREEN `table_indexes` 24 of 24; 7 injected defects caught; verified, L8) | `4a4c345` |
 | T4 | S1: index scans returning rows or entries, intervals (IX8, IX9); AC-IX3–AC-IX5 | delegated (backstop) | pending | |
 | T5 | S1: external sort in `krummi.sort` and its cleanup (IX2: open step 8, close, failures, memory-only temporary store); AC-IX14 | delegated (backstop) | pending | |
 | T6 | S2: W30–W32 in Krummi and Voron, 32 thresholds, reduced run | delegated (backstop) | pending | |
@@ -134,3 +134,13 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   escalated item 3): approved, lineage `review-6b19eb30331bd5ee`; advisories: Vaciar not covered by a test of the
   index trees at `rows.rs:1457`, an error after a partial range delete at `maintain.rs:346`, doc and lint
   suggestions, and this document's task table not yet updated. Independent verifier of T3 launched.
+- **L8** (2026-11-18) — Independent verifier of T3 over `4a4c345` in a scratch archive: no blockers. Differential
+  check of tables without indexes against `7c7e3c3` (insert, duplicate, oversized row, identical/partial/full/null
+  updates, older schema versions, upsert, delete, range delete, abort, bulk loads with failures), on disk and
+  temporary: transcripts identical, including error texts and P12 counts. Failed unique writes leave rows, entries,
+  roots and counts unchanged and the write commits other changes; range deletes across batch boundaries (1,023–2,049
+  rows) and reopen keep every index in step; float collisions agree between creation, insert and update; five
+  mutations each fail a test. It agrees with the writer's two readings (the range-delete panic fails the write only
+  after a removal; an already-present entry is damage). Advisories: every row write on a table without indexes now
+  looks up its maintained indexes (one extra lookup; to watch in T7's runs); a stale entry in a unique index reads as
+  a duplicate key (IX12 allows it). Workspace in scratch: 944 passed. Scratch removed by the parent.
