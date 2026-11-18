@@ -26,3 +26,10 @@ Review record: [2026-11-18-code-03.md](2026-11-18-code-03.md), wrapper status `f
 Checks before the follow-up, on `e66de37`: `cargo fmt --all --check` clean, `cargo clippy --workspace --all-targets
 -- -D warnings` clean, `cargo test --workspace` 869 passed, 0 failed; `git diff --quiet 5a00edc e66de37 -- crates`
 exit 0.
+
+## 2026-11-18 (verification)
+
+Follow-up report: [2026-11-18-code-04.md](2026-11-18-code-04.md), wrapper status `approved`, thread
+`01a1ee3e-968d-7981-bbb3-b675b8454b05`. Telemetry: coordinator `gpt-6.1-sol` with effort `high`, reviewer
+`krummi-review-critical` `gpt-6-astra` with effort `xhigh`. Verdict: «Approved for the requested follow-up scope: R1
+verified resolved; no findings remain open.» R1: resolved.

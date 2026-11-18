@@ -261,6 +261,9 @@ PRD draft for the user, not an implementation).
   fixed in `e66de37` (L19's wording and the two complete runs of L20). RDD of the last slice `7314419..e66de37`
   (assess `medium`, `under_budget`, the revert and its records): lenses resilience and reliability; lineage
   `review-2f04a54e307bd2e5`; **approved** with no findings, acknowledged (authority burned).
+- **L22** (2026-11-18) — Codex follow-up of `a4a6bef..8ef2d10`
+  ([report](../../docs/reviews/night-optimizations/2026-11-18-code-04.md)): `approved`, R1 verified resolved, no
+  findings open. T5 done.
 
 ## Closing
 
