@@ -108,3 +108,14 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   column unproved at `:1487`, weak page-free assertion at `:1576`, read-open damage untested at `:1975`). The
   untracked integration test file was kept outside the worktree during the T1 and T2a reviews because an untracked
   file blocks a committed-only preflight.
+- **L6** (2026-11-18) — Independent verifier of T2 (risk items 1, persisted format, and 3, public error variants),
+  over the original `0cb4c39` in a scratch archive: every item covered, no blockers; workspace 918 passed. Probes:
+  a failed unique creation leaves `index_trees` and P12 info identical and the write commits other changes; `[id, id]`
+  in Crear si no existe gives esquema no válido with the repeated column; existing error texts byte-identical to the
+  baseline; a real format-11 store is refused with `DifferentFormat { found: 11, expected: 12 }` and left unchanged;
+  N4 normalization in unique creation; a 30,000-row descending nulls-last index in 116 ms. Advisories: A1, a column
+  name over 1,024 bytes in a definition fails with tamaño no válido (column name), following E17's pattern for rows
+  and projections, while IX10's first step names only the table and index names (kept as the writer's S5 decision;
+  reported in the closing report); A2, the error variants changed shape as IX10 requires; A3, AC-IX15 rewrites a
+  format-12 header instead of a committed 7.1 fixture (the probe used a real one); A4, the row-write stopgap until T3.
+  Scratch removed by the parent.
