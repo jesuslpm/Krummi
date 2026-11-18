@@ -385,7 +385,7 @@ mod tests {
         let text = r.render();
         assert!(text.starts_with(HEADER), "{text}");
         let rest = &text[HEADER.len()..];
-        let expected_start = "Krummi cumple 29 de 29 umbrales.
+        let expected_start = "Krummi cumple 32 de 32 umbrales.
 
 ## Operaciones por segundo
 
@@ -406,6 +406,15 @@ mod tests {
         assert_eq!(
             row(&text, Load::W29),
             "| tabla-borrado | 29.580 | 29.000 | no aplica | no aplica | no aplica | no aplica | 1,02 | cumple |"
+        );
+        // IX15: the index loads, after W29, likewise.
+        assert_eq!(
+            row(&text, Load::W30),
+            "| tabla-insercion-con-indices | 30.600 | 30.000 | no aplica | no aplica | no aplica | no aplica | 1,02 | cumple |"
+        );
+        assert_eq!(
+            row(&text, Load::W32),
+            "| tabla-intervalos-de-indice | 32.640 | 32.000 | no aplica | no aplica | no aplica | no aplica | 1,02 | cumple |"
         );
         let rates: Vec<&str> = text
             .lines()
@@ -433,6 +442,7 @@ mod tests {
 | tabla-insercion-al-azar | 24.000 | 24.001 | no aplica | no aplica | no aplica | no aplica |
 | tabla-carga-masiva | 25.000 | 25.001 | no aplica | no aplica | no aplica | no aplica |
 | tabla-borrado | 29.000 | 29.001 | no aplica | no aplica | no aplica | no aplica |
+| tabla-insercion-con-indices | 30.000 | 30.001 | no aplica | no aplica | no aplica | no aplica |
 
 ## Opciones cambiadas
 
@@ -443,12 +453,12 @@ mod tests {
         assert!(text.ends_with(tail), "{text}");
         assert_eq!(
             text.lines().filter(|l| l.starts_with("| ")).count(),
-            1 + 29 + 1 + 12
+            1 + 32 + 1 + 13
         );
         assert_eq!(r.exit_code(), 0);
         assert_eq!(
             r.summary_line("banco-20261103-101500.md"),
-            "Krummi cumple 29 de 29 umbrales. Informe: banco-20261103-101500.md"
+            "Krummi cumple 32 de 32 umbrales. Informe: banco-20261103-101500.md"
         );
     }
 
@@ -480,7 +490,7 @@ mod tests {
                 "",
             );
         let mut expected = header
-            + "Krummi cumple 29 de 29 umbrales.
+            + "Krummi cumple 32 de 32 umbrales.
 
 ## Operaciones por segundo
 
@@ -523,7 +533,7 @@ Ninguna.
         assert_eq!(r.exit_code(), 0);
         assert_eq!(
             r.summary_line("x.md"),
-            "Krummi cumple 29 de 29 umbrales. Informe: x.md"
+            "Krummi cumple 32 de 32 umbrales. Informe: x.md"
         );
     }
 
@@ -536,7 +546,7 @@ Ninguna.
             "
 ## Resultado
 
-Krummi cumple 28 de 29 umbrales. Incumple: `tabla-actualizacion`.
+Krummi cumple 31 de 32 umbrales. Incumple: `tabla-actualizacion`.
 "
         ));
         assert_eq!(
@@ -546,7 +556,7 @@ Krummi cumple 28 de 29 umbrales. Incumple: `tabla-actualizacion`.
         assert_eq!(missed.exit_code(), 1);
         assert_eq!(
             missed.summary_line("x.md"),
-            "Krummi cumple 28 de 29 umbrales. Informe: x.md"
+            "Krummi cumple 31 de 32 umbrales. Informe: x.md"
         );
 
         let reduced = only_krummi_voron(Scale::Reduced, |_| 0.1);
@@ -583,7 +593,7 @@ Ejecución reducida, sin umbrales.
         let one = run(Scale::Full, |l| if l == Load::W6 { 0.7996 } else { 0.8 });
         let text = one.render();
         assert!(text.contains(
-            "\n## Resultado\n\nKrummi cumple 28 de 29 umbrales. Incumple: `escrituras-concurrentes-16`.\n"
+            "\n## Resultado\n\nKrummi cumple 31 de 32 umbrales. Incumple: `escrituras-concurrentes-16`.\n"
         ));
         assert!(
             row(&text, Load::W6).ends_with("| 0,79 | incumple |"),
@@ -598,7 +608,7 @@ Ejecución reducida, sin umbrales.
         assert_eq!(one.exit_code(), 1);
         assert_eq!(
             one.summary_line("x.md"),
-            "Krummi cumple 28 de 29 umbrales. Informe: x.md"
+            "Krummi cumple 31 de 32 umbrales. Informe: x.md"
         );
 
         let several = run(Scale::Full, |l| match l {
@@ -606,7 +616,7 @@ Ejecución reducida, sin umbrales.
             _ => 1.0,
         });
         assert!(several.render().contains(
-            "Krummi cumple 26 de 29 umbrales. Incumple: `carga-en-orden`, `escritor-con-lectores`, `tamano-fijo-lectura`.\n"
+            "Krummi cumple 29 de 32 umbrales. Incumple: `carga-en-orden`, `escritor-con-lectores`, `tamano-fijo-lectura`.\n"
         ));
         assert_eq!(several.missed(), [Load::W1, Load::W13, Load::W22]);
 
@@ -614,13 +624,25 @@ Ejecución reducida, sin umbrales.
         let table = run(Scale::Full, |l| if l == Load::W28 { 0.79 } else { 1.0 });
         let text = table.render();
         assert!(text.contains(
-            "\n## Resultado\n\nKrummi cumple 28 de 29 umbrales. Incumple: `tabla-actualizacion`.\n"
+            "\n## Resultado\n\nKrummi cumple 31 de 32 umbrales. Incumple: `tabla-actualizacion`.\n"
         ));
         assert_eq!(
             row(&text, Load::W28),
             "| tabla-actualizacion | 22.120 | 28.000 | no aplica | no aplica | no aplica | no aplica | 0,79 | incumple |"
         );
         assert_eq!(table.exit_code(), 1);
+
+        // So does an index load's (IX15).
+        let index = run(Scale::Full, |l| if l == Load::W31 { 0.79 } else { 1.0 });
+        assert!(index.render().contains(
+            "
+## Resultado
+
+Krummi cumple 31 de 32 umbrales. Incumple: `tabla-busqueda-por-indice`.
+"
+        ));
+        assert_eq!(index.missed(), [Load::W31]);
+        assert_eq!(index.exit_code(), 1);
     }
 
     // AC-K2 and AC-K3: a Voron metric of 0 (W12 with no Voron read finished) shows `∞` when Krummi's is positive
@@ -642,11 +664,11 @@ Ejecución reducida, sin umbrales.
             r.metrics.insert((Load::W12, Engine::Krummi), krummi);
             let text = r.render();
             assert_eq!(row(&text, Load::W12), expected_row);
-            assert!(text.contains("\n## Resultado\n\nKrummi cumple 29 de 29 umbrales.\n"));
+            assert!(text.contains("\n## Resultado\n\nKrummi cumple 32 de 32 umbrales.\n"));
             assert_eq!(r.exit_code(), 0);
             assert_eq!(
                 r.summary_line("x.md"),
-                "Krummi cumple 29 de 29 umbrales. Informe: x.md"
+                "Krummi cumple 32 de 32 umbrales. Informe: x.md"
             );
         }
     }
@@ -693,7 +715,7 @@ Ejecución reducida, sin umbrales.
         assert!(text.starts_with(HEADER), "{text}");
         assert_eq!(
             r.summary_line("x.md"),
-            "Krummi cumple 28 de 29 umbrales. Informe: x.md"
+            "Krummi cumple 31 de 32 umbrales. Informe: x.md"
         );
     }
 

@@ -1,6 +1,6 @@
 //! The Rust worker (task T2): runs one load of one Rust engine and prints the protocol lines of
 //! [`crate::protocol`]. The loads follow design D10 of the execution document; they are generic over
-//! [`engines::Store`], so the five engines run the same code. The table loads W23–W29, which of the Rust engines only
+//! [`engines::Store`], so the five engines run the same code. The table loads W23–W32, which of the Rust engines only
 //! Krummi runs (E21), are in [`tables`].
 //!
 //! Every load generates its data, its random orders, its expected sums and its digest before the first repetition,
@@ -659,9 +659,16 @@ fn run<E: Store>(cx: &Context) -> Result<()> {
         }
         Load::W12 => readers_with_writer::<E>(cx),
         Load::W13 => unreachable!("W13 runs in W12's process"),
-        Load::W23 | Load::W24 | Load::W25 | Load::W26 | Load::W27 | Load::W28 | Load::W29 => {
-            unreachable!("the table loads run in tables::run")
-        }
+        Load::W23
+        | Load::W24
+        | Load::W25
+        | Load::W26
+        | Load::W27
+        | Load::W28
+        | Load::W29
+        | Load::W30
+        | Load::W31
+        | Load::W32 => unreachable!("the table loads run in tables::run"),
         Load::W14 => {
             let removed = keys(0..n);
             feed_keys(&mut digest, &removed);

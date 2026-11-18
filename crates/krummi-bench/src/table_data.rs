@@ -1,4 +1,5 @@
-//! The data of the table loads W23–W29 (E21 and *Cargas del banco* of tables-schema.prd.md, K4 of the benchmark PRD).
+//! The data of the table loads W23–W32 (E21 and *Cargas del banco* of tables-schema.prd.md; IX15 and *Cargas del
+//! banco* of tables-indexes.prd.md; K4 of the benchmark PRD).
 //! The .NET program for Voron implements the same functions (`voron/Data.cs`, class `TableData`); the orchestrator
 //! compares each load's digest with Krummi's, and both sides pin the same known answers (`tests/table_data.rs`, the
 //! Voron `selftest`).
@@ -24,9 +25,14 @@
 //! and W29 deletes them in `order(load, N)`, and W27 starts its ranges at the rows of the first entries of
 //! `order(W27, N)`.
 //!
-//! **Checksum** of a row read (W26, W27), the same in both engines: the wrapping sum of the bytes of `id`, `n` as
-//! `u64`, the bits of `x`, `ts` as `u64`, `flag` as 0 or 1 and the bytes of `name`. It is a sum, so the order of the
-//! rows does not change it.
+//! W30 inserts W23's rows into a table with two indexes, `ix_n` on `n` and `ix_ts` on `ts`; W31 and W32 work on its
+//! rows: W31 looks up the `n` of every row in `order(W31, N)`, and W32 starts its ranges of `ix_ts` at the `ts` of the
+//! rows of the first entries of `order(W32, N)`. The order of `ix_ts` is that of `ts`, rows with the same `ts` in the
+//! order of their key, which is row order for the `ulid` keys ([`ts_order`]).
+//!
+//! **Checksum** of a row read (W26, W27, W31, W32), the same in both engines: the wrapping sum of the bytes of `id`,
+//! `n` as `u64`, the bits of `x`, `ts` as `u64`, `flag` as 0 or 1 and the bytes of `name`. It is a sum, so the order
+//! of the rows does not change it.
 
 use crate::data::{Digest, byte_sum, permutation, seed_of, splitmix};
 
@@ -38,6 +44,9 @@ pub const W26: u64 = 26;
 pub const W27: u64 = 27;
 pub const W28: u64 = 28;
 pub const W29: u64 = 29;
+pub const W30: u64 = 30;
+pub const W31: u64 = 31;
+pub const W32: u64 = 32;
 
 /// Bytes of `id`.
 pub const ID_LEN: usize = 16;
@@ -86,9 +95,9 @@ impl Row {
         }
         Row {
             id: key(r, kind),
-            n: word(r, 0) as i64,
+            n: n(r),
             x: (word(r, 1) >> 11) as f64 * (1.0 / (1u64 << 53) as f64),
-            ts: TS_MIN + hi(word(r, 2), (TS_MAX - TS_MIN) as u64) as i64,
+            ts: ts(r),
             flag: word(r, 3) & 1 == 1,
             name,
         }
@@ -126,6 +135,16 @@ pub fn checksum(id: &[u8], n: i64, x: f64, ts: i64, flag: bool, name: &[u8]) -> 
         .wrapping_add(byte_sum(name))
 }
 
+/// The `n` of row `r`.
+pub fn n(r: u64) -> i64 {
+    word(r, 0) as i64
+}
+
+/// The `ts` of row `r`, in microseconds.
+pub fn ts(r: u64) -> i64 {
+    TS_MIN + hi(word(r, 2), (TS_MAX - TS_MIN) as u64) as i64
+}
+
 /// The key of row `r`.
 pub fn key(r: u64, kind: KeyKind) -> [u8; ID_LEN] {
     let mut id = [0u8; ID_LEN];
@@ -155,7 +174,7 @@ pub fn rows(n: u64, kind: KeyKind) -> Vec<Row> {
     (0..n).map(|r| Row::new(r, kind)).collect()
 }
 
-/// The rows `0..n` of W23's table in the random order of `load` (W26, W27, W28 or W29): `permutation(n,
+/// The rows `0..n` of W23's table in the random order of `load` (W26–W29, W31 or W32): `permutation(n,
 /// seed_of(load, 0))`.
 pub fn order(load: u64, n: u64) -> Vec<u32> {
     permutation(n, seed_of(load, 0))
@@ -193,15 +212,54 @@ pub fn expected_ranges(n: u64, ranges: u64, range_len: u64) -> (u64, u64) {
     (count, sum)
 }
 
+/// The rows `0..n` of W30's table in the order of its index `ix_ts`: by `ts`, rows with the same `ts` in the order of
+/// their `ulid` key, which is row order.
+pub fn ts_order(n: u64) -> Vec<u32> {
+    let mut rows: Vec<(i64, u32)> = (0..n as u32).map(|r| (ts(u64::from(r)), r)).collect();
+    rows.sort_unstable();
+    rows.into_iter().map(|(_, r)| r).collect()
+}
+
+/// The rows whose `ts` starts W32's `ranges` ranges: the first `ranges` of `order(W32, n)`.
+pub fn index_range_starts(n: u64, ranges: u64) -> Vec<u32> {
+    let mut starts = order(W32, n);
+    starts.truncate(ranges as usize);
+    starts
+}
+
+/// The rows W32 reads and their checksum: from the first entry of `ix_ts` with each start's `ts`, up to `range_len`
+/// rows forward in the order of [`ts_order`], fewer at the end of the index.
+pub fn expected_index_ranges(n: u64, ranges: u64, range_len: u64) -> (u64, u64) {
+    let sorted = ts_order(n);
+    let sorted_ts: Vec<i64> = sorted.iter().map(|&r| ts(u64::from(r))).collect();
+    let mut prefix = Vec::with_capacity(sorted.len() + 1);
+    prefix.push(0u64);
+    for &r in &sorted {
+        let last = *prefix.last().expect("starts with 0");
+        prefix.push(last.wrapping_add(Row::new(u64::from(r), KeyKind::Ulid).checksum()));
+    }
+    let (mut count, mut sum) = (0, 0u64);
+    for s in index_range_starts(n, ranges) {
+        let start = ts(u64::from(s));
+        let from = sorted_ts.partition_point(|&t| t < start);
+        let to = (from + range_len as usize).min(sorted.len());
+        count += (to - from) as u64;
+        sum = sum.wrapping_add(prefix[to].wrapping_sub(prefix[from]));
+    }
+    (count, sum)
+}
+
 /// The digest of the data `load` receives with `n` rows (AC-K7), fed in the order the load issues it: the rows of
-/// W23, W24 and W25 (`Row::feed`); the keys W26 reads, then its expected checksum; the start keys of W27's `ranges`
-/// ranges of `range_len`, then its expected row count and checksum; each key W28 updates followed by its new `n`
-/// (8 little-endian bytes); and the keys W29 deletes. `ranges` and `range_len` are used only by W27.
+/// W23, W24, W25 and W30 (`Row::feed`); the keys W26 reads, then its expected checksum; the start keys of W27's
+/// `ranges` ranges of `range_len`, then its expected row count and checksum; each key W28 updates followed by its new
+/// `n` (8 little-endian bytes); the keys W29 deletes; the values of `n` W31 looks up (8 little-endian bytes each), then
+/// its expected checksum; and the start values of `ts` of W32's ranges (8 little-endian bytes each, in microseconds),
+/// then its expected row count and checksum. `ranges` and `range_len` are used only by W27 and W32.
 pub fn digest(load: u64, n: u64, ranges: u64, range_len: u64) -> Digest {
     let mut d = Digest::default();
     let ulid = |r: u32| key(u64::from(r), KeyKind::Ulid);
     match load {
-        W23 | W25 => (0..n).for_each(|r| Row::new(r, KeyKind::Ulid).feed(&mut d)),
+        W23 | W25 | W30 => (0..n).for_each(|r| Row::new(r, KeyKind::Ulid).feed(&mut d)),
         W24 => (0..n).for_each(|r| Row::new(r, KeyKind::Uuid).feed(&mut d)),
         W26 => {
             order(W26, n).into_iter().for_each(|r| d.feed(&ulid(r)));
@@ -222,6 +280,20 @@ pub fn digest(load: u64, n: u64, ranges: u64, range_len: u64) -> Digest {
             }
         }
         W29 => order(W29, n).into_iter().for_each(|r| d.feed(&ulid(r))),
+        W31 => {
+            order(W31, n)
+                .into_iter()
+                .for_each(|r| d.feed_u64(self::n(u64::from(r)) as u64));
+            d.feed_u64(expected_read_sum(n));
+        }
+        W32 => {
+            index_range_starts(n, ranges)
+                .into_iter()
+                .for_each(|r| d.feed_u64(ts(u64::from(r)) as u64));
+            let (count, sum) = expected_index_ranges(n, ranges, range_len);
+            d.feed_u64(count);
+            d.feed_u64(sum);
+        }
         _ => panic!("load {load} is not a table load"),
     }
     d

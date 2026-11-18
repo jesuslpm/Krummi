@@ -40,7 +40,7 @@ pub struct Writer<'t> {
 }
 
 impl Store {
-    /// The Krummi store itself, for the table loads W23–W29, which only Krummi and Voron run (E21) and so do not go
+    /// The Krummi store itself, for the table loads W23–W32, which only Krummi and Voron run (E21) and so do not go
     /// through [`super::Store`].
     pub fn inner(&self) -> &krummi::Store {
         &self.store

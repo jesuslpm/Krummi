@@ -168,7 +168,7 @@ sealed class Digest
     public string Hex => _h.ToString("x16");
 }
 
-/// The data of the table loads W23-W29: a port of crates/krummi-bench/src/table_data.rs, whose module comment gives
+/// The data of the table loads W23-W32: a port of crates/krummi-bench/src/table_data.rs, whose module comment gives
 /// every column, key and order. Row r takes its values from Word(r, j) = Splitmix((r * 0x10000 + j) ^ Salt).
 static class TableData
 {
@@ -242,6 +242,20 @@ static class TableData
         return Checksum(id, N(r), XBits(r), Ts(r), Flag(r), name);
     }
 
-    /// The rows 0..n of W23's table in the random order of `load` (W26-W29).
+    /// The rows 0..n of W23's table in the random order of `load` (W26-W29, W31 or W32).
     public static uint[] Order(int load, ulong n) => Data.Permutation(n, Data.Seed(load, 0));
+
+    /// The rows 0..n of W30's table in the order of its index ix_ts: by ts, rows with the same ts in the order of their
+    /// ulid key, which is row order.
+    public static uint[] TsOrder(ulong n)
+    {
+        var rows = new (long Ts, uint Row)[n];
+        for (uint r = 0; r < n; r++)
+            rows[r] = (Ts(r), r);
+        Array.Sort(rows);
+        var order = new uint[n];
+        for (int i = 0; i < rows.Length; i++)
+            order[i] = rows[i].Row;
+        return order;
+    }
 }

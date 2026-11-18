@@ -3,7 +3,7 @@
 //!
 //! Checks: exit code `0`; the operations of every repetition are those of the *Reducida* column (AC-K5); every engine
 //! receives the same data as Krummi, load by load (AC-K7); canopydb and fjall are never asked to run W19–W22 and
-//! refuse them (K6), and only Krummi runs the table loads W23–W29 (E21), with the data and the checksums of
+//! refuse them (K6), and only Krummi runs the table loads W23–W32 (E21, IX15), with the data and the checksums of
 //! `table_data`; and every simulated failure ends the worker with its code (AC-K10).
 
 use std::collections::BTreeMap;
@@ -189,10 +189,15 @@ fn check_engine(engine: Engine) {
                 reps[0].operations, reference.repetitions[&load][0].operations,
                 "{engine:?} {load:?}"
             ),
-            // W27 reads the rows its ranges reach, fewer at the end of the table.
+            // W27 reads the rows its ranges reach, fewer at the end of the table; W32 likewise in its index.
             None if load == Load::W27 => {
                 let p = workload::params(load, Scale::Reduced);
                 let (rows, _) = table_data::expected_ranges(p.entries, p.ranges, p.range_len);
+                assert_eq!(reps[0].operations, rows, "{engine:?} {load:?}");
+            }
+            None if load == Load::W32 => {
+                let p = workload::params(load, Scale::Reduced);
+                let (rows, _) = table_data::expected_index_ranges(p.entries, p.ranges, p.range_len);
                 assert_eq!(reps[0].operations, rows, "{engine:?} {load:?}");
             }
             None => {}
@@ -208,7 +213,7 @@ fn krummi_runs_every_load() {
     assert_eq!(digests[&Load::W1], 0x815d_0f5b_abf1_acd0);
     assert_eq!(digests[&Load::W22], 0xec13_19b2_5c52_8055);
     // AC16: the table loads receive the data of `table_data`, whose reduced digests the Voron program's selftest
-    // prints too; the digests of W26 and W27 carry the checksums both engines check.
+    // prints too; the digests of W26, W27, W31 and W32 carry the checksums both engines check.
     for load in &Load::ALL[22..] {
         let p = workload::params(*load, Scale::Reduced);
         let expected = table_data::digest(load.number(), p.entries, p.ranges, p.range_len);
