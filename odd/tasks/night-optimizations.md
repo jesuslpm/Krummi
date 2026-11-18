@@ -142,3 +142,16 @@ PRD draft for the user, not an implementation).
   its buffers. **T2 is reverted** (`131a172`, `crates/` equal to `d96b9c2`): even c1 leaves W3 1.5–1.9 % slower in
   every round, beyond the worst placebo on W3 (0.989), and S5 keeps a change only when no load gets worse. Restoring
   it is `git revert 131a172` plus c1's diff; the user decides whether W21/W19's +4–6 % is worth W3's −1.5–1.9 %.
+- **L10** (2026-11-18) — Checks on `67d92b8` (`crates/` equal to `d96b9c2`): fmt and clippy clean, `cargo test
+  --workspace` 869 passed, 0 failed. RDD of the slice `2e45b31..67d92b8` (assess: medium, `under_budget`; reviewed as
+  the last slice): lenses resilience and reliability, lineage `review-e8701dfc804cabfe`, **approved**, acknowledged
+  (authority burned). One advisory finding, SUGGESTION, R3-room-boundary-untested (`journal.rs:388-394`): no test of
+  `room` at `ENCODE_RETAIN`'s boundary, a defect only if the constant were not a power of two. Not changed:
+  `ENCODE_RETAIN` is `32 << 20` (`journal.rs:295`), a power of two, so `room` never rounds a kept buffer past it.
+- **L11** (2026-11-18) — S6 complete runs (Krummi and Voron, `--solo-krummi-voron`, power plan on; script
+  `work/night/full.sh`) on `67d92b8` (the report says "con cambios sin confirmar": only L10 of this document was
+  uncommitted; the WSL build came from `git archive HEAD`). Windows 03:11:40–03:33:01: **Krummi cumple 29 de 29
+  umbrales**. WSL 2 03:33:51–04:19:29 (UTC from the run's `date`): **Krummi cumple 29 de 29 umbrales**. Reports in
+  `work/night/full/` (ignored by git, not kept). Against the earlier complete Windows run (`work/owc/full/windows.md`, on
+  `d48f747`), single runs of three repetitions moved Krummi between 0.71 (lecturas-con-escritor) and 1.22
+  (valores-grandes-carga); they are not an A/B and decide nothing (S5's A/Bs are L7–L9).
