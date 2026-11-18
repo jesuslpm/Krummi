@@ -163,3 +163,7 @@ PRD draft for the user, not an implementation).
   The draft's five product questions stay for the user.
 - **L13** (2026-11-18) — Codex follow-up R2 ([report](../../docs/reviews/night-optimizations/2026-11-18-code-02.md)):
   `approved`, R1 and R2 verified resolved, no findings open. T5 done.
+
+## Closing
+
+[Closing report](night-optimizations-report.md).
