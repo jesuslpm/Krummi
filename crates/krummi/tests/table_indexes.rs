@@ -1,0 +1,2083 @@
+//! Secondary indexes through the public API (secondary indexes PRD 7.2, T2 of its execution): their definitions in
+//! the catalog, creating them over the rows a table has and dropping them (AC-IX1, AC-IX7 in memory), their rules and
+//! errors (AC-IX9), the schema changes and the table operations that keep or drop them (AC-IX10), Describe with their
+//! identities and the index state (AC-IX11), what is a change (AC-IX12), damage (the parts of AC-IX13 that create,
+//! drop and Describe) and the format (AC-IX15). The entries of an index are read through a test hook, since the scans
+//! of an index come later (T4).
+//!
+//! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the store's
+//! files, which run on disk only.
+
+mod support;
+
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::path::Path;
+
+use krummi::ids::{Ulid, Uuid};
+use krummi::table::key::key_len;
+use krummi::table::testing::{IndexEntry, with_identity_source};
+use krummi::table::value::{
+    ColumnType, DATE_MAX, DATE_MIN, DURATION_MAX, Decimal, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN,
+    UuidOrder, Value, VectorElement, VectorType,
+};
+use krummi::{
+    Column, Direction, Error, ErrorKind, IndexDefinition, IndexKey, IndexMode, Nulls, Schema,
+    SchemaDifference, SchemaIndex, SchemaRule, SizeSubject, Store, TableMode, TableSchema,
+    WriteTable, WriteTransaction,
+};
+use support::*;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Helpers
+
+fn key(column: &str) -> IndexKey {
+    IndexKey::new(column)
+}
+
+fn index(name: &str, key: &[IndexKey]) -> IndexDefinition {
+    IndexDefinition::new(name, key.to_vec())
+}
+
+/// `id i64 not null, n i32, m i32, s string, a i64, b bool, ve vector(f32, 2)`, primary key `id`.
+fn people() -> Schema {
+    Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I32),
+            Column::new("m", ColumnType::I32),
+            Column::new("s", ColumnType::String),
+            Column::new("a", ColumnType::I64),
+            Column::new("b", ColumnType::Bool),
+            Column::new("ve", vector(2)),
+        ],
+        &["id"],
+    )
+}
+
+fn vector(dimension: u16) -> ColumnType {
+    ColumnType::Vector(VectorType {
+        element: VectorElement::F32,
+        dimension,
+        cosine: false,
+    })
+}
+
+fn text(value: &str) -> Value<'static> {
+    Value::String(Cow::Owned(value.to_owned()))
+}
+
+/// The row `id` of [`people`] with `n` and `s`.
+fn person(id: i64, n: Option<i32>, s: &str) -> Vec<(&'static str, Value<'static>)> {
+    vec![
+        ("id", Value::I64(id)),
+        ("n", n.map_or(Value::Null, Value::I32)),
+        ("s", text(s)),
+    ]
+}
+
+fn create_table<'s>(
+    write: &mut WriteTransaction<'s>,
+    name: &str,
+    schema: &Schema,
+) -> WriteTable<'s> {
+    write
+        .open_table_with(name, TableMode::CreateNew(schema))
+        .unwrap()
+}
+
+/// Commits the table `t` of [`people`] with the rows `rows`, and returns its schema.
+fn commit_people(store: &Store, rows: &[Vec<(&'static str, Value<'static>)>]) -> TableSchema {
+    let mut write = store.write().unwrap();
+    let table = create_table(&mut write, "t", &people());
+    for row in rows {
+        write.insert_row(&table, row).unwrap();
+    }
+    write.commit().unwrap();
+    store.read().unwrap().describe_table("t").unwrap()
+}
+
+/// The entries of the index `name` of `table`, through the test hook.
+fn entries(write: &WriteTransaction<'_>, table: &WriteTable<'_>, name: &str) -> Vec<IndexEntry> {
+    write
+        .index_entries(table, name)
+        .unwrap()
+        .expect("the index exists")
+}
+
+/// The entries of the index `name` of the table `t` that a new read sees.
+fn read_entries(store: &Store, name: &str) -> Vec<IndexEntry> {
+    let read = store.read().unwrap();
+    read.index_entries(&read.open_table("t").unwrap(), name)
+        .unwrap()
+        .expect("the index exists")
+}
+
+/// The names of the indexes of `schema`, in its order.
+fn index_names(schema: &TableSchema) -> Vec<&str> {
+    schema.indexes().iter().map(|ix| ix.name.as_str()).collect()
+}
+
+/// The table, index, column and rule of an invalid-schema error, after checking its folder.
+#[track_caller]
+fn invalid_schema(
+    error: Error,
+    folder: Option<&Path>,
+) -> (String, Option<String>, Option<String>, SchemaRule) {
+    match error {
+        Error::InvalidSchema {
+            folder: f,
+            table,
+            column,
+            rule,
+            index,
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (table, index.map(String::from), column, rule)
+        }
+        other => panic!("expected an invalid schema, got {other}"),
+    }
+}
+
+/// The table, index, difference, expected and found text of a different-schema error of an index, after checking
+/// its class and its folder.
+#[track_caller]
+fn different_schema(
+    error: Error,
+    folder: Option<&Path>,
+) -> (String, Option<String>, SchemaDifference, String, String) {
+    assert_eq!(error.kind(), ErrorKind::DifferentSchema);
+    match error {
+        Error::DifferentIndex {
+            folder: f,
+            table,
+            index,
+            difference,
+            expected,
+            found,
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (
+                table,
+                Some(index),
+                difference,
+                expected.into(),
+                found.into(),
+            )
+        }
+        other => panic!("expected a different index, got {other}"),
+    }
+}
+
+/// The table, primary key, index and index key of a duplicate-key error, after checking its folder.
+#[track_caller]
+fn duplicate(
+    error: Error,
+    folder: Option<&Path>,
+) -> (String, String, Option<String>, Option<String>) {
+    match error {
+        Error::DuplicateKey {
+            folder: f,
+            table,
+            key,
+            index,
+            index_key,
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (
+                table,
+                key,
+                index.map(String::from),
+                index_key.map(String::from),
+            )
+        }
+        other => panic!("expected a duplicate key, got {other}"),
+    }
+}
+
+/// The table, index and received size of an invalid size of an index entry, after checking its folder and limits.
+#[track_caller]
+fn entry_too_large(error: Error, folder: Option<&Path>) -> (String, String, u64) {
+    match error {
+        Error::InvalidSize {
+            folder: f,
+            what: SizeSubject::IndexEntry,
+            received,
+            min: 1,
+            max: 2048,
+            table: Some(table),
+            index: Some(index),
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (table.into(), index.into(), received)
+        }
+        other => panic!("expected an index entry too large, got {other}"),
+    }
+}
+
+/// The table and index of a tree-already-exists error for an index, after checking its folder.
+#[track_caller]
+fn index_exists(error: Error, folder: Option<&Path>) -> (String, String) {
+    match error {
+        Error::TreeAlreadyExists {
+            folder: f,
+            name,
+            index: Some(index),
+        } => {
+            assert_eq!(f, folder_of(folder));
+            (name, index.into())
+        }
+        other => panic!("expected an index that exists, got {other}"),
+    }
+}
+
+fn some(text: &str) -> Option<String> {
+    Some(text.to_owned())
+}
+
+/// Two values that are the same: floats by their bits, so that NaN is itself.
+fn same(a: &Value<'_>, b: &Value<'_>) -> bool {
+    match (a, b) {
+        (Value::F32(a), Value::F32(b)) => a.to_bits() == b.to_bits(),
+        (Value::F64(a), Value::F64(b)) => a.to_bits() == b.to_bits(),
+        (a, b) => a == b,
+    }
+}
+
+fn same_all(a: &[Value<'_>], b: &[Value<'_>]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
+}
+
+/// SQL Server's order of a `uniqueidentifier` given in RFC 9562 bytes, as `SqlGuid` compares: the bytes of
+/// `Guid.ToByteArray()` (the first three fields little-endian) in the order 10-15, 8-9, 6-7, 4-5, 0-3.
+fn sql_server_cmp(a: &[u8; 16], b: &[u8; 16]) -> Ordering {
+    let dotnet = |r: &[u8; 16]| -> [u8; 16] {
+        let mut d = *r;
+        d[..4].reverse();
+        d[4..6].reverse();
+        d[6..8].reverse();
+        d
+    };
+    let (a, b) = (dotnet(a), dotnet(b));
+    const ORDER: [usize; 16] = [10, 11, 12, 13, 14, 15, 8, 9, 6, 7, 4, 5, 0, 1, 2, 3];
+    ORDER
+        .iter()
+        .map(|&i| a[i].cmp(&b[i]))
+        .find(|o| o.is_ne())
+        .unwrap_or(Ordering::Equal)
+}
+
+/// N5 on two normalized values of a column of type `ty`, neither null, by their type and never by their encoding.
+fn model_cmp(ty: &ColumnType, a: &Value<'_>, b: &Value<'_>) -> Ordering {
+    fn float(a: f64, b: f64) -> Ordering {
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => a.partial_cmp(&b).unwrap(),
+        }
+    }
+    match (a, b) {
+        (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+        (Value::I8(a), Value::I8(b)) => a.cmp(b),
+        (Value::I16(a), Value::I16(b)) => a.cmp(b),
+        (Value::I32(a), Value::I32(b)) => a.cmp(b),
+        (Value::I64(a), Value::I64(b)) => a.cmp(b),
+        (Value::U8(a), Value::U8(b)) => a.cmp(b),
+        (Value::U16(a), Value::U16(b)) => a.cmp(b),
+        (Value::U32(a), Value::U32(b)) => a.cmp(b),
+        (Value::U64(a), Value::U64(b)) => a.cmp(b),
+        (Value::F32(a), Value::F32(b)) => float(f64::from(*a), f64::from(*b)),
+        (Value::F64(a), Value::F64(b)) => float(*a, *b),
+        (Value::Decimal(a), Value::Decimal(b)) => a.mantissa.cmp(&b.mantissa),
+        (Value::String(a), Value::String(b)) => a.as_bytes().cmp(b.as_bytes()),
+        (Value::Bytes(a), Value::Bytes(b)) => a.cmp(b),
+        (Value::Date(a), Value::Date(b)) => a.cmp(b),
+        (Value::Time(a), Value::Time(b)) => a.cmp(b),
+        (Value::Timestamp(a), Value::Timestamp(b)) => a.cmp(b),
+        (Value::Duration(a), Value::Duration(b)) => a.cmp(b),
+        (Value::Ulid(a), Value::Ulid(b)) => a.0.cmp(&b.0),
+        (Value::Uuid(a), Value::Uuid(b)) => match ty {
+            ColumnType::Uuid(UuidOrder::SqlServer) => sql_server_cmp(&a.0, &b.0),
+            _ => a.0.cmp(&b.0),
+        },
+        _ => panic!("values of different types: {a:?} and {b:?}"),
+    }
+}
+
+/// The order of N5 of an index column (IX1, IX8): nulls first or last in the forward order whatever the direction,
+/// and the other values in their type's order or in its reverse.
+fn column_cmp(
+    ty: &ColumnType,
+    direction: Direction,
+    nulls: Nulls,
+    a: &Value<'_>,
+    b: &Value<'_>,
+) -> Ordering {
+    let null_first = match nulls {
+        Nulls::First => Ordering::Less,
+        Nulls::Last => Ordering::Greater,
+    };
+    match (a, b) {
+        (Value::Null, Value::Null) => Ordering::Equal,
+        (Value::Null, _) => null_first,
+        (_, Value::Null) => null_first.reverse(),
+        (a, b) => match direction {
+            Direction::Ascending => model_cmp(ty, a, b),
+            Direction::Descending => model_cmp(ty, a, b).reverse(),
+        },
+    }
+}
+
+/// The entries that `index` of a table with `schema` must have for `rows` (each a map of its columns' values), in the
+/// order of N5: its key columns' values, the primary key `id` and its included columns' values; equal keys in the
+/// order of the primary key (IX8).
+#[allow(clippy::type_complexity)]
+fn model_entries(
+    schema: &TableSchema,
+    index: &SchemaIndex,
+    rows: &[Vec<(String, Value<'static>)>],
+) -> Vec<(
+    Vec<Value<'static>>,
+    Vec<Value<'static>>,
+    Vec<Value<'static>>,
+)> {
+    let get = |row: &[(String, Value<'static>)], name: &str| {
+        row.iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.clone())
+            .unwrap()
+    };
+    let mut model: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            (
+                index.key.iter().map(|k| get(row, &k.name)).collect(),
+                vec![get(row, "id")],
+                index.included.iter().map(|c| get(row, &c.name)).collect(),
+            )
+        })
+        .collect();
+    model.sort_by(
+        |(a, pa, _): &(
+            Vec<Value<'static>>,
+            Vec<Value<'static>>,
+            Vec<Value<'static>>,
+        ),
+         (b, pb, _)| {
+            index
+                .key
+                .iter()
+                .zip(a.iter().zip(b))
+                .map(|(k, (a, b))| {
+                    let ty = schema.column(&k.name).unwrap().ty;
+                    column_cmp(&ty, k.direction, k.nulls, a, b)
+                })
+                .find(|o| o.is_ne())
+                .unwrap_or_else(|| model_cmp(&ColumnType::I64, &pa[0], &pb[0]))
+        },
+    );
+    model
+}
+
+/// Asserts that `entries` are those of [`model_entries`], in its order.
+#[track_caller]
+fn assert_entries(
+    entries: &[IndexEntry],
+    schema: &TableSchema,
+    index: &SchemaIndex,
+    rows: &[Vec<(String, Value<'static>)>],
+) {
+    let model = model_entries(schema, index, rows);
+    assert_eq!(
+        entries.len(),
+        model.len(),
+        "{}: one entry per row",
+        index.name
+    );
+    for (at, (entry, (key, primary, included))) in entries.iter().zip(&model).enumerate() {
+        assert!(
+            same_all(&entry.key, key)
+                && same_all(&entry.primary_key, primary)
+                && same_all(&entry.included, included),
+            "{}: entry {at} is {entry:?}, expected {key:?} {primary:?} {included:?}",
+            index.name
+        );
+    }
+    assert!(
+        entries.windows(2).all(|w| w[0].bytes < w[1].bytes),
+        "{}: keys in byte order",
+        index.name
+    );
+}
+
+/// Every row of the table `t`, each as its columns' names and owned values, as the write sees them.
+fn rows_of(
+    write: &WriteTransaction<'_>,
+    table: &WriteTable<'_>,
+) -> Vec<Vec<(String, Value<'static>)>> {
+    write
+        .range_rows(table, &[], ..)
+        .unwrap()
+        .map(|row| {
+            let row = row.unwrap();
+            row.columns()
+                .map(|(name, value)| (name.to_owned(), value.into_owned()))
+                .collect()
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX1: creating indexes over the rows of a table
+
+/// The sortable columns of [`all_types`] besides the primary key and `big`, with their types.
+fn sortable() -> Vec<(&'static str, ColumnType)> {
+    vec![
+        ("bo", ColumnType::Bool),
+        ("i8", ColumnType::I8),
+        ("i16", ColumnType::I16),
+        ("i32", ColumnType::I32),
+        ("i64", ColumnType::I64),
+        ("u8", ColumnType::U8),
+        ("u16", ColumnType::U16),
+        ("u32", ColumnType::U32),
+        ("u64", ColumnType::U64),
+        ("f32", ColumnType::F32),
+        ("f64", ColumnType::F64),
+        (
+            "de",
+            ColumnType::Decimal {
+                precision: 10,
+                scale: 2,
+            },
+        ),
+        ("s", ColumnType::String),
+        ("by", ColumnType::Bytes),
+        ("da", ColumnType::Date),
+        ("ti", ColumnType::Time),
+        ("ts", ColumnType::Timestamp),
+        ("du", ColumnType::Duration),
+        ("u1", ColumnType::Uuid(UuidOrder::Rfc9562)),
+        ("u2", ColumnType::Uuid(UuidOrder::SqlServer)),
+        ("ul", ColumnType::Ulid),
+    ]
+}
+
+/// `id i64 not null`, a column of each sortable type of N4 (all allowing nulls), a vector `ve` and a text `big`;
+/// primary key `id`.
+fn all_types() -> Schema {
+    let mut columns = vec![Column::new("id", ColumnType::I64).not_null()];
+    columns.extend(
+        sortable()
+            .into_iter()
+            .map(|(name, ty)| Column::new(name, ty)),
+    );
+    columns.push(Column::new("ve", vector(2)));
+    columns.push(Column::new("big", ColumnType::String));
+    Schema::new(columns, &["id"])
+}
+
+/// The values a row of [`all_types`] may have in the column `name`: nulls, repeated values and the extremes of each
+/// domain of E8, `-0` and NaNs of other bits than the stored one.
+fn pool(name: &str) -> Vec<Value<'static>> {
+    const NANOS: i128 = 1000;
+    let dec = |mantissa| Value::Decimal(Decimal { mantissa, scale: 2 });
+    let bytes = |b: &[u8]| Value::Bytes(Cow::Owned(b.to_vec()));
+    let mut values = match name {
+        "bo" => vec![Value::Bool(false), Value::Bool(true)],
+        "i8" => [i8::MIN, -1, 0, 1, i8::MAX].map(Value::I8).to_vec(),
+        "i16" => [i16::MIN, -1, 0, 1, i16::MAX].map(Value::I16).to_vec(),
+        "i32" => [i32::MIN, -1, 0, 1, i32::MAX].map(Value::I32).to_vec(),
+        "i64" => [i64::MIN, -1, 0, 1, i64::MAX].map(Value::I64).to_vec(),
+        "u8" => [0, 1, u8::MAX].map(Value::U8).to_vec(),
+        "u16" => [0, 1, u16::MAX].map(Value::U16).to_vec(),
+        "u32" => [0, 1, u32::MAX].map(Value::U32).to_vec(),
+        "u64" => [0, 1, u64::MAX].map(Value::U64).to_vec(),
+        "f32" => [
+            f32::NEG_INFINITY,
+            f32::MIN,
+            -1.5,
+            -0.0,
+            0.0,
+            1e-45,
+            1.5,
+            f32::MAX,
+            f32::INFINITY,
+            f32::from_bits(0x7FC0_0001),
+            f32::from_bits(0xFFC0_0000),
+        ]
+        .map(Value::F32)
+        .to_vec(),
+        "f64" => [
+            f64::NEG_INFINITY,
+            f64::MIN,
+            -1.5,
+            -0.0,
+            0.0,
+            5e-324,
+            1.5,
+            f64::MAX,
+            f64::INFINITY,
+            f64::from_bits(0x7FF0_0000_0000_0001),
+            f64::from_bits(0xFFF8_0000_0000_0000),
+        ]
+        .map(Value::F64)
+        .to_vec(),
+        "de" => vec![
+            dec(-9_999_999_999),
+            dec(-1),
+            dec(0),
+            dec(1),
+            dec(9_999_999_999),
+        ],
+        "s" => ["", "a", "a\0", "a\0b", "ab", "b", "\u{10FFFF}"]
+            .map(text)
+            .to_vec(),
+        "by" => vec![
+            bytes(b""),
+            bytes(&[0]),
+            bytes(&[0, 0]),
+            bytes(&[0, 0xFF]),
+            bytes(&[0x61]),
+            bytes(&[0xFF]),
+        ],
+        "da" => [DATE_MIN, -1, 0, DATE_MAX].map(Value::Date).to_vec(),
+        "ti" => vec![
+            Value::Time(0),
+            Value::Time(1000),
+            Value::Time(i64::try_from(i128::from(TIME_MAX) * NANOS).unwrap()),
+        ],
+        "ts" => [
+            i128::from(TIMESTAMP_MIN) * NANOS,
+            -NANOS,
+            0,
+            i128::from(TIMESTAMP_MAX) * NANOS,
+        ]
+        .map(Value::Timestamp)
+        .to_vec(),
+        "du" => [
+            -i128::from(DURATION_MAX) * NANOS,
+            -NANOS,
+            0,
+            i128::from(DURATION_MAX) * NANOS,
+        ]
+        .map(Value::Duration)
+        .to_vec(),
+        other => panic!("no pool for {other}"),
+    };
+    values.push(Value::Null);
+    values
+}
+
+/// The row `id` of [`all_types`], its values drawn from [`pool`] by `rng`; the identifiers are distinct per row,
+/// with some nulls, and `big` is null.
+fn typed_row(id: i64, rng: &mut Lcg) -> Vec<(&'static str, Value<'static>)> {
+    let mut row = vec![("id", Value::I64(id))];
+    for (name, _) in sortable() {
+        let value = match name {
+            "u1" | "u2" | "ul" if id % 7 == 3 => Value::Null,
+            "u1" | "u2" => Value::Uuid(Uuid(random_16(rng))),
+            "ul" => Value::Ulid(Ulid(random_16(rng))),
+            name => {
+                let pool = pool(name);
+                pool[rng.next() as usize % pool.len()].clone()
+            }
+        };
+        row.push((name, value));
+    }
+    let ve = [id as f32, -1.0]
+        .iter()
+        .flat_map(|x| x.to_le_bytes())
+        .collect();
+    row.push(("ve", Value::Vector(Cow::Owned(ve))));
+    row
+}
+
+fn random_16(rng: &mut Lcg) -> [u8; 16] {
+    let mut bytes = [0; 16];
+    for byte in &mut bytes {
+        *byte = rng.next() as u8;
+    }
+    bytes
+}
+
+/// Every combination of a direction and a null order.
+const ORDERS: [(Direction, Nulls); 4] = [
+    (Direction::Ascending, Nulls::First),
+    (Direction::Descending, Nulls::Last),
+    (Direction::Ascending, Nulls::Last),
+    (Direction::Descending, Nulls::First),
+];
+
+fn ordered(column: &str, (direction, nulls): (Direction, Nulls)) -> IndexKey {
+    IndexKey {
+        column: column.to_owned(),
+        direction,
+        nulls,
+    }
+}
+
+/// The indexes of AC-IX1: one per sortable column in each order by turns, unique on the identifiers; every
+/// combination of orders of two consecutive columns behind a `bytes` column and behind a `string` one; an entry at
+/// the most bytes of a key; included columns, a vector and a primary key column among them; and the columns added
+/// after the rows.
+fn typed_indexes() -> Vec<IndexDefinition> {
+    let mut indexes: Vec<IndexDefinition> = sortable()
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, _))| {
+            let definition = index(&format!("one_{name}"), &[ordered(name, ORDERS[i % 4])]);
+            match name {
+                "u1" | "u2" | "ul" => definition.unique(),
+                _ => definition,
+            }
+        })
+        .collect();
+    for (first, second) in [("by", "s"), ("s", "i32")] {
+        for (i, a) in ORDERS.iter().enumerate() {
+            for (j, b) in ORDERS.iter().enumerate() {
+                indexes.push(index(
+                    &format!("two_{first}_{second}_{i}{j}"),
+                    &[ordered(first, *a), ordered(second, *b)],
+                ));
+            }
+        }
+    }
+    indexes.push(index("big", &[key("big")]));
+    indexes.push(
+        index(
+            "covering",
+            &[key("i32").descending(), key("i64").nulls_last()],
+        )
+        .with_included(&["ve", "by", "id"]),
+    );
+    indexes.push(index("late", &[key("late_d"), key("late_n")]));
+    indexes.push(index("late_unique", &[key("late_n").descending().nulls_last()]).unique());
+    indexes
+}
+
+/// AC-IX1 (IX1, IX2, N5, AC-N7): over a table with rows of every sortable type, with the extremes of their domains,
+/// `-0`, NaNs of several bits, both orders of `uuid`, nulls and repeated values, and with columns added after the
+/// rows with and without a default, unique and non-unique indexes in every combination of direction and null order,
+/// behind `bytes` with a zero byte and `string` with U+0000, with an entry at the most bytes of a key and with
+/// included columns, have each one entry per row, in the order of N5 with equal keys by the primary key, the
+/// values a read of the row gives (the default or null in the added columns) and the included ones; as the write
+/// sees them and, after the commit, as a read does.
+#[test]
+fn ac_ix1_indexes_created_over_rows_have_their_entries_in_n5_order() {
+    stores(|store, _| {
+        let mut rng = Lcg(7);
+        let mut write = store.write().unwrap();
+        let table = create_table(&mut write, "t", &all_types());
+        for id in 0..60 {
+            write.insert_row(&table, &typed_row(id, &mut rng)).unwrap();
+        }
+        // An entry of the most bytes of a key: the text's element and the primary key's take 2,048 bytes.
+        let pk = key_len(&[ColumnType::I64], &[Value::I64(0)]);
+        let big = "x".repeat(2048 - pk - 2);
+        assert_eq!(key_len(&[ColumnType::String], &[text(&big)]) + pk, 2048);
+        write
+            .update_row(&table, &[("id", Value::I64(0)), ("big", text(&big))])
+            .unwrap();
+        write.commit().unwrap();
+
+        // Columns added after the rows, with and without a default; rows after them give them values.
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write
+            .add_column(
+                &table,
+                &Column::new("late_d", ColumnType::I32)
+                    .not_null()
+                    .with_default(Value::I32(5)),
+            )
+            .unwrap();
+        write
+            .add_column(&table, &Column::new("late_n", ColumnType::I64))
+            .unwrap();
+        for id in 60..64 {
+            let mut row = typed_row(id, &mut rng);
+            row.push(("late_d", Value::I32(i32::try_from(id).unwrap() % 2)));
+            row.push(("late_n", Value::I64(-id)));
+            write.insert_row(&table, &row).unwrap();
+        }
+        let definitions = typed_indexes();
+        for definition in &definitions {
+            write
+                .create_index(&table, definition, IndexMode::CreateNew)
+                .unwrap();
+        }
+        let schema = write.table_schema(&table).unwrap();
+        assert_eq!(schema.indexes().len(), definitions.len());
+        let rows = rows_of(&write, &table);
+        assert_eq!(rows.len(), 64);
+        for ix in schema.indexes() {
+            assert_entries(&entries(&write, &table, &ix.name), &schema, ix, &rows);
+        }
+        // The columns added after the rows read their default or null in the entries of the rows before them.
+        let late = entries(&write, &table, "late");
+        let before: Vec<_> = late
+            .iter()
+            .filter(|e| matches!(e.primary_key[0], Value::I64(id) if id < 60))
+            .collect();
+        assert_eq!(before.len(), 60);
+        assert!(
+            before
+                .iter()
+                .all(|e| same_all(&e.key, &[Value::I32(5), Value::Null]))
+        );
+        // The entry at the limit, and the primary key column that `covering` was given among its included columns.
+        let big_entry = entries(&write, &table, "big")
+            .into_iter()
+            .find(|e| e.key != [Value::Null])
+            .unwrap();
+        assert_eq!(big_entry.bytes.len(), 2048);
+        let covering = schema.index("covering").unwrap();
+        let included: Vec<&str> = covering.included.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(included, ["ve", "by"]);
+        let written: Vec<(String, Vec<IndexEntry>)> = schema
+            .indexes()
+            .iter()
+            .map(|ix| (ix.name.clone(), entries(&write, &table, &ix.name)))
+            .collect();
+        write.commit().unwrap();
+        for (name, written) in written {
+            let read = read_entries(store, &name);
+            let same_entry = |(a, b): (&IndexEntry, &IndexEntry)| {
+                a.bytes == b.bytes && same_all(&a.key, &b.key) && same_all(&a.included, &b.included)
+            };
+            assert!(
+                read.len() == written.len() && read.iter().zip(&written).all(same_entry),
+                "{name}"
+            );
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX7 and IX11: a creation that fails changes nothing
+
+/// The rows of AC-IX7: `n` repeats 1 (rows 5 and 2) and 0 (rows 9 and 7), and is null in rows 3 and 4; `b` is true
+/// in the rows of odd keys.
+fn repeating_rows() -> Vec<Vec<(&'static str, Value<'static>)>> {
+    [
+        person(5, Some(1), "e"),
+        person(2, Some(1), "b"),
+        person(9, Some(0), "i"),
+        person(7, Some(0), "g"),
+        person(3, None, "c"),
+        person(4, None, "d"),
+        person(1, Some(8), "a"),
+    ]
+    .into_iter()
+    .map(|mut row| {
+        let Value::I64(id) = row[0].1 else {
+            unreachable!()
+        };
+        row.push(("b", Value::Bool(id % 2 == 1)));
+        row
+    })
+    .collect()
+}
+
+type Row = Vec<(&'static str, Value<'static>)>;
+
+/// The index that every store of AC-IX7 has besides the one it tries: `n` descending with its nulls last.
+fn other_index() -> IndexDefinition {
+    index("other", &[key("n").descending().nulls_last()])
+}
+
+/// Commits the table `t` of [`repeating_rows`] and `extra` with [`other_index`]; then runs `attempt` on it in a write
+/// that also creates the table `u` with a row and commits, after which `t` has the schema, the indexes and the rows it
+/// had before. Returns the store's information and the entries of [`other_index`], which do not depend on the random
+/// identities.
+fn after_a_write(
+    store: &Store,
+    extra: &[Row],
+    attempt: impl FnOnce(&mut WriteTransaction<'_>, &WriteTable<'_>),
+) -> (krummi::StoreInfo, Vec<IndexEntry>) {
+    let rows: Vec<Row> = repeating_rows()
+        .into_iter()
+        .chain(extra.iter().cloned())
+        .collect();
+    commit_people(store, &rows);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, &other_index(), IndexMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+    let before = store.read().unwrap().describe_table("t").unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let rows_before = rows_of(&write, &table);
+    attempt(&mut write, &table);
+    assert_eq!(rows_of(&write, &table), rows_before);
+    let other = create_table(&mut write, "u", &people());
+    write.insert_row(&other, &person(1, Some(1), "x")).unwrap();
+    write.commit().unwrap();
+    assert_eq!(store.read().unwrap().describe_table("t").unwrap(), before);
+    (store.info(), read_entries(store, "other"))
+}
+
+/// AC-IX7 and IX11 (IX10, H15), in memory: creating a unique index over rows that repeat its key fails with a
+/// duplicate key, with the table, the index, the repeated values and the primary key of the second of the first two
+/// rows that repeat them in the index's order; an entry too large fails with its size, the first row's in the order
+/// of the primary key, also when rows repeat the key of the unique index (AC-IX9); and the write commits its other
+/// changes with the catalog, the table, its other index, the pages in use and free and the store's information as
+/// they would be without the attempt.
+#[test]
+fn ac_ix7_a_creation_that_fails_leaves_the_store_as_without_it() {
+    stores(|_, folder| {
+        let (twin, _twin_dir) = store_like(folder);
+        let without = after_a_write(&twin, &[], |_, _| {});
+        let (store, dir) = store_like(folder);
+        let folder = dir.as_ref().map(tempfile::TempDir::path);
+        let with = after_a_write(&store, &[], |write, table| {
+            let unique = index("ix_n", &[key("n")]).unique();
+            let error = write
+                .create_index(table, &unique, IndexMode::CreateNew)
+                .unwrap_err();
+            assert_eq!(
+                duplicate(error, folder),
+                ("t".to_owned(), "(9)".to_owned(), some("ix_n"), some("(0)"))
+            );
+            // Descending, the first two rows that repeat a key are those of 1.
+            let descending = index("ix_n", &[key("n").descending()]).unique();
+            let error = write
+                .create_index(table, &descending, IndexMode::CreateIfNotExists)
+                .unwrap_err();
+            assert_eq!(
+                duplicate(error, folder),
+                ("t".to_owned(), "(5)".to_owned(), some("ix_n"), some("(1)"))
+            );
+            // The values of every key column that repeat.
+            let two = index("ix_nb", &[key("n"), key("b")]).unique();
+            let error = write
+                .create_index(table, &two, IndexMode::CreateNew)
+                .unwrap_err();
+            assert_eq!(
+                duplicate(error, folder),
+                (
+                    "t".to_owned(),
+                    "(9)".to_owned(),
+                    some("ix_nb"),
+                    some("(0, true)")
+                )
+            );
+        });
+        assert_eq!(with, without);
+        drop(store);
+
+        // Rows 6 and 8 have a text whose entry in an index on `s` has 2,051 and 2,050 bytes; row 10 repeats the text
+        // of row 5.
+        let long = |id, len| person(id, Some(3), &"y".repeat(len));
+        let extra = [long(8, 2046), long(6, 2047), person(10, Some(4), "e")];
+        let (twin, _twin_dir) = store_like(folder);
+        let without = after_a_write(&twin, &extra, |_, _| {});
+        let (store, dir) = store_like(folder);
+        let folder = dir.as_ref().map(tempfile::TempDir::path);
+        let with = after_a_write(&store, &extra, |write, table| {
+            for definition in [
+                index("ix_s", &[key("s")]),
+                index("ix_s", &[key("s")]).unique(),
+            ] {
+                let error = write
+                    .create_index(table, &definition, IndexMode::CreateNew)
+                    .unwrap_err();
+                assert_eq!(
+                    entry_too_large(error, folder),
+                    ("t".to_owned(), "ix_s".to_owned(), 2051)
+                );
+            }
+        });
+        assert_eq!(with, without);
+    });
+}
+
+/// IX7 and N7 at creation: rows with a null in a column of a unique index do not collide, and the index has their
+/// entries.
+#[test]
+fn nulls_never_collide_in_a_unique_index() {
+    stores(|store, _| {
+        let rows = repeating_rows();
+        commit_people(store, &rows[4..]);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let definition = index("ix_n", &[key("n"), key("m")]).unique();
+        write
+            .create_index(&table, &definition, IndexMode::CreateNew)
+            .unwrap();
+        let keys: Vec<Vec<Value<'static>>> = entries(&write, &table, "ix_n")
+            .into_iter()
+            .map(|e| e.key)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                vec![Value::Null, Value::Null],
+                vec![Value::Null, Value::Null],
+                vec![Value::I32(8), Value::Null],
+            ]
+        );
+        write.commit().unwrap();
+    });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX9: definitions, names and their errors
+
+/// The definitions of IX3 that fail on [`people`] with `by_n` on `n`, with the column and the rule of each, in IX3's
+/// order; when one breaks two rules, the first.
+fn invalid_definitions() -> Vec<(IndexDefinition, Option<&'static str>, SchemaRule)> {
+    use SchemaRule::*;
+    let many: Vec<IndexKey> = ["n", "m", "s", "a", "b"]
+        .iter()
+        .cycle()
+        .take(35)
+        .map(|c| key(c))
+        .collect();
+    vec![
+        (index("x", &[]), None, NoIndexKey),
+        (index("x", &[]).with_included(&["zz"]), None, NoIndexKey),
+        (index("x", &[key("zz")]), Some("zz"), ColumnNotFound),
+        (
+            index("x", &[key("n"), key("zz")]).with_included(&["yy"]),
+            Some("zz"),
+            ColumnNotFound,
+        ),
+        (
+            index("x", &[key("n"), key("n")]).with_included(&["yy"]),
+            Some("yy"),
+            ColumnNotFound,
+        ),
+        (
+            index("x", &[key("ve"), key("zz")]),
+            Some("zz"),
+            ColumnNotFound,
+        ),
+        (
+            index("x", &[key("m"), key("ve")]),
+            Some("ve"),
+            VectorIndexKey,
+        ),
+        (
+            index("x", &[key("ve"), key("ve")]),
+            Some("ve"),
+            VectorIndexKey,
+        ),
+        (
+            index("x", &[key("m"), key("s"), key("m")]),
+            Some("m"),
+            RepeatedIndexColumn,
+        ),
+        (
+            index("x", &[key("m")]).with_included(&["s", "s"]),
+            Some("s"),
+            RepeatedIndexColumn,
+        ),
+        (
+            index("x", &[key("m")]).with_included(&["s", "m"]),
+            Some("m"),
+            RepeatedIndexColumn,
+        ),
+        (
+            index("x", &[key("m"), key("id")]).with_included(&["id"]),
+            Some("id"),
+            RepeatedIndexColumn,
+        ),
+        (
+            index("x", &[key("m")]).with_included(&["ve", "ve"]),
+            Some("ve"),
+            RepeatedIndexColumn,
+        ),
+        (index("x", &many), Some("n"), RepeatedIndexColumn),
+        (index("x", &[key("id")]), None, RedundantIndexKey),
+        (
+            index("x", &[key("id").nulls_last()]).unique(),
+            None,
+            RedundantIndexKey,
+        ),
+        (
+            index("x", &[key("id")]).with_included(&["s"]),
+            None,
+            RedundantIndexKey,
+        ),
+        (index("x", &[key("n")]), None, SameIndexKey),
+        (
+            index("x", &[key("n")]).unique().with_included(&["s"]),
+            None,
+            SameIndexKey,
+        ),
+    ]
+}
+
+/// AC-IX9 (IX3): each definition that breaks a rule of IX3 fails without effect with an invalid schema, the table,
+/// the index, the column if there is one and the first rule it breaks, in Create new and in Create if not exists; the
+/// definitions next to them work.
+#[test]
+fn ac_ix9_definitions_that_break_ix3_fail_with_their_rule() {
+    stores(|store, folder| {
+        commit_people(store, &[person(1, Some(1), "a")]);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write
+            .create_index(&table, &index("by_n", &[key("n")]), IndexMode::CreateNew)
+            .unwrap();
+        let before = write.table_schema(&table).unwrap();
+        for (definition, column, rule) in invalid_definitions() {
+            for mode in [IndexMode::CreateNew, IndexMode::CreateIfNotExists] {
+                let error = write.create_index(&table, &definition, mode).unwrap_err();
+                assert_eq!(
+                    invalid_schema(error, folder),
+                    ("t".to_owned(), some("x"), column.map(str::to_owned), rule),
+                    "{definition:?} {mode:?}"
+                );
+            }
+        }
+        assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+        // Next to them: other directions and null orders make other keys, and a primary key column may be in a key
+        // that is not along the primary key.
+        let valid = [
+            index("v1", &[key("n").descending()]),
+            index("v2", &[key("n").nulls_last()]),
+            index("v3", &[key("id").descending()]),
+            index("v4", &[key("id"), key("n")]),
+            index("v5", &[key("n"), key("id")]).with_included(&["ve", "s"]),
+        ];
+        for definition in &valid {
+            write
+                .create_index(&table, definition, IndexMode::CreateNew)
+                .unwrap();
+        }
+        write.commit().unwrap();
+        let after = store.read().unwrap().describe_table("t").unwrap();
+        assert_eq!(index_names(&after), ["by_n", "v1", "v2", "v3", "v4", "v5"]);
+    });
+}
+
+/// AC-IX9 (IX3): on a primary key of two columns, a key along it (its columns in its order, all ascending) is refused
+/// unless it is a strict prefix in a unique index, whatever its nulls and included columns; the whole primary key is
+/// refused also unique; other orders and other columns are accepted.
+#[test]
+fn ac_ix9_a_key_along_the_primary_key() {
+    stores(|store, folder| {
+        let schema = Schema::new(
+            vec![
+                Column::new("a", ColumnType::I32).not_null(),
+                Column::new("b", ColumnType::I32).not_null(),
+                Column::new("c", ColumnType::I32),
+            ],
+            &["a", "b"],
+        );
+        let mut write = store.write().unwrap();
+        let table = create_table(&mut write, "t", &schema);
+        let refused = [
+            index("x", &[key("a")]),
+            index("x", &[key("a").nulls_last()]),
+            index("x", &[key("a")]).with_included(&["c"]),
+            index("x", &[key("a"), key("b")]),
+            index("x", &[key("a"), key("b")]).unique(),
+        ];
+        for definition in &refused {
+            let error = write
+                .create_index(&table, definition, IndexMode::CreateNew)
+                .unwrap_err();
+            assert_eq!(
+                invalid_schema(error, folder),
+                (
+                    "t".to_owned(),
+                    some("x"),
+                    None,
+                    SchemaRule::RedundantIndexKey
+                ),
+                "{definition:?}"
+            );
+        }
+        let accepted = [
+            index("p1", &[key("a")]).unique(),
+            index("p2", &[key("a").descending()]),
+            index("p3", &[key("b")]),
+            index("p4", &[key("a"), key("c")]),
+            index("p5", &[key("a"), key("b"), key("c")]),
+            index("p6", &[key("b"), key("a")]),
+        ];
+        for definition in &accepted {
+            write
+                .create_index(&table, definition, IndexMode::CreateNew)
+                .unwrap();
+        }
+        assert_eq!(write.table_schema(&table).unwrap().indexes().len(), 6);
+        write.commit().unwrap();
+    });
+}
+
+/// AC-IX9 (IX1, IX3, IX10): an index name of 0 or 1,025 bytes fails with an invalid size of an index name, also from
+/// the handle of a deleted table; names of 1 and 1,024 bytes work; a table takes 64 indexes and refuses the 65th; and
+/// an index takes 32 key columns and refuses 33.
+#[test]
+fn ac_ix9_names_and_counts_at_their_limits() {
+    stores(|store, folder| {
+        let columns: Vec<Column> = std::iter::once(Column::new("id", ColumnType::I64).not_null())
+            .chain((0..70).map(|i| Column::new(format!("c{i}"), ColumnType::I32)))
+            .collect();
+        let mut write = store.write().unwrap();
+        let table = create_table(&mut write, "t", &Schema::new(columns, &["id"]));
+        let create = |write: &mut WriteTransaction<'_>, name: &str, key: Vec<IndexKey>| {
+            write.create_index(
+                &table,
+                &IndexDefinition::new(name, key),
+                IndexMode::CreateNew,
+            )
+        };
+        for len in [0, 1025] {
+            let name = "x".repeat(len);
+            let error = create(&mut write, &name, vec![key("c0")]).unwrap_err();
+            assert_eq!(
+                invalid_size(error, folder),
+                (SizeSubject::IndexName, len as u64, 1, 1024)
+            );
+            let error = write.drop_index(&table, &name).unwrap_err();
+            assert_eq!(
+                invalid_size(error, folder),
+                (SizeSubject::IndexName, len as u64, 1, 1024)
+            );
+        }
+        let keys = |n: usize| -> Vec<IndexKey> { (0..n).map(|i| key(&format!("c{i}"))).collect() };
+        let error = create(&mut write, "wide", keys(33)).unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            (
+                "t".to_owned(),
+                some("wide"),
+                None,
+                SchemaRule::TooManyIndexKeyColumns
+            )
+        );
+        create(&mut write, "wide", keys(32)).unwrap();
+        create(&mut write, "x", vec![key("c1")]).unwrap();
+        create(&mut write, &"y".repeat(1024), vec![key("c2")]).unwrap();
+        for i in 3..64 {
+            create(&mut write, &format!("i{i:02}"), vec![key(&format!("c{i}"))]).unwrap();
+        }
+        assert_eq!(write.table_schema(&table).unwrap().indexes().len(), 64);
+        let error = create(&mut write, "i64", vec![key("c64")]).unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            (
+                "t".to_owned(),
+                some("i64"),
+                None,
+                SchemaRule::TooManyIndexes
+            )
+        );
+        write.commit().unwrap();
+
+        // From the handle of a table this write deleted: the size of the name, then the deleted table.
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write.delete_table("t").unwrap();
+        let long = index(&"x".repeat(1025), &[key("c0")]);
+        let error = write
+            .create_index(&table, &long, IndexMode::CreateNew)
+            .unwrap_err();
+        assert_eq!(invalid_size(error, folder).0, SizeSubject::IndexName);
+        for mode in [IndexMode::CreateNew, IndexMode::CreateIfNotExists] {
+            let error = write
+                .create_index(&table, &index("x", &[key("c0")]), mode)
+                .unwrap_err();
+            assert_eq!(not_found(error, folder), "t");
+        }
+        assert_eq!(
+            not_found(write.drop_index(&table, "x").unwrap_err(), folder),
+            "t"
+        );
+        write.commit().unwrap();
+    });
+}
+
+/// AC-IX9 (IX2, IX10): Create new over a name that exists fails with tree already exists, before the definition is
+/// checked; Create if not exists over the same definition does nothing, also when either gives primary key columns
+/// among its included ones, which Describe does not show; over one that differs, in each part of IX2 alone and in two
+/// at once, it fails with a different schema and the first difference, also when the definition given is not valid;
+/// and over the same definition once its primary key columns are left out, but invalid as given, with an invalid
+/// schema.
+#[test]
+fn ac_ix9_create_new_and_create_if_not_exists_over_an_existing_name() {
+    stores(|store, folder| {
+        commit_people(store, &[person(1, Some(1), "a")]);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let existing = index("ix", &[key("n"), key("s").descending().nulls_last()])
+            .unique()
+            .with_included(&["id", "a", "b"]);
+        write
+            .create_index(&table, &existing, IndexMode::CreateNew)
+            .unwrap();
+        write
+            .create_index(&table, &index("plain", &[key("m")]), IndexMode::CreateNew)
+            .unwrap();
+        let before = write.table_schema(&table).unwrap();
+        let ix = before.index("ix").unwrap();
+        let included: Vec<&str> = ix.included.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(included, ["a", "b"], "the primary key column is left out");
+
+        for definition in [&existing, &index("ix", &[key("zz")])] {
+            let error = write
+                .create_index(&table, definition, IndexMode::CreateNew)
+                .unwrap_err();
+            assert_eq!(
+                index_exists(error, folder),
+                ("t".to_owned(), "ix".to_owned())
+            );
+        }
+        for same in [
+            existing.clone(),
+            existing.clone().with_included(&["a", "b"]),
+            existing.clone().with_included(&["a", "id", "b"]),
+        ] {
+            write
+                .create_index(&table, &same, IndexMode::CreateIfNotExists)
+                .unwrap();
+        }
+        assert_eq!(write.table_schema(&table).unwrap(), before, "nothing done");
+
+        let at = |name: &str, direction: &str, nulls: &str, position: usize| {
+            format!("{name:?} {direction} {nulls} at position {position}")
+        };
+        let with_key = |key: &[IndexKey]| IndexDefinition {
+            key: key.to_vec(),
+            ..existing.clone()
+        };
+        let not_unique = |definition: IndexDefinition| IndexDefinition {
+            unique: false,
+            ..definition
+        };
+        use SchemaDifference::{IndexIncluded, IndexKey as Key, IndexUniqueness};
+        let cases: Vec<(IndexDefinition, SchemaDifference, String, String)> = vec![
+            (
+                not_unique(existing.clone()),
+                IndexUniqueness,
+                "not unique".into(),
+                "unique".into(),
+            ),
+            (
+                with_key(&[key("m"), key("s").descending().nulls_last()]),
+                Key,
+                at("m", "ascending", "nulls first", 1),
+                at("n", "ascending", "nulls first", 1),
+            ),
+            (
+                with_key(&[key("n"), key("s").nulls_last()]),
+                Key,
+                at("s", "ascending", "nulls last", 2),
+                at("s", "descending", "nulls last", 2),
+            ),
+            (
+                with_key(&[key("n"), key("s").descending()]),
+                Key,
+                at("s", "descending", "nulls first", 2),
+                at("s", "descending", "nulls last", 2),
+            ),
+            (
+                with_key(&[key("n")]),
+                Key,
+                "1 column".into(),
+                "2 columns".into(),
+            ),
+            (
+                with_key(&[key("n"), key("s").descending().nulls_last(), key("m")]),
+                Key,
+                "3 columns".into(),
+                "2 columns".into(),
+            ),
+            (
+                existing.clone().with_included(&["b", "a"]),
+                IndexIncluded,
+                "\"b\" at position 1".into(),
+                "\"a\" at position 1".into(),
+            ),
+            (
+                existing.clone().with_included(&["id", "a"]),
+                IndexIncluded,
+                "1 column".into(),
+                "2 columns".into(),
+            ),
+            // Two differences at once: the first in IX2's order.
+            (
+                not_unique(with_key(&[key("m")])),
+                IndexUniqueness,
+                "not unique".into(),
+                "unique".into(),
+            ),
+            (
+                with_key(&[key("n"), key("s"), key("m")]),
+                Key,
+                at("s", "ascending", "nulls first", 2),
+                at("s", "descending", "nulls last", 2),
+            ),
+            (
+                with_key(&[key("n")]).with_included(&["b"]),
+                Key,
+                "1 column".into(),
+                "2 columns".into(),
+            ),
+            // A definition that differs and is not valid: the difference.
+            (
+                with_key(&[key("zz")]),
+                Key,
+                at("zz", "ascending", "nulls first", 1),
+                at("n", "ascending", "nulls first", 1),
+            ),
+        ];
+        for (definition, difference, expected, found) in cases {
+            let error = write
+                .create_index(&table, &definition, IndexMode::CreateIfNotExists)
+                .unwrap_err();
+            assert_eq!(
+                different_schema(error, folder),
+                ("t".to_owned(), some("ix"), difference, expected, found),
+                "{definition:?}"
+            );
+        }
+        // The same definition once the primary key columns are left out, invalid as given.
+        let repeated = index("plain", &[key("m")]).with_included(&["id", "id"]);
+        let error = write
+            .create_index(&table, &repeated, IndexMode::CreateIfNotExists)
+            .unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            (
+                "t".to_owned(),
+                some("plain"),
+                some("id"),
+                SchemaRule::RepeatedIndexColumn
+            )
+        );
+        assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+        write.commit().unwrap();
+    });
+}
+
+/// A column of bytes with a default of `len` bytes.
+fn bytes_default(name: &str, len: usize) -> Column {
+    Column::new(name, ColumnType::Bytes).with_default(Value::Bytes(Cow::Owned(vec![42; len])))
+}
+
+/// AC-IX9 (IX3, E5's schema too large): with the schema of a table a few bytes under the most of its catalog entry,
+/// as the test hook measures it, an index whose stored definition takes them is created and fills the entry, one
+/// whose name is a byte longer fails with a schema too large naming the index and no column, and then adding a column
+/// fails with it too, both without effect. A temporary store, since the size of the entry does not depend on where
+/// the store is.
+#[test]
+fn ac_ix9_a_schema_near_the_most_of_its_catalog_entry() {
+    use krummi_tree::catalog::MAX_EXTRA;
+    let store = Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+    let mut write = store.write().unwrap();
+    let probe = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I32),
+            bytes_default("c", 1),
+        ],
+        &["id"],
+    );
+    let probe = create_table(&mut write, "probe", &probe);
+    let small = write.table_schema(&probe).unwrap().stored_len();
+    write
+        .create_index(&probe, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        .unwrap();
+    let ix_len = write.table_schema(&probe).unwrap().stored_len() - small;
+    write.delete_table("probe").unwrap();
+    // The schema leaves exactly the bytes of `ix`.
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I32),
+            bytes_default("c", 1 + MAX_EXTRA - small - ix_len),
+        ],
+        &["id"],
+    );
+    let table = create_table(&mut write, "t", &schema);
+    drop(schema);
+    let before = write.table_schema(&table).unwrap();
+    let error = write
+        .create_index(&table, &index("ixx", &[key("n")]), IndexMode::CreateNew)
+        .unwrap_err();
+    assert_eq!(
+        invalid_schema(error, None),
+        (
+            "t".to_owned(),
+            some("ixx"),
+            None,
+            SchemaRule::SchemaTooLarge
+        )
+    );
+    assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+    drop(before);
+    write
+        .create_index(&table, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        .unwrap();
+    let full = write.table_schema(&table).unwrap();
+    assert_eq!(full.stored_len(), MAX_EXTRA, "the entry is full");
+    let error = write
+        .add_column(&table, &Column::new("d", ColumnType::Bool))
+        .unwrap_err();
+    assert_eq!(
+        invalid_schema(error, None),
+        ("t".to_owned(), None, some("d"), SchemaRule::SchemaTooLarge)
+    );
+    assert_eq!(write.table_schema(&table).unwrap(), full, "no effect");
+    write.commit().unwrap();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX10: schema changes and table operations
+
+/// The table `t` of [`people`] with 40 rows and the indexes `ix_n` (`n`, including `s`) and `ix_ms` (`m`, `s`),
+/// committed.
+fn indexed(store: &Store) {
+    let rows: Vec<Row> = (0..40)
+        .map(|id| {
+            let n = i32::try_from(id % 7).unwrap();
+            let mut row = person(id, Some(n), &format!("s{id}"));
+            row.push(("m", Value::I32(n % 3)));
+            row
+        })
+        .collect();
+    commit_people(store, &rows);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let ix_n = index("ix_n", &[key("n")]).with_included(&["s"]);
+    write
+        .create_index(&table, &ix_n, IndexMode::CreateNew)
+        .unwrap();
+    let ix_ms = index("ix_ms", &[key("m"), key("s")]);
+    write
+        .create_index(&table, &ix_ms, IndexMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+}
+
+/// The entries of every index of `table`, in the order of the indexes.
+fn all_entries(write: &WriteTransaction<'_>, table: &WriteTable<'_>) -> Vec<Vec<IndexEntry>> {
+    let schema = write.table_schema(table).unwrap();
+    schema
+        .indexes()
+        .iter()
+        .map(|ix| entries(write, table, &ix.name))
+        .collect()
+}
+
+/// AC-IX10 (IX5): renaming a column of an index and allowing nulls in it keep the index's entries and their order,
+/// and Describe names it with its new name and the same identity; dropping a key column of an index, an included one,
+/// or a primary key column that is in an index fails without effect with the rule of dropping a key column, naming
+/// the first index in the order of their names that has it unless the column is of the primary key.
+#[test]
+fn ac_ix10_schema_changes_and_indexes() {
+    stores(|store, folder| {
+        indexed(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let ix_id = index("ix_id", &[key("m"), key("id")]);
+        write
+            .create_index(&table, &ix_id, IndexMode::CreateNew)
+            .unwrap();
+        let before = write.table_schema(&table).unwrap();
+        let entries_before = all_entries(&write, &table);
+        // `ix_id` and `ix_ms` have `m`, `ix_ms` and `ix_n` have `s`, `ix_n` has `n`.
+        for (column, first) in [("m", "ix_id"), ("s", "ix_ms"), ("n", "ix_n")] {
+            let error = write.drop_column(&table, column).unwrap_err();
+            assert_eq!(
+                invalid_schema(error, folder),
+                (
+                    "t".to_owned(),
+                    some(first),
+                    some(column),
+                    SchemaRule::DropKeyColumn
+                )
+            );
+        }
+        let error = write.drop_column(&table, "id").unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            ("t".to_owned(), None, some("id"), SchemaRule::DropKeyColumn)
+        );
+        assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+        // `a` is in no index.
+        write.drop_column(&table, "a").unwrap();
+
+        write.rename_column(&table, "s", "text").unwrap();
+        write
+            .modify_column(&table, "n", ColumnType::I32, true)
+            .unwrap();
+        let after = write.table_schema(&table).unwrap();
+        let ix_ms = after.index("ix_ms").unwrap();
+        assert_eq!(
+            (ix_ms.key[1].id, ix_ms.key[1].name.as_str()),
+            (before.column("s").unwrap().id, "text")
+        );
+        assert_eq!(after.index("ix_n").unwrap().included[0].name, "text");
+        let ids = |schema: &TableSchema| -> Vec<u64> {
+            schema.indexes().iter().map(|ix| ix.id).collect()
+        };
+        assert_eq!(ids(&after), ids(&before));
+        assert_eq!(all_entries(&write, &table), entries_before);
+        write.commit().unwrap();
+        assert_eq!(read_entries(store, "ix_ms"), entries_before[1]);
+    });
+}
+
+/// AC-IX10 (IX4, B9): dropping an index removes it and keeps the table, and another index can take its name with
+/// another definition in the same write; another handle of the table in the write sees an index created and stops
+/// seeing one dropped; dropping one that does not exist does nothing; and dropping indexes frees their pages.
+#[test]
+fn ac_ix10_dropping_an_index() {
+    stores(|store, _| {
+        indexed(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let other = write.open_table("t").unwrap();
+        let rows_before = rows_of(&write, &table);
+        write.drop_index(&table, "ix_n").unwrap();
+        assert_eq!(index_names(&write.table_schema(&other).unwrap()), ["ix_ms"]);
+        assert_eq!(write.index_entries(&other, "ix_n").unwrap(), None);
+        write.drop_index(&table, "ix_n").unwrap();
+        write.drop_index(&table, "missing").unwrap();
+        let definition = index("ix_n", &[key("s").descending()]);
+        write
+            .create_index(&other, &definition, IndexMode::CreateNew)
+            .unwrap();
+        let schema = write.table_schema(&table).unwrap();
+        assert_eq!(index_names(&schema), ["ix_ms", "ix_n"]);
+        let ix_n = schema.index("ix_n").unwrap();
+        assert_eq!(
+            (ix_n.key[0].name.as_str(), ix_n.key[0].direction),
+            ("s", Direction::Descending)
+        );
+        assert_entries(
+            &entries(&write, &table, "ix_n"),
+            &schema,
+            ix_n,
+            &rows_before,
+        );
+        assert_eq!(
+            rows_of(&write, &table),
+            rows_before,
+            "the table does not change"
+        );
+        write.commit().unwrap();
+
+        let with_indexes = in_use(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write.drop_index(&table, "ix_n").unwrap();
+        write.drop_index(&table, "ix_ms").unwrap();
+        assert_eq!(write.index_trees(&table).unwrap(), []);
+        write.commit().unwrap();
+        assert!(in_use(store) < with_indexes, "the indexes' pages are free");
+    });
+}
+
+/// AC-IX10 (IX4, E2, E3): emptying a table, with Empty and with Create or empty, empties its indexes and keeps their
+/// definitions, their identities and the index state; renaming it keeps its indexes; deleting it, and overwriting it
+/// with a rename, take its indexes with it and free their pages.
+#[test]
+fn ac_ix10_table_operations_and_indexes() {
+    stores(|store, _| {
+        // The pages of a store whose table was created and deleted, which keeps its catalog's root.
+        commit_people(store, &[]);
+        let mut write = store.write().unwrap();
+        write.delete_table("t").unwrap();
+        write.commit().unwrap();
+        let empty_store = in_use(store);
+        let people = people();
+        for mode in [TableMode::Empty, TableMode::CreateOrEmpty(&people)] {
+            indexed(store);
+            let before = store.read().unwrap().describe_table("t").unwrap();
+            let mut write = store.write().unwrap();
+            let table = write.open_table_with("t", mode).unwrap();
+            assert_eq!(write.table_schema(&table).unwrap(), before, "{mode:?}");
+            assert_eq!(all_entries(&write, &table), [vec![], vec![]], "{mode:?}");
+            write.commit().unwrap();
+            assert_eq!(read_entries(store, "ix_ms"), [], "{mode:?}");
+            assert_eq!(store.read().unwrap().describe_table("t").unwrap(), before);
+            let mut write = store.write().unwrap();
+            write.delete_table("t").unwrap();
+            write.commit().unwrap();
+            assert_eq!(
+                in_use(store),
+                empty_store,
+                "{mode:?}: deleted with its indexes"
+            );
+        }
+
+        indexed(store);
+        let before = store.read().unwrap().describe_table("t").unwrap();
+        let ix_ms = read_entries(store, "ix_ms");
+        let mut write = store.write().unwrap();
+        write.rename_table("t", "renamed", false).unwrap();
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let renamed = read.open_table("renamed").unwrap();
+        assert_eq!(read.table_schema(&renamed).unwrap(), before);
+        assert_eq!(read.index_entries(&renamed, "ix_ms").unwrap(), Some(ix_ms));
+        drop(read);
+
+        // Overwritten by a rename, the table goes with its indexes.
+        let mut write = store.write().unwrap();
+        create_table(&mut write, "u", &people);
+        write.rename_table("u", "renamed", true).unwrap();
+        write.delete_table("renamed").unwrap();
+        write.commit().unwrap();
+        assert_eq!(in_use(store), empty_store, "overwritten with its indexes");
+    });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX11: Describe, identities and the index state
+
+/// A source that gives the 8-byte little-endian values of `values` in turn, then fails with input and output.
+fn repeating(values: Vec<u64>) -> impl FnMut(&mut [u8]) -> krummi::Result<()> {
+    let mut next = values.into_iter();
+    move |bytes| match next.next() {
+        Some(value) => {
+            bytes.copy_from_slice(&value.to_le_bytes());
+            Ok(())
+        }
+        None => Err(Error::Io {
+            folder: Default::default(),
+            source: std::io::Error::other("the test source ended"),
+        }),
+    }
+}
+
+/// AC-IX11 (IX6, P12): Describe lists a table's indexes as each transaction sees them, empty without any, in a read
+/// and in a write, with identities and names, uniqueness, key columns with their directions and null orders and the
+/// included columns; the index state changes with each creation and each drop, also of an index created and dropped
+/// in one write, and not with an attempt that fails or does nothing, a rename of the table or of a column, or
+/// emptying; an index keeps its identity through renames and one created again has another; an aborted write leaves
+/// nothing; the schema state and version never change; and a projection prepared before keeps reading the rows.
+#[test]
+fn ac_ix11_describe_identities_and_the_index_state() {
+    stores(|store, _| {
+        let created = commit_people(store, &[person(1, Some(1), "a")]);
+        assert_eq!(created.indexes(), []);
+        let state0 = created.index_state();
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let projection = write.projection(&table, &["n"]).unwrap();
+        let n = projection.column::<i32>(0).unwrap();
+        let ix = index("ix", &[key("n").descending(), key("s").nulls_last()])
+            .unique()
+            .with_included(&["b", "id"]);
+        write
+            .create_index(&table, &ix, IndexMode::CreateNew)
+            .unwrap();
+        let schema = write.describe_table("t").unwrap();
+        let state1 = schema.index_state();
+        assert_ne!(state1, state0);
+        let described = schema.index("ix").unwrap().clone();
+        let column = |name: &str| schema.column(name).unwrap().id;
+        assert_eq!(
+            described,
+            SchemaIndex {
+                id: described.id,
+                name: "ix".into(),
+                unique: true,
+                key: vec![
+                    krummi::SchemaIndexKey {
+                        id: column("n"),
+                        name: "n".into(),
+                        direction: Direction::Descending,
+                        nulls: Nulls::First,
+                    },
+                    krummi::SchemaIndexKey {
+                        id: column("s"),
+                        name: "s".into(),
+                        direction: Direction::Ascending,
+                        nulls: Nulls::Last,
+                    },
+                ],
+                included: vec![krummi::SchemaIndexColumn {
+                    id: column("b"),
+                    name: "b".into(),
+                }],
+            }
+        );
+        assert_eq!(
+            (schema.version(), schema.schema_state()),
+            (created.version(), created.schema_state())
+        );
+        // The projection prepared before reads the rows: the schema did not change (IX5, PY4).
+        let row = write.get_row(&table, &[Value::I64(1)]).unwrap().unwrap();
+        assert_eq!(projection.bind(&row).unwrap().get(&n), Some(1));
+        drop(row);
+        // A read opened before the commit does not see it.
+        let read = store.read().unwrap();
+        assert_eq!(read.describe_table("t").unwrap(), created);
+        drop(read);
+        // Attempts that fail or do nothing, renames and emptying keep the state.
+        write
+            .create_index(&table, &ix, IndexMode::CreateIfNotExists)
+            .unwrap();
+        assert!(
+            write
+                .create_index(&table, &ix, IndexMode::CreateNew)
+                .is_err()
+        );
+        let bad = index("bad", &[key("zz")]);
+        assert!(
+            write
+                .create_index(&table, &bad, IndexMode::CreateNew)
+                .is_err()
+        );
+        write.drop_index(&table, "missing").unwrap();
+        write.rename_column(&table, "s", "text").unwrap();
+        write.rename_table("t", "t2", false).unwrap();
+        write.rename_table("t2", "t", false).unwrap();
+        let table = write.open_table_with("t", TableMode::Empty).unwrap();
+        let schema = write.describe_table("t").unwrap();
+        assert_eq!(schema.index_state(), state1);
+        assert_eq!(schema.index("ix").unwrap().id, described.id);
+        assert_eq!(schema.index("ix").unwrap().key[1].name, "text");
+        // An index created and dropped in the same write changes the state each time.
+        write
+            .create_index(&table, &index("dup", &[key("b")]), IndexMode::CreateNew)
+            .unwrap();
+        let state2 = write.describe_table("t").unwrap().index_state();
+        write.drop_index(&table, "dup").unwrap();
+        let state3 = write.describe_table("t").unwrap().index_state();
+        assert!(state2 != state1 && state3 != state2 && state3 != state1);
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let committed = read.describe_table("t").unwrap();
+        assert_eq!(
+            (index_names(&committed), committed.index_state()),
+            (vec!["ix"], state3)
+        );
+        drop(read);
+
+        // An aborted write leaves nothing of what it drew.
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write.drop_index(&table, "ix").unwrap();
+        write
+            .create_index(&table, &index("other", &[key("b")]), IndexMode::CreateNew)
+            .unwrap();
+        write.abort();
+        assert_eq!(
+            store.read().unwrap().describe_table("t").unwrap(),
+            committed
+        );
+
+        // Dropped and created again, the index has another identity.
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write.drop_index(&table, "ix").unwrap();
+        let again = index("ix", &[key("n").descending(), key("text").nulls_last()]).unique();
+        write
+            .create_index(&table, &again, IndexMode::CreateNew)
+            .unwrap();
+        let again = write.describe_table("t").unwrap();
+        assert_ne!(again.index("ix").unwrap().id, described.id);
+        write.commit().unwrap();
+    });
+}
+
+/// AC-IX11 (IX6, P12): with a generator that repeats values, an index identity and an index state equal to an
+/// identity the table has used (its columns', its states', its indexes', also a dropped index's) are drawn again.
+#[test]
+fn ac_ix11_identities_equal_to_known_ones_are_drawn_again() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("n", ColumnType::I32),
+            ],
+            &["id"],
+        );
+        // Table 10, columns 20 and 21, schema state 30, index state 40.
+        let table = with_identity_source(repeating(vec![10, 20, 21, 30, 40]), || {
+            create_table(&mut write, "t", &schema)
+        });
+        let ix = index("ix", &[key("n")]);
+        // The identity: 20, 30 and 40 are known, 50 is not; the state: 50 is the identity, 40 is known, 60 is not.
+        with_identity_source(repeating(vec![20, 30, 40, 50, 50, 40, 60]), || {
+            write.create_index(&table, &ix, IndexMode::CreateNew)
+        })
+        .unwrap();
+        let described = write.table_schema(&table).unwrap();
+        assert_eq!(
+            (described.index("ix").unwrap().id, described.index_state()),
+            (50, 60)
+        );
+        // Dropping it: its identity and the states are known.
+        with_identity_source(repeating(vec![50, 60, 40, 70]), || {
+            write.drop_index(&table, "ix")
+        })
+        .unwrap();
+        assert_eq!(write.table_schema(&table).unwrap().index_state(), 70);
+        // Created again: the dropped index's identity is still known.
+        with_identity_source(repeating(vec![50, 70, 80, 90]), || {
+            write.create_index(&table, &ix, IndexMode::CreateNew)
+        })
+        .unwrap();
+        let described = write.table_schema(&table).unwrap();
+        assert_eq!(
+            (described.index("ix").unwrap().id, described.index_state()),
+            (80, 90)
+        );
+        // A failing generator fails the creation, which then cannot commit (T11).
+        let error = with_identity_source(repeating(vec![]), || {
+            write.create_index(
+                &table,
+                &index("other", &[key("n").descending()]),
+                IndexMode::CreateNew,
+            )
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert_eq!(write.table_schema(&table).unwrap(), described, "no effect");
+        assert_eq!(write.commit().unwrap_err().kind(), ErrorKind::Io);
+    });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX12: changes for T10
+
+/// AC-IX12 (IX13, T10): in a write that does nothing else, creating an index, dropping one that exists, and creating
+/// and dropping one in the same write are changes; Create if not exists over the same index, dropping one that does
+/// not exist and every creation that fails public validation, a duplicate key and an entry too large included, are
+/// not. (That creating and dropping end the references read before is checked when compiling: see the documentation
+/// of the module that creates indexes.)
+#[test]
+fn ac_ix12_what_changes_and_what_does_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_people(
+        &store,
+        &[
+            person(1, Some(1), "a"),
+            person(2, Some(1), &"y".repeat(2100)),
+        ],
+    );
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+    store.close().unwrap();
+
+    let unchanged = !files_change(tmp.path(), |store| {
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write
+            .create_index(
+                &table,
+                &index("ix", &[key("n")]),
+                IndexMode::CreateIfNotExists,
+            )
+            .unwrap();
+        write.drop_index(&table, "missing").unwrap();
+        let failures = [
+            (index("ix", &[key("n")]), IndexMode::CreateNew),
+            (index("ix", &[key("m")]), IndexMode::CreateIfNotExists),
+            (index("bad", &[key("zz")]), IndexMode::CreateNew),
+            (index(&"x".repeat(1025), &[key("n")]), IndexMode::CreateNew),
+            (
+                index("dup", &[key("n").descending()]).unique(),
+                IndexMode::CreateNew,
+            ),
+            (index("big", &[key("s")]), IndexMode::CreateNew),
+        ];
+        let kinds: Vec<ErrorKind> = failures
+            .iter()
+            .map(|(definition, mode)| {
+                write
+                    .create_index(&table, definition, *mode)
+                    .unwrap_err()
+                    .kind()
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ErrorKind::TreeAlreadyExists,
+                ErrorKind::DifferentSchema,
+                ErrorKind::InvalidSchema,
+                ErrorKind::InvalidSize,
+                ErrorKind::DuplicateKey,
+                ErrorKind::InvalidSize,
+            ]
+        );
+        write.commit().unwrap();
+    });
+    assert!(unchanged, "nothing was a change");
+
+    // Each in its own write, one after the other.
+    type Op = fn(&mut WriteTransaction<'_>, &WriteTable<'_>);
+    let changes: [(&str, Op); 3] = [
+        ("create", |write, table| {
+            let definition = index("new", &[key("m")]);
+            write
+                .create_index(table, &definition, IndexMode::CreateNew)
+                .unwrap();
+        }),
+        ("drop", |write, table| {
+            write.drop_index(table, "ix").unwrap()
+        }),
+        ("create and drop", |write, table| {
+            let definition = index("brief", &[key("a")]);
+            write
+                .create_index(table, &definition, IndexMode::CreateIfNotExists)
+                .unwrap();
+            write.drop_index(table, "brief").unwrap();
+        }),
+    ];
+    for (label, op) in changes {
+        let changed = files_change(tmp.path(), |store| {
+            let mut write = store.write().unwrap();
+            let table = write.open_table("t").unwrap();
+            op(&mut write, &table);
+            write.commit().unwrap();
+        });
+        assert!(changed, "{label} is a change");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX13: damage
+
+/// AC-IX13 and IX12, the parts of creating, dropping and Describe: with a page of an index damaged, Describe, opening
+/// the table, dropping an index that does not exist and creating another index do not fail, in a read and in a write
+/// that commits; dropping the damaged index fails with its damage, and the write cannot commit (T11); and with a page
+/// of the table's rows damaged, creating an index fails with it.
+#[test]
+fn ac_ix13_damage_and_the_operations_on_indexes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    indexed(&store);
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let ix_n = read.index_trees(&table).unwrap()[1].clone();
+    assert_eq!(ix_n.0, "ix_n");
+    let rows = read.table_trees(&table).unwrap().rows;
+    let described = read.describe_table("t").unwrap();
+    drop(read);
+    store.close().unwrap();
+    damage(tmp.path(), ix_n.1);
+
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    assert_eq!(read.describe_table("t").unwrap(), described);
+    drop(read);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    assert_eq!(write.describe_table("t").unwrap(), described);
+    write.drop_index(&table, "missing").unwrap();
+    write
+        .create_index(&table, &index("ix_b", &[key("b")]), IndexMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    assert_eq!(
+        damaged_page(write.drop_index(&table, "ix_n").unwrap_err()),
+        ix_n.1
+    );
+    assert_eq!(
+        write.commit().unwrap_err().kind(),
+        ErrorKind::Damaged,
+        "T11"
+    );
+    store.close().unwrap();
+
+    // A damaged leaf of the rows: the rows are few, so their tree is its root.
+    damage(tmp.path(), rows);
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let error = write
+        .create_index(&table, &index("ix_a", &[key("a")]), IndexMode::CreateNew)
+        .unwrap_err();
+    assert_eq!(damaged_page(error), rows);
+    assert_eq!(
+        write.commit().unwrap_err().kind(),
+        ErrorKind::Damaged,
+        "T11"
+    );
+    store.close().unwrap();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX15: the format
+
+/// AC-IX15 (IX14, B12, F11): a new store has format 12; a store of format 11, the one before the indexes, is of a
+/// previous format, even without indexes, and opening it leaves it as it was; and the store's information keeps its
+/// shape, with the indexes' pages in its totals.
+#[test]
+fn ac_ix15_a_store_of_format_11_is_of_a_previous_format() {
+    use krummi_pager::DATA_FILE;
+    use krummi_pager::format::{Header, PAGE_SIZE, header_copies, write_header_pages};
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_people(&store, &[person(1, Some(1), "a")]);
+    let without = in_use(&store);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+    let krummi::StoreInfo {
+        format_version,
+        page_size,
+        size_bytes: _,
+        page_count,
+        max_size: _,
+        temporary,
+        free_pages: _,
+    } = store.info();
+    assert_eq!((format_version, page_size, temporary), (12, 8192, false));
+    assert!(in_use(&store) > without, "the index's pages count");
+    assert!(page_count >= in_use(&store));
+    store.close().unwrap();
+    // A store without indexes, with a table and without one.
+    let without_indexes = tempfile::tempdir().unwrap();
+    let store = open(without_indexes.path());
+    commit_people(&store, &[person(1, Some(1), "a")]);
+    store.close().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    open(empty.path()).close().unwrap();
+
+    for folder in [tmp.path(), without_indexes.path(), empty.path()] {
+        let data = folder.join(DATA_FILE);
+        let mut bytes = std::fs::read(&data).unwrap();
+        let [Some(a), Some(b)] = header_copies(&bytes[..2 * PAGE_SIZE]) else {
+            panic!("both header copies")
+        };
+        assert_eq!((a.format_version, b.format_version), (12, 12));
+        let current = if a.revision >= b.revision { a } else { b };
+        write_header_pages(
+            &mut bytes[..2 * PAGE_SIZE],
+            &Header {
+                format_version: 11,
+                ..current
+            },
+        );
+        std::fs::write(&data, &bytes).unwrap();
+        match Store::open(folder, &krummi::StoreOptions::default()).err() {
+            Some(Error::DifferentFormat {
+                found, expected, ..
+            }) => assert_eq!((found, expected), (11, 12)),
+            other => panic!("expected a different format, got {other:?}"),
+        }
+        assert_eq!(std::fs::read(&data).unwrap(), bytes, "left as it was");
+    }
+    let new = Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+    assert_eq!(new.info().format_version, 12);
+}
