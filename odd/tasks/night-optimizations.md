@@ -224,6 +224,20 @@ PRD draft for the user, not an implementation).
   - R3-published-pointer-test-timing, SUGGESTION: fixed in `96ef635`;
     `a_copied_page_is_changed_in_a_free_slot_and_published_from_it` pauses the transfer.
   Checks on `96ef635`: fmt and clippy clean, `cargo test --workspace` 879 passed, 0 failed.
+- **L18** (2026-11-18) — RDD of the last slice `6a5d85b..7314419` (the fix `96ef635` and the records): lenses
+  resilience and reliability; lineage `review-afbfd7e21139eeda`; **approved**, acknowledged. One advisory finding,
+  SUGGESTION, R3-spare-reserve-failure-branch-unasserted (`scratch.rs:1627-1633`): no test asserts the new
+  `OutOfMemory` branch. This is the same limit L17 records: a real reservation failure cannot be injected. Left as is.
+  Complete runs relaunched on `7314419`, the final code.
+- **L19** (2026-11-18) — S6 complete runs on `7314419` (script `work/night/full.sh`; the report says "con cambios sin
+  confirmar": only L18 of this document was uncommitted). WSL 2 08:28:54–09:13:03: **Krummi cumple 29 de 29
+  umbrales**. Windows 08:04:50–08:27:52: **Krummi cumple 27 de 29 umbrales. Incumple: `lecturas-con-escritor`,
+  `escritor-con-lectores`** (0.57 and 0.68; the run on `67d92b8` without T2 gave 0.85 and 0.87). Single runs of these
+  two loads already moved between 0.71 and 1.22 (L11), and W12 and W13 are the loads whose 10-round marks cleared
+  at 20 rounds (L8), so a 20-round A/B on Windows decides: `not2` = `5a00edc` (the code without T2) against
+  `t2f` = `7314419`, script `work/night/w12/ab.sh`. Result (`t2f`/`not2`, op/s; rounds where `t2f` was slower): W12
+  1.062 (5/20), W13 1.127 (1/20). T2 does not worsen them; the two failures of the complete run are noise of single
+  runs, and the thresholds are met on Windows when the loads are measured in rounds.
 
 ## Closing
 
