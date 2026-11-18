@@ -36,12 +36,12 @@ pub(super) fn store_with(schema: &Schema, rows: impl IntoIterator<Item = Row>) -
 }
 
 /// The stored key of the row `id` of a table keyed by one `i64` column.
-fn id_key(id: i64) -> Vec<u8> {
+pub(super) fn id_key(id: i64) -> Vec<u8> {
     encode_key(&[ColumnType::I64], &[Value::I64(id)]).unwrap()
 }
 
 /// The stored bytes of the row of `key` in the table `t`.
-fn stored(store: &Store, key: &[u8]) -> Vec<u8> {
+pub(super) fn stored(store: &Store, key: &[u8]) -> Vec<u8> {
     let read = store.read().unwrap();
     let rows = read
         .table_trees(&read.open_table("t").unwrap())
@@ -54,7 +54,7 @@ fn stored(store: &Store, key: &[u8]) -> Vec<u8> {
 }
 
 /// Rewrites the stored row of `key` in the table `t` with `change` applied to its bytes, in a write that commits.
-fn alter(store: &Store, key: &[u8], change: impl FnOnce(&mut Vec<u8>)) {
+pub(super) fn alter(store: &Store, key: &[u8], change: impl FnOnce(&mut Vec<u8>)) {
     let mut bytes = stored(store, key);
     change(&mut bytes);
     let mut write = store.write().unwrap();
@@ -86,7 +86,7 @@ fn rekey(store: &Store, from: &[u8], to: &[u8]) {
 }
 
 /// The page that holds the row of `key` in the table `t`: its leaf, the rows here being small.
-fn row_page(store: &Store, key: &[u8]) -> u64 {
+pub(super) fn row_page(store: &Store, key: &[u8]) -> u64 {
     let read = store.read().unwrap();
     let rows = read
         .table_trees(&read.open_table("t").unwrap())

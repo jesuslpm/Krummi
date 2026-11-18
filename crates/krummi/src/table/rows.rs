@@ -425,7 +425,7 @@ impl Reader {
     }
 
     /// The text of the primary key of `values`, one per live column, for the data of a duplicate key (E17).
-    fn key_text(&self, values: &[Value<'_>]) -> String {
+    pub(super) fn key_text(&self, values: &[Value<'_>]) -> String {
         let key: Vec<Value<'_>> = self
             .key_columns
             .iter()
@@ -1302,22 +1302,36 @@ impl WriteTransaction<'_> {
     }
 
     /// Deletes the row of `table` whose primary key is `key`, and returns whether it was there (E11), with the
-    /// failures of the key of [`get_row`](Self::get_row).
+    /// failures of the key of [`get_row`](Self::get_row). In a table with indexes it reads the row, without checking
+    /// its content, to remove its entries (IX7, IX12): it fails with the damage that the reads keep, and with damage
+    /// of an index page where an entry it must remove is not.
     pub fn delete_row(&mut self, table: &WriteTable<'_>, key: &[Value<'_>]) -> Result<bool> {
         let (rows_root, reader) = self.live_rows(table)?;
         let key = reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &self.table_name(table)))?;
+        let steps = match self.maintained(table) {
+            None => Vec::new(),
+            Some(indexes) => match krummi_tree::get(&self.inner, rows_root, &key)? {
+                None => return Ok(false),
+                Some(bytes) => {
+                    let mut versions = Versions::default();
+                    self.delete_steps(table, &indexes, &reader, &mut versions, &key, bytes)?
+                }
+            },
+        };
         let update = krummi_tree::remove(&mut self.inner, rows_root, &key)?;
         let removed = u64::from(update.count_changed);
         self.apply_rows(table, update.root, RowCount::Removed(removed))?;
+        self.apply_steps(table, steps)?;
         Ok(update.count_changed)
     }
 
     /// The two phases of a write of `row` (document 2): the check phase, which changes nothing, then the write. An
     /// insert, and an insert or update of a missing row, add the row with the columns it does not give filled (for an
     /// insert, the check phase filled them already); an update, and an insert or update of a row that is there, merge
-    /// it with the stored row.
+    /// it with the stored row. In a table with indexes, the checks of its entries and of its unique indexes come
+    /// last in the check phase (IX7, IX10), and the write then writes the row and its entries.
     fn write_row(
         &mut self,
         table: &WriteTable<'_>,
@@ -1328,6 +1342,7 @@ impl WriteTransaction<'_> {
             self.folder.check_column_name(name)?;
         }
         let (rows_root, reader) = self.live_rows(table)?;
+        let indexes = self.maintained(table);
         let fail = |tx: &Self, fault: Fault| fault.error(tx.folder, &tx.table_name(table));
         let Checked { values, key } = reader
             .check(row, op == Op::Insert)
@@ -1343,22 +1358,35 @@ impl WriteTransaction<'_> {
             }
             let values = reader.fill(values).map_err(|fault| fail(self, fault))?;
             let encoded = reader.encode(&values).map_err(|fault| fail(self, fault))?;
-            if op == Op::Insert && self.append_row(table, &key, &encoded)? {
-                return Ok(Written::Inserted);
+            let steps = match &indexes {
+                None => Vec::new(),
+                // An insert or update knows that the key is not there.
+                Some(indexes) => self.insert_steps(
+                    table,
+                    indexes,
+                    &reader,
+                    rows_root,
+                    &values,
+                    &key,
+                    op == Op::Insert,
+                )?,
+            };
+            if !(op == Op::Insert && self.append_row(table, &key, &encoded)?) {
+                let (update, last) =
+                    krummi_tree::try_add_at_last(&mut self.inner, rows_root, &key, &encoded)?;
+                if !update.count_changed {
+                    return Err(Error::DuplicateKey {
+                        folder: self.folder.owned(),
+                        table: self.table_name(table),
+                        key: reader.key_text(&values),
+                        index: None,
+                        index_key: None,
+                    });
+                }
+                self.apply_rows(table, update.root, RowCount::Added)?;
+                self.follow_last(table, update.root, &key, last);
             }
-            let (update, last) =
-                krummi_tree::try_add_at_last(&mut self.inner, rows_root, &key, &encoded)?;
-            if !update.count_changed {
-                return Err(Error::DuplicateKey {
-                    folder: self.folder.owned(),
-                    table: self.table_name(table),
-                    key: reader.key_text(&values),
-                    index: None,
-                    index_key: None,
-                });
-            }
-            self.apply_rows(table, update.root, RowCount::Added)?;
-            self.follow_last(table, update.root, &key, last);
+            self.apply_steps(table, steps)?;
             return Ok(Written::Inserted);
         };
         // The row it replaces is checked (L3 of the row reads PRD).
@@ -1370,9 +1398,22 @@ impl WriteTransaction<'_> {
             bytes,
             true,
         )?;
-        let encoded = match reader.patch(&old, &values) {
+        let old_value = |i: usize| old.value(i).expect("a live column");
+        let (encoded, steps) = match reader.patch(&old, &values) {
             Some(Patch::Identical) => return Ok(Written::Updated),
-            Some(Patch::Row(row)) => row,
+            Some(Patch::Row(row)) => {
+                let steps = match &indexes {
+                    None => Vec::new(),
+                    Some(indexes) => {
+                        let new = |i: usize| match &values[i] {
+                            Some(value) => value.reborrow(),
+                            None => old_value(i),
+                        };
+                        self.update_steps(table, indexes, old_value, new, &key)?
+                    }
+                };
+                (row, steps)
+            }
             None => {
                 // Decoded once: the merge and the comparison both read every old value.
                 let old: Vec<Value<'_>> = old.values().collect();
@@ -1384,38 +1425,40 @@ impl WriteTransaction<'_> {
                 if merged.iter().zip(&old).all(|(new, old)| new.same(old)) {
                     return Ok(Written::Updated);
                 }
-                reader.encode(&merged).map_err(|fault| fail(self, fault))?
+                let encoded = reader.encode(&merged).map_err(|fault| fail(self, fault))?;
+                let steps = match &indexes {
+                    None => Vec::new(),
+                    Some(indexes) => self.update_steps(
+                        table,
+                        indexes,
+                        |i| old[i].reborrow(),
+                        |i| merged[i].reborrow(),
+                        &key,
+                    )?,
+                };
+                (encoded, steps)
             }
         };
         // A row of the same length goes where the read found it, without walking the tree again; the tree's root
         // and its number of entries stay, so `apply_rows` would change nothing: it only records those two.
-        if let Some(at) = at
-            && krummi_tree::overwrite(&mut self.inner, at, &key, &encoded)?
-        {
-            return Ok(Written::Updated);
+        let overwritten = match at {
+            Some(at) => krummi_tree::overwrite(&mut self.inner, at, &key, &encoded)?,
+            None => false,
+        };
+        if !overwritten {
+            let update = krummi_tree::set(&mut self.inner, rows_root, &key, &encoded)?;
+            self.apply_rows(table, update.root, RowCount::Kept)?;
         }
-        let update = krummi_tree::set(&mut self.inner, rows_root, &key, &encoded)?;
-        self.apply_rows(table, update.root, RowCount::Kept)?;
+        self.apply_steps(table, steps)?;
         Ok(Written::Updated)
     }
 
     /// The rows tree and the reader of the table of `table`, with the failures of a handle (misuse for one of another
-    /// transaction, not found once the table was deleted), without reading anything.
-    ///
-    /// Every write of rows (insert, update, insert or update, delete, range delete, and the bulk load through insert)
-    /// starts here, which makes it the one place where the maintenance of the table's secondary indexes joins them
-    /// (IX7, T3 of the secondary indexes execution). Until then a write of the rows of a table with indexes would leave
-    /// them out of step with the rows, so it panics instead, before it changes anything.
-    ///
-    /// # Panics
-    ///
-    /// If the table has secondary indexes.
+    /// transaction, not found once the table was deleted), without reading anything. Every write of rows (insert,
+    /// update, insert or update, delete, range delete, and the bulk load through insert) starts here; those of a
+    /// table with indexes then keep them in step with the rows (`maintain`).
     pub(super) fn live_rows(&self, table: &WriteTable<'_>) -> Result<(u64, Arc<Reader>)> {
         let state = self.live_table(table)?;
-        assert!(
-            state.index_roots.is_empty(),
-            "writing the rows of a table with secondary indexes is not implemented yet: its indexes would not follow"
-        );
         Ok((state.rows_root, Arc::clone(&state.reader)))
     }
 

@@ -1,19 +1,71 @@
-//! Internal tests of creating an index over rows whose content is malformed (AC-IX13 and IX12 of the secondary indexes
-//! PRD, the part of creating an index): the rows are read as the reads read them, without checking their content, so a
-//! row altered only in a column outside the index does not fail; and the damage that the reads keep, a row of a
-//! version missing from the history, fails the creation, which the write then cannot commit (T11). The malformed rows
-//! are written through the tree, as the row reads tests write them.
+//! Internal tests of the secondary indexes over rows whose content is malformed and of what their writes change
+//! (AC-IX2, AC-IX13 and IX12 of the secondary indexes PRD): the rows are read as the reads read them, without checking
+//! their content, so a row altered only in a column outside the index does not fail its creation, its delete or a
+//! range delete; the damage that the reads keep, a row of a version missing from the history, fails them, and the
+//! write then cannot commit (T11); an entry that a delete must remove and is not there is damage of the index page
+//! where it should be; a panic of a range delete after it removed rows leaves the write unable to commit; and an
+//! identical update writes no page. The malformed rows are written through the tree, as the row reads tests write them.
 
-use super::malformed_tests::{BAD, ROWS, bad_text_store, damaged_page, text_row, texts};
+use std::collections::BTreeSet;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+use krummi_tx::LayoutEvent;
+
+use super::malformed_tests::{
+    BAD, ROWS, alter, bad_text_store, damaged_page, id_key, row_page, store_with, stored, text_row,
+    texts,
+};
 use super::schema::version_key;
 use crate::table::value::{ColumnType, Value};
 use crate::{
     Column, ErrorKind, IndexDefinition, IndexKey, IndexMode, Store, StoreOptions, TableMode,
+    WriteTransaction,
 };
 
 /// The index on `n` of [`texts`].
 fn on_n() -> IndexDefinition {
     IndexDefinition::new("ix_n", vec![IndexKey::new("n")])
+}
+
+/// The index on `s` of [`texts`], the column that [`bad_text_store`] alters.
+fn on_s() -> IndexDefinition {
+    IndexDefinition::new("ix_s", vec![IndexKey::new("s")])
+}
+
+/// A store of [`texts`] with its rows and the index of `definition`, committed.
+fn indexed_store(definition: &IndexDefinition) -> Store {
+    let store = store_with(&texts(), (0..ROWS).map(text_row));
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, definition, IndexMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+    store
+}
+
+/// The primary keys of the entries of the index `name` of the table `t` in `write`, in the index's order.
+fn entry_ids(write: &WriteTransaction<'_>, name: &str) -> Vec<Value<'static>> {
+    let table = write.open_table("t").unwrap();
+    (write
+        .index_entries(&table, name)
+        .unwrap()
+        .unwrap()
+        .into_iter())
+    .map(|entry| entry.primary_key[0].clone())
+    .collect()
+}
+
+/// The root of the tree of the index `name` of the table `t` in `write`.
+fn index_root(write: &WriteTransaction<'_>, name: &str) -> u64 {
+    let table = write.open_table("t").unwrap();
+    let trees = write.index_trees(&table).unwrap();
+    trees.into_iter().find(|(n, _)| n == name).unwrap().1
+}
+
+/// The rows of `ids`, as their primary keys.
+fn ids(ids: impl IntoIterator<Item = i64>) -> Vec<Value<'static>> {
+    ids.into_iter().map(Value::I64).collect()
 }
 
 /// AC-IX13: with the row `BAD` altered only in its text, which is not in the index, creating an index on `n` does not
@@ -38,10 +90,153 @@ fn ac_ix13_a_row_malformed_outside_the_index_does_not_fail_its_creation() {
     write.commit().unwrap();
 }
 
-/// AC-IX13 (AC-L3): with the row `BAD` of a version missing from the table's history, creating an index fails with
-/// damage of the history page that should have it, and the write cannot commit (T11).
+/// AC-IX13 (IX12): with the row `BAD` altered only in its text, which is not in the index, deleting it and deleting
+/// a range that holds it do not fail, and the index keeps the entries of the other rows.
 #[test]
-fn ac_ix13_a_version_missing_from_the_history_fails_a_creation() {
+fn ac_ix13_a_row_malformed_outside_the_index_deletes_without_failing() {
+    let store = bad_text_store();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, &on_n(), IndexMode::CreateNew)
+        .unwrap();
+    assert!(write.delete_row(&table, &[Value::I64(BAD)]).unwrap());
+    let others = (0..ROWS).filter(|&id| id != BAD);
+    assert_eq!(entry_ids(&write, "ix_n"), ids(others));
+    write.abort();
+
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, &on_n(), IndexMode::CreateNew)
+        .unwrap();
+    let range = Value::I64(BAD - 2)..Value::I64(BAD + 2);
+    assert_eq!(write.delete_range(&table, &[], range).unwrap(), 4);
+    let others = (0..ROWS).filter(|id| !(BAD - 2..BAD + 2).contains(id));
+    assert_eq!(entry_ids(&write, "ix_n"), ids(others));
+    write.commit().unwrap();
+}
+
+/// Rewrites the tree of the index `name` of the table `t` without the entry of the row `id`, in a write that
+/// commits, and returns the entry's key.
+fn remove_entry(store: &Store, name: &str, id: i64) -> Vec<u8> {
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let entries = write.index_entries(&table, name).unwrap().unwrap();
+    let entry = entries
+        .into_iter()
+        .find(|entry| entry.primary_key == [Value::I64(id)])
+        .unwrap()
+        .bytes;
+    let at = write
+        .table_schema(&table)
+        .unwrap()
+        .indexes()
+        .iter()
+        .position(|index| index.name == name)
+        .unwrap();
+    let root = index_root(&write, name);
+    let update = krummi_tree::remove(&mut write.inner, root, &entry).unwrap();
+    assert!(update.count_changed);
+    let state = write.tables.get_mut().get_mut(table.id).unwrap();
+    state.index_roots[at] = update.root;
+    state.dirty = true;
+    write.commit().unwrap();
+    entry
+}
+
+/// AC-IX13 (IX12, T11): a row whose entry is missing from an index fails its delete, and a range delete that holds
+/// it, with damage of the index page where the entry should be, and the write cannot commit.
+#[test]
+fn ac_ix13_a_missing_entry_fails_a_delete_with_damage_of_the_index_page() {
+    let store = indexed_store(&on_n());
+    let entry = remove_entry(&store, "ix_n", BAD);
+    type Delete = fn(&mut WriteTransaction<'_>) -> crate::Result<()>;
+    let deletes: [(&str, Delete); 2] = [
+        ("delete", |write| {
+            let table = write.open_table("t").unwrap();
+            write.delete_row(&table, &[Value::I64(BAD)]).map(drop)
+        }),
+        ("range delete", |write| {
+            let table = write.open_table("t").unwrap();
+            write.delete_range(&table, &[], ..).map(drop)
+        }),
+    ];
+    for (what, delete) in deletes {
+        let mut write = store.write().unwrap();
+        let root = index_root(&write, "ix_n");
+        let page = krummi_tree::leaf_of(&write.inner, root, &entry).unwrap();
+        assert_eq!(damaged_page(delete(&mut write)), page, "{what}");
+        assert_eq!(
+            write.commit().unwrap_err().kind(),
+            ErrorKind::Damaged,
+            "{what}: T11"
+        );
+    }
+    let read = store.read().unwrap();
+    assert_eq!(
+        read.row_count(&read.open_table("t").unwrap()).unwrap(),
+        ROWS as u64
+    );
+}
+
+/// AC-IX13 (IX12): with the row `BAD` altered so that its key column of the index has a value with no entry, deleting
+/// it fails with damage of the index page where that entry would be, and the write cannot commit.
+#[test]
+fn ac_ix13_an_index_column_altered_to_a_value_without_entry_fails_its_delete() {
+    let store = indexed_store(&on_n());
+    // The bytes of the row `BAD` with `n` 777, from a store with only that row: a row of the same version.
+    let mut row = text_row(BAD);
+    row[1].1 = Value::I32(777);
+    let twin = store_with(&texts(), [row]);
+    let altered = stored(&twin, &id_key(BAD));
+    alter(&store, &id_key(BAD), |bytes| *bytes = altered);
+
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    assert_eq!(
+        write
+            .get_row(&table, &[Value::I64(BAD)])
+            .unwrap()
+            .unwrap()
+            .get("n"),
+        Some(Value::I32(777))
+    );
+    // The index has 10 small entries: its root is its only leaf.
+    let root = index_root(&write, "ix_n");
+    let outcome = write.delete_row(&table, &[Value::I64(BAD)]);
+    assert_eq!(damaged_page(outcome), root);
+    assert_eq!(
+        write.commit().unwrap_err().kind(),
+        ErrorKind::Damaged,
+        "T11"
+    );
+}
+
+/// AC-IX13 (IX12, L3): updating a malformed row of a table with indexes fails with damage of its page, and the write
+/// cannot commit.
+#[test]
+fn ac_ix13_updating_a_malformed_row_of_a_table_with_indexes_is_damage() {
+    let store = bad_text_store();
+    let page = row_page(&store, &id_key(BAD));
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .create_index(&table, &on_n(), IndexMode::CreateNew)
+        .unwrap();
+    let outcome = write.update_row(&table, &[("id", Value::I64(BAD)), ("n", Value::I32(1))]);
+    assert_eq!(damaged_page(outcome), page);
+    assert_eq!(
+        write.commit().unwrap_err().kind(),
+        ErrorKind::Damaged,
+        "T11"
+    );
+}
+
+/// A temporary store of [`texts`] whose row `BAD` is of version 1 and the others of version 2, with the index of
+/// `index` when given, created before the version 1 leaves the table's history, committed; and the page of the
+/// history's leaf that should hold version 1.
+fn missing_version_store(index: Option<IndexDefinition>) -> (Store, u64) {
     let store = Store::open_temporary(&StoreOptions::default()).unwrap();
     let mut write = store.write().unwrap();
     let table = write
@@ -55,6 +250,11 @@ fn ac_ix13_a_version_missing_from_the_history_fails_a_creation() {
     for id in (0..ROWS).filter(|&id| id != BAD) {
         write.insert_row(&table, &text_row(id)).unwrap();
     }
+    if let Some(index) = index {
+        write
+            .create_index(&table, &index, IndexMode::CreateNew)
+            .unwrap();
+    }
     write.commit().unwrap();
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();
@@ -64,11 +264,23 @@ fn ac_ix13_a_version_missing_from_the_history_fails_a_creation() {
     state.history = update.root;
     state.dirty = true;
     write.commit().unwrap();
+    let read = store.read().unwrap();
+    let history = read
+        .table_trees(&read.open_table("t").unwrap())
+        .unwrap()
+        .history;
+    let page = krummi_tree::leaf_of(&read.inner, history, &version_key(1)).unwrap();
+    drop(read);
+    (store, page)
+}
 
+/// AC-IX13 (AC-L3): with the row `BAD` of a version missing from the table's history, creating an index fails with
+/// damage of the history page that should have it, and the write cannot commit (T11).
+#[test]
+fn ac_ix13_a_version_missing_from_the_history_fails_a_creation() {
+    let (store, page) = missing_version_store(None);
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();
-    let history = write.table_trees(&table).unwrap().history;
-    let page = krummi_tree::leaf_of(&write.inner, history, &version_key(1)).unwrap();
     let outcome = write.create_index(&table, &on_n(), IndexMode::CreateNew);
     assert_eq!(damaged_page(outcome), page);
     assert!(write.table_schema(&table).unwrap().indexes().is_empty());
@@ -79,29 +291,161 @@ fn ac_ix13_a_version_missing_from_the_history_fails_a_creation() {
     );
 }
 
-/// Until the indexes follow the row writes (T3 of the secondary indexes execution), a row write on a table with an
-/// index panics before it changes anything, instead of leaving the index out of step with the rows.
+/// AC-IX13 (AC-L3, IX12): in a table with an index, deleting the row `BAD`, of a version missing from the table's
+/// history, fails with damage of the history page that should have it, and the write cannot commit (T11).
 #[test]
-fn a_row_write_on_a_table_with_indexes_panics_before_changing_anything() {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
-    let store = super::malformed_tests::store_with(&texts(), (0..ROWS).map(text_row));
+fn ac_ix13_a_version_missing_from_the_history_fails_a_delete() {
+    let (store, page) = missing_version_store(Some(on_n()));
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();
-    write
-        .create_index(&table, &on_n(), IndexMode::CreateNew)
-        .unwrap();
-    let writes: [&dyn Fn(&mut crate::WriteTransaction<'_>); 3] = [
-        &|write| drop(write.insert_row(&table, &text_row(ROWS))),
-        &|write| drop(write.delete_row(&table, &[Value::I64(0)])),
-        &|write| drop(write.delete_range(&table, &[], ..)),
-    ];
-    for row_write in writes {
-        assert!(catch_unwind(AssertUnwindSafe(|| row_write(&mut write))).is_err());
-    }
+    let outcome = write.delete_row(&table, &[Value::I64(BAD)]);
+    assert_eq!(damaged_page(outcome), page);
     assert_eq!(write.row_count(&table).unwrap(), ROWS as u64);
     assert_eq!(
-        write.index_entries(&table, "ix_n").unwrap().unwrap().len(),
+        write.commit().unwrap_err().kind(),
+        ErrorKind::Damaged,
+        "T11"
+    );
+}
+
+/// A store of [`texts`] with the index on `s`, whose row `BAD` then has a text that is not UTF-8, which reading as a
+/// value panics (L2).
+fn bad_text_in_index() -> Store {
+    let store = indexed_store(&on_s());
+    alter(&store, &id_key(BAD), |bytes| {
+        *bytes.last_mut().unwrap() = 0xFF
+    });
+    store
+}
+
+/// AC-IX13 (IX12; L2): a panic while deleting a single row of a table with indexes, here reading the malformed text of
+/// its index column, comes before any change, and the write commits its other changes.
+#[test]
+fn ac_ix13_a_panic_while_deleting_a_row_comes_before_any_change() {
+    let store = bad_text_in_index();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let delete = catch_unwind(AssertUnwindSafe(|| {
+        write.delete_row(&table, &[Value::I64(BAD)])
+    }));
+    assert!(delete.is_err(), "the read of the text panics");
+    assert!(!write.inner.has_failed());
+    assert_eq!(write.row_count(&table).unwrap(), ROWS as u64);
+    assert_eq!(entry_ids(&write, "ix_s"), ids(0..ROWS));
+    assert!(write.delete_row(&table, &[Value::I64(0)]).unwrap());
+    write.commit().unwrap();
+    let read = store.read().unwrap();
+    assert_eq!(
+        read.row_count(&read.open_table("t").unwrap()).unwrap(),
+        ROWS as u64 - 1
+    );
+}
+
+/// AC-IX13 (IX12, T11; the user's exception to L2): a panic captured while deleting a range of a table with indexes,
+/// after the range delete removed its first rows, leaves the write unable to commit, and nothing of it is applied; a
+/// panic at the range's first rows comes before any change, and the write commits.
+#[test]
+fn ac_ix13_a_panic_while_deleting_a_range_leaves_the_write_unable_to_commit() {
+    let store = bad_text_in_index();
+    // The range delete reads 4 rows at a time in these tests: the first rows go before it meets `BAD`.
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let delete = catch_unwind(AssertUnwindSafe(|| write.delete_range(&table, &[], ..)));
+    assert!(delete.is_err(), "the read of the text panics");
+    assert!(write.inner.has_failed());
+    assert_eq!(write.commit().unwrap_err().kind(), ErrorKind::Damaged);
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    assert_eq!(
+        read.row_count(&table).unwrap(),
+        ROWS as u64,
+        "nothing applied"
+    );
+    assert_eq!(
+        read.index_entries(&table, "ix_s").unwrap().unwrap().len(),
         ROWS as usize
     );
+    drop(read);
+
+    // From `BAD` on, the panic comes in the first batch, before any change.
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let from_bad = catch_unwind(AssertUnwindSafe(|| {
+        write.delete_range(&table, &[], Value::I64(BAD)..)
+    }));
+    assert!(from_bad.is_err());
+    assert!(!write.inner.has_failed());
+    assert_eq!(write.row_count(&table).unwrap(), ROWS as u64);
+    assert_eq!(
+        write.delete_range(&table, &[], ..Value::I64(BAD)).unwrap(),
+        5
+    );
     write.commit().unwrap();
+    let read = store.read().unwrap();
+    assert_eq!(
+        read.row_count(&read.open_table("t").unwrap()).unwrap(),
+        ROWS as u64 - 5
+    );
+}
+
+/// The pages that `change` changes in a write of `store`, which then aborts, through the test hook of the
+/// transaction's page changes.
+fn changed_pages(store: &Store, change: impl FnOnce(&mut WriteTransaction<'_>)) -> BTreeSet<u64> {
+    let mut write = store.write().unwrap();
+    write.inner.record_layout();
+    change(&mut write);
+    let pages = (write.inner.take_layout_log().into_iter())
+        .filter_map(|event| match event {
+            LayoutEvent::Change(page) => Some(page),
+            _ => None,
+        })
+        .collect();
+    write.abort();
+    pages
+}
+
+/// AC-IX2 (E10, E16): an identical update writes no page, of the rows or of the indexes; an update of a column in no
+/// index writes no page of the index; and one of a key column of the index writes its page.
+#[test]
+fn ac_ix2_an_identical_update_writes_no_page_of_the_indexes() {
+    let store = indexed_store(&on_n());
+    let root = {
+        let write = store.write().unwrap();
+        index_root(&write, "ix_n")
+    };
+    let update = |row: Vec<(&'static str, Value<'static>)>| {
+        move |write: &mut WriteTransaction<'_>| {
+            let table = write.open_table("t").unwrap();
+            assert!(write.update_row(&table, &row).unwrap());
+        }
+    };
+    // `n` of row 3 is 30 already, and the whole row repeats its values.
+    let identical = changed_pages(
+        &store,
+        update(vec![("id", Value::I64(3)), ("n", Value::I32(30))]),
+    );
+    assert_eq!(identical, BTreeSet::new(), "an identical update");
+    let identical = changed_pages(&store, update(text_row(3)));
+    assert_eq!(
+        identical,
+        BTreeSet::new(),
+        "an identical update of every column"
+    );
+    // The index has 10 small entries: its root is its only leaf.
+    let text = changed_pages(
+        &store,
+        update(vec![
+            ("id", Value::I64(3)),
+            ("s", Value::String("other".into())),
+        ]),
+    );
+    assert!(
+        !text.is_empty() && !text.contains(&root),
+        "a column in no index"
+    );
+    let key = changed_pages(
+        &store,
+        update(vec![("id", Value::I64(3)), ("n", Value::I32(31))]),
+    );
+    assert!(key.contains(&root), "a key column of the index");
 }

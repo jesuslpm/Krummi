@@ -22,6 +22,7 @@ use krummi_tree::PageSource;
 use krummi_tree::catalog::{self, Entry};
 
 use super::identity;
+use super::maintain::Maintained;
 use super::rows::{At, Reader};
 use super::schema::{
     Change, Column, Different, Invalid, MAX_COLUMN_NAME, Schema, TableSchema, check_new,
@@ -147,6 +148,9 @@ pub(crate) struct TableState {
     pub(super) index_roots: Vec<u64>,
     /// How the rows of its current schema are read and written.
     pub(super) reader: Arc<Reader>,
+    /// How its row writes keep its indexes, built when a row write first needs it after a change of its schema or
+    /// of its indexes, each of which clears it.
+    pub(super) maintained: Option<Arc<Maintained>>,
     deleted: bool,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
     pub(super) dirty: bool,
@@ -189,6 +193,7 @@ impl TableState {
     fn set_schema(&mut self, schema: TableSchema) {
         self.reader = Arc::new(Reader::new(&schema, self.reader.schema.store));
         self.schema = schema;
+        self.maintained = None;
     }
 }
 
@@ -538,6 +543,7 @@ impl<'s> WriteTransaction<'s> {
                     reader: Arc::new(Reader::new(&found.schema, self.projections.serial())),
                     schema: found.schema,
                     index_roots: found.index_roots,
+                    maintained: None,
                     deleted: false,
                     dirty: false,
                     last: None,

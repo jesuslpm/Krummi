@@ -8,12 +8,18 @@
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or damage the store's
 //! files, which run on disk only.
 
+#[path = "../../krummi-tx/tests/common/mod.rs"]
+mod common;
 mod support;
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::convert::Infallible;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
+use std::time::Duration;
 
+use common::Run;
 use krummi::ids::{Ulid, Uuid};
 use krummi::table::key::key_len;
 use krummi::table::testing::{IndexEntry, with_identity_source};
@@ -22,9 +28,9 @@ use krummi::table::value::{
     UuidOrder, Value, VectorElement, VectorType,
 };
 use krummi::{
-    Column, Direction, Error, ErrorKind, IndexDefinition, IndexKey, IndexMode, Nulls, Schema,
-    SchemaDifference, SchemaIndex, SchemaRule, SizeSubject, Store, TableMode, TableSchema,
-    WriteTable, WriteTransaction,
+    BulkLoadError, Column, Direction, Error, ErrorKind, IndexDefinition, IndexKey, IndexMode,
+    Nulls, Schema, SchemaDifference, SchemaIndex, SchemaRule, SequenceMode, SizeSubject, Store,
+    TableMode, TableSchema, Upserted, WriteTable, WriteTransaction,
 };
 use support::*;
 
@@ -2080,4 +2086,771 @@ fn ac_ix15_a_store_of_format_11_is_of_a_previous_format() {
     }
     let new = Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
     assert_eq!(new.info().format_version, 12);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AC-IX2, AC-IX6, AC-IX8 and AC-IX9: the indexes in every row write
+
+/// The row `id` of [`people`] for the writes: `n` is `id % 5`, `m` is `id % 3`, `s` is `s{id}`, `a` is `id`, `b`
+/// whether `id` is even and `ve` is `[id, 1]`.
+fn member(id: i64) -> Row {
+    let small = |k: i64| Value::I32(i32::try_from(id % k).unwrap());
+    vec![
+        ("id", Value::I64(id)),
+        ("n", small(5)),
+        ("m", small(3)),
+        ("s", text(&format!("s{id}"))),
+        ("a", Value::I64(id)),
+        ("b", Value::Bool(id % 2 == 0)),
+        ("ve", floats(&[id as f32, 1.0])),
+    ]
+}
+
+/// A vector of `f32` elements.
+fn floats(elements: &[f32]) -> Value<'static> {
+    Value::Vector(Cow::Owned(
+        elements.iter().flat_map(|x| x.to_le_bytes()).collect(),
+    ))
+}
+
+/// The indexes of [`kept`]: `ix_n` on `n` including `s`, `ix_ms` on `m` descending with its nulls last and `s`, and
+/// `ux_a`, unique on `a` and including `b`.
+fn kept_indexes() -> Vec<IndexDefinition> {
+    vec![
+        index("ix_n", &[key("n")]).with_included(&["s"]),
+        index("ix_ms", &[key("m").descending().nulls_last(), key("s")]),
+        index("ux_a", &[key("a")]).unique().with_included(&["b"]),
+    ]
+}
+
+/// Commits the table `t` of [`people`] with the rows 0 to 29 of [`member`], then the column `extra i32` with the
+/// default 7 and the rows 30 to 39, so that the first 30 rows are of an older schema version, and the indexes of
+/// [`kept_indexes`].
+fn kept(store: &Store) {
+    commit_people(store, &(0..30).map(member).collect::<Vec<_>>());
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let extra = Column::new("extra", ColumnType::I32).with_default(Value::I32(7));
+    write.add_column(&table, &extra).unwrap();
+    for id in 30..40 {
+        write.insert_row(&table, &member(id)).unwrap();
+    }
+    for definition in kept_indexes() {
+        write
+            .create_index(&table, &definition, IndexMode::CreateNew)
+            .unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// Each row of a scan, as its columns' names and owned values.
+fn owned_rows<'t>(
+    rows: impl Iterator<Item = krummi::Result<krummi::TableRow<'t>>>,
+) -> Vec<Vec<(String, Value<'static>)>> {
+    rows.map(|row| {
+        let row = row.unwrap();
+        row.columns()
+            .map(|(name, value)| (name.to_owned(), value.into_owned()))
+            .collect()
+    })
+    .collect()
+}
+
+/// Asserts that each index of `table` has exactly the entries of the table's rows, in the order of N5, as the write
+/// sees them.
+#[track_caller]
+fn assert_in_step(write: &WriteTransaction<'_>, table: &WriteTable<'_>, what: &str) {
+    let schema = write.table_schema(table).unwrap();
+    let rows = rows_of(write, table);
+    assert!(!schema.indexes().is_empty(), "{what}: indexes");
+    for ix in schema.indexes() {
+        assert_entries(&entries(write, table, &ix.name), &schema, ix, &rows);
+    }
+}
+
+/// The rows and the entries of every index of the table `t` that a new read sees, with their keys' bytes.
+#[allow(clippy::type_complexity)]
+fn snapshot(
+    store: &Store,
+) -> (
+    Vec<Vec<(String, Value<'static>)>>,
+    Vec<(String, Vec<IndexEntry>)>,
+) {
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let rows = owned_rows(read.range_rows(&table, &[], ..).unwrap());
+    let indexes = (read.table_schema(&table).unwrap().indexes().iter())
+        .map(|ix| {
+            let entries = read.index_entries(&table, &ix.name).unwrap().unwrap();
+            (ix.name.clone(), entries)
+        })
+        .collect();
+    (rows, indexes)
+}
+
+/// Asserts that each index of the table `t` has exactly the entries of its rows, as a new read sees them.
+#[track_caller]
+fn assert_read_in_step(store: &Store) {
+    let schema = store.read().unwrap().describe_table("t").unwrap();
+    let (rows, indexes) = snapshot(store);
+    for (ix, (name, entries)) in schema.indexes().iter().zip(&indexes) {
+        assert_eq!(&ix.name, name);
+        assert_entries(entries, &schema, ix, &rows);
+    }
+}
+
+/// Runs every kind of row write on the table `t` of [`kept`] in `write`, checking after each that the indexes are in
+/// step with the rows; with `create`, first creates `ix_new` (`b`, then `n` descending, including `ve`), so that the
+/// writes also keep an index created in the same write. Rounds 0 and 1 write different rows, so that one can follow
+/// the other.
+fn every_row_write(
+    write: &mut WriteTransaction<'_>,
+    table: &WriteTable<'_>,
+    create: bool,
+    round: i64,
+) {
+    if create {
+        let ix_new = index("ix_new", &[key("b"), key("n").descending()]).with_included(&["ve"]);
+        write
+            .create_index(table, &ix_new, IndexMode::CreateNew)
+            .unwrap();
+    }
+    assert_in_step(write, table, "before");
+    // Old rows, of the older schema version, and new ones.
+    let old = |id: i64| Value::I64(id + 20 * round);
+    let new = |id: i64| id + 100 * round;
+    // Rows with a null in `a`, the key of a unique index, do not collide (N7).
+    for id in [new(40), new(41), new(42)] {
+        let mut row = member(id);
+        if id != new(40) {
+            row[4].1 = Value::Null;
+        }
+        write.insert_row(table, &row).unwrap();
+    }
+    assert_in_step(write, table, "insert");
+    let current = |id: i64| id + round;
+    let updates: [(&str, Row); 6] = [
+        // Only a column of no index, in a row of an older schema version.
+        ("no index", vec![("id", old(3)), ("extra", Value::I32(1))]),
+        // Only an included column: `ve` of `ix_new`, when it is there; and `b`, included in `ux_a` (and a key column
+        // of `ix_new`).
+        (
+            "included",
+            vec![("id", old(4)), ("ve", floats(&[9.0, 9.0]))],
+        ),
+        (
+            "included b",
+            vec![
+                ("id", Value::I64(current(33))),
+                ("b", Value::Bool(current(33) % 2 == 1)),
+            ],
+        ),
+        // A key column of `ix_n`, in an older row and in a row of the current version (a fixed-width patch).
+        ("key", vec![("id", old(5)), ("n", Value::I32(4))]),
+        (
+            "key, current version",
+            vec![
+                ("id", Value::I64(current(35))),
+                ("n", Value::I32(2)),
+                ("a", Value::I64(100 + current(35))),
+            ],
+        ),
+        // A text that is a key column of `ix_ms` and included in `ix_n`.
+        ("text", vec![("id", old(6)), ("s", text("changed"))]),
+    ];
+    for (what, row) in updates {
+        assert!(write.update_row(table, &row).unwrap(), "{what}");
+        assert_in_step(write, table, what);
+    }
+    // An identical update, and an update of a row that is not there.
+    let identical = [("id", old(7)), ("n", Value::I32(2))];
+    assert!(write.update_row(table, &identical).unwrap());
+    let missing = [("id", Value::I64(99)), ("n", Value::I32(1))];
+    assert!(!write.update_row(table, &missing).unwrap());
+    assert_in_step(write, table, "identical and missing");
+    let mut upserted = member(8 + 20 * round);
+    upserted[3].1 = text("upserted");
+    upserted[2].1 = Value::Null;
+    assert_eq!(
+        write.upsert_row(table, &upserted).unwrap(),
+        Upserted::Updated
+    );
+    let inserted = write.upsert_row(table, &member(new(50))).unwrap();
+    assert_eq!(inserted, Upserted::Inserted);
+    assert_in_step(write, table, "upsert");
+    assert!(write.delete_row(table, &[old(9)]).unwrap());
+    assert!(!write.delete_row(table, &[Value::I64(99)]).unwrap());
+    assert_in_step(write, table, "delete");
+    let range = old(10)..old(20);
+    assert_eq!(write.delete_range(table, &[], range).unwrap(), 10);
+    assert_eq!(
+        write.delete_range(table, &[], Value::I64(300)..).unwrap(),
+        0
+    );
+    assert_in_step(write, table, "delete range");
+}
+
+/// AC-IX2 (IX7, N7, G1): with several indexes, one of them created in the same write, insert, update (giving only
+/// columns of no index, only an included one, and a key column, also on rows of an older schema version), insert or
+/// update, delete, range delete and bulk load each leave every index with exactly the entries of the table's rows,
+/// in the write and after it commits; rows with nulls in a unique index's key do not collide.
+#[test]
+fn ac_ix2_every_row_write_keeps_the_indexes_in_step() {
+    stores(|store, _| {
+        kept(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        every_row_write(&mut write, &table, true, 0);
+        write.commit().unwrap();
+        assert_read_in_step(store);
+        // A second write, on the indexes as committed.
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        every_row_write(&mut write, &table, false, 1);
+        write.commit().unwrap();
+        assert_read_in_step(store);
+
+        // A bulk load, out of key order, with nulls in the unique index's key.
+        let rows: Vec<Row> = [70, 64, 68, 61, 66]
+            .into_iter()
+            .map(|id| {
+                let mut row = member(id);
+                if id % 2 == 0 {
+                    row[4].1 = Value::Null;
+                }
+                row
+            })
+            .collect();
+        let loaded = store
+            .bulk_load("t", rows.into_iter().map(Ok::<_, Infallible>))
+            .unwrap();
+        assert_eq!(loaded, 5);
+        assert_read_in_step(store);
+        let nulls = read_entries(store, "ux_a")
+            .into_iter()
+            .filter(|entry| entry.key == [Value::Null])
+            .count();
+        assert_eq!(nulls, 2 + 2 + 4, "two of each write, four of the load");
+    });
+}
+
+/// AC-IX2 (G1): a write that aborts and one that a crash of the process interrupts leave the indexes with the
+/// entries of the last committed rows, in step with them after reopening.
+#[test]
+fn ac_ix2_an_abort_and_a_crash_keep_the_indexes_of_the_last_commit() {
+    let source = Run::begin();
+    let store = open(source.path());
+    kept(&store);
+    let committed = snapshot(&store);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    every_row_write(&mut write, &table, true, 0);
+    write.abort();
+    assert_eq!(snapshot(&store), committed, "aborted");
+
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    every_row_write(&mut write, &table, true, 0);
+    write.commit().unwrap();
+    let committed = snapshot(&store);
+    // A write that the crash interrupts before its commit.
+    let mut pending = store.write().unwrap();
+    let table = pending.open_table("t").unwrap();
+    every_row_write(&mut pending, &table, false, 1);
+    let run = Run::finish(source, Vec::new());
+    drop(pending);
+    drop(store);
+    let killed = run.killed();
+    let store = open(killed.path());
+    assert_eq!(snapshot(&store), committed, "after the crash");
+    assert_read_in_step(&store);
+}
+
+/// The row `id` of [`uniques`]: `n` and `m` are `id`, `s` is `s{id}`, `a` is 10 · `id` and `b` is true.
+fn unique_row(id: i64) -> Row {
+    let small = Value::I32(i32::try_from(id).unwrap());
+    vec![
+        ("id", Value::I64(id)),
+        ("n", small.clone()),
+        ("m", small),
+        ("s", text(&format!("s{id}"))),
+        ("a", Value::I64(10 * id)),
+        ("b", Value::Bool(true)),
+    ]
+}
+
+/// The table `t` of [`people`] with the rows 1 to 5 of [`unique_row`] and the indexes `u_a` (unique on `a`), `u_m`
+/// (unique on `m`), `u_nb` (unique on `n` and `b`), `u_s` (unique on `s`) and `x_s` (`s` descending), committed; and
+/// the sequence `seq` with 3 values handed out.
+fn uniques(store: &Store) {
+    commit_people(store, &(1..=5).map(unique_row).collect::<Vec<_>>());
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for definition in [
+        index("u_a", &[key("a")]).unique(),
+        index("u_m", &[key("m")]).unique(),
+        index("u_nb", &[key("n"), key("b")]).unique(),
+        index("u_s", &[key("s")]).unique(),
+        index("x_s", &[key("s").descending()]),
+    ] {
+        write
+            .create_index(&table, &definition, IndexMode::CreateNew)
+            .unwrap();
+    }
+    let sequence = write
+        .open_sequence_with("seq", SequenceMode::CreateNew(None))
+        .unwrap();
+    for _ in 0..3 {
+        write.next_value(&sequence).unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// A new row `id` of [`uniques`] that repeats no unique index, with the columns `changes` replaced.
+fn new_row(id: i64, changes: &[(&'static str, Value<'static>)]) -> Row {
+    let mut row = unique_row(id);
+    for (name, value) in changes {
+        row.iter_mut().find(|(n, _)| n == name).unwrap().1 = value.clone();
+    }
+    row
+}
+
+/// A text whose entry in an index on `s` of [`people`], whose primary key is `id i64`, has 2,048 bytes ascending and
+/// 2,049 descending, whose element ends a text with `00 01` (document 3).
+fn at_the_limit() -> Value<'static> {
+    text(&"y".repeat(2044))
+}
+
+/// Everything a failed row write must leave as it was in `write`: the rows, the entries of each index and the row
+/// count of `t`.
+#[allow(clippy::type_complexity)]
+fn table_state(
+    write: &WriteTransaction<'_>,
+    table: &WriteTable<'_>,
+) -> (
+    Vec<Vec<(String, Value<'static>)>>,
+    Vec<Vec<IndexEntry>>,
+    u64,
+) {
+    (
+        rows_of(write, table),
+        all_entries(write, table),
+        write.row_count(table).unwrap(),
+    )
+}
+
+/// The data of the duplicate key of the unique index `index` of `t` repeating `values`, for the row `key`.
+fn index_duplicate(
+    index: &str,
+    key: &str,
+    values: &str,
+) -> (String, String, Option<String>, Option<String>) {
+    ("t".to_owned(), key.to_owned(), some(index), some(values))
+}
+
+/// The data of an entry of `x_s` of `t` that is too large, with a text at the limit.
+fn x_s_too_large() -> (String, String, u64) {
+    ("t".to_owned(), "x_s".to_owned(), 2049)
+}
+
+/// AC-IX6 (IX7, IX10): inserting, updating and inserting or updating a row that repeats, without nulls, the values
+/// of each unique index in turn fails without effect with a duplicate key, with the table, the primary key of the row
+/// it saves, the index and the repeated values; a row whose entry is too large, by a text at the limit that fits in
+/// an ascending index and not in a descending one, fails with its size and data; in every case the rows, the indexes
+/// and the row count stay as they were, and the write commits its other changes.
+#[test]
+fn ac_ix6_a_row_that_repeats_a_unique_index_fails_without_effect() {
+    stores(|store, folder| {
+        uniques(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let before = table_state(&write, &table);
+        let others = [
+            ("n", Value::I32(90)),
+            ("m", Value::I32(90)),
+            ("a", Value::I64(900)),
+            ("s", text("s90")),
+        ];
+        let repeating = |column: &'static str, value: Value<'static>| -> Row {
+            let mut changes = others.to_vec();
+            changes.retain(|(name, _)| *name != column);
+            changes.push((column, value));
+            new_row(9, &changes)
+        };
+        let inserts = [
+            (
+                repeating("a", Value::I64(10)),
+                index_duplicate("u_a", "(9)", "(10)"),
+            ),
+            (
+                repeating("m", Value::I32(2)),
+                index_duplicate("u_m", "(9)", "(2)"),
+            ),
+            (
+                repeating("n", Value::I32(3)),
+                index_duplicate("u_nb", "(9)", "(3, true)"),
+            ),
+            (
+                repeating("s", text("s1")),
+                index_duplicate("u_s", "(9)", "(\"s1\")"),
+            ),
+        ];
+        for (row, expected) in inserts {
+            let error = write.insert_row(&table, &row).unwrap_err();
+            assert_eq!(duplicate(error, folder), expected, "insert");
+            assert_eq!(
+                write.upsert_row(&table, &row).map(drop).unwrap_err().kind(),
+                ErrorKind::DuplicateKey
+            );
+            assert_eq!(
+                table_state(&write, &table),
+                before,
+                "insert into {:?}",
+                expected.2
+            );
+        }
+        let updates: [(Row, _); 4] = [
+            (
+                vec![("id", Value::I64(5)), ("a", Value::I64(10))],
+                index_duplicate("u_a", "(5)", "(10)"),
+            ),
+            (
+                vec![("id", Value::I64(5)), ("m", Value::I32(1))],
+                index_duplicate("u_m", "(5)", "(1)"),
+            ),
+            (
+                vec![("id", Value::I64(5)), ("n", Value::I32(2))],
+                index_duplicate("u_nb", "(5)", "(2, true)"),
+            ),
+            (
+                vec![("id", Value::I64(5)), ("s", text("s4"))],
+                index_duplicate("u_s", "(5)", "(\"s4\")"),
+            ),
+        ];
+        for (row, expected) in updates {
+            let error = write.update_row(&table, &row).unwrap_err();
+            assert_eq!(duplicate(error, folder), expected, "update");
+            let error = write.upsert_row(&table, &row).unwrap_err();
+            assert_eq!(duplicate(error, folder), expected, "upsert");
+            assert_eq!(
+                table_state(&write, &table),
+                before,
+                "update of {:?}",
+                expected.2
+            );
+        }
+        // A text at the limit fits in `u_s`, ascending, and not in `x_s`, descending.
+        let long = repeating("s", at_the_limit());
+        let error = write.insert_row(&table, &long).unwrap_err();
+        assert_eq!(entry_too_large(error, folder), x_s_too_large(), "insert");
+        let long = [("id", Value::I64(5)), ("s", at_the_limit())];
+        let error = write.update_row(&table, &long).unwrap_err();
+        assert_eq!(entry_too_large(error, folder), x_s_too_large(), "update");
+        let error = write.upsert_row(&table, &long).unwrap_err();
+        assert_eq!(entry_too_large(error, folder), x_s_too_large(), "upsert");
+        assert_eq!(table_state(&write, &table), before, "too large");
+        // A row that moves the unique values of its own entries to free ones, and the write commits its changes.
+        write.insert_row(&table, &new_row(6, &[])).unwrap();
+        let moved = [
+            ("id", Value::I64(5)),
+            ("a", Value::I64(500)),
+            ("m", Value::I32(50)),
+        ];
+        assert!(write.update_row(&table, &moved).unwrap());
+        write
+            .insert_row(&table, &new_row(7, &[("a", Value::I64(50))]))
+            .unwrap();
+        write.commit().unwrap();
+        assert_read_in_step(store);
+        let read = store.read().unwrap();
+        assert_eq!(read.row_count(&read.open_table("t").unwrap()).unwrap(), 7);
+    });
+}
+
+/// AC-IX9 (IX10), the pairs that happen when saving a row: an entry too large and a duplicate (the size); the primary
+/// key and an index repeated (the primary key, with no index); and two indexes repeated (the first by its name).
+#[test]
+fn ac_ix9_the_precedence_of_the_failures_when_saving_a_row() {
+    stores(|store, folder| {
+        uniques(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let before = table_state(&write, &table);
+        // Too large in `x_s`, and repeating `u_a` and `u_m`.
+        let long = new_row(
+            9,
+            &[
+                ("n", Value::I32(90)),
+                ("a", Value::I64(10)),
+                ("m", Value::I32(2)),
+                ("s", at_the_limit()),
+            ],
+        );
+        let error = write.insert_row(&table, &long).unwrap_err();
+        assert_eq!(entry_too_large(error, folder), x_s_too_large(), "insert");
+        let long = [
+            ("id", Value::I64(5)),
+            ("a", Value::I64(10)),
+            ("s", at_the_limit()),
+        ];
+        let error = write.update_row(&table, &long).unwrap_err();
+        assert_eq!(entry_too_large(error, folder), x_s_too_large(), "update");
+        // The primary key and `u_m` repeated.
+        let row = new_row(
+            1,
+            &[
+                ("m", Value::I32(2)),
+                ("a", Value::I64(900)),
+                ("s", text("s90")),
+            ],
+        );
+        let error = write.insert_row(&table, &row).unwrap_err();
+        assert_eq!(
+            duplicate(error, folder),
+            ("t".to_owned(), "(1)".to_owned(), None, None)
+        );
+        // `u_m` and `u_nb` repeated, with `u_s` too: the first by its name.
+        let two = new_row(
+            9,
+            &[
+                ("a", Value::I64(900)),
+                ("m", Value::I32(2)),
+                ("n", Value::I32(3)),
+                ("s", text("s4")),
+            ],
+        );
+        let error = write.insert_row(&table, &two).unwrap_err();
+        assert_eq!(
+            duplicate(error, folder),
+            index_duplicate("u_m", "(9)", "(2)")
+        );
+        let two = [
+            ("id", Value::I64(5)),
+            ("n", Value::I32(3)),
+            ("s", text("s4")),
+        ];
+        let error = write.update_row(&table, &two).unwrap_err();
+        assert_eq!(
+            duplicate(error, folder),
+            index_duplicate("u_nb", "(5)", "(3, true)")
+        );
+        assert_eq!(table_state(&write, &table), before);
+        write.commit().unwrap();
+    });
+}
+
+/// What a bulk load that fails must leave as it was: the rows and the index entries of `t`, and the next value of
+/// `seq`, taken in a write that aborts.
+#[allow(clippy::type_complexity)]
+fn load_state(
+    store: &Store,
+) -> (
+    (
+        Vec<Vec<(String, Value<'static>)>>,
+        Vec<(String, Vec<IndexEntry>)>,
+    ),
+    i64,
+) {
+    let mut write = store.write_with_timeout(Duration::ZERO).unwrap();
+    let sequence = write.open_sequence("seq").unwrap();
+    let next = write.next_value(&sequence).unwrap();
+    write.abort();
+    (snapshot(store), next)
+}
+
+/// The engine's error of a bulk load that fails.
+#[track_caller]
+fn load_error<E: std::fmt::Debug>(outcome: Result<u64, BulkLoadError<E>>) -> Error {
+    match outcome {
+        Err(BulkLoadError::Store(error)) => error,
+        other => panic!("expected an error of the engine, got {other:?}"),
+    }
+}
+
+/// AC-IX8 (E13, IX7): a bulk load into a table with indexes that has, before its end, a row that collides in a
+/// unique index with a row of the table or with an earlier row of the same load, a row whose entry is too large, a
+/// failing last row, a failing source, a cancellation or a panic, leaves the table, its indexes, its row count and
+/// the sequences as they were, and the next write gets its turn at once.
+#[test]
+fn ac_ix8_a_bulk_load_that_fails_leaves_the_table_and_its_indexes_as_before() {
+    stores(|store, folder| {
+        uniques(store);
+        let before = load_state(store);
+        let load = |rows: Vec<Row>| store.bulk_load("t", rows.into_iter().map(Ok::<_, Infallible>));
+        let failures = [
+            // `u_a` with the row 1 of the table.
+            (
+                vec![
+                    new_row(10, &[]),
+                    new_row(11, &[("a", Value::I64(10))]),
+                    new_row(12, &[]),
+                ],
+                index_duplicate("u_a", "(11)", "(10)"),
+            ),
+            // `u_m` with the row 12 of the same load, the first row of the load that collides.
+            (
+                vec![
+                    new_row(12, &[]),
+                    new_row(10, &[]),
+                    new_row(11, &[("m", Value::I32(12))]),
+                    new_row(13, &[("m", Value::I32(10))]),
+                ],
+                index_duplicate("u_m", "(11)", "(12)"),
+            ),
+            // The last row, with the row 12 of the load.
+            (
+                vec![
+                    new_row(12, &[]),
+                    new_row(10, &[]),
+                    new_row(11, &[("a", Value::I64(120))]),
+                ],
+                index_duplicate("u_a", "(11)", "(120)"),
+            ),
+        ];
+        for (rows, expected) in failures {
+            assert_eq!(duplicate(load_error(load(rows)), folder), expected);
+            assert_eq!(load_state(store), before, "{expected:?}");
+        }
+        let rows = vec![
+            new_row(10, &[]),
+            new_row(11, &[("s", at_the_limit())]),
+            new_row(12, &[]),
+        ];
+        assert_eq!(
+            entry_too_large(load_error(load(rows)), folder),
+            x_s_too_large()
+        );
+        assert_eq!(load_state(store), before, "too large");
+        // A failing source, which is also how the application cancels a load.
+        let rows = [Ok(new_row(10, &[])), Ok(new_row(11, &[])), Err("cancelled")];
+        match store.bulk_load("t", rows) {
+            Err(BulkLoadError::Source(stop)) => assert_eq!(stop, "cancelled"),
+            other => panic!("expected the source's error, got {other:?}"),
+        }
+        assert_eq!(load_state(store), before, "source");
+        let source = [new_row(10, &[]), new_row(11, &[])]
+            .into_iter()
+            .map(Ok::<_, Infallible>)
+            .chain(std::iter::from_fn(|| panic!("the source panicked")));
+        let outcome = catch_unwind(AssertUnwindSafe(|| store.bulk_load("t", source)));
+        assert!(outcome.is_err());
+        assert_eq!(load_state(store), before, "panic");
+    });
+}
+
+/// AC-IX8 (AC10 of 7.1, AC-N3): 100,000 rows loaded out of key order into a table with indexes give the table those
+/// rows and each index exactly their entries, in the order of N5: what inserting them one by one gives, since each
+/// insert keeps the indexes in step with the rows (AC-IX2). The indexes are not unique, which keeps the test short in
+/// debug builds: the probes of unique indexes in loads are in the other tests of AC-IX8 and in AC-IX2.
+#[test]
+fn ac_ix8_a_bulk_load_out_of_order_gives_the_entries_of_inserts_one_by_one() {
+    let mut ids: Vec<i64> = (0..100_000).collect();
+    Lcg(11).shuffle(&mut ids);
+    let row = |id: i64| -> Row {
+        vec![
+            ("id", Value::I64(id)),
+            ("n", Value::I32(i32::try_from(id % 1000).unwrap())),
+            ("s", text(&format!("{}", id * 7919 % 100_003))),
+            ("a", Value::I64(-id)),
+        ]
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    commit_people(&store, &[]);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for definition in [
+        index("ix_n", &[key("n").descending()]).with_included(&["s"]),
+        index("ix_a", &[key("a")]),
+    ] {
+        write
+            .create_index(&table, &definition, IndexMode::CreateNew)
+            .unwrap();
+    }
+    write.commit().unwrap();
+    let rows = ids.iter().map(|&id| Ok::<_, Infallible>(row(id)));
+    assert_eq!(store.bulk_load("t", rows).unwrap(), 100_000);
+    let (rows, _) = snapshot(&store);
+    let found: Vec<&Value<'static>> = rows.iter().map(|row| &row[0].1).collect();
+    let expected: Vec<Value<'static>> = (0..100_000).map(Value::I64).collect();
+    assert!(
+        found.iter().copied().eq(expected.iter()),
+        "every row, in key order"
+    );
+    assert_read_in_step(&store);
+}
+
+/// IX5 and N7: allowing nulls in a column of a unique index, then storing rows with a null there, keeps the nulls
+/// order of the index's column, and the nulls never collide.
+#[test]
+fn allowing_nulls_in_an_index_column_then_storing_nulls() {
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("k", ColumnType::I32).not_null(),
+            ],
+            &["id"],
+        );
+        let row = |id: i64, k: Option<i32>| {
+            [
+                ("id", Value::I64(id)),
+                ("k", k.map_or(Value::Null, Value::I32)),
+            ]
+        };
+        let mut write = store.write().unwrap();
+        let table = create_table(&mut write, "t", &schema);
+        for id in 1..=3 {
+            write
+                .insert_row(&table, &row(id, Some(i32::try_from(id).unwrap())))
+                .unwrap();
+        }
+        let definition = index("u_k", &[key("k").nulls_last()]).unique();
+        write
+            .create_index(&table, &definition, IndexMode::CreateNew)
+            .unwrap();
+        write.commit().unwrap();
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write
+            .modify_column(&table, "k", ColumnType::I32, true)
+            .unwrap();
+        for id in [5, 4] {
+            write.insert_row(&table, &row(id, None)).unwrap();
+        }
+        assert!(write.update_row(&table, &row(2, None)).unwrap());
+        let found: Vec<(Vec<Value<'static>>, Vec<Value<'static>>)> = entries(&write, &table, "u_k")
+            .into_iter()
+            .map(|entry| (entry.key, entry.primary_key))
+            .collect();
+        let null = |id| (vec![Value::Null], vec![Value::I64(id)]);
+        let value = |k, id| (vec![Value::I32(k)], vec![Value::I64(id)]);
+        assert_eq!(found, [value(1, 1), value(3, 3), null(2), null(4), null(5)]);
+        write.commit().unwrap();
+    });
+}
+
+/// IX5 (E5): dropping a column that is only among the included columns of an index fails without effect with the
+/// rule of dropping a key column, naming the index.
+#[test]
+fn dropping_an_included_column_fails_naming_its_index() {
+    stores(|store, folder| {
+        kept(store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let before = write.table_schema(&table).unwrap();
+        // `b` is only included, in `ux_a`.
+        let error = write.drop_column(&table, "b").unwrap_err();
+        assert_eq!(
+            invalid_schema(error, folder),
+            (
+                "t".to_owned(),
+                some("ux_a"),
+                some("b"),
+                SchemaRule::DropKeyColumn
+            )
+        );
+        assert_eq!(write.table_schema(&table).unwrap(), before, "no effect");
+        write.commit().unwrap();
+    });
 }

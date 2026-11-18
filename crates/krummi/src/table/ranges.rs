@@ -158,7 +158,7 @@ impl<'t, S: PageSource + ?Sized> Scan<'t, S> {
 }
 
 /// The tree's interval of the byte bounds of `range`, which fold the prefix in.
-fn interval(range: &KeyRange) -> Interval<'_> {
+pub(super) fn interval(range: &KeyRange) -> Interval<'_> {
     let (lower, upper) = range.bounds();
     Interval {
         prefix: &[],
@@ -279,7 +279,10 @@ impl WriteTransaction<'_> {
 
     /// Deletes the rows of a range of `table`, given as for [`range_rows`](Self::range_rows) and with its failures,
     /// and returns how many it deleted (E12). A range without rows changes nothing (E16); the pages that the deleted
-    /// rows no longer use are freed.
+    /// rows no longer use are freed. In a table with indexes it reads the rows, without checking their content, to
+    /// remove their entries (IX7, IX12): it fails with the damage that the reads keep, and with damage of an index page
+    /// where an entry it must remove is not, also after removing part of the range (T11); and a panic while it reads a
+    /// malformed row, once it removed part of the range, leaves the write unable to commit.
     pub fn delete_range<'v>(
         &mut self,
         table: &WriteTable<'_>,
@@ -294,6 +297,9 @@ impl WriteTransaction<'_> {
             bounds.start_bound(),
             bounds.end_bound(),
         )?;
+        if let Some(indexes) = self.maintained(table) {
+            return self.delete_indexed_range(table, &reader, &indexes, &range);
+        }
         let update = krummi_tree::remove_range(&mut self.inner, rows_root, interval(&range))?;
         self.apply_rows(table, update.root, RowCount::Removed(update.removed))?;
         Ok(update.removed)

@@ -99,8 +99,8 @@ use krummi_tree::catalog::MAX_EXTRA;
 use krummi_tree::{Interval, LastLeaf, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
-use super::index_key::{decode_entry, encode_entry, entry_len, index_key_len};
-use super::key::{Direction, KeyColumn, MAX_KEY, Nulls};
+use super::index_key::{decode_entry, encode_entry, entry_len, index_key_len, uniqueness_range};
+use super::key::{Direction, KeyColumn, KeyRange, MAX_KEY, Nulls};
 use super::row::{MAX_ROW, RowColumn, RowLayout};
 use super::rows::{At, Reader, Versions};
 use super::schema::{Different, Invalid, TableSchema};
@@ -486,14 +486,97 @@ impl EntryLayout {
             None => ("(?)".to_owned(), "(?)".to_owned()),
         }
     }
+
+    /// The values of the key columns of a row whose live column at place `i`, in schema order, has `value(i)`.
+    fn key_values<'v>(&self, value: &impl Fn(usize) -> Value<'v>) -> Vec<Value<'v>> {
+        self.key_places.iter().map(|&i| value(i)).collect()
+    }
+
+    /// The entry of the row whose live column at place `i`, in schema order, has `value(i)` and whose encoded primary
+    /// key is `primary`, with the values a read of the row gives (E11). Fails with [`TooLarge::Entry`] for an entry
+    /// over the maximum of a key (IX10), then with [`TooLarge::Included`] for included columns over the maximum of a
+    /// row: defaults added after a row was written can give it, and so can a row near the maximum, whose included
+    /// columns each take a null flag that the row may not have.
+    ///
+    /// # Panics
+    ///
+    /// For a value its key column cannot hold, which only a malformed row gives (IX12, L2).
+    pub(super) fn entry<'v>(
+        &self,
+        value: impl Fn(usize) -> Value<'v>,
+        primary: &[u8],
+    ) -> std::result::Result<RowEntry, TooLarge> {
+        let index_values = self.key_values(&value);
+        let len = entry_len(&self.key, &index_values, primary);
+        if len > MAX_KEY {
+            return Err(TooLarge::Entry(len));
+        }
+        let entry_value = match &self.included {
+            None => Vec::new(),
+            Some(included) => {
+                let values: Vec<Value<'v>> =
+                    self.included_places.iter().map(|&i| value(i)).collect();
+                let len = included.encoded_len(&values);
+                if len > MAX_ROW {
+                    return Err(TooLarge::Included(len));
+                }
+                included.encode(&values)
+            }
+        };
+        let has_null = index_values.iter().any(|v| matches!(v, Value::Null));
+        let prefix = (!has_null).then(|| index_key_len(&self.key, &index_values));
+        Ok(RowEntry {
+            key: self.encode(&index_values, primary),
+            prefix,
+            value: entry_value,
+        })
+    }
+
+    /// The key of the entry of a stored row, as [`EntryLayout::entry`] gives it, to remove the entry.
+    ///
+    /// # Panics
+    ///
+    /// For a value its key column cannot hold or an entry over the maximum of a key, which only a malformed row gives
+    /// (IX12, L2).
+    pub(super) fn entry_key<'v>(
+        &self,
+        value: impl Fn(usize) -> Value<'v>,
+        primary: &[u8],
+    ) -> Vec<u8> {
+        self.encode(&self.key_values(&value), primary)
+    }
+
+    fn encode(&self, index_values: &[Value<'_>], primary: &[u8]) -> Vec<u8> {
+        encode_entry(&self.key, index_values, primary).unwrap_or_else(|_| {
+            panic!("a malformed row gives a value its index column cannot hold")
+        })
+    }
+
+    /// The entries that collide with `key`, the entry of the row whose live column at place `i` has `value(i)`, in a
+    /// unique index (document 3, *Unique index*); `None` when one of its key columns is null (N7).
+    pub(super) fn collisions<'v>(
+        &self,
+        value: impl Fn(usize) -> Value<'v>,
+        key: &[u8],
+    ) -> Option<KeyRange> {
+        uniqueness_range(&self.key, &self.key_values(&value), key)
+    }
 }
 
-/// An entry of an index being created: its key, the length of its uniqueness prefix (the key columns; `None` when one
-/// of them is null, since such an entry never collides, N7) and its value.
-struct SortEntry {
-    key: Vec<u8>,
-    prefix: Option<usize>,
-    value: Vec<u8>,
+/// The entry of a row in an index: its key, the length of its uniqueness prefix (the key columns; `None` when one of
+/// them is null, since such an entry never collides, N7) and its value.
+pub(super) struct RowEntry {
+    pub(super) key: Vec<u8>,
+    pub(super) prefix: Option<usize>,
+    pub(super) value: Vec<u8>,
+}
+
+/// What of an entry passes its maximum, with the size it has (IX10).
+pub(super) enum TooLarge {
+    /// The entry's key: its key columns and the primary key, over the maximum of a key.
+    Entry(usize),
+    /// Its included columns, over the maximum of a row.
+    Included(usize),
 }
 
 /// Sorts the entries of an index being created by their keys (IX2, H15). This version keeps them in memory only; the
@@ -501,19 +584,19 @@ struct SortEntry {
 /// secondary indexes execution).
 #[derive(Default)]
 struct Sorter {
-    entries: Vec<SortEntry>,
+    entries: Vec<RowEntry>,
 }
 
 impl Sorter {
     /// Adds `entry`; running out of memory fails with the transaction's out-of-memory failure (P13, T11).
-    fn push<S: PageSource + ?Sized>(&mut self, tx: &S, entry: SortEntry) -> Result<()> {
+    fn push<S: PageSource + ?Sized>(&mut self, tx: &S, entry: RowEntry) -> Result<()> {
         krummi_tree::reserve(tx, &mut self.entries, 1)?;
         self.entries.push(entry);
         Ok(())
     }
 
     /// The entries in the order of their keys, which are distinct: each ends with its row's primary key.
-    fn sorted(mut self) -> Vec<SortEntry> {
+    fn sorted(mut self) -> Vec<RowEntry> {
         self.entries.sort_unstable_by(|a, b| a.key.cmp(&b.key));
         self.entries
     }
@@ -546,16 +629,41 @@ impl Folder<'_> {
         }
     }
 
-    /// The error of an entry of `received` bytes, over the maximum of a key (IX10).
-    fn entry_too_large(self, table: &str, index: &str, received: usize) -> Error {
-        Error::InvalidSize {
+    /// The error of an entry of the index `index` of `table` that passes its maximum (IX10): its key, with the
+    /// index-entry subject, or its included columns, with the size of a row.
+    pub(super) fn entry_too_large(self, table: &str, index: &str, fault: TooLarge) -> Error {
+        match fault {
+            TooLarge::Entry(received) => Error::InvalidSize {
+                folder: self.owned(),
+                what: SizeSubject::IndexEntry,
+                received: received as u64,
+                min: 1,
+                max: MAX_KEY as u64,
+                table: Some(table.into()),
+                index: Some(index.into()),
+            },
+            TooLarge::Included(len) => self
+                .check_size(SizeSubject::Row, len, 0, MAX_ROW)
+                .expect_err("over the maximum of a row"),
+        }
+    }
+
+    /// The duplicate key of the entry `key` of the unique index `index` of `table`, whose layout is `layout` (IX10):
+    /// the values of its key columns and its primary key, the row's that repeats them.
+    pub(super) fn index_duplicate(
+        self,
+        table: &str,
+        index: &str,
+        layout: &EntryLayout,
+        key: &[u8],
+    ) -> Error {
+        let (index_key, primary) = layout.key_texts(key);
+        Error::DuplicateKey {
             folder: self.owned(),
-            what: SizeSubject::IndexEntry,
-            received: received as u64,
-            min: 1,
-            max: MAX_KEY as u64,
-            table: Some(table.into()),
+            table: table.to_owned(),
+            key: primary,
             index: Some(index.into()),
+            index_key: Some(index_key.into()),
         }
     }
 }
@@ -615,6 +723,7 @@ impl WriteTransaction<'_> {
             .schema
             .add_index(SchemaIndex { id, ..build.index }, index_state);
         state.index_roots.insert(at, root);
+        state.maintained = None;
         state.history = history;
         self.write_table_entry(table.id)
     }
@@ -644,6 +753,7 @@ impl WriteTransaction<'_> {
         let at = state.schema.index_position(name).expect("found above");
         state.schema.remove_index(at, index_state);
         state.index_roots.remove(at);
+        state.maintained = None;
         state.history = history;
         self.write_table_entry(table.id)
     }
@@ -690,7 +800,7 @@ impl WriteTransaction<'_> {
     ///
     /// The rows are read as a scan reads them, without checking their content (L1, IX12): a malformed row may give
     /// values that are not the written ones, or panic, before anything changes.
-    fn sorted_entries(&self, build: &Build) -> Result<Vec<SortEntry>> {
+    fn sorted_entries(&self, build: &Build) -> Result<Vec<RowEntry>> {
         let layout = &build.layout;
         let at = At {
             name: &build.table,
@@ -718,43 +828,16 @@ impl WriteTransaction<'_> {
             if too_large.is_some() {
                 continue;
             }
-            let values = |places: &[usize]| {
-                (places.iter())
-                    .map(|&i| row.value(i).expect("a live column"))
-                    .collect::<Vec<_>>()
-            };
-            let index_values = values(&layout.key_places);
-            let len = entry_len(&layout.key, &index_values, key);
-            if len > MAX_KEY {
-                too_large = Some(
-                    self.folder
-                        .entry_too_large(&build.table, &build.index.name, len),
-                );
-                continue;
-            }
-            let value = match &layout.included {
-                None => Vec::new(),
-                Some(included) => {
-                    let values = values(&layout.included_places);
-                    // Only defaults added after a row was written can make its columns pass a row's maximum.
-                    let len = included.encoded_len(&values);
-                    if len > MAX_ROW {
-                        too_large = Some(
-                            self.folder
-                                .check_size(SizeSubject::Row, len, 0, MAX_ROW)
-                                .expect_err("over the maximum of a row"),
-                        );
-                        continue;
-                    }
-                    included.encode(&values)
+            match layout.entry(|i| row.value(i).expect("a live column"), key) {
+                Ok(entry) => sorter.push(&self.inner, entry)?,
+                Err(fault) => {
+                    too_large = Some(self.folder.entry_too_large(
+                        &build.table,
+                        &build.index.name,
+                        fault,
+                    ));
                 }
-            };
-            let has_null = index_values.iter().any(|v| matches!(v, Value::Null));
-            let prefix = (!has_null).then(|| index_key_len(&layout.key, &index_values));
-            let key = encode_entry(&layout.key, &index_values, key).unwrap_or_else(|_| {
-                panic!("a malformed row gives a value its index column cannot hold")
-            });
-            sorter.push(&self.inner, SortEntry { key, prefix, value })?;
+            }
         }
         if let Some(error) = too_large {
             return Err(error);
@@ -769,21 +852,19 @@ impl WriteTransaction<'_> {
     /// Fails with [`Error::DuplicateKey`] when two of the sorted `entries` of the unique index of `build` have the same
     /// key columns, none of them null (N7): the first two, which are neighbours in the index's order, with the primary
     /// key of the second. Their key columns are compared whole, never as a byte prefix (document 3).
-    fn check_unique(&self, build: &Build, entries: &[SortEntry]) -> Result<()> {
+    fn check_unique(&self, build: &Build, entries: &[RowEntry]) -> Result<()> {
         for pair in entries.windows(2) {
             let (first, second) = (&pair[0], &pair[1]);
             let (Some(a), Some(b)) = (first.prefix, second.prefix) else {
                 continue;
             };
             if first.key[..a] == second.key[..b] {
-                let (index_key, key) = build.layout.key_texts(&second.key);
-                return Err(Error::DuplicateKey {
-                    folder: self.folder.owned(),
-                    table: build.table.clone(),
-                    key,
-                    index: Some(build.index.name.as_str().into()),
-                    index_key: Some(index_key.into()),
-                });
+                return Err(self.folder.index_duplicate(
+                    &build.table,
+                    &build.index.name,
+                    &build.layout,
+                    &second.key,
+                ));
             }
         }
         Ok(())
@@ -791,7 +872,7 @@ impl WriteTransaction<'_> {
 
     /// Writes the sorted `entries` into a new tree and returns its root: each goes to the end of the tree's last leaf
     /// while it fits there, so the tree is written in one pass.
-    fn write_index(&mut self, entries: Vec<SortEntry>) -> Result<u64> {
+    fn write_index(&mut self, entries: Vec<RowEntry>) -> Result<u64> {
         let mut root = krummi_tree::create(&mut self.inner)?;
         let mut last: Option<LastLeaf> = None;
         for entry in entries {

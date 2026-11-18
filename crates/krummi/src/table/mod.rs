@@ -14,6 +14,7 @@ mod index_key;
 #[cfg(test)]
 mod index_key_tests;
 pub mod key;
+mod maintain;
 #[cfg(test)]
 mod malformed_tests;
 pub mod projection;
