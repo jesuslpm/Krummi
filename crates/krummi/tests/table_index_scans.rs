@@ -142,23 +142,38 @@ fn model_scan(keys: &[ModelKey], rows: &[ModelRow], interval: &Interval) -> Vec<
     found.into_iter().map(|(_, id)| id).collect()
 }
 
+/// A row as the table reads it, for the model.
+fn model_row(row: &krummi::TableRow<'_>) -> ModelRow {
+    let Some(Value::I64(id)) = row.get("id") else {
+        panic!("an id");
+    };
+    let values = row
+        .columns()
+        .filter(|(name, _)| *name != "id")
+        .map(|(name, value)| (name.to_owned(), value.into_owned()))
+        .collect();
+    (id, values)
+}
+
 /// The rows of the table `table` as `rows` reads them, for the model.
 fn model_rows<'r>(
     rows: impl Iterator<Item = krummi::Result<krummi::TableRow<'r>>>,
 ) -> Vec<ModelRow> {
-    rows.map(|row| {
-        let row = row.unwrap();
-        let Some(Value::I64(id)) = row.get("id") else {
-            panic!("an id");
-        };
-        let values = row
-            .columns()
-            .filter(|(name, _)| *name != "id")
-            .map(|(name, value)| (name.to_owned(), value.into_owned()))
-            .collect();
-        (id, values)
-    })
-    .collect()
+    rows.map(|row| model_row(&row.unwrap())).collect()
+}
+
+/// Asserts that the row `found` has the columns and values, compared as [`same`] compares them, of the row of `rows`
+/// with its primary key; returns that key.
+#[track_caller]
+fn assert_row(rows: &[ModelRow], found: &ModelRow) -> i64 {
+    let (id, values) = found;
+    let expected = &(rows.iter().find(|row| row.0 == *id))
+        .unwrap_or_else(|| panic!("row {id} is not in the model"))
+        .1;
+    let equal = values.len() == expected.len()
+        && (values.iter().zip(expected)).all(|((a, x), (b, y))| a == b && same(x, y));
+    assert!(equal, "row {id}: {values:?}, expected {expected:?}");
+    *id
 }
 
 /// The primary key of an entry or a row.
@@ -170,7 +185,8 @@ fn id_of(value: Option<Value<'_>>) -> i64 {
 }
 
 /// The scans of an interval of an index in a read and in a write: entries and rows, forward and backward, as the
-/// primary keys of their rows, after checking that each entry's key columns are those of its row.
+/// primary keys of their rows, after checking that each entry's key columns are those of its row and that each row
+/// read has every column and value of its row in `rows`.
 macro_rules! scans {
     ($tx:expr, $table:expr, $index:expr, $keys:expr, $rows:expr, $interval:expr) => {{
         let (prefix, bounds) = $interval;
@@ -194,12 +210,12 @@ macro_rules! scans {
             .collect();
         let rows: Vec<i64> = ($tx.index_rows($table, $index, prefix, bounds.clone()))
             .unwrap()
-            .map(|row| id_of(row.unwrap().get("id")))
+            .map(|row| assert_row(&$rows, &model_row(&row.unwrap())))
             .collect();
         let rows_back: Vec<i64> = ($tx.index_rows($table, $index, prefix, bounds.clone()))
             .unwrap()
             .rev()
-            .map(|row| id_of(row.unwrap().get("id")))
+            .map(|row| assert_row(&$rows, &model_row(&row.unwrap())))
             .collect();
         (entries, back, rows, rows_back)
     }};
@@ -695,6 +711,25 @@ fn ac_ix4_a_prefix_that_does_not_fit_fails_with_its_size() {
             .unwrap()
             .count();
         assert_eq!(found, 0);
+        // A prefix with a bound of exactly 2,048 bytes, the lower one when it has two, scans too, also inverted.
+        let bounds = [
+            (Included(Value::I32(0)), Unbounded, 0),
+            (Unbounded, Excluded(Value::I32(0)), 0),
+            (Included(Value::I32(500)), Included(Value::I32(1)), 500),
+        ];
+        for (lower, upper, counted) in bounds {
+            let bounds = (lower, upper);
+            let prefix = [(1..2100)
+                .rev()
+                .map(long)
+                .find(|v| text_len(v) + i32_len(counted) <= 2048)
+                .unwrap()];
+            assert_eq!(text_len(&prefix[0]) + i32_len(counted), 2048);
+            let entries = read.index_entries(&table, "ix_s", &prefix, bounds.clone());
+            assert_eq!(entries.unwrap().count(), 0, "{bounds:?}");
+            let rows = read.index_rows(&table, "ix_s", &prefix, bounds.clone());
+            assert_eq!(rows.unwrap().count(), 0, "{bounds:?}");
+        }
     });
 }
 
@@ -961,7 +996,8 @@ fn random_intervals(
 /// AC-IX5 (IX7, IX8, IX9, N5, N7): over tables with random indexes of one to four columns, in every direction and
 /// null order, unique and not unique, random inserts, updates, inserts or updates and deletes give the duplicate keys
 /// of the model, and then each index scans, forward and backward, for entries and for rows, exactly the rows of the
-/// model in its order: the whole index and random intervals of it, in the write and after the commit.
+/// model in its order: the whole index and random intervals of it, in the write and after the commit. The model's rows
+/// come from the writes and their expected outcomes, never from the table under test.
 #[test]
 fn ac_ix5_random_indexes_follow_the_model_of_n5() {
     stores(|store, _| {
@@ -990,10 +1026,12 @@ fn ac_ix5_random_indexes_follow_the_model_of_n5() {
             let schema = write.table_schema(&table).unwrap();
             assert!(!schema.indexes().is_empty(), "round {round}");
             let mut duplicates = 0;
+            // The rows the writes leave, kept from the writes and their expected outcomes, never read from the table.
+            let mut model: BTreeMap<i64, BTreeMap<String, Value<'static>>> = BTreeMap::new();
             for _ in 0..150 {
-                let rows = write_rows(&write, &table);
+                let rows: Vec<ModelRow> = model.clone().into_iter().collect();
                 let id = (rng.next() % 24) as i64;
-                let existing = rows.iter().find(|row| row.0 == id).cloned();
+                let existing = model.get(&id).cloned().map(|values| (id, values));
                 match rng.next() % 5 {
                     // Insert, update and insert or update.
                     op @ 0..=2 => {
@@ -1033,7 +1071,12 @@ fn ac_ix5_random_indexes_follow_the_model_of_n5() {
                             },
                         };
                         match (outcome, expected) {
-                            (Ok(done), Ok(expected)) => assert_eq!(done, expected),
+                            (Ok(done), Ok(expected)) => {
+                                assert_eq!(done, expected);
+                                if done {
+                                    model.insert(id, merged);
+                                }
+                            }
                             (Err(error), Err(index)) => {
                                 index_duplicates += usize::from(index.is_some());
                                 assert_eq!(duplicate_index(error), index, "round {round}");
@@ -1047,17 +1090,24 @@ fn ac_ix5_random_indexes_follow_the_model_of_n5() {
                     3 => {
                         let deleted = write.delete_row(&table, &[Value::I64(id)]).unwrap();
                         assert_eq!(deleted, existing.is_some());
+                        model.remove(&id);
                     }
                     _ => {
                         let end = id + (rng.next() % 4) as i64;
                         write
                             .delete_range(&table, &[], Value::I64(id)..Value::I64(end))
                             .unwrap();
+                        model.retain(|key, _| !(id..end).contains(key));
                     }
                 }
             }
             assert!(duplicates > 0, "round {round}: some writes repeat a key");
-            let rows = write_rows(&write, &table);
+            let rows: Vec<ModelRow> = model.into_iter().collect();
+            let table_rows = write_rows(&write, &table);
+            assert_eq!(table_rows.len(), rows.len(), "round {round}");
+            for row in &table_rows {
+                assert_row(&rows, row);
+            }
             for index in schema.indexes() {
                 let keys = model_keys(&schema, &index.name);
                 let mut intervals = vec![(vec![], (Unbounded, Unbounded))];
@@ -1074,9 +1124,11 @@ fn ac_ix5_random_indexes_follow_the_model_of_n5() {
             let table = read.open_table(&name).unwrap();
             for index in schema.indexes() {
                 let keys = model_keys(&schema, &index.name);
-                for interval in random_intervals(&mut rng, &keys, &rows, 30) {
-                    let expected = model_scan(&keys, &rows, &interval);
-                    let found = scans!(read, &table, &index.name, keys, rows, &interval);
+                let mut intervals = vec![(vec![], (Unbounded, Unbounded))];
+                intervals.extend(random_intervals(&mut rng, &keys, &rows, 30));
+                for interval in &intervals {
+                    let expected = model_scan(&keys, &rows, interval);
+                    let found = scans!(read, &table, &index.name, keys, rows, interval);
                     assert_scans(found, &expected, &format!("{} {interval:?}", index.name));
                 }
             }

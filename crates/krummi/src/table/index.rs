@@ -785,10 +785,13 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// The entries of the index of `build` for every row of its table, sorted (in memory, and past its memory in the
-    /// files of `krummi.sort`, IX2), after reading every row (its page failures and those of the sort's files come
-    /// first, the first that happens) and then checking the size of each entry, the first row's in the order of the
-    /// primary key, and, for a unique index, that no two rows repeat its key (IX10, IX11). It changes nothing in the
-    /// store; the files of the sort go when the entries are dropped.
+    /// files of `krummi.sort`, IX2), with its failures in this order (IX10, IX11): first, as they happen while every row
+    /// is read, a page failure or a failure of the sort while it takes the entries (its memory, or writing a run file
+    /// until an entry is too large); then an entry too large, the first row's in the order of the primary key; then a
+    /// failure of the files while the sort finishes (writing its last run and merging groups of runs); and last, for
+    /// a unique index, two rows that repeat its key or a failure reading the sorted entries, whichever comes first in
+    /// the index's order. It changes nothing in the store; the files of the sort go when the entries are dropped, and
+    /// a failure reading them while the tree is written comes later, from [`Self::write_index`].
     ///
     /// The rows are read as a scan reads them, without checking their content (L1, IX12): a malformed row may give
     /// values that are not the written ones, or panic, before anything changes.

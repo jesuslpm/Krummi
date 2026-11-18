@@ -225,6 +225,71 @@ fn ac_ix14_a_sort_in_files_gives_the_same_index_as_in_memory() {
     assert_eq!(entries(&files, "ix_n"), entries(&memory, "ix_n"));
 }
 
+/// Bytes a file of the sort is written and read in (`krummi_pager`'s buffer).
+const BUFFER: u64 = 64 << 10;
+
+/// Commits the table `t` of [`schema`] with 600 rows whose `s` has 1,000 to 1,298 bytes, and 300,000 or more for
+/// every 100th row.
+fn commit_long_rows(store: &Store) {
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema()))
+        .unwrap();
+    for id in 0..600 {
+        let len = match id % 100 {
+            0 => 300_000 + id as usize,
+            _ => 1000 + (id as usize * 7919) % 299,
+        };
+        let s = format!("{id:05}").repeat(len / 5 + 1)[..len].to_owned();
+        let mut row = row(id);
+        row[2].1 = Value::String(Cow::Owned(s));
+        write.insert_row(&table, &row).unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// AC-IX14: entries whose records cross the 64 KiB buffers of the files of the sort, split across two buffers, and
+/// some longer than several buffers, give the same index as a sort in memory, through one run and through merges.
+#[test]
+fn ac_ix14_records_across_the_buffers_of_the_files_give_the_same_index() {
+    let memory = Store::open_temporary(&StoreOptions::default()).unwrap();
+    commit_long_rows(&memory);
+    let mut write = memory.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    create(&mut write, &table, &by_n()).unwrap();
+    write.commit().unwrap();
+    let expected = entries(&memory, "ix_n").unwrap();
+    assert_eq!(expected.len(), 600);
+
+    // A budget of 8 KiB gives more than 64 runs, merged in groups first, and 256 KiB about a dozen, of records split
+    // across buffers; either way the first run holds only the first row's long record. The folder and each run, and
+    // each run merged from a group, are created once.
+    for (budget, created) in [(8 << 10, 66..), (256 << 10, 4..)] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        commit_long_rows(&store);
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        let first = sort_dir(dir.path()).join("run.0000000001");
+        let len = Rc::new(Cell::new(0));
+        let seen = Rc::clone(&len);
+        testing::reset();
+        with_sort_memory(budget, || {
+            with_sort_pause(
+                move || seen.set(fs::metadata(&first).unwrap().len()),
+                || create(&mut write, &table, &by_n()).unwrap(),
+            )
+        });
+        let files = testing::count(Op::SortCreate);
+        testing::reset();
+        assert!(created.contains(&files), "{budget}: {files}");
+        assert!(len.get() > 3 * BUFFER, "{budget}: a run of several buffers");
+        assert!(!sort_dir(dir.path()).exists());
+        write.commit().unwrap();
+        assert_eq!(entries(&store, "ix_n").unwrap(), expected, "{budget}");
+    }
+}
+
 /// Creates the table `u` with one row.
 fn other_change(write: &mut WriteTransaction<'_>) {
     let table = write
@@ -526,6 +591,82 @@ fn ac_ix14_failures_of_the_files_of_the_sort_fail_the_creation_with_their_class(
             let table = write.open_table("t").unwrap();
             create(&mut write, &table, &by_n()).unwrap();
             write.commit().unwrap();
+        }
+    }
+}
+
+/// Overwrites the little-endian `u32` at `at` of the file `path` with `value`.
+fn patch_u32(path: &Path, at: usize, value: u32) {
+    let mut bytes = fs::read(path).unwrap();
+    bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    fs::write(path, bytes).unwrap();
+}
+
+/// The `u32` at `at` of the file `path`.
+fn read_u32(path: &Path, at: usize) -> u32 {
+    let bytes = fs::read(path).unwrap();
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+/// The length of the first record of the run file `run`: its 12-byte header, its key and its value.
+fn first_record(run: &Path) -> u64 {
+    12 + u64::from(read_u32(run, 0)) + u64::from(read_u32(run, 4))
+}
+
+/// Cuts the file `path` to `len` bytes.
+fn cut(path: &Path, len: u64) {
+    let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_len(len).unwrap();
+}
+
+/// AC-IX14 (G12, T11): a run file that is shorter than what the sort wrote into it, also cut at the end of a record,
+/// or whose first record's header names a key past the run's end or a prefix longer than its key, fails the creation
+/// with the I/O class instead of giving an index that misses entries; the write cannot commit, `krummi.sort` is removed
+/// and the store is as before. With the smallest memory the damaged run is read by a merge of a group of runs, with the
+/// larger one by the read that builds the tree or checks uniqueness.
+#[test]
+fn ac_ix14_a_damaged_run_file_fails_the_creation_with_the_io_class() {
+    type Damage = fn(&Path);
+    let damages: [(&str, Damage); 4] = [
+        ("emptied", |run| cut(run, 0)),
+        ("cut after its first record", |run| {
+            cut(run, first_record(run))
+        }),
+        ("a key past the run's end", |run| {
+            patch_u32(run, 0, u32::MAX - 1)
+        }),
+        ("a prefix longer than the key", |run| {
+            patch_u32(run, 8, read_u32(run, 0) + 1)
+        }),
+    ];
+    for memory in [SMALL, 4 * SMALL] {
+        for definition in [by_n(), by_s()] {
+            for (damage, apply) in damages {
+                let case = format!("{} memory {memory}: {damage}", definition.name);
+                let (dir, store, before) = committed();
+                let damaged = sort_dir(dir.path()).join("run.0000000001");
+                let mut write = store.write().unwrap();
+                let table = write.open_table("t").unwrap();
+                let created = with_sort_memory(memory, || {
+                    with_sort_pause(
+                        move || {
+                            assert!(first_record(&damaged) < fs::metadata(&damaged).unwrap().len());
+                            apply(&damaged);
+                        },
+                        || create(&mut write, &table, &definition),
+                    )
+                });
+                assert_eq!(created.unwrap_err().kind(), ErrorKind::Io, "{case}");
+                assert!(!sort_dir(dir.path()).exists(), "{case}");
+                assert_eq!(
+                    write.commit().unwrap_err().kind(),
+                    ErrorKind::Io,
+                    "{case}: T11"
+                );
+                assert_eq!(state(&store), before, "{case}");
+                assert_eq!(entries(&store, &definition.name), None, "{case}");
+                drop(store.write().expect("a failed read refuses no write"));
+            }
         }
     }
 }

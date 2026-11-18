@@ -32,7 +32,9 @@
 //! hand out increasing 64-bit integers in a write ([`WriteTransaction::next_value`]), transactionally. A table's
 //! secondary indexes, unique or not, with ascending or descending columns, their nulls first or last and included
 //! columns, are created over the rows it has and dropped in a write ([`WriteTransaction::create_index`],
-//! [`WriteTransaction::drop_index`]), and Describe lists them ([`TableSchema::indexes`]). Tree operations
+//! [`WriteTransaction::drop_index`]), Describe lists them ([`TableSchema::indexes`]), and a scan of an index gives the
+//! rows or the entries of an interval of it in its order ([`ReadTransaction::index_rows`],
+//! [`ReadTransaction::index_entries`]). Tree operations
 //! on a table or a sequence, and table or sequence operations on another class, fail with
 //! [`ErrorKind::DifferentTreeType`].
 //!

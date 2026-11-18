@@ -11,7 +11,9 @@
 //! A run file holds its entries in the order of their keys, each as a header of three little-endian `u32` (the length
 //! of its key, the length of its value, and the length of its uniqueness prefix, `u32::MAX` for none) followed by its
 //! key and its value. Nothing else reads them, and they never outlive the sort ([`krummi_pager::SortFiles`] removes
-//! them).
+//! them). A run is read up to exactly the bytes written into it, and a record whose header names parts past the run's
+//! end or a prefix longer than its key fails, as a file shorter than its run does, with the I/O class: a damaged run
+//! never reads as one that ended early, which would build an index that misses entries.
 //!
 //! The failures of the files and of the memory of the sort are the transaction's (T11): [`Sorter`] marks them so, and
 //! the caller marks those of a [`Cursor`].
@@ -279,20 +281,25 @@ fn write_entry(writer: &mut SortWriter<'_>, entry: &RowEntry) -> Result<()> {
     writer.write(&entry.value)
 }
 
-/// Reads the next entry of a run into `entry`, reusing its memory, or returns `false` after the last.
+/// Reads the next entry of a run into `entry`, reusing its memory, or returns `false` after the last. A header whose
+/// parts pass the run's end or whose prefix passes its key fails with the I/O class.
 fn read_entry(reader: &mut SortReader, entry: &mut RowEntry) -> Result<bool> {
     let mut header = [0; HEADER];
     if !reader.read(&mut header)? {
         return Ok(false);
     }
     let part = |at: usize| u32::from_le_bytes(header[at..at + 4].try_into().expect("4 bytes"));
-    read_part(reader, &mut entry.key, part(0) as usize)?;
-    read_part(reader, &mut entry.value, part(4) as usize)?;
-    let prefix = part(8);
+    let (key, value, prefix) = (part(0), part(4), part(8));
+    if u64::from(key) + u64::from(value) > reader.left() || (prefix != NO_PREFIX && prefix > key) {
+        return Err(reader.malformed());
+    }
+    read_part(reader, &mut entry.key, key as usize)?;
+    read_part(reader, &mut entry.value, value as usize)?;
     entry.prefix = (prefix != NO_PREFIX).then_some(prefix as usize);
     Ok(true)
 }
 
+/// Reads the next `len` bytes of a run, which has them, into `part`.
 fn read_part(reader: &mut SortReader, part: &mut Vec<u8>, len: usize) -> Result<()> {
     part.clear();
     try_reserve(part, len)?;

@@ -79,7 +79,8 @@ store.close()?; // moves everything into krummi.data and removes the journal
 ```
 
 A store is a folder with one file, `krummi.data`, made of 8 KiB pages. While it is open, the folder may also hold
-the journal files `krummi.journal.<number>` and the `krummi.temp` subfolder; a clean close removes them. Only one
+the journal files `krummi.journal.<number>`, the `krummi.temp` subfolder and, while an index is created, the
+`krummi.sort` subfolder of its sort files; a clean close removes them. Only one
 process can have it open at a time. The `krummi` crate is the public API; `krummi-pager`, `krummi-tx` and `krummi-tree` are internal to the engine, and
 `krummi-pager` is the only crate allowed to use `unsafe` code (decision D12 of the root PRD).
 

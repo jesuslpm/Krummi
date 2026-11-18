@@ -1662,15 +1662,24 @@ fn ac_ix9_a_schema_near_the_most_of_its_catalog_entry() {
 /// The table `t` of [`people`] with 40 rows and the indexes `ix_n` (`n`, including `s`) and `ix_ms` (`m`, `s`),
 /// committed.
 fn indexed(store: &Store) {
-    let rows: Vec<Row> = (0..40)
+    commit_people(store, &indexed_rows(40));
+    add_indexes(store);
+}
+
+/// The first `count` rows of the kind of [`indexed`].
+fn indexed_rows(count: i64) -> Vec<Row> {
+    (0..count)
         .map(|id| {
             let n = i32::try_from(id % 7).unwrap();
             let mut row = person(id, Some(n), &format!("s{id}"));
             row.push(("m", Value::I32(n % 3)));
             row
         })
-        .collect();
-    commit_people(store, &rows);
+        .collect()
+}
+
+/// Creates the indexes of [`indexed`] on the table `t` and commits.
+fn add_indexes(store: &Store) {
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();
     let ix_n = index("ix_n", &[key("n")]).with_included(&["s"]);
@@ -1755,11 +1764,15 @@ fn ac_ix10_schema_changes_and_indexes() {
 
 /// AC-IX10 (IX4, B9): dropping an index removes it and keeps the table, and another index can take its name with
 /// another definition in the same write; another handle of the table in the write sees an index created and stops
-/// seeing one dropped; dropping one that does not exist does nothing; and dropping indexes frees their pages.
+/// seeing one dropped; dropping one that does not exist does nothing; and dropping indexes frees exactly their pages
+/// (P12): the store then has the pages in use it had before they were created.
 #[test]
 fn ac_ix10_dropping_an_index() {
     stores(|store, _| {
-        indexed(store);
+        // Enough rows for each index to take several pages.
+        commit_people(store, &indexed_rows(2000));
+        let without_indexes = in_use(store);
+        add_indexes(store);
         let mut write = store.write().unwrap();
         let table = write.open_table("t").unwrap();
         let other = write.open_table("t").unwrap();
@@ -1794,18 +1807,26 @@ fn ac_ix10_dropping_an_index() {
         write.commit().unwrap();
 
         let with_indexes = in_use(store);
+        assert!(
+            with_indexes > without_indexes + 4,
+            "the indexes have several pages"
+        );
         let mut write = store.write().unwrap();
         let table = write.open_table("t").unwrap();
         write.drop_index(&table, "ix_n").unwrap();
         write.drop_index(&table, "ix_ms").unwrap();
         assert_eq!(write.index_trees(&table).unwrap(), []);
         write.commit().unwrap();
-        assert!(in_use(store) < with_indexes, "the indexes' pages are free");
+        assert_eq!(
+            in_use(store),
+            without_indexes,
+            "the indexes' pages are free"
+        );
     });
 }
 
-/// AC-IX10 (IX4, E2, E3): emptying a table, with Empty and with Create or empty, empties its indexes and keeps their
-/// definitions, their identities and the index state; renaming it keeps its indexes; deleting it, and overwriting it
+/// AC-IX10 (IX4, E2, E3): emptying a table, with Empty and with Create or empty, empties its indexes, freeing every
+/// page of their trees but the root, and keeps their definitions, their identities and the index state; renaming it keeps its indexes; deleting it, and overwriting it
 /// with a rename, take its indexes with it and free their pages.
 #[test]
 fn ac_ix10_table_operations_and_indexes() {
@@ -1816,17 +1837,34 @@ fn ac_ix10_table_operations_and_indexes() {
         write.delete_table("t").unwrap();
         write.commit().unwrap();
         let empty_store = in_use(store);
+        // The pages of the table with its indexes and no rows: the root of each tree.
+        commit_people(store, &[]);
+        add_indexes(store);
+        let empty_indexed = in_use(store);
+        let mut write = store.write().unwrap();
+        write.delete_table("t").unwrap();
+        write.commit().unwrap();
         let people = people();
         for mode in [TableMode::Empty, TableMode::CreateOrEmpty(&people)] {
-            indexed(store);
+            // Enough rows for each tree to take several pages.
+            commit_people(store, &indexed_rows(2000));
+            add_indexes(store);
+            assert!(in_use(store) > empty_indexed + 6, "{mode:?}");
             let before = store.read().unwrap().describe_table("t").unwrap();
             let mut write = store.write().unwrap();
             let table = write.open_table_with("t", mode).unwrap();
             assert_eq!(write.table_schema(&table).unwrap(), before, "{mode:?}");
             assert_eq!(all_entries(&write, &table), [vec![], vec![]], "{mode:?}");
             write.commit().unwrap();
-            assert_eq!(read_entries(store, "ix_ms"), [], "{mode:?}");
+            for name in ["ix_n", "ix_ms"] {
+                assert_eq!(read_entries(store, name), [], "{mode:?} {name}");
+            }
             assert_eq!(store.read().unwrap().describe_table("t").unwrap(), before);
+            assert_eq!(
+                in_use(store),
+                empty_indexed,
+                "{mode:?}: the trees' pages are free"
+            );
             let mut write = store.write().unwrap();
             write.delete_table("t").unwrap();
             write.commit().unwrap();
@@ -2208,6 +2246,9 @@ fn ac_ix13_damage_and_the_operations_on_indexes() {
     let store = open(tmp.path());
     let read = store.read().unwrap();
     assert_eq!(read.describe_table("t").unwrap(), described);
+    let table = read.open_table("t").unwrap();
+    assert_eq!(read.table_schema(&table).unwrap(), described);
+    assert_eq!(read.index_trees(&table).unwrap()[1], ix_n);
     drop(read);
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();

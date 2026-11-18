@@ -11,7 +11,10 @@
 //! A failure creating a file or the folder is the access class for a missing permission and otherwise the class of
 //! a failed write (disk full, out of memory or I/O); one writing a file, the same, and an I/O failure then makes the
 //! store refuse writes until it is reopened (T12, as for the temporary area, J7); one reading a file is the access
-//! class for a missing permission, out of memory, or I/O. A file that ends inside a read is the I/O class.
+//! class for a missing permission, out of memory, or I/O. A run knows how many bytes were written into its file, and is
+//! read up to exactly that many: a file that ends before them, a read that would pass them, and a record whose header
+//! names more bytes than the run has left ([`SortReader::malformed`]) are the I/O class, so that a short or damaged file
+//! never reads as a run that ended early.
 
 use std::fs::File;
 use std::io;
@@ -67,6 +70,7 @@ impl<'p> SortFiles<'p> {
             file,
             path,
             buf: buffer()?,
+            len: 0,
         })
     }
 
@@ -83,6 +87,7 @@ impl<'p> SortFiles<'p> {
                 .unwrap_or_default(),
             buf: buffer()?,
             at: 0,
+            left: run.len,
         })
     }
 
@@ -113,6 +118,8 @@ pub struct SortWriter<'p> {
     file: File,
     path: PathBuf,
     buf: Vec<u8>,
+    /// Bytes appended so far, buffered or written.
+    len: u64,
 }
 
 impl SortWriter<'_> {
@@ -122,9 +129,11 @@ impl SortWriter<'_> {
             self.flush()?;
         }
         if bytes.len() > self.buf.capacity() {
-            return write_out(self.pager, &mut self.file, &self.path, bytes);
+            write_out(self.pager, &mut self.file, &self.path, bytes)?;
+        } else {
+            self.buf.extend_from_slice(bytes);
         }
-        self.buf.extend_from_slice(bytes);
+        self.len += bytes.len() as u64;
         Ok(())
     }
 
@@ -133,6 +142,7 @@ impl SortWriter<'_> {
         self.flush()?;
         Ok(SortRun {
             path: std::mem::take(&mut self.path),
+            len: self.len,
         })
     }
 
@@ -152,9 +162,10 @@ fn write_out(pager: &Pager, file: &mut File, path: &Path, bytes: &[u8]) -> Resul
         .map_err(|e| access(pager, e).unwrap_or_else(|e| pager.fail_write(e, bytes.len() as u64)))
 }
 
-/// A file of the sort that was written whole.
+/// A file of the sort that was written whole, with the number of bytes written into it.
 pub struct SortRun {
     path: PathBuf,
+    len: u64,
 }
 
 /// A file of the sort being read from its start.
@@ -165,12 +176,20 @@ pub struct SortReader {
     /// What was read from the file and not taken yet: `buf[at..]`.
     buf: Vec<u8>,
     at: usize,
+    /// Bytes of the run not taken yet.
+    left: u64,
 }
 
 impl SortReader {
-    /// Fills `out` with the next bytes of the file and returns `true`, or returns `false` when the file ended before
-    /// them. A file that ends inside them fails with the I/O class.
+    /// Fills `out` with the next bytes of the run and returns `true`, or returns `false` when the run ended before
+    /// them. A run that ends inside them, or a file that ends before its run, fails with the I/O class.
     pub fn read(&mut self, out: &mut [u8]) -> Result<bool> {
+        if self.left == 0 && !out.is_empty() {
+            return Ok(false);
+        }
+        if out.len() as u64 > self.left {
+            return Err(self.malformed());
+        }
         let mut filled = 0;
         while filled < out.len() {
             if self.at == self.buf.len() {
@@ -180,13 +199,10 @@ impl SortReader {
                 self.buf.truncate(read);
                 self.at = 0;
                 if read == 0 {
-                    return match filled {
-                        0 => Ok(false),
-                        _ => Err(self.read_error(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "a file of the sort ended early",
-                        ))),
-                    };
+                    return Err(self.read_error(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "a file of the sort ended before its run",
+                    )));
                 }
             }
             let take = (out.len() - filled).min(self.buf.len() - self.at);
@@ -194,19 +210,31 @@ impl SortReader {
             filled += take;
             self.at += take;
         }
+        self.left -= out.len() as u64;
         Ok(true)
     }
 
-    /// Fills `out` with the next bytes of the file, which must have them: a file that ends before fails with the I/O
+    /// Fills `out` with the next bytes of the run, which must have them: a run that ends before fails with the I/O
     /// class.
     pub fn read_rest(&mut self, out: &mut [u8]) -> Result<()> {
         match self.read(out)? {
             true => Ok(()),
-            false => Err(self.read_error(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "a file of the sort ended early",
-            ))),
+            false => Err(self.malformed()),
         }
+    }
+
+    /// Bytes of the run not read yet.
+    pub fn left(&self) -> u64 {
+        self.left
+    }
+
+    /// The I/O class for a run whose content does not read as written: a record that passes the run's end, or whose
+    /// header names parts that do not fit together.
+    pub fn malformed(&self) -> Error {
+        self.read_error(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "a run of the sort is malformed",
+        ))
     }
 
     fn read_error(&self, source: io::Error) -> Error {
