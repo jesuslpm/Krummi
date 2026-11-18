@@ -166,8 +166,11 @@ fn duplicate(error: Error, folder: Option<&Path>) -> (String, String) {
             folder: f,
             table,
             key,
+            index,
+            index_key,
         } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!((index, index_key), (None, None));
             (table, key)
         }
         other => panic!("expected a duplicate key, got {other}"),
@@ -1065,8 +1068,10 @@ fn invalid_schema(error: Error, folder: Option<&Path>) -> (String, Option<String
             table,
             column,
             rule,
+            index,
         } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!(index, None);
             (table, column, rule)
         }
         other => panic!("expected an invalid schema, got {other}"),
@@ -1154,7 +1159,7 @@ fn ac15_a_schema_that_fills_the_catalog_entry() {
             &["id"],
         );
         let probe = create(&mut write, "probe", &probe);
-        let small = write.table_schema(&probe).unwrap().encode(0).len();
+        let small = write.table_schema(&probe).unwrap().stored_len();
         write.delete_table("probe").unwrap();
         let schema = Schema::new(
             vec![
@@ -1166,7 +1171,7 @@ fn ac15_a_schema_that_fills_the_catalog_entry() {
         let table = create(&mut write, "t", &schema);
         drop(schema);
         let before = write.table_schema(&table).unwrap();
-        assert_eq!(before.encode(0).len(), MAX_EXTRA, "the entry is full");
+        assert_eq!(before.stored_len(), MAX_EXTRA, "the entry is full");
         let error = write.rename_column(&table, "c", "cc").unwrap_err();
         assert_eq!(
             invalid_schema(error, folder),

@@ -3,10 +3,12 @@
 //! compatibility of a schema given to an opening, and the encodings the catalog and the schema history store.
 //!
 //! A table's catalog entry (D3 of the execution design) holds, after the catalog's fixed part, the root of its
-//! schema history tree and its current schema ([`TableSchema::encode`]). The history tree has one entry per version,
-//! keyed by the big-endian `u16` version, whose value lists that version's columns for decoding its rows
-//! ([`encode_version`]); it also holds every identity the table has used, keyed by its 8 big-endian bytes with an
-//! empty value, so that a new identity equal to one of its history is drawn again in one lookup (P12).
+//! schema history tree and its current schema, with its secondary indexes and the roots of their trees
+//! ([`TableSchema::encode`], IX14 of the secondary indexes PRD). The history tree has one entry per version, keyed by
+//! the big-endian `u16` version, whose value lists that version's columns for decoding its rows ([`encode_version`]);
+//! it also holds every identity the table has used (its columns', its indexes', its schema states' and its index
+//! states'), keyed by its 8 big-endian bytes with an empty value, so that a new identity equal to one of its history
+//! is drawn again in one lookup (P12).
 
 use std::collections::HashSet;
 use std::fmt;
@@ -14,6 +16,10 @@ use std::fmt;
 use krummi_pager::{SchemaDifference, SchemaRule};
 use krummi_tree::catalog::MAX_EXTRA;
 
+use super::index::{
+    MAX_INDEX_KEY, MAX_INDEX_NAME, MAX_INDEXES, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
+};
+use super::key::{Direction, Nulls};
 use super::row::{RowColumn, RowLayout};
 #[cfg(test)]
 #[path = "schema_tests.rs"]
@@ -96,7 +102,10 @@ pub struct SchemaColumn {
 
 /// The current schema of a table, as Describe returns it (E2): an owned copy. Its columns are the live ones in schema
 /// order; the version starts at 1 and grows by one with each change that changes something (E4); the table's identity
-/// and the schema state are random 64-bit values (P12), the state drawn again at each new version.
+/// and the schema state are random 64-bit values (P12), the state drawn again at each new version. Its secondary
+/// indexes come in the order of their names (B5), and its index state is a random 64-bit value drawn when the table is
+/// created and again each time one of its indexes is created or dropped (IX6 of the secondary indexes PRD); creating
+/// or dropping an index changes neither the version nor the schema state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableSchema {
     table_id: u64,
@@ -105,16 +114,22 @@ pub struct TableSchema {
     key: Vec<u64>,
     version: u16,
     schema_state: u64,
+    /// The secondary indexes, by their names' bytes (B5).
+    indexes: Vec<SchemaIndex>,
+    index_state: u64,
 }
 
-/// A rule of E5 that a schema or a change breaks, with the column it names.
+/// A rule of E5 that a schema or a change breaks, with the column it names and, for a rule of an index (IX3, IX5 of
+/// the secondary indexes PRD), the index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Invalid {
     pub rule: SchemaRule,
     pub column: Option<String>,
+    pub index: Option<String>,
 }
 
-/// A difference of E6 between a given schema and a table's.
+/// A difference of E6 between a given schema and a table's, or between a given index definition and the table's
+/// index of its name (IX2 of the secondary indexes PRD), which `index` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Different {
     pub column: Option<String>,
@@ -123,6 +138,7 @@ pub(crate) struct Different {
     pub expected: String,
     /// What the table has.
     pub found: String,
+    pub index: Option<String>,
 }
 
 /// A change of a table's schema (E4).
@@ -219,6 +235,7 @@ fn invalid<T>(rule: SchemaRule, column: Option<&str>) -> Result<T, Invalid> {
     Err(Invalid {
         rule,
         column: column.map(str::to_owned),
+        index: None,
     })
 }
 
@@ -277,12 +294,15 @@ fn check_general(
 /// and `key_len` primary key columns fits in a table's catalog entry, whose bytes after the fixed part are at most
 /// [`MAX_EXTRA`]: a default may make a valid row of up to 256 MiB (E18) and still not fit with the rest of the schema.
 /// The error is the last rule of E5 (decided by the user on 2026-11-11, R1 of the code review) and names the column
-/// where the schema passes the maximum; a schema change names the column of the change instead (`plan`).
+/// where the schema passes the maximum; a schema change names the column of the change instead (`plan`), and the
+/// creation of an index the index. `indexes_len` is the bytes of the index definitions as they are stored (IX3 of the
+/// secondary indexes PRD).
 fn check_fits<'a>(
     columns: impl IntoIterator<Item = (&'a str, ColumnType, Option<&'a Value<'a>>)>,
     key_len: usize,
+    indexes_len: usize,
 ) -> Result<(), Invalid> {
-    let mut len = FIXED_LEN + 8 * key_len;
+    let mut len = FIXED_LEN + 8 * key_len + indexes_len;
     for (name, ty, default) in columns {
         len += encoded_column_len(name, ty, default);
         if len > MAX_EXTRA {
@@ -298,7 +318,11 @@ pub(crate) fn check_new(schema: &Schema) -> Result<Vec<Option<Value<'static>>>, 
     let key: Vec<&str> = schema.primary_key.iter().map(String::as_str).collect();
     let defaults = check_general(&drafts, &key)?;
     let stored = drafts.iter().zip(&defaults);
-    check_fits(stored.map(|(c, d)| (c.name, c.ty, d.as_ref())), key.len())?;
+    check_fits(
+        stored.map(|(c, d)| (c.name, c.ty, d.as_ref())),
+        key.len(),
+        0,
+    )?;
     Ok(defaults)
 }
 
@@ -314,13 +338,15 @@ pub(crate) fn schema_names(schema: &Schema) -> impl Iterator<Item = &str> {
 
 impl TableSchema {
     /// The schema of a new table at version 1 from `schema`, which [`check_new`] accepted with `defaults`, with the
-    /// identities drawn for the table, each column (in schema order) and the schema state.
+    /// identities drawn for the table, each column (in schema order), the schema state and the index state; it has no
+    /// indexes (IX2 of the secondary indexes PRD).
     pub(crate) fn new(
         table_id: u64,
         schema: &Schema,
         defaults: Vec<Option<Value<'static>>>,
         column_ids: &[u64],
         schema_state: u64,
+        index_state: u64,
     ) -> TableSchema {
         let columns: Vec<SchemaColumn> = schema
             .columns
@@ -352,6 +378,8 @@ impl TableSchema {
             key,
             version: 1,
             schema_state,
+            indexes: Vec::new(),
+            index_state,
         }
     }
 
@@ -388,6 +416,82 @@ impl TableSchema {
         self.schema_state
     }
 
+    /// The secondary indexes, in the order of their names (B5); empty when the table has none (IX6 of the secondary
+    /// indexes PRD).
+    pub fn indexes(&self) -> &[SchemaIndex] {
+        &self.indexes
+    }
+
+    /// The secondary index `name`.
+    pub fn index(&self, name: &str) -> Option<&SchemaIndex> {
+        self.index_position(name).map(|at| &self.indexes[at])
+    }
+
+    /// The index state: drawn when the table was created and again each time one of its indexes is created or
+    /// dropped, and with nothing else (IX6 of the secondary indexes PRD, P12).
+    pub fn index_state(&self) -> u64 {
+        self.index_state
+    }
+
+    /// The place of the index `name` among the indexes.
+    pub(crate) fn index_position(&self, name: &str) -> Option<usize> {
+        self.indexes
+            .binary_search_by(|index| index.name.as_bytes().cmp(name.as_bytes()))
+            .ok()
+    }
+
+    /// Adds `index`, whose name the table does not have, in the order of the names, with the new index state, and
+    /// returns its place among the indexes.
+    pub(crate) fn add_index(&mut self, index: SchemaIndex, index_state: u64) -> usize {
+        let at = self
+            .indexes
+            .binary_search_by(|other| other.name.as_bytes().cmp(index.name.as_bytes()))
+            .expect_err("a new index name");
+        self.indexes.insert(at, index);
+        self.index_state = index_state;
+        at
+    }
+
+    /// Removes the index at `at`, with the new index state.
+    pub(crate) fn remove_index(&mut self, at: usize, index_state: u64) {
+        self.indexes.remove(at);
+        self.index_state = index_state;
+    }
+
+    /// The live column of identity `id`.
+    pub(crate) fn column_by_id(&self, id: u64) -> Option<&SchemaColumn> {
+        self.by_id(id)
+    }
+
+    /// The place in schema order of the live column of identity `id`.
+    pub(crate) fn column_position(&self, id: u64) -> Option<usize> {
+        self.columns.iter().position(|c| c.id == id)
+    }
+
+    /// The identities of the primary key columns, in key order.
+    pub(crate) fn key_ids(&self) -> &[u64] {
+        &self.key
+    }
+
+    /// A test hook, not part of the interface: the bytes of the schema in its table's catalog entry, after the
+    /// catalog's fixed part, which [`MAX_EXTRA`] limits (E5's schema too large; IX3 of the secondary indexes PRD).
+    #[doc(hidden)]
+    pub fn stored_len(&self) -> usize {
+        FIXED_LEN + 8 * self.key.len() + self.indexes_len() + self.columns_len()
+    }
+
+    /// The bytes of the index definitions as the catalog entry stores them.
+    fn indexes_len(&self) -> usize {
+        self.indexes.iter().map(SchemaIndex::stored_len).sum()
+    }
+
+    /// The bytes of the columns as the catalog entry stores them.
+    fn columns_len(&self) -> usize {
+        (self.columns.iter())
+            .map(|c| encoded_column_len(&c.name, c.ty, c.default.as_ref()))
+            .sum()
+    }
+
     /// The columns of the current version as the row layout needs them, in schema order, which is the version's.
     pub fn row_columns(&self) -> Vec<RowColumn> {
         self.columns
@@ -401,12 +505,14 @@ impl TableSchema {
             .collect()
     }
 
-    /// Fails with a schema too large unless the schema fits in its table's catalog entry (see [`check_fits`]).
-    fn check_fits(&self) -> Result<(), Invalid> {
+    /// Fails with a schema too large unless the schema, with its index definitions, fits in its table's catalog entry
+    /// (see [`check_fits`]).
+    pub(crate) fn check_fits(&self) -> Result<(), Invalid> {
         let columns = self.columns.iter();
         check_fits(
             columns.map(|c| (c.name.as_str(), c.ty, c.default.as_ref())),
             self.key.len(),
+            self.indexes_len(),
         )
     }
 
@@ -415,9 +521,12 @@ impl TableSchema {
         RowLayout::new(self.version, self.row_columns())
     }
 
-    /// Every identity of this schema: its columns' and its state, which a new identity must differ from.
+    /// Every identity of this schema: its columns', its indexes', its state and its index state, which a new identity
+    /// must differ from.
     pub(crate) fn identities(&self) -> impl Iterator<Item = u64> + '_ {
-        self.columns.iter().map(|c| c.id).chain([self.schema_state])
+        (self.columns.iter().map(|c| c.id))
+            .chain(self.indexes.iter().map(|index| index.id))
+            .chain([self.schema_state, self.index_state])
     }
 
     fn by_id(&self, id: u64) -> Option<&SchemaColumn> {
@@ -460,8 +569,17 @@ impl TableSchema {
                 let Some(at) = self.position(name) else {
                     return invalid(SchemaRule::ColumnNotFound, Some(name));
                 };
-                if self.key.contains(&self.columns[at].id) {
+                let id = self.columns[at].id;
+                if self.key.contains(&id) {
                     return invalid(SchemaRule::DropKeyColumn, Some(name));
+                }
+                // A column of an index, named with the first index in the order of B5 that has it (IX5).
+                if let Some(index) = self.indexes.iter().find(|index| index.uses(id)) {
+                    return Err(Invalid {
+                        rule: SchemaRule::DropKeyColumn,
+                        column: Some(name.to_owned()),
+                        index: Some(index.name.clone()),
+                    });
                 }
                 next.columns.remove(at);
                 name
@@ -477,6 +595,11 @@ impl TableSchema {
                     return invalid(SchemaRule::DuplicateColumnName, Some(to));
                 }
                 next.columns[at].name = to.to_owned();
+                // An index names its columns by their identities, so it shows the new name (IX5).
+                let id = self.columns[at].id;
+                for index in &mut next.indexes {
+                    index.rename_column(id, to);
+                }
                 from
             }
             Change::Modify { name, ty, nullable } => {
@@ -538,6 +661,7 @@ impl TableSchema {
                     difference,
                     expected,
                     found,
+                    index: None,
                 })
             };
             let Some(found) = self.column(&column.name) else {
@@ -581,6 +705,7 @@ impl TableSchema {
                 difference: SchemaDifference::PrimaryKey,
                 expected: format!("({})", given.primary_key.join(", ")),
                 found: format!("({})", table_key.join(", ")),
+                index: None,
             });
         }
         Ok(())
@@ -816,6 +941,81 @@ impl<'b> Reader<'b> {
         })
     }
 
+    /// An index of a schema in the catalog (see [`TableSchema::encode`]) and the root of its tree, for a table with the
+    /// live `columns` and the primary key `key`: a name of 1 to 1,024 bytes; 1 to 32 key columns and the included
+    /// ones, all live and distinct, no key column a vector and no included column a primary key column (the rules of
+    /// IX1 and IX3 that Krummi never writes broken); and no condition.
+    fn index(&mut self, columns: &[SchemaColumn], key: &[u64]) -> Option<(SchemaIndex, u64)> {
+        let id = self.u64()?;
+        let name = std::str::from_utf8(self.bytes()?).ok()?;
+        if !(1..=MAX_INDEX_NAME).contains(&name.len()) {
+            return None;
+        }
+        let root = self.u64()?;
+        let flags = self.u8()?;
+        if flags & !UNIQUE != 0 {
+            return None;
+        }
+        let key_count = usize::from(self.u8()?);
+        if !(1..=MAX_INDEX_KEY).contains(&key_count) {
+            return None;
+        }
+        let mut used = Vec::with_capacity(key_count);
+        let mut index_key = Vec::with_capacity(key_count);
+        for _ in 0..key_count {
+            let id = self.u64()?;
+            let flags = self.u8()?;
+            let column = columns.iter().find(|c| c.id == id)?;
+            let vector = matches!(column.ty, ColumnType::Vector(_));
+            if flags & !(DESCENDING | NULLS_LAST) != 0 || vector || used.contains(&id) {
+                return None;
+            }
+            used.push(id);
+            index_key.push(SchemaIndexKey {
+                id,
+                name: column.name.clone(),
+                direction: if flags & DESCENDING != 0 {
+                    Direction::Descending
+                } else {
+                    Direction::Ascending
+                },
+                nulls: if flags & NULLS_LAST != 0 {
+                    Nulls::Last
+                } else {
+                    Nulls::First
+                },
+            });
+        }
+        let included_count = usize::from(self.u16()?);
+        if included_count > columns.len() {
+            return None;
+        }
+        let mut included = Vec::with_capacity(included_count);
+        for _ in 0..included_count {
+            let id = self.u64()?;
+            let column = columns.iter().find(|c| c.id == id)?;
+            if used.contains(&id) || key.contains(&id) {
+                return None;
+            }
+            used.push(id);
+            included.push(SchemaIndexColumn {
+                id,
+                name: column.name.clone(),
+            });
+        }
+        if !self.bytes()?.is_empty() {
+            return None;
+        }
+        let index = SchemaIndex {
+            id,
+            name: name.to_owned(),
+            unique: flags & UNIQUE != 0,
+            key: index_key,
+            included,
+        };
+        Some((index, root))
+    }
+
     fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -853,9 +1053,24 @@ const KEY: u8 = 2;
 /// The flag of a column with a default value, in the catalog.
 const DEFAULT: u8 = 4;
 
-/// The bytes of a schema in its catalog entry ([`TableSchema::encode`]) besides its columns and its primary key
-/// columns' identities: the history tree's root, the version, the schema state and the two counts.
-const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2;
+/// The bytes of a schema in its catalog entry ([`TableSchema::encode`]) besides its columns, its primary key
+/// columns' identities and its indexes: the history tree's root, the version, the schema state, the two counts, the
+/// index state and the number of indexes.
+const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2 + 8 + 2;
+
+/// The flag of a unique index, in the catalog.
+const UNIQUE: u8 = 1;
+/// The flags of an index key column: descending, and with its nulls last.
+const DESCENDING: u8 = 1;
+const NULLS_LAST: u8 = 2;
+
+impl SchemaIndex {
+    /// The bytes that [`TableSchema::encode`] writes for the index: its identity, name, root, flags, key columns,
+    /// included columns and the reserved condition of a partial index (IX3: the definition as it is stored).
+    pub(crate) fn stored_len(&self) -> usize {
+        8 + 4 + self.name.len() + 8 + 1 + 1 + 9 * self.key.len() + 2 + 8 * self.included.len() + 4
+    }
+}
 
 /// The bytes that [`TableSchema::encode`] writes for a column named `name` of type `ty` with `default`.
 fn encoded_column_len(name: &str, ty: ColumnType, default: Option<&Value<'_>>) -> usize {
@@ -883,9 +1098,17 @@ fn default_layout(ty: ColumnType) -> RowLayout {
 
 impl TableSchema {
     /// The bytes after the catalog's fixed part of the table's entry: the root of its history tree `history`, then
-    /// the version, the schema state, the live columns in schema order (identity, name, type, flags, default) and the
-    /// identities of the primary key columns in key order.
-    pub fn encode(&self, history: u64) -> Vec<u8> {
+    /// the version, the schema state, the live columns in schema order (identity, name, type, flags, default), the
+    /// identities of the primary key columns in key order, the index state and the indexes in the order of their
+    /// names, each with its identity, name, the root of its tree (`index_roots`, in the same order), flags (unique),
+    /// key columns (identity, direction and null order), included columns (identity) and the condition of a partial
+    /// index, reserved and always empty (IX1, IX14 of the secondary indexes PRD).
+    ///
+    /// # Panics
+    ///
+    /// Unless there is one root per index.
+    pub fn encode(&self, history: u64, index_roots: &[u64]) -> Vec<u8> {
+        assert_eq!(index_roots.len(), self.indexes.len(), "one root per index");
         let mut w = Writer(Vec::new());
         w.u64(history);
         w.u16(self.version);
@@ -906,21 +1129,43 @@ impl TableSchema {
         for id in &self.key {
             w.u64(*id);
         }
+        w.u64(self.index_state);
+        w.u16(u16::try_from(self.indexes.len()).expect("at most 64 indexes"));
+        for (index, root) in self.indexes.iter().zip(index_roots) {
+            w.u64(index.id);
+            w.bytes(index.name.as_bytes());
+            w.u64(*root);
+            w.u8(if index.unique { UNIQUE } else { 0 });
+            w.u8(u8::try_from(index.key.len()).expect("at most 32 key columns"));
+            for column in &index.key {
+                w.u64(column.id);
+                let descending = column.direction == Direction::Descending;
+                w.u8(if descending { DESCENDING } else { 0 }
+                    | if column.nulls == Nulls::Last {
+                        NULLS_LAST
+                    } else {
+                        0
+                    });
+            }
+            w.u16(u16::try_from(index.included.len()).expect("at most 1,024 columns"));
+            for column in &index.included {
+                w.u64(column.id);
+            }
+            // The condition of a partial index (N7), which no index has yet.
+            w.bytes(&[]);
+        }
         debug_assert_eq!(
             w.0.len(),
-            FIXED_LEN
-                + 8 * self.key.len()
-                + (self.columns.iter())
-                    .map(|c| encoded_column_len(&c.name, c.ty, c.default.as_ref()))
-                    .sum::<usize>(),
+            self.stored_len(),
             "check_fits counts what encode writes"
         );
         w.0
     }
 
-    /// The schema of the table `table_id` and the root of its history tree from `bytes`, or `None` when they are not
-    /// what [`encode`](Self::encode) writes: the caller reports damage of the catalog page (G6).
-    pub fn decode(table_id: u64, bytes: &[u8]) -> Option<(TableSchema, u64)> {
+    /// The schema of the table `table_id`, the root of its history tree and the roots of its indexes' trees, in the
+    /// order of the indexes, from `bytes`, or `None` when they are not what [`encode`](Self::encode) writes: the
+    /// caller reports damage of the catalog page (G6).
+    pub fn decode(table_id: u64, bytes: &[u8]) -> Option<(TableSchema, u64, Vec<u64>)> {
         let mut r = Reader(bytes);
         let history = r.u64()?;
         let version = r.u16()?;
@@ -963,6 +1208,25 @@ impl TableSchema {
         if version == 0 || !distinct {
             return None;
         }
+        let index_state = r.u64()?;
+        let index_count = usize::from(r.u16()?);
+        if index_count > MAX_INDEXES {
+            return None;
+        }
+        let mut indexes: Vec<SchemaIndex> = Vec::with_capacity(index_count);
+        let mut roots = Vec::with_capacity(index_count);
+        for _ in 0..index_count {
+            let (index, root) = r.index(&columns, &key)?;
+            // In the order of their names, each once, with distinct identities (B5, IX1, IX6).
+            let in_order = indexes
+                .last()
+                .is_none_or(|last| last.name.as_bytes() < index.name.as_bytes());
+            if !in_order || indexes.iter().any(|other| other.id == index.id) {
+                return None;
+            }
+            indexes.push(index);
+            roots.push(root);
+        }
         r.is_empty().then_some((
             TableSchema {
                 table_id,
@@ -970,8 +1234,11 @@ impl TableSchema {
                 key,
                 version,
                 schema_state,
+                indexes,
+                index_state,
             },
             history,
+            roots,
         ))
     }
 

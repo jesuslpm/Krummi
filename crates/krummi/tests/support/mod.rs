@@ -245,19 +245,25 @@ pub fn not_found(error: Error, folder: Option<&Path>) -> String {
     }
 }
 
-/// The tree name of a tree-already-exists error, after checking its folder.
+/// The tree name of a tree-already-exists error, after checking its folder and that it is not about an index.
 #[track_caller]
 pub fn already_exists(error: Error, folder: Option<&Path>) -> String {
     match error {
-        Error::TreeAlreadyExists { folder: f, name } => {
+        Error::TreeAlreadyExists {
+            folder: f,
+            name,
+            index,
+        } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!(index, None);
             name
         }
         other => panic!("expected tree already exists, got {other}"),
     }
 }
 
-/// The subject, received size, minimum and maximum of an invalid-size error, after checking its folder.
+/// The subject, received size, minimum and maximum of an invalid-size error, after checking its folder and that it
+/// names no index.
 #[track_caller]
 pub fn invalid_size(error: Error, folder: Option<&Path>) -> (SizeSubject, u64, u64, u64) {
     match error {
@@ -267,8 +273,11 @@ pub fn invalid_size(error: Error, folder: Option<&Path>) -> (SizeSubject, u64, u
             received,
             min,
             max,
+            table,
+            index,
         } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!((table, index), (None, None));
             (what, received, min, max)
         }
         other => panic!("expected invalid size, got {other}"),

@@ -1,7 +1,8 @@
 //! Error classes of the engine (D8 of the root PRD).
 //!
-//! Each variant is one error class; it carries as separate data what the command-line tool needs to build its
-//! Spanish message. The `Display` text is English.
+//! Each variant is one error class, except [`Error::DifferentIndex`], which is of the class of
+//! [`Error::DifferentSchema`] with the data of an index; it carries as separate data what the command-line tool needs
+//! to build its Spanish message. The `Display` text is English.
 
 use std::fmt;
 use std::io;
@@ -45,12 +46,14 @@ pub enum ErrorKind {
     DifferentTreeType,
     /// The tree does not exist, or a handle refers to a tree its write transaction deleted (A1, A6).
     TreeNotFound,
-    /// A tree with that name already exists (A1, A3).
+    /// A tree with that name already exists (A1, A3), or an index with that name in its table (IX2 of the secondary
+    /// indexes PRD).
     TreeAlreadyExists,
     /// A value breaks a rule of its column or of its operation (N4 of the tables PRD, E17 of the tables with schema
     /// PRD).
     InvalidValue,
-    /// A row with that primary key already exists (N10 of the tables PRD).
+    /// A row with that primary key already exists (N10 of the tables PRD), or a row repeats the values of a unique
+    /// index of its table (IX10 of the secondary indexes PRD).
     DuplicateKey,
     /// A schema given to open a table, or a column of a row, does not match the table (E6).
     DifferentSchema,
@@ -94,6 +97,11 @@ pub enum SizeSubject {
     PrimaryKey,
     /// A row, in its stored form (E18).
     Row,
+    /// An index name, measured in bytes of UTF-8 (IX1 of the secondary indexes PRD).
+    IndexName,
+    /// An entry of a secondary index: the values of its key columns followed by the row's primary key, in their
+    /// stored form (IX10 of the secondary indexes PRD).
+    IndexEntry,
 }
 
 /// The rule an [`Error::InvalidValue`] reports, in the order of E17 of the tables with schema PRD: when a row
@@ -164,11 +172,30 @@ pub enum SchemaRule {
     DropKeyColumn,
     /// A schema version past 65,535 (P19).
     VersionExhausted,
-    /// A schema whose stored form, with its column names and default values, passes 256 MiB (decided 2026-11-11).
+    /// An index definition without key columns (IX3 of the secondary indexes PRD, whose rules follow in its order;
+    /// a column it names that does not exist is [`SchemaRule::ColumnNotFound`]).
+    NoIndexKey,
+    /// A vector column in the key of an index.
+    VectorIndexKey,
+    /// A column given more than once in an index definition: in its key, in its included columns or in both.
+    RepeatedIndexColumn,
+    /// An index key of more than 32 columns.
+    TooManyIndexKeyColumns,
+    /// An index key that is the whole primary key or, in an index that is not unique, a prefix of it, with its
+    /// columns in the same order and all ascending.
+    RedundantIndexKey,
+    /// An index key equal to another index's of the table: the same columns in the same order, with the same
+    /// directions and null orders.
+    SameIndexKey,
+    /// More than 64 indexes in a table.
+    TooManyIndexes,
+    /// A schema whose stored form, with its column names, default values and index definitions, passes 256 MiB
+    /// (decided 2026-11-11; the index definitions count since the secondary indexes PRD).
     SchemaTooLarge,
 }
 
-/// What differs in an [`Error::DifferentSchema`] (E6).
+/// What differs in an [`Error::DifferentSchema`] (E6) or an [`Error::DifferentIndex`] (IX2 of the secondary indexes
+/// PRD).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SchemaDifference {
@@ -185,9 +212,17 @@ pub enum SchemaDifference {
     /// A row bound to a projection of another table, another store or another schema of its table (PY3 of the
     /// projection PRD).
     Projection,
+    /// Whether an index is unique (IX2 of the secondary indexes PRD).
+    IndexUniqueness,
+    /// A key column of an index at a position (its column, its direction and its null order), or the number of its
+    /// key columns.
+    IndexKey,
+    /// An included column of an index at a position, or the number of its included columns.
+    IndexIncluded,
 }
 
-/// An engine error.
+/// An engine error. The texts of the data that only the errors of secondary indexes carry are boxed (`Box<str>`), as
+/// those of [`Error::DifferentSchema`], so that a result stays small.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -229,13 +264,16 @@ pub enum Error {
         reason: &'static str,
     },
     /// See [`ErrorKind::InvalidSize`]. `folder` is `None` for a temporary store; sizes are in bytes and `min` and
-    /// `max` are inclusive.
+    /// `max` are inclusive. `table` and `index` name the index whose entry is too large ([`SizeSubject::IndexEntry`],
+    /// IX10 of the secondary indexes PRD); both are `None` for every other subject.
     InvalidSize {
         folder: Option<PathBuf>,
         what: SizeSubject,
         received: u64,
         min: u64,
         max: u64,
+        table: Option<Box<str>>,
+        index: Option<Box<str>>,
     },
     /// See [`ErrorKind::DifferentTreeType`]. `folder` is `None` for a temporary store.
     DifferentTreeType {
@@ -250,10 +288,12 @@ pub enum Error {
         folder: Option<PathBuf>,
         name: String,
     },
-    /// See [`ErrorKind::TreeAlreadyExists`]. `folder` is `None` for a temporary store.
+    /// See [`ErrorKind::TreeAlreadyExists`]. `folder` is `None` for a temporary store. For an index (IX2 of the
+    /// secondary indexes PRD), `name` is its table's name and `index` the index's; otherwise `index` is `None`.
     TreeAlreadyExists {
         folder: Option<PathBuf>,
         name: String,
+        index: Option<Box<str>>,
     },
     /// See [`ErrorKind::InvalidValue`]. `table` and `column` name where the value is, when there is one;
     /// `sequence` names the sequence when it is the subject (E17).
@@ -264,11 +304,17 @@ pub enum Error {
         sequence: Option<String>,
         rule: ValueRule,
     },
-    /// See [`ErrorKind::DuplicateKey`]. `key` is the primary key's values in their text form.
+    /// See [`ErrorKind::DuplicateKey`]. `key` is the primary key's values in their text form. When a unique index
+    /// repeats (IX10 of the secondary indexes PRD), `index` names it, `index_key` gives the values of its key columns
+    /// that repeat, in their text form, and `key` is the primary key of the row being stored (when creating the index,
+    /// of the second of the first two rows that repeat them, in the index's order); both are `None` for a repeated
+    /// primary key.
     DuplicateKey {
         folder: Option<PathBuf>,
         table: String,
         key: String,
+        index: Option<Box<str>>,
+        index_key: Option<Box<str>>,
     },
     /// See [`ErrorKind::DifferentSchema`]. `expected` and `found` describe in text what differs: what the schema or
     /// the row gives and what the table has.
@@ -280,12 +326,26 @@ pub enum Error {
         expected: Box<str>,
         found: Box<str>,
     },
-    /// See [`ErrorKind::InvalidSchema`].
+    /// Of the class [`ErrorKind::DifferentSchema`], for an index (IX2 of the secondary indexes PRD): the definition
+    /// given to create the index `index` of `table` differs from the table's index of that name in `difference`;
+    /// `expected` and `found` describe in text what the definition gives and what the index has. A variant of its own,
+    /// so that [`Error::DifferentSchema`] keeps its data and the size of a result.
+    DifferentIndex {
+        folder: Option<PathBuf>,
+        table: String,
+        index: String,
+        difference: SchemaDifference,
+        expected: Box<str>,
+        found: Box<str>,
+    },
+    /// See [`ErrorKind::InvalidSchema`]. `index` names the index whose definition breaks the rule (IX3 of the
+    /// secondary indexes PRD), or the index with a column that cannot be dropped (IX5).
     InvalidSchema {
         folder: Option<PathBuf>,
         table: String,
         column: Option<String>,
         rule: SchemaRule,
+        index: Option<Box<str>>,
     },
 }
 
@@ -311,7 +371,9 @@ impl Error {
             Error::TreeAlreadyExists { .. } => ErrorKind::TreeAlreadyExists,
             Error::InvalidValue { .. } => ErrorKind::InvalidValue,
             Error::DuplicateKey { .. } => ErrorKind::DuplicateKey,
-            Error::DifferentSchema { .. } => ErrorKind::DifferentSchema,
+            Error::DifferentSchema { .. } | Error::DifferentIndex { .. } => {
+                ErrorKind::DifferentSchema
+            }
             Error::InvalidSchema { .. } => ErrorKind::InvalidSchema,
         }
     }
@@ -373,12 +435,16 @@ impl Error {
                 received,
                 min,
                 max,
+                table,
+                index,
             } => Error::InvalidSize {
                 folder: folder.clone(),
                 what: *what,
                 received: *received,
                 min: *min,
                 max: *max,
+                table: table.clone(),
+                index: index.clone(),
             },
             Error::DifferentTreeType {
                 folder,
@@ -395,9 +461,14 @@ impl Error {
                 folder: folder.clone(),
                 name: name.clone(),
             },
-            Error::TreeAlreadyExists { folder, name } => Error::TreeAlreadyExists {
+            Error::TreeAlreadyExists {
+                folder,
+                name,
+                index,
+            } => Error::TreeAlreadyExists {
                 folder: folder.clone(),
                 name: name.clone(),
+                index: index.clone(),
             },
             Error::InvalidValue {
                 folder,
@@ -412,10 +483,18 @@ impl Error {
                 sequence: sequence.clone(),
                 rule: *rule,
             },
-            Error::DuplicateKey { folder, table, key } => Error::DuplicateKey {
+            Error::DuplicateKey {
+                folder,
+                table,
+                key,
+                index,
+                index_key,
+            } => Error::DuplicateKey {
                 folder: folder.clone(),
                 table: table.clone(),
                 key: key.clone(),
+                index: index.clone(),
+                index_key: index_key.clone(),
             },
             Error::DifferentSchema {
                 folder,
@@ -432,16 +511,33 @@ impl Error {
                 expected: expected.clone(),
                 found: found.clone(),
             },
+            Error::DifferentIndex {
+                folder,
+                table,
+                index,
+                difference,
+                expected,
+                found,
+            } => Error::DifferentIndex {
+                folder: folder.clone(),
+                table: table.clone(),
+                index: index.clone(),
+                difference: *difference,
+                expected: expected.clone(),
+                found: found.clone(),
+            },
             Error::InvalidSchema {
                 folder,
                 table,
                 column,
                 rule,
+                index,
             } => Error::InvalidSchema {
                 folder: folder.clone(),
                 table: table.clone(),
                 column: column.clone(),
                 rule: *rule,
+                index: index.clone(),
             },
         }
     }
@@ -522,11 +618,19 @@ impl fmt::Display for Error {
                 received,
                 min,
                 max,
-            } => write!(
-                f,
-                "invalid {what} size in {}: {received} bytes, but it must have {min} to {max}",
-                store_name(folder)
-            ),
+                table,
+                index,
+            } => {
+                write!(f, "invalid {what} size in ")?;
+                if let (Some(table), Some(index)) = (table, index) {
+                    write!(f, "index {index:?} of table {table:?} of ")?;
+                }
+                write!(
+                    f,
+                    "{}: {received} bytes, but it must have {min} to {max}",
+                    store_name(folder)
+                )
+            }
             Error::DifferentTreeType {
                 folder,
                 name,
@@ -552,9 +656,22 @@ impl fmt::Display for Error {
             Error::TreeNotFound { folder, name } => {
                 write!(f, "tree {name:?} not found in {}", store_name(folder))
             }
-            Error::TreeAlreadyExists { folder, name } => {
+            Error::TreeAlreadyExists {
+                folder,
+                name,
+                index: None,
+            } => {
                 write!(f, "tree {name:?} already exists in {}", store_name(folder))
             }
+            Error::TreeAlreadyExists {
+                folder,
+                name,
+                index: Some(index),
+            } => write!(
+                f,
+                "index {index:?} already exists in table {name:?} of {}",
+                store_name(folder)
+            ),
             Error::InvalidValue {
                 folder,
                 table,
@@ -574,7 +691,21 @@ impl fmt::Display for Error {
                 }
                 write!(f, "{}: {}", store_name(folder), value_rule_text(*rule))
             }
-            Error::DuplicateKey { folder, table, key } => write!(
+            Error::DuplicateKey {
+                folder,
+                table,
+                key,
+                index: Some(index),
+                index_key,
+            } => write!(
+                f,
+                "duplicate key {} of index {index:?} in table {table:?} of {}, by the row of primary key {key}",
+                index_key.as_deref().unwrap_or("()"),
+                store_name(folder)
+            ),
+            Error::DuplicateKey {
+                folder, table, key, ..
+            } => write!(
                 f,
                 "duplicate primary key {key} in table {table:?} of {}",
                 store_name(folder)
@@ -598,17 +729,39 @@ impl fmt::Display for Error {
                     difference_text(*difference)
                 )
             }
+            Error::DifferentIndex {
+                folder,
+                table,
+                index,
+                difference,
+                expected,
+                found,
+            } => write!(
+                f,
+                "different index {index:?} of table {table:?} of {}: {} expected {expected}, found {found}",
+                store_name(folder),
+                difference_text(*difference)
+            ),
             Error::InvalidSchema {
                 folder,
                 table,
                 column,
                 rule,
+                index,
             } => {
                 write!(f, "invalid schema for table {table:?}")?;
+                if let Some(index) = index {
+                    write!(f, ", index {index:?}")?;
+                }
                 if let Some(column) = column {
                     write!(f, ", column {column:?}")?;
                 }
-                write!(f, " of {}: {}", store_name(folder), schema_rule_text(*rule))
+                let text = match (rule, index) {
+                    // The column of an index that is not a primary key column (IX5).
+                    (SchemaRule::DropKeyColumn, Some(_)) => "an index column cannot be dropped",
+                    _ => schema_rule_text(*rule),
+                };
+                write!(f, " of {}: {text}", store_name(folder))
             }
         }
     }
@@ -636,6 +789,8 @@ impl fmt::Display for SizeSubject {
             SizeSubject::ColumnName => "column name",
             SizeSubject::PrimaryKey => "primary key",
             SizeSubject::Row => "row",
+            SizeSubject::IndexName => "index name",
+            SizeSubject::IndexEntry => "index entry",
         })
     }
 }
@@ -695,6 +850,15 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
         SchemaRule::ColumnNotFound => "the column does not exist",
         SchemaRule::DropKeyColumn => "a primary key column cannot be dropped",
         SchemaRule::VersionExhausted => "the schema version would pass 65,535",
+        SchemaRule::NoIndexKey => "an index without key columns",
+        SchemaRule::VectorIndexKey => "a vector column in the key of an index",
+        SchemaRule::RepeatedIndexColumn => "a column given more than once in an index",
+        SchemaRule::TooManyIndexKeyColumns => "more than 32 key columns in an index",
+        SchemaRule::RedundantIndexKey => {
+            "an index key that is the primary key or, not unique, a prefix of it"
+        }
+        SchemaRule::SameIndexKey => "an index key equal to another index's",
+        SchemaRule::TooManyIndexes => "more than 64 indexes",
         SchemaRule::SchemaTooLarge => "the schema with its names and defaults would pass 256 MiB",
     }
 }
@@ -708,6 +872,9 @@ fn difference_text(difference: SchemaDifference) -> &'static str {
         SchemaDifference::MissingColumn => "column",
         SchemaDifference::PrimaryKey => "primary key",
         SchemaDifference::Projection => "projection",
+        SchemaDifference::IndexUniqueness => "uniqueness",
+        SchemaDifference::IndexKey => "key",
+        SchemaDifference::IndexIncluded => "included columns",
     }
 }
 
@@ -805,6 +972,7 @@ mod tests {
             table: "t".to_owned(),
             column: Some("c".to_owned()),
             rule: SchemaRule::NotNullWithoutDefault,
+            index: None,
         };
         assert_eq!(
             invalid.to_string(),
@@ -823,5 +991,125 @@ mod tests {
             different.to_string(),
             "different schema for table \"t\", column \"c\" of temporary store: type expected i64, found i32"
         );
+    }
+
+    /// The errors that gained the data of an index (IX10 of the secondary indexes PRD) read as before without it.
+    #[test]
+    fn errors_without_an_index_read_as_before() {
+        let size = Error::InvalidSize {
+            folder: None,
+            what: SizeSubject::Row,
+            received: 9,
+            min: 0,
+            max: 8,
+            table: None,
+            index: None,
+        };
+        assert_eq!(
+            size.to_string(),
+            "invalid row size in temporary store: 9 bytes, but it must have 0 to 8"
+        );
+        let exists = Error::TreeAlreadyExists {
+            folder: None,
+            name: "t".to_owned(),
+            index: None,
+        };
+        assert_eq!(
+            exists.to_string(),
+            "tree \"t\" already exists in temporary store"
+        );
+        let duplicate = Error::DuplicateKey {
+            folder: None,
+            table: "t".to_owned(),
+            key: "(1)".to_owned(),
+            index: None,
+            index_key: None,
+        };
+        assert_eq!(
+            duplicate.to_string(),
+            "duplicate primary key (1) in table \"t\" of temporary store"
+        );
+        let drop = Error::InvalidSchema {
+            folder: None,
+            table: "t".to_owned(),
+            column: Some("id".to_owned()),
+            rule: SchemaRule::DropKeyColumn,
+            index: None,
+        };
+        assert_eq!(
+            drop.to_string(),
+            "invalid schema for table \"t\", column \"id\" of temporary store: a primary key column cannot be dropped"
+        );
+    }
+
+    /// The errors of an index name it after its table.
+    #[test]
+    fn index_errors_name_the_index() {
+        let size = Error::InvalidSize {
+            folder: None,
+            what: SizeSubject::IndexEntry,
+            received: 2049,
+            min: 1,
+            max: 2048,
+            table: Some("t".into()),
+            index: Some("ix".into()),
+        };
+        assert_eq!(
+            size.to_string(),
+            "invalid index entry size in index \"ix\" of table \"t\" of temporary store: 2049 bytes, but it must \
+             have 1 to 2048"
+        );
+        let exists = Error::TreeAlreadyExists {
+            folder: None,
+            name: "t".to_owned(),
+            index: Some("ix".into()),
+        };
+        assert_eq!(
+            exists.to_string(),
+            "index \"ix\" already exists in table \"t\" of temporary store"
+        );
+        let duplicate = Error::DuplicateKey {
+            folder: None,
+            table: "t".to_owned(),
+            key: "(2)".to_owned(),
+            index: Some("ix".into()),
+            index_key: Some("(7)".into()),
+        };
+        assert_eq!(
+            duplicate.to_string(),
+            "duplicate key (7) of index \"ix\" in table \"t\" of temporary store, by the row of primary key (2)"
+        );
+        let invalid = Error::InvalidSchema {
+            folder: None,
+            table: "t".to_owned(),
+            column: Some("n".to_owned()),
+            rule: SchemaRule::DropKeyColumn,
+            index: Some("ix".into()),
+        };
+        assert_eq!(
+            invalid.to_string(),
+            "invalid schema for table \"t\", index \"ix\", column \"n\" of temporary store: an index column cannot be \
+             dropped"
+        );
+        let different = Error::DifferentIndex {
+            folder: None,
+            table: "t".to_owned(),
+            index: "ix".to_owned(),
+            difference: SchemaDifference::IndexUniqueness,
+            expected: "unique".into(),
+            found: "not unique".into(),
+        };
+        assert_eq!(different.kind(), ErrorKind::DifferentSchema);
+        assert_eq!(
+            different.to_string(),
+            "different index \"ix\" of table \"t\" of temporary store: uniqueness expected unique, found not unique"
+        );
+    }
+
+    /// A result stays as small as before the secondary indexes: the errors of an index box their texts, and
+    /// [`Error::DifferentSchema`], already at the limit, has a variant for the indexes.
+    #[test]
+    fn an_error_stays_small() {
+        assert!(std::mem::size_of::<Error>() <= 120);
     }
 }

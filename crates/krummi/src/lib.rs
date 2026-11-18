@@ -29,7 +29,10 @@
 //! the columns given), inserted or updated, read and deleted by their primary key
 //! ([`WriteTransaction::insert_row`], [`ReadTransaction::get_row`]); a read row ([`TableRow`]) has every live column
 //! and borrows its text and bytes from the store. Sequences, opened with [`WriteTransaction::open_sequence_with`],
-//! hand out increasing 64-bit integers in a write ([`WriteTransaction::next_value`]), transactionally. Tree operations
+//! hand out increasing 64-bit integers in a write ([`WriteTransaction::next_value`]), transactionally. A table's
+//! secondary indexes, unique or not, with ascending or descending columns, their nulls first or last and included
+//! columns, are created over the rows it has and dropped in a write ([`WriteTransaction::create_index`],
+//! [`WriteTransaction::drop_index`]), and Describe lists them ([`TableSchema::indexes`]). Tree operations
 //! on a table or a sequence, and table or sequence operations on another class, fail with
 //! [`ErrorKind::DifferentTreeType`].
 //!
@@ -81,8 +84,9 @@ pub mod ids;
 pub mod table;
 
 pub use table::{
-    BulkLoadError, Column, ProjectedColumn, ProjectedRow, Projection, ReadRows, ReadSequence,
-    ReadTable, Schema, SchemaColumn, SequenceMode, TableMode, TableRow, TableSchema, Upserted,
+    BulkLoadError, Column, Direction, IndexDefinition, IndexKey, IndexMode, Nulls, ProjectedColumn,
+    ProjectedRow, Projection, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn, SchemaIndex,
+    SchemaIndexColumn, SchemaIndexKey, SequenceMode, TableMode, TableRow, TableSchema, Upserted,
     WriteRows, WriteSequence, WriteTable,
 };
 
@@ -1562,6 +1566,8 @@ impl Folder<'_> {
             received: len as u64,
             min: min as u64,
             max: max as u64,
+            table: None,
+            index: None,
         })
     }
 
@@ -1653,6 +1659,7 @@ impl Folder<'_> {
         Error::TreeAlreadyExists {
             folder: self.owned(),
             name: name.to_owned(),
+            index: None,
         }
     }
 

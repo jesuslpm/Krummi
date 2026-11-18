@@ -355,6 +355,7 @@ impl<'s> Projection<'s> {
             difference: SchemaDifference::Projection,
             expected: "a row of the projection's table and schema".to_owned(),
             found: "a row of another table, store or schema".to_owned(),
+            index: None,
         })
     }
 
@@ -376,6 +377,7 @@ impl<'s> Projection<'s> {
                 difference: SchemaDifference::Type,
                 expected: T::NAME.to_owned(),
                 found: column.ty.to_string(),
+                index: None,
             }));
         }
         Ok(ProjectedColumn {

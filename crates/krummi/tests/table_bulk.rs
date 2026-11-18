@@ -148,8 +148,11 @@ fn duplicate(error: Error, folder: Option<&Path>) -> (String, String) {
             folder: f,
             table,
             key,
+            index,
+            index_key,
         } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!((index, index_key), (None, None));
             (table, key)
         }
         other => panic!("expected a duplicate key, got {other}"),

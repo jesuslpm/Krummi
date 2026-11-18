@@ -1,9 +1,13 @@
 //! Tables with schema (7.1): column types and values, the key encoding of document 3 and the row format of
-//! document 1 of the table design, schemas and their changes, and the tables of the catalog.
+//! document 1 of the table design, schemas and their changes, and the tables of the catalog; and their secondary
+//! indexes (7.2).
 
 mod bulk;
 pub mod catalog;
 mod identity;
+mod index;
+#[cfg(test)]
+mod index_tests;
 // Used by the index catalog, maintenance and scans of the secondary indexes PRD (T2–T4 of its execution).
 #[allow(dead_code)]
 mod index_key;
@@ -28,6 +32,10 @@ pub mod value;
 
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
+pub use index::{
+    IndexDefinition, IndexKey, IndexMode, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
+};
+pub use key::{Direction, Nulls};
 pub(crate) use projection::Projections;
 pub use projection::{ProjectedColumn, ProjectedRow, Projection};
 pub use ranges::{ReadRows, WriteRows};
@@ -42,4 +50,5 @@ pub use sequence::{ReadSequence, SequenceMode, WriteSequence};
 pub mod testing {
     pub use super::catalog::TableTrees;
     pub use super::identity::testing::with_identity_source;
+    pub use super::index::IndexEntry;
 }

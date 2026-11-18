@@ -233,6 +233,7 @@ impl Fault {
                     difference: SchemaDifference::MissingColumn,
                     expected: "a column".to_owned(),
                     found: "no column".to_owned(),
+                    index: None,
                 },
             ),
             Fault::Value(column, rule) => Error::InvalidValue {
@@ -1352,6 +1353,8 @@ impl WriteTransaction<'_> {
                     folder: self.folder.owned(),
                     table: self.table_name(table),
                     key: reader.key_text(&values),
+                    index: None,
+                    index_key: None,
                 });
             }
             self.apply_rows(table, update.root, RowCount::Added)?;
@@ -1398,8 +1401,21 @@ impl WriteTransaction<'_> {
 
     /// The rows tree and the reader of the table of `table`, with the failures of a handle (misuse for one of another
     /// transaction, not found once the table was deleted), without reading anything.
+    ///
+    /// Every write of rows (insert, update, insert or update, delete, range delete, and the bulk load through insert)
+    /// starts here, which makes it the one place where the maintenance of the table's secondary indexes joins them
+    /// (IX7, T3 of the secondary indexes execution). Until then a write of the rows of a table with indexes would leave
+    /// them out of step with the rows, so it panics instead, before it changes anything.
+    ///
+    /// # Panics
+    ///
+    /// If the table has secondary indexes.
     pub(super) fn live_rows(&self, table: &WriteTable<'_>) -> Result<(u64, Arc<Reader>)> {
         let state = self.live_table(table)?;
+        assert!(
+            state.index_roots.is_empty(),
+            "writing the rows of a table with secondary indexes is not implemented yet: its indexes would not follow"
+        );
         Ok((state.rows_root, Arc::clone(&state.reader)))
     }
 

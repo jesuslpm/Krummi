@@ -34,20 +34,40 @@ const ESCAPE: u8 = 0xFF;
 /// descending terminator), so that the byte after an inverted terminator or escape is never `FF` (document 3).
 const DESCENDING_END: u8 = 0x01;
 
-/// The direction of an index column (N5): its values in their type's order, or in the reverse.
+/// The direction of an index column (N5, IX1 of the secondary indexes PRD): its values in their type's order, or in
+/// the reverse. Ascending by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub(crate) enum Direction {
+pub enum Direction {
     #[default]
     Ascending,
     Descending,
 }
 
-/// Where the nulls of an index column sort in the forward order of the index, whatever its direction (N5).
+/// Where the nulls of an index column sort in the forward order of the index, whatever its direction (N5, IX1 of the
+/// secondary indexes PRD). First by default; it is part of the definition also in a column without nulls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub(crate) enum Nulls {
+pub enum Nulls {
     #[default]
     First,
     Last,
+}
+
+impl std::fmt::Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Direction::Ascending => "ascending",
+            Direction::Descending => "descending",
+        })
+    }
+}
+
+impl std::fmt::Display for Nulls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Nulls::First => "nulls first",
+            Nulls::Last => "nulls last",
+        })
+    }
 }
 
 /// A column of a key as its elements are encoded: its type, direction and null order, and whether its values may be

@@ -70,8 +70,10 @@ fn invalid_schema(error: Error, folder: Option<&Path>) -> (String, Option<String
             table,
             column,
             rule,
+            index,
         } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!(index, None);
             (table, column, rule)
         }
         other => panic!("expected an invalid schema, got {other}"),
@@ -1241,23 +1243,24 @@ fn d6_identities_equal_to_known_ones_are_drawn_again() {
             ],
             &["k"],
         );
-        // Table 10 with columns 20 and 20 again, so 21, and schema state 20 or 21 again, so 22.
-        with_identity_source(repeating(vec![10, 20, 20, 21, 20, 21, 22]), || {
+        // Table 10 with columns 20 and 20 again, so 21, schema state 20 or 21 again, so 22, and index state 22 again,
+        // so 23 (IX6 of the secondary indexes PRD).
+        with_identity_source(repeating(vec![10, 20, 20, 21, 20, 21, 22, 22, 23]), || {
             create_table(&mut write, "a", &two);
         });
         let a = write.describe_table("a").unwrap();
         assert_eq!(
-            (a.table_id(), ids_of(&a), a.schema_state()),
-            (10, vec![20, 21], 22)
+            (a.table_id(), ids_of(&a), a.schema_state(), a.index_state()),
+            (10, vec![20, 21], 22, 23)
         );
-        // Another table: 10 is taken, 11 is not; its columns may repeat another table's.
-        with_identity_source(repeating(vec![10, 11, 20, 21, 22]), || {
+        // Another table: 10 is taken, 11 is not; its columns and states may repeat another table's.
+        with_identity_source(repeating(vec![10, 11, 20, 21, 22, 23]), || {
             create_table(&mut write, "b", &two);
         });
         let b = write.describe_table("b").unwrap();
         assert_eq!(
-            (b.table_id(), ids_of(&b), b.schema_state()),
-            (11, vec![20, 21], 22)
+            (b.table_id(), ids_of(&b), b.schema_state(), b.index_state()),
+            (11, vec![20, 21], 22, 23)
         );
         // A change: its state is new to the table's history, and so is an added column's identity.
         let table = write.open_table("a").unwrap();
@@ -1821,11 +1824,12 @@ fn g6_garbage_after_a_table_entry_is_damage_of_its_catalog_page() {
 // ---------------------------------------------------------------------------------------------------------------
 // AC18: the format
 
-/// AC18 (E20, B12, D8): a store with tables has format 11 in its header, so an engine of format 10, which opens
-/// only its own format, refuses it; this engine refuses the same store marked as format 10 the same way, with the
-/// different-format class; and the store's information keeps its shape, with the tables' pages in its totals.
+/// AC18 (E20, B12, D8): a store with tables has the current format in its header, 12 since the secondary indexes
+/// (IX14 of their PRD), so an engine of an earlier format, which opens only its own, refuses it; this engine refuses
+/// the same store marked as format 10 the same way, with the different-format class; and the store's information
+/// keeps its shape, with the tables' pages in its totals.
 #[test]
-fn ac18_a_store_with_tables_is_of_format_11() {
+fn ac18_a_store_with_tables_is_of_the_current_format() {
     use krummi_pager::DATA_FILE;
     use krummi_pager::format::{Header, PAGE_SIZE, header_copies, write_header_pages};
     let tmp = tempfile::tempdir().unwrap();
@@ -1841,7 +1845,7 @@ fn ac18_a_store_with_tables_is_of_format_11() {
         temporary,
         free_pages: _,
     } = store.info();
-    assert_eq!((format_version, page_size, temporary), (11, 8192, false));
+    assert_eq!((format_version, page_size, temporary), (12, 8192, false));
     assert!(in_use(&store) > empty, "the table's pages count");
     assert!(page_count >= in_use(&store));
     store.close().unwrap();
@@ -1851,7 +1855,7 @@ fn ac18_a_store_with_tables_is_of_format_11() {
     let [Some(a), Some(b)] = header_copies(&bytes[..2 * PAGE_SIZE]) else {
         panic!("both header copies")
     };
-    assert_eq!((a.format_version, b.format_version), (11, 11));
+    assert_eq!((a.format_version, b.format_version), (12, 12));
     let current = if a.revision >= b.revision { a } else { b };
     write_header_pages(
         &mut bytes[..2 * PAGE_SIZE],
@@ -1864,7 +1868,7 @@ fn ac18_a_store_with_tables_is_of_format_11() {
     match Store::open(tmp.path(), &krummi::StoreOptions::default()).err() {
         Some(Error::DifferentFormat {
             found, expected, ..
-        }) => assert_eq!((found, expected), (10, 11)),
+        }) => assert_eq!((found, expected), (10, 12)),
         other => panic!("expected a different format, got {other:?}"),
     }
     assert_eq!(std::fs::read(&data).unwrap(), bytes, "left as it was");

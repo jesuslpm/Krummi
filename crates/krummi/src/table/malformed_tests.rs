@@ -22,7 +22,7 @@ pub(super) const ROWS: i64 = 10;
 pub(super) const BAD: i64 = 5;
 
 /// A temporary store with the table `t` of `schema` and `rows`, committed.
-fn store_with(schema: &Schema, rows: impl IntoIterator<Item = Row>) -> Store {
+pub(super) fn store_with(schema: &Schema, rows: impl IntoIterator<Item = Row>) -> Store {
     let store = Store::open_temporary(&StoreOptions::default()).unwrap();
     let mut write = store.write().unwrap();
     let table = write

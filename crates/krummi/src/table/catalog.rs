@@ -4,12 +4,14 @@
 //!
 //! A table is a catalog entry of kind [`TreeKind::Table`]: the catalog's fixed part holds its random identity and the
 //! root and row count of its rows tree, and the bytes after it the root of its schema history tree and its current
-//! schema ([`TableSchema::encode`]). So opening, Describe, Exists, List and the row count read only the catalog
-//! (E19). Neither internal tree has a name, so no catalog operation reaches it (N1, AC13).
+//! schema with its secondary indexes and the roots of their trees ([`TableSchema::encode`]). So opening, Describe,
+//! Exists, List and the row count read only the catalog (E19, IX12). No internal tree has a name, so no catalog
+//! operation reaches it (N1, AC13).
 //!
 //! A write transaction keeps the state of every table it opened, shared by all its handles (B9), as it does for
-//! trees: a schema change writes the catalog entry at once, and the rows tree's root and count reach the catalog at
-//! commit. An operation that changes nothing writes nothing (E16).
+//! trees: a schema change, and the creation or the deletion of an index, write the catalog entry at once, and the
+//! roots and the count that row writes and emptying change reach the catalog at commit. An operation that changes
+//! nothing writes nothing (E16).
 
 use std::cell::Ref;
 use std::marker::PhantomData;
@@ -40,7 +42,9 @@ pub struct ReadTable<'s> {
     count: u64,
     /// The root of its schema history tree.
     pub(super) history: u64,
-    schema: TableSchema,
+    pub(super) schema: TableSchema,
+    /// The roots of its indexes' trees, in the order of [`TableSchema::indexes`].
+    pub(super) index_roots: Vec<u64>,
     /// How its rows are read.
     pub(super) reader: Arc<Reader>,
     _store: PhantomData<&'s Store>,
@@ -137,7 +141,10 @@ pub(crate) struct TableState {
     pub(super) count: u64,
     /// The root of its schema history tree.
     pub(super) history: u64,
-    schema: TableSchema,
+    /// Its current schema, with its indexes (E4, IX6); a change of its indexes keeps `reader`, whose columns stay.
+    pub(super) schema: TableSchema,
+    /// The roots of its indexes' trees, in the order of [`TableSchema::indexes`].
+    pub(super) index_roots: Vec<u64>,
     /// How the rows of its current schema are read and written.
     pub(super) reader: Arc<Reader>,
     deleted: bool,
@@ -173,6 +180,11 @@ impl TableState {
         }
     }
 
+    /// The bytes of its catalog entry after the fixed part: its schema with its indexes (see [`TableSchema::encode`]).
+    fn extra(&self) -> Vec<u8> {
+        self.schema.encode(self.history, &self.index_roots)
+    }
+
     /// Makes `schema` the table's current one, for every handle (E4, B9).
     fn set_schema(&mut self, schema: TableSchema) {
         self.reader = Arc::new(Reader::new(&schema, self.reader.schema.store));
@@ -185,6 +197,7 @@ struct Found {
     entry: Entry,
     schema: TableSchema,
     history: u64,
+    index_roots: Vec<u64>,
 }
 
 /// The table `name` that `tx` sees, failing with [`Error::DifferentTreeType`] when the name is of another class of
@@ -196,12 +209,13 @@ fn find_table<S: PageSource>(folder: Folder<'_>, tx: &S, name: &str) -> Result<O
     if located.entry.kind != TreeKind::Table {
         return Err(folder.different_class(name, located.entry.kind, TreeKind::Table));
     }
-    let (schema, history) = TableSchema::decode(located.entry.id, located.extra)
+    let (schema, history, index_roots) = TableSchema::decode(located.entry.id, located.extra)
         .ok_or_else(|| tx.damaged(located.page))?;
     Ok(Some(Found {
         entry: located.entry,
         schema,
         history,
+        index_roots,
     }))
 }
 
@@ -221,23 +235,35 @@ impl Folder<'_> {
         }
     }
 
-    fn invalid_schema(self, table: &str, invalid: Invalid) -> Error {
+    pub(super) fn invalid_schema(self, table: &str, invalid: Invalid) -> Error {
         Error::InvalidSchema {
             folder: self.owned(),
             table: table.to_owned(),
             column: invalid.column,
             rule: invalid.rule,
+            index: invalid.index.map(Into::into),
         }
     }
 
+    /// The error of `different`: of a column or the primary key, or of the definition of an index (IX2).
     pub(super) fn different_schema(self, table: &str, different: Different) -> Error {
-        Error::DifferentSchema {
-            folder: self.owned(),
-            table: table.to_owned(),
-            column: different.column,
-            difference: different.difference,
-            expected: different.expected.into(),
-            found: different.found.into(),
+        match different.index {
+            Some(index) => Error::DifferentIndex {
+                folder: self.owned(),
+                table: table.to_owned(),
+                index,
+                difference: different.difference,
+                expected: different.expected.into(),
+                found: different.found.into(),
+            },
+            None => Error::DifferentSchema {
+                folder: self.owned(),
+                table: table.to_owned(),
+                column: different.column,
+                difference: different.difference,
+                expected: different.expected.into(),
+                found: different.found.into(),
+            },
         }
     }
 
@@ -272,6 +298,7 @@ impl<'s> ReadTransaction<'s> {
                     .reader,
             ),
             schema: found.schema,
+            index_roots: found.index_roots,
             _store: PhantomData,
         })
     }
@@ -336,8 +363,8 @@ impl<'s> WriteTransaction<'s> {
     /// compatible with it (E6, [`Error::DifferentSchema`]): each column it names exists with the same type,
     /// nullability and default, and the primary key has the same columns in the same order; the table may have
     /// other columns. A name of a tree or a sequence fails with [`Error::DifferentTreeType`] in every mode. Emptying
-    /// a table frees the pages of its rows and keeps its schema, its identity and its handles, which see it empty
-    /// (E3).
+    /// a table frees the pages of its rows and of its indexes and keeps its schema, its indexes' definitions and
+    /// identities, its index state, its identity and its handles, which see it empty (E3, IX4).
     pub fn open_table_with(&mut self, name: &str, mode: TableMode<'_>) -> Result<WriteTable<'s>> {
         self.folder.check_name(name)?;
         if let Some(schema) = mode.schema() {
@@ -407,9 +434,9 @@ impl<'s> WriteTransaction<'s> {
         })
     }
 
-    /// Deletes the table `name` with its rows and frees its pages (E2); a missing name does nothing. Fails with
-    /// [`Error::DifferentTreeType`] if the name is of a tree or a sequence. The table's handles then fail with
-    /// [`Error::TreeNotFound`].
+    /// Deletes the table `name` with its rows and its indexes and frees their pages (E2, IX4); a missing name does
+    /// nothing. Fails with [`Error::DifferentTreeType`] if the name is of a tree or a sequence. The table's handles
+    /// then fail with [`Error::TreeNotFound`].
     pub fn delete_table(&mut self, name: &str) -> Result<()> {
         self.folder.check_name(name)?;
         match find_table(self.folder, &self.inner, name)? {
@@ -449,7 +476,7 @@ impl<'s> WriteTransaction<'s> {
         let state = self.tables.get_mut().get_mut(id).expect("joined above");
         state.name = renamed;
         state.dirty = false;
-        let (entry, extra) = (state.entry(), state.schema.encode(state.history));
+        let (entry, extra) = (state.entry(), state.extra());
         catalog::put_with_extra(&mut self.inner, to, &entry, &extra)?;
         catalog::remove(&mut self.inner, from)
     }
@@ -465,7 +492,8 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// Drops the column `name` of `table` (E4): no row reads it again. Fails with [`Error::InvalidSchema`] if it does
-    /// not exist or is a primary key column, or the version would pass 65,535.
+    /// not exist, is a primary key column or a column of an index, which the error names (the first in the order of
+    /// B5, unless the column is a primary key column; IX5), or the version would pass 65,535.
     pub fn drop_column(&mut self, table: &WriteTable<'_>, name: &str) -> Result<()> {
         self.change_schema(table, Change::Drop(name))
     }
@@ -509,6 +537,7 @@ impl<'s> WriteTransaction<'s> {
                     history: found.history,
                     reader: Arc::new(Reader::new(&found.schema, self.projections.serial())),
                     schema: found.schema,
+                    index_roots: found.index_roots,
                     deleted: false,
                     dirty: false,
                     last: None,
@@ -558,8 +587,9 @@ impl<'s> WriteTransaction<'s> {
     }
 
     /// Creates the empty table `name` with `schema`, which E5 accepted with `defaults`: its identities are drawn
-    /// first, so that a failure of the generator changes nothing; then its rows tree, its history tree with version 1
-    /// and the identities it used, and its catalog entry.
+    /// first (the table's, each column's, the schema state and the index state, IX6), so that a failure of the
+    /// generator changes nothing; then its rows tree, its history tree with version 1 and the identities it used, and
+    /// its catalog entry.
     fn create_table(
         &mut self,
         name: &str,
@@ -571,14 +601,22 @@ impl<'s> WriteTransaction<'s> {
                 || catalog::has_identity(&tx.inner, TreeKind::Table, id)?
                 || tx.tables.borrow().get(id).is_some())
         })?;
-        let mut drawn: Vec<u64> = Vec::with_capacity(schema.columns.len() + 1);
-        for _ in 0..=schema.columns.len() {
+        let mut drawn: Vec<u64> = Vec::with_capacity(schema.columns.len() + 2);
+        for _ in 0..schema.columns.len() + 2 {
             let id = self.draw_identity(|_, id| Ok(drawn.contains(&id)))?;
             drawn.push(id);
         }
+        let index_state = drawn.pop().expect("two more than the columns");
         let schema_state = drawn.pop().expect("one more than the columns");
         self.projections.retire_table(table_id);
-        let schema = TableSchema::new(table_id, schema, defaults, &drawn, schema_state);
+        let schema = TableSchema::new(
+            table_id,
+            schema,
+            defaults,
+            &drawn,
+            schema_state,
+            index_state,
+        );
         let root = krummi_tree::create(&mut self.inner)?;
         let history = krummi_tree::create(&mut self.inner)?;
         let history = self.record_version(history, &schema, schema.identities())?;
@@ -588,31 +626,36 @@ impl<'s> WriteTransaction<'s> {
             root,
             count: 0,
         };
-        catalog::put_with_extra(&mut self.inner, name, &entry, &schema.encode(history))?;
+        catalog::put_with_extra(&mut self.inner, name, &entry, &schema.encode(history, &[]))?;
         self.join(
             name,
             Found {
                 entry,
                 schema,
                 history,
+                index_roots: Vec::new(),
             },
         )
     }
 
-    /// Empties the table `name` of `found`: it keeps its identity, its schema and its handles, and the pages of its
-    /// rows give way to one empty root (E3).
+    /// Empties the table `name` of `found`: it keeps its identity, its schema with its indexes' definitions and
+    /// identities, its index state and its handles, and the pages of its rows and of each index give way to one empty
+    /// root each (E3, IX4).
     fn empty_table(&mut self, name: &str, found: Found) -> Result<WriteTable<'s>> {
         let handle = self.join(name, found)?;
-        let old = self
-            .tables
-            .get_mut()
-            .get(handle.id)
-            .expect("joined")
-            .rows_root;
+        let (old, mut index_roots) = {
+            let state = self.tables.get_mut().get(handle.id).expect("joined");
+            (state.rows_root, state.index_roots.clone())
+        };
         krummi_tree::free_all(&mut self.inner, old)?;
         let root = krummi_tree::create(&mut self.inner)?;
+        for index_root in &mut index_roots {
+            krummi_tree::free_all(&mut self.inner, *index_root)?;
+            *index_root = krummi_tree::create(&mut self.inner)?;
+        }
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
         state.rows_root = root;
+        state.index_roots = index_roots;
         state.count = 0;
         state.dirty = true;
         state.last = None;
@@ -620,17 +663,20 @@ impl<'s> WriteTransaction<'s> {
         Ok(handle)
     }
 
-    /// Deletes the table `name` of `found`, ending its identity: its trees' pages are freed, and its handles fail
-    /// from now on (E2, A6).
+    /// Deletes the table `name` of `found`, ending its identity: its trees' pages, its indexes' included, are freed,
+    /// and its handles fail from now on (E2, A6, IX4).
     fn drop_table(&mut self, name: &str, found: Found) -> Result<()> {
         let id = self.join(name, found)?.id;
         self.projections.retire_table(id);
-        let (root, history) = {
+        let (root, history, index_roots) = {
             let state = self.tables.get_mut().get(id).expect("joined");
-            (state.rows_root, state.history)
+            (state.rows_root, state.history, state.index_roots.clone())
         };
         krummi_tree::free_all(&mut self.inner, root)?;
         krummi_tree::free_all(&mut self.inner, history)?;
+        for index_root in index_roots {
+            krummi_tree::free_all(&mut self.inner, index_root)?;
+        }
         catalog::remove(&mut self.inner, name)?;
         let state = self.tables.get_mut().get_mut(id).expect("joined");
         state.deleted = true;
@@ -657,9 +703,7 @@ impl<'s> WriteTransaction<'s> {
         let Some(next) = next else {
             return Ok(());
         };
-        let known = |tx: &Self, id: u64| {
-            Ok(krummi_tree::get(&tx.inner, history, &identity_key(id))?.is_some())
-        };
+        let known = |tx: &Self, id: u64| tx.known_identity(history, id);
         let schema_state = self.draw_identity(|tx, id| {
             Ok(tx.projections.retired_schema(table.id, id) || known(tx, id)?)
         })?;
@@ -682,17 +726,23 @@ impl<'s> WriteTransaction<'s> {
             .expect("a live handle");
         state.set_schema(schema);
         state.history = history;
+        self.write_table_entry(table.id)
+    }
+
+    /// Writes the catalog entry of the table `id` as its state has it, so that every handle and Describe see its
+    /// schema and its indexes at once (B9), and the commit need not write it again.
+    pub(super) fn write_table_entry(&mut self, id: u64) -> Result<()> {
+        let state = self.tables.get_mut().get_mut(id).expect("a live handle");
         state.dirty = false;
-        let (name, entry, extra) = (
-            state.name.clone(),
-            state.entry(),
-            state.schema.encode(history),
-        );
+        let (name, entry, extra) = (state.name.clone(), state.entry(), state.extra());
         catalog::put_with_extra(&mut self.inner, &name, &entry, &extra)
     }
 
     /// A random identity that `known` does not know (D6). A failure of the generator is the transaction's (T11).
-    fn draw_identity(&self, mut known: impl FnMut(&Self, u64) -> Result<bool>) -> Result<u64> {
+    pub(super) fn draw_identity(
+        &self,
+        mut known: impl FnMut(&Self, u64) -> Result<bool>,
+    ) -> Result<u64> {
         identity::draw(|id| known(self, id)).map_err(|error| match error {
             Error::Io { .. } => self.inner.fail(error),
             other => other,
@@ -707,30 +757,42 @@ impl<'s> WriteTransaction<'s> {
         schema: &TableSchema,
         new: impl IntoIterator<Item = u64>,
     ) -> Result<u64> {
-        let mut root = krummi_tree::set(
+        let root = krummi_tree::set(
             &mut self.inner,
             history,
             &version_key(schema.version()),
             &schema.encode_version(),
         )?
         .root;
+        self.record_identities(root, new)
+    }
+
+    /// Records the identities `new` in the history tree at `history`, so that no identity of the table is drawn again
+    /// (P12), and returns its root.
+    pub(super) fn record_identities(
+        &mut self,
+        history: u64,
+        new: impl IntoIterator<Item = u64>,
+    ) -> Result<u64> {
+        let mut root = history;
         for id in new {
             root = krummi_tree::set(&mut self.inner, root, &identity_key(id), &[])?.root;
         }
         Ok(root)
     }
 
-    /// Writes into the catalog the root and the row count of every table whose rows changed them (see
-    /// [`WriteTransaction::finish`]).
+    /// Whether the history tree at `history` holds the identity `id`: one the table used, its columns', its
+    /// indexes', its schema states' and its index states' (P12).
+    pub(super) fn known_identity(&self, history: u64, id: u64) -> Result<bool> {
+        Ok(krummi_tree::get(&self.inner, history, &identity_key(id))?.is_some())
+    }
+
+    /// Writes into the catalog the root and the row count of every table whose rows changed them, and the roots of
+    /// its indexes (see [`WriteTransaction::finish`]).
     pub(crate) fn finish_tables(&mut self) -> Result<()> {
         let tables = self.tables.get_mut();
         for state in tables.0.iter().filter(|s| s.dirty && !s.deleted) {
-            catalog::put_with_extra(
-                &mut self.inner,
-                &state.name,
-                &state.entry(),
-                &state.schema.encode(state.history),
-            )?;
+            catalog::put_with_extra(&mut self.inner, &state.name, &state.entry(), &state.extra())?;
         }
         Ok(())
     }

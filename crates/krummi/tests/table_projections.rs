@@ -466,8 +466,11 @@ fn invalid_size(error: Error, folder: Option<&Path>) -> u64 {
             received,
             min,
             max,
+            table,
+            index,
         } => {
             assert_eq!(f, folder_of(folder));
+            assert_eq!((table, index), (None, None));
             assert_eq!((what, min, max), (SizeSubject::ColumnName, 1, 1_024));
             received
         }
@@ -925,7 +928,7 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     // An abandoned write's schema state, 40, offered again for the next write's schema change: 60 is drawn instead.
     let store = open(&tmp.path().join("t"));
     let mut seed = store.write().unwrap();
-    with_identity_source(identities(vec![10, 20, 30]), || {
+    with_identity_source(identities(vec![10, 20, 30, 35]), || {
         seed.open_table_with("t", TableMode::CreateNew(&schema))
     })
     .unwrap();
@@ -961,14 +964,15 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     write.commit().unwrap();
     store.close().unwrap();
 
-    // Creating a table draws its identity, then one identity per column (here `id`), then its schema state. A deleted
-    // table's identity, 100, read from the files, is offered again first for the table created with its name: the
-    // store refuses it and takes 110 as the identity, 120 for `id` and 130 as the state. A new table's state may
-    // repeat another table's (D6), so only the identity is refused.
+    // Creating a table draws its identity, then one identity per column (here `id`), then its schema state and its
+    // index state (IX6 of the secondary indexes PRD). A deleted table's identity, 100, read from the files, is offered
+    // again first for the table created with its name: the store refuses it and takes 110 as the identity, 120 for
+    // `id`, 130 as the state and 140 as the index state. A new table's states may repeat another table's (D6), so only
+    // the identity is refused.
     let folder = tmp.path().join("u");
     let store = open(&folder);
     let mut write = store.write().unwrap();
-    let u = with_identity_source(identities(vec![100, 110, 120]), || {
+    let u = with_identity_source(identities(vec![100, 110, 120, 125]), || {
         write.open_table_with("u", TableMode::CreateNew(&schema))
     })
     .unwrap();
@@ -986,7 +990,7 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     write.delete_table("u").unwrap();
     write.commit().unwrap();
     let mut write = store.write().unwrap();
-    let u = with_identity_source(identities(vec![100, 110, 120, 130]), || {
+    let u = with_identity_source(identities(vec![100, 110, 120, 130, 140]), || {
         write.open_table_with("u", TableMode::CreateNew(&schema))
     })
     .unwrap();
@@ -1007,7 +1011,7 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     // first for the next table created with its name, is refused, so that table takes 210, then 220 for `id` and 230
     // as the state.
     let mut abandoned = store.write().unwrap();
-    let v = with_identity_source(identities(vec![200, 210, 220]), || {
+    let v = with_identity_source(identities(vec![200, 210, 220, 225]), || {
         abandoned.open_table_with("v", TableMode::CreateNew(&schema))
     })
     .unwrap();
@@ -1016,7 +1020,7 @@ fn ac_py5_a_repeated_identity_never_aliases_a_schema() {
     let old = abandoned.projection(&v, &["id"]).unwrap();
     drop(abandoned);
     let mut write = store.write().unwrap();
-    let v = with_identity_source(identities(vec![200, 210, 220, 230]), || {
+    let v = with_identity_source(identities(vec![200, 210, 220, 230, 240]), || {
         write.open_table_with("v", TableMode::CreateNew(&schema))
     })
     .unwrap();
