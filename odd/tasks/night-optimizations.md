@@ -38,7 +38,7 @@ PRD draft for the user, not an implementation).
 | T2 | S2, S5 | delegated writer (context backstop); restored inline | in verification | `cdf0164`, reverted `131a172`, restored with c1 `dfb391e`; L9, L14, L15 |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
-| T5 | S6 | inline | done | complete runs L11; Codex L12–L13 |
+| T5 | S6 | inline | reopened (L14) | complete runs L11 and Codex L12–L13 on the code without T2; to redo |
 
 ## Log
 
@@ -206,6 +206,24 @@ PRD draft for the user, not an implementation).
     performance only.
   The cross-build probes compare two builds' output, so they are not committed as tests. A1 and A3–A6 stay as
   follow-ups.
+- **L17** (2026-11-18) — RDD of `67d92b8..6a5d85b`. Assess: `high`, `review_due` (item 4 escalated: «a write
+  transaction now holds an unpublished writable temporary-area slot and seals it in place at commit»); the untracked
+  `docs/reviews/tables-indexes/` (not this run's) excluded. Lenses risk, resilience and reliability; lineage
+  `review-f5c3a3c49dc4a634`; **approved**, acknowledged (authority burned). Advisory findings:
+  - **Risk:** none.
+  - R4-stage-spare-infallible-growth, WARNING (`scratch.rs:1638`): `stage` grew the spare payloads with an
+    infallible push. Fixed in `96ef635`: `spare.try_reserve(pages.len())` before the loop, mapped to `OutOfMemory`,
+    as `staged` is reserved just above. No runnable RED: the global allocator cannot be made to fail here.
+  - R4-page-buf-infallible-box, WARNING (`scratch.rs:1503`): `Box::new(slot)` is infallible. Not changed: the same
+    first change inserts into the transaction's `dirty` `BTreeMap` (`transaction.rs:718` and `:726`), also an
+    infallible small allocation, as at baseline. The engine's fallible allocations are the page and record buffers,
+    not small nodes.
+  - R3-t5-done-on-stale-code and R3-closing-report-contradicts-candidate, WARNING: T5 and the closing report
+    describe the code without T2. T5 is reopened, and the closing report is rewritten at the close.
+  - R3-failed-commit-slot-return-untested, SUGGESTION: verifier advisory A4, a follow-up.
+  - R3-published-pointer-test-timing, SUGGESTION: fixed in `96ef635`;
+    `a_copied_page_is_changed_in_a_free_slot_and_published_from_it` pauses the transfer.
+  Checks on `96ef635`: fmt and clippy clean, `cargo test --workspace` 879 passed, 0 failed.
 
 ## Closing
 

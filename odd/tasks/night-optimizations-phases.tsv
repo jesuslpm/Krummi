@@ -33,3 +33,5 @@
 2026-11-18T07:12:10+00:00	bg-start	acceptance	wsl-ab-t2-10
 2026-11-18T07:34:41+00:00	bg-end	acceptance	wsl-ab-t2-10
 2026-11-18T07:35:34+00:00	mark	verify	T2
+2026-11-18T07:49:19+00:00	mark	review	T2
+2026-11-18T07:53:54+00:00	mark	fix	T2
