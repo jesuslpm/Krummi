@@ -32,8 +32,8 @@ PRD draft for the user, not an implementation).
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| T1 | S1, S5 | delegated diagnosis, inline change | code done, A/B pending | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers` |
-| T2 | S2, S5 | delegated writer (context backstop) | in progress | |
+| T1 | S1, S5 | delegated diagnosis, inline change | done | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers`; A/B L7–L9 |
+| T2 | S2, S5 | delegated writer (context backstop) | reverted (S5) | `cdf0164`, reverted `131a172`; diagnosis L9 |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
 | T5 | S6 | inline | pending | |
@@ -121,3 +121,24 @@ PRD draft for the user, not an implementation).
   sizes its buffers. Diagnosis delegated (opus, high; scratch `work/night/t2d/`, machine to itself): placebo builds to
   measure how far a build with no behavior change moves W7, W26, W27 and W3, then the mechanism of T2's W3 and W17
   costs and narrow fixes that keep W21's gain.
+- **L9** (2026-11-18) — Diagnosis (worker, opus high; about 2 h 45 min between 23:53 and 02:58; scratch
+  `work/night/t2d/`, power plan on, digests equal in every run). Placebo builds against `main`, W7/W26/W27 in 20 rounds
+  and W3 in 10: a byte-identical copy of the `main` exe in another folder measured W26 0.952 (20/20) and W27 0.986
+  (19/20); a never-called cold function moved W3 to 0.989 (10/10); no-op builds moved W26 and W27 between −4.8 % and
+  +3.5 %, at most ±0.6 % on W7. Windows loads each exe file at its own stable address, so a build's layout effect
+  repeats in every round and Q7 does not filter it. In the same session `t1`/`main` measured W7 1.004 (7/20), W26
+  1.001 (7/20), W27 1.003 (8/20), W3 1.002 (5/10). T2's counters (`t2i`): W3 is one transaction on an empty
+  temporary area and takes 0 of 22,236 pages in slots, so its cost is the new code path; W17 shows no difference in
+  faults or growth and, in 10 rounds, t2/t1 1.067 (6/10): the earlier 0.966 (2/3) was noise. T2 grew the changed-page
+  entry from 16 to 56 bytes; an unused 8-byte field alone on `t1` cost W3 1.1 % (10/10). Candidates against `t1`:
+  c1 (slot boxed, entry 24 bytes) clears W7 (1.009, 1.003, 1.006, 0.998 in four sessions) and W26, keeps W21
+  (+2.8 to +6.1 %) and W19 (+4.1 to +5.2 %), but W3 stays marked at 0.985 (8/10), 0.981 (10/10), 0.983 (10/10); c2
+  (c1 plus a lock-free free-slot flag) W3 0.978 (10/10); c3 (entry back to 16 bytes) W3 0.978 (10/10) and W7 0.982
+  (20/20); c4 (c3 plus inlining) W7 0.971 (20/20). The rest of W3's cost is unexplained. c1's diff against `cdf0164`
+  (`crates/krummi-pager/src/scratch.rs`): `Slot(SlotMut)` becomes `Slot(Box<SlotMut>)`, `page_buf` wraps it with
+  `Box::new(slot)` and `stage` seals `(*slot).into_slot()`.
+  Decisions taken without the user (L1): **T1 stays**: its W27 mark (0.992, 14/20) is inside the spread of a
+  byte-identical copy (0.986, 19/20) and the same-session repeat was 1.003, and T1 changes only how the journal sizes
+  its buffers. **T2 is reverted** (`131a172`, `crates/` equal to `d96b9c2`): even c1 leaves W3 1.5–1.9 % slower in
+  every round, beyond the worst placebo on W3 (0.989), and S5 keeps a change only when no load gets worse. Restoring
+  it is `git revert 131a172` plus c1's diff; the user decides whether W21/W19's +4–6 % is worth W3's −1.5–1.9 %.
