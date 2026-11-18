@@ -43,7 +43,7 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1, S3: index key encoding (direction, nulls, entry key = index columns ‖ primary key), decoding into owned values, value bounds of IX9 per direction; unit and property tests of order | delegated (backstop) | pending | |
+| T1 | S1, S3: index key encoding (direction, nulls, entry key = index columns ‖ primary key), decoding into owned values, value bounds of IX9 per direction; unit and property tests of order | delegated (backstop) | done (RED: `index_key_tests` did not compile; GREEN 14 of 14; six injected encoding defects each failed 3–7 tests) | `2657249` |
 | T2 | S1: definitions in the catalog (format 12, IX1, IX3, IX14), create (both modes, in-memory sort over rows) and drop (IX2, IX4, IX11), schema changes (IX5), Describe with identities and index state (IX6), changes and references (IX13), error data (IX10); AC-IX1, AC-IX7 (in-memory), AC-IX9–AC-IX12, AC-IX15 | delegated (backstop) | pending | |
 | T3 | S1: maintenance in every row write (IX7, IX10, IX12), bulk load, empty; AC-IX2, AC-IX6, AC-IX8, AC-IX13 | delegated (backstop) | pending | |
 | T4 | S1: index scans returning rows or entries, intervals (IX8, IX9); AC-IX3–AC-IX5 | delegated (backstop) | pending | |
@@ -69,3 +69,13 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   at close (`krummi-pager/src/temp.rs:51`, `recovery.rs:99`, `scratch.rs:952`); there is no hook that measures a
   catalog entry's size; the benchmark has `Load::ALL: [Load; 29]` (`krummi-bench/src/workload.rs:130`) and the Voron
   harness defines only the primary key (`voron/Tables.cs:112`). RDD is on (global).
+- **L3** (2026-11-18) — T1 (`2657249`): `key.rs` gains `Direction`, `Nulls` and `KeyColumn` over the existing
+  ascending element encoder (descending inverts the element, `00 01` terminator for text and bytes; nulls `00`, `4F`,
+  `B0`, `FE FF FF` per document 3); `index_key.rs` has `encode_entry`, `entry_len`, `uniqueness_range` (`None` with a
+  null), `split_entry`, `decode_entry` (owned values) and `index_range` (IX9, its own validation order; bound
+  construction shared with `key_range` through `range_bounds`). `fit` now cuts any bound over 2,048 bytes; the old
+  2,049-byte case is a special case and the primary-key range tests pass unchanged. Left for later tasks: map the
+  plain size errors to `Prefix` (T4) and to an index-entry subject (T3); malformed entries decode to `None` (T4).
+  Checks by the writer: fmt, clippy and the workspace tests pass; parent spot check: `cargo test -p krummi --lib
+  index_key` 14 of 14. RDD assess (base `0158fd4`, committed only): `medium`, `under_budget`. Risk: none (the shared
+  `fit` keeps its only reachable primary-key case).
