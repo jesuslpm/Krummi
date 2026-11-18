@@ -16,3 +16,7 @@
 2026-11-18T13:42:16+00:00	mark	fix	T1
 2026-11-18T13:43:30+00:00	mark	checks	T1
 2026-11-18T13:52:27+00:00	mark	review	T3
+2026-11-18T13:53:33+00:00	bg-start	review	codex-R1
+2026-11-18T14:03:23+00:00	bg-end	review	codex-R1
+2026-11-18T14:03:44+00:00	mark	close	T3
+2026-11-18T14:03:45+00:00	end		

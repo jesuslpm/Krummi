@@ -29,7 +29,7 @@ PRD: nothing observable changes.
 |---|---|---|---|---|
 | T1 | S1, S2 | inline | done | RED/GREEN `append_tests` (3 tests); `setting_a_new_key_reports_the_last_leaf_as_adding_it_does`; L4 |
 | T2 | S3 | inline (background runs) | done (marks accepted by the user, L7) | A/B L5; repeats stopped L6 |
-| T3 | S4 | inline | pending | |
+| T3 | S4 | inline | done | complete runs L8; RDD L9–L10; Codex L11 |
 
 ## Log
 
@@ -99,3 +99,13 @@ PRD: nothing observable changes.
   Checks: fmt and clippy clean, `cargo test --workspace` 874 passed, 0 failed.
 - **L10** (2026-11-18) — RDD of the last slice `0a9c354..1bcbf5f` (assess `medium`, `under_budget`; the added tests
   and the record): lens reliability; lineage `review-4cec57d602188637`; **approved** with no findings, acknowledged.
+- **L11** (2026-11-18) — Codex code review of `504cd84..85b9979`
+  ([report](../../docs/reviews/tree-append/2026-11-18-code.md)): status `approved` in the first round, thread
+  `01a1eeef-59be-7ab2-8a5f-001dcec0dce3`; telemetry: coordinator `gpt-6.1-sol` (high), reviewer
+  `krummi-review-critical` `gpt-6-astra` (xhigh). Verdict: «Approved: no introduced findings in the reviewed range.»
+  It records as a limitation, not a defect, that the accepted A/B marks stand and that the complete runs' build
+  provenance was not proved independently. No resolutions file: nothing to resolve.
+
+## Closing
+
+[Closing report](tree-append-report.md).
