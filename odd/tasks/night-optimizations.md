@@ -35,7 +35,7 @@ PRD draft for the user, not an implementation).
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S5 | delegated diagnosis, inline change | done | `d96b9c2`; RED/GREEN `growing_commits_reuse_their_buffers`; A/B L7–L9 |
-| T2 | S2, S5 | delegated writer (context backstop); restored inline | reopened (L14) | `cdf0164`, reverted `131a172`; diagnosis L9 |
+| T2 | S2, S5 | delegated writer (context backstop); restored inline | in verification | `cdf0164`, reverted `131a172`, restored with c1 `dfb391e`; L9, L14, L15 |
 | T3 | S3, S5 | inline exploration; PRD draft if bytes change | done (draft) | `929ff6b` |
 | T4 | S4, S5 | WSL profile first | done, no change | profile L6 |
 | T5 | S6 | inline | done | complete runs L11; Codex L12–L13 |
@@ -174,6 +174,38 @@ PRD draft for the user, not an implementation).
   start 06:35:10 (`date`). Execution reopened. Plan: restore `cdf0164` and apply c1; checks; an A/B on WSL 2 of `t1`
   against c1 on W21, W19 and W3 (T2's gains were measured only on Windows); an independent verifier (item 4); RDD of
   the slice with item 4 escalated; complete runs; Codex; closing report.
+- **L15** (2026-11-18) — T2 restored with c1 (`dfb391e`; `crates/` equal to `cdf0164` plus c1, with c1's comment
+  corrected: a payload is one word, so the boxed slot keeps a page buffer at two). Checks: fmt and clippy clean,
+  `cargo test --workspace` 879 passed, 0 failed. A/B on WSL 2 of `t1` (`d96b9c2`) against c1 (`dfb391e`), Krummi alone,
+  without the core mask (`work/night/wsl-ab/`, `abq-linux.py`, digests equal):
+  - 06:47–07:11 UTC, 5 rounds: W19 1.194 (0/5 slower). W21 and W3 drifted too much to read: the same build moved from
+    12.6k to 20.8k ns per op between rounds.
+  - 07:12–07:34 UTC, 10 rounds: W21 0.988 (6/10 slower, paired median 0.977), W3 1.059 (4/10).
+  On Linux, T2's target load W21 does not gain, and it is marked by Q7's rule within that drift; W19 gains 19 % and
+  W3 does not lose. S5 measures on Windows, where c1 gained W21 2.8–6.1 % in four sessions. Default without asking:
+  T2 stays, and the closing report says that W21 does not gain on Linux. Independent verifier launched (sonnet, high;
+  item 4).
+- **L16** (2026-11-18) — Independent verifier of `dfb391e` (sonnet, high; item 4; scratch outside the workspace,
+  removed): no blockers. PASS on all six questions.
+  - Stored bytes: four seeded workloads hash equal on `d96b9c2` and `dfb391e` (reader view, journal files, data file).
+  - Isolation: `take_free_page` takes under the area lock from `state.free`, which only `Slot::drop` refills;
+    readers and the transfer see only `state.versions`.
+  - Abort, drop and errors give the slot back through its single owner.
+  - Shortage and errors: 360 and 880 fault-injection cases print the same on both builds.
+  - Recovery: 580 recoveries per build, all equal.
+  - `cargo test` results: `krummi-pager` 158, `krummi-tx` 171 plus its two probes, `krummi` 401, all passed.
+  Advisories:
+  - A1: no test panics while a slot is held.
+  - A2: the zero-page test does not show that the reused slot held non-zero bytes. Dismissed with evidence: removing
+    `fill(0)` (`scratch.rs:1501`) fails `a_page_created_in_a_reused_slot_reads_as_zeros` and
+    `pages_changed_in_slots_store_the_same_bytes`.
+  - A3: no concurrent stress test while a slot is written.
+  - A4: no test of a failing commit that mixes slot and memory pages (the verifier's probe matched the baseline).
+  - A5: recovery tests do not force slot pages (the probe did).
+  - A6: a commit that fails mid-`stage` drops the unsealed payloads instead of keeping them as spares; this affects
+    performance only.
+  The cross-build probes compare two builds' output, so they are not committed as tests. A1 and A3–A6 stay as
+  follow-ups.
 
 ## Closing
 
