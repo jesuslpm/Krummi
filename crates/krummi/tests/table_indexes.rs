@@ -2110,6 +2110,45 @@ fn ac_ix11_identities_equal_to_known_ones_are_drawn_again() {
     });
 }
 
+/// AC-IX11 (IX6, design document 11): an index identity and an index state equal to a value the store knows outside
+/// the table's history, the table's own identity and another table's identities, are drawn again.
+#[test]
+fn ac_ix11_identities_known_to_the_store_outside_the_table_are_drawn_again() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("n", ColumnType::I32),
+            ],
+            &["id"],
+        );
+        // `t`: table 10, columns 20 and 21, states 30 and 40; `u`: table 100, columns 110 and 111, states 120 and 130.
+        let table = with_identity_source(repeating(vec![10, 20, 21, 30, 40]), || {
+            create_table(&mut write, "t", &schema)
+        });
+        with_identity_source(repeating(vec![100, 110, 111, 120, 130]), || {
+            create_table(&mut write, "u", &schema)
+        });
+        // The identity: 10 is `t`'s, 100 is `u`'s, 50 is new; the state: 60 is new.
+        with_identity_source(repeating(vec![10, 100, 50, 60]), || {
+            write.create_index(&table, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        })
+        .unwrap();
+        let described = write.table_schema(&table).unwrap();
+        assert_eq!(
+            (described.index("ix").unwrap().id, described.index_state()),
+            (50, 60)
+        );
+        // Dropping it: 110 is a column of `u`, 70 is new.
+        with_identity_source(repeating(vec![110, 70]), || write.drop_index(&table, "ix")).unwrap();
+        let dropped = write.table_schema(&table).unwrap();
+        assert_eq!(dropped.index_state(), 70);
+        write.commit().unwrap();
+        assert_eq!(store.read().unwrap().describe_table("t").unwrap(), dropped);
+    });
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // AC-IX12: changes for T10
 

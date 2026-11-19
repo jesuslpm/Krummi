@@ -793,6 +793,28 @@ impl<'s> WriteTransaction<'s> {
         Ok(krummi_tree::get(&self.inner, history, &identity_key(id))?.is_some())
     }
 
+    /// Whether the store knows the identity `id`, as this transaction sees it: the identity of a table in the catalog,
+    /// one of its current schema or one in its history tree (IX6, design document 11). It reads the whole catalog and
+    /// one key of each table's history tree. A name that is not UTF-8, which only foreign bytes can make, is not
+    /// found again and adds nothing.
+    pub(super) fn store_knows(&self, id: u64) -> Result<bool> {
+        for (name, kind) in catalog::list(&self.inner)? {
+            if kind != TreeKind::Table {
+                continue;
+            }
+            let Some(found) = find_table(self.folder, &self.inner, &name)? else {
+                continue;
+            };
+            if found.entry.id == id
+                || found.schema.identities().any(|known| known == id)
+                || self.known_identity(found.history, id)?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Writes into the catalog the root and the row count of every table whose rows changed them, and the roots of
     /// its indexes (see [`WriteTransaction::finish`]).
     pub(crate) fn finish_tables(&mut self) -> Result<()> {

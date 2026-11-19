@@ -699,7 +699,8 @@ impl<'s> WriteTransaction<'s> {
         };
         let sorted = self.sorted_entries(&build)?;
         let history = build.history;
-        let known = move |tx: &Self, id: u64| tx.known_identity(history, id);
+        let known =
+            move |tx: &Self, id: u64| Ok(tx.known_identity(history, id)? || tx.store_knows(id)?);
         let id = self.draw_identity(known)?;
         let index_state = self.draw_identity(|tx, state| Ok(state == id || known(tx, state)?))?;
         let root = self.write_index(sorted)?;
@@ -732,7 +733,9 @@ impl<'s> WriteTransaction<'s> {
             };
             (state.index_roots[at], state.history)
         };
-        let index_state = self.draw_identity(|tx, state| tx.known_identity(history, state))?;
+        let index_state = self.draw_identity(|tx, state| {
+            Ok(tx.known_identity(history, state)? || tx.store_knows(state)?)
+        })?;
         krummi_tree::free_all(&mut self.inner, root)?;
         let history = self.record_identities(history, [index_state])?;
         let state = self
