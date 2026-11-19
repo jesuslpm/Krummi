@@ -116,3 +116,12 @@ table_indexes ac_ix11`: 4 passed.
 RDD of the fix, `8f1343a..09edff7` (resilience, reliability, readability): approved, lineage
 `review-47b0a4cbadbf4f44`; advisories: the fault-hook test cannot observe the default copy (above), two doc
 suggestions in `schema.rs`, and this file's first R2 entry read as final (superseded by this section).
+
+## 2026-11-19 (verification)
+
+Review record: [2026-11-19-code-03.md](2026-11-19-code-03.md), follow-up over `d1f71e3..7ae6487`, wrapper status
+`approved`, verdict «Approved: no findings remain open in the requested follow-up scope.» `threadId`
+`01a1f1fa-2698-7742-99dc-b477cbc2fae2`; telemetry: coordinator `gpt-6.1-sol`/`high`, reviewer
+`krummi-review-critical` (Peirce) `gpt-6-astra`/`xhigh`.
+
+- R2 and R4: no finding remains open.
