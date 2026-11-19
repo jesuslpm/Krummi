@@ -232,3 +232,23 @@ Follow-up report: [2026-11-19-code-05.md](2026-11-19-code-05.md), wrapper status
 Verdict, quoted: "Changes required. R2, R11 and R13 remain open: one blocker and two major findings. R12, R18 and R19
 are verified resolved; approval is withheld." R11 is now titled "Lifecycle invalidation still races with commit
 publication".
+
+## 2026-11-19 (round 5 fixes)
+
+The user asked to go on and run a sixth round («Sigue y lanza la sexta ronda de codex»). Fix commit: `265ed1f`. Checks
+after it: fmt, clippy and `cargo test --workspace` pass.
+
+- R2 — pending (T7b).
+- R11 — fixed: `krummi_tx::WriteTransaction::commit_applying` runs an action after the commit's point of no return
+  (`Point::CommitQueued`) and before it lets go of the turn; the facade's `commit` and `commit_deferred` retire
+  statistics there, so no later writer, save or publication comes between the commit and its retirement. A build's
+  epoch is now the statistics generation when its transaction opened, taken before the snapshot; a commit that
+  empties or deletes a table records the generation, and a build of an earlier one is neither published nor saved.
+  The floors and removed targets stay. Remaining by design: a read opened after a retirement whose snapshot does not
+  yet include that commit, because it is not durable, can publish statistics of the table as it was; for an emptying
+  with rows the floor drops them, and for a zero-row emptying they still describe the table.
+- R13 — fixed: `r13_a_failed_background_commit_makes_the_store_refuse_writes` fails every write while the
+  background save commits (the journal and transfer threads adopt the faults of the thread that opened the store):
+  the next write request fails with the input/output class, estimates go on from memory, and another table's
+  estimate samples without asking for a save. Together with the earlier fault tests, this covers AC-ST8's cases.
+- Status: claimed, unverified until a follow-up review.
