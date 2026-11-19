@@ -195,32 +195,36 @@ pub(crate) fn build<'r>(
             }
         }
     }
-    if cancel() {
-        return Ok(Built {
-            table,
-            name: name.to_owned(),
-            columns: Vec::new(),
-            prefixes: Vec::new(),
-            epoch: 0,
-        });
+    // Each gathering finishes only while the build is not cancelled (R12 of the code review).
+    let cancelled = || Built {
+        table,
+        name: name.to_owned(),
+        columns: Vec::new(),
+        prefixes: Vec::new(),
+        epoch: 0,
+    };
+    let mut columns = Vec::with_capacity(wanted.len());
+    for ((_, column), gather) in wanted.iter().zip(gathers) {
+        match gather.finish(count, read, counter, cancel) {
+            Some(stats) => columns.push((column.id, stats)),
+            None => return Ok(cancelled()),
+        }
+    }
+    let mut finished = Vec::new();
+    for ((index, _), gathers) in prefixes.iter().zip(combinations) {
+        for (at, gather) in gathers.into_iter().enumerate() {
+            let k = u8::try_from(at + 2).expect("at most 32 key columns");
+            match gather.finish_combinations(count, read, counter, cancel) {
+                Some(stats) => finished.push(((*index, k), stats)),
+                None => return Ok(cancelled()),
+            }
+        }
     }
     Ok(Built {
         table,
         name: name.to_owned(),
-        columns: (wanted.iter().zip(gathers))
-            .map(|((_, column), gather)| (column.id, gather.finish(count, read, counter)))
-            .collect(),
-        prefixes: (prefixes.iter().zip(combinations))
-            .flat_map(|((index, _), gathers)| {
-                (gathers.into_iter().enumerate()).map(move |(at, gather)| {
-                    let columns = u8::try_from(at + 2).expect("at most 32 key columns");
-                    (
-                        (*index, columns),
-                        gather.finish_combinations(count, read, counter),
-                    )
-                })
-            })
-            .collect(),
+        columns,
+        prefixes: finished,
         epoch: 0,
     })
 }

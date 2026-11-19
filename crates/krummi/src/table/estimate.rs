@@ -68,13 +68,19 @@ struct MemoryState {
     /// Per table, how many committed emptyings or deletions retired its statistics: a build sampled before one is
     /// dropped (ST8).
     epochs: HashMap<u64, u64>,
+    /// Per table, the counter of its last committed emptying, or `u64::MAX` once deleted: statistics of an earlier
+    /// snapshot are not published (R11 of the code review).
+    floors: HashMap<u64, u64>,
+    /// The columns and indexes removed from tables by committed writes: never published again (R11).
+    removed: std::collections::HashSet<(u64, u64)>,
 }
 
 /// What a commit retires from memory (ST8): the tables it emptied or deleted, whole, and the columns and indexes it
 /// removed from the tables it kept.
 #[derive(Default)]
 pub(crate) struct Retired {
-    pub tables: Vec<u64>,
+    /// The tables emptied or deleted, with the counter of the emptying or `u64::MAX` for a deletion.
+    pub tables: Vec<(u64, u64)>,
     pub columns: Vec<(u64, u64)>,
     pub indexes: Vec<(u64, u64)>,
 }
@@ -124,15 +130,22 @@ impl StatsMemory {
     /// epoch grows so that a build sampled before is dropped, and removed columns and indexes. A commit that then fails
     /// only made the store sample again.
     pub(crate) fn retire(&self, retired: &Retired) {
-        let mut state = self.state();
-        for table in &retired.tables {
-            *state.epochs.entry(*table).or_default() += 1;
+        if retired.tables.is_empty() && retired.columns.is_empty() && retired.indexes.is_empty() {
+            return;
         }
+        let mut state = self.state();
+        for (table, floor) in &retired.tables {
+            *state.epochs.entry(*table).or_default() += 1;
+            state.floors.insert(*table, *floor);
+        }
+        state.removed.extend(retired.columns.iter().copied());
+        state.removed.extend(retired.indexes.iter().copied());
+        let gone = |table: &u64| retired.tables.iter().any(|(t, _)| t == table);
         state.columns.retain(|(table, column), _| {
-            !retired.tables.contains(table) && !retired.columns.contains(&(*table, *column))
+            !gone(table) && !retired.columns.contains(&(*table, *column))
         });
         state.prefixes.retain(|(table, index, _), _| {
-            !retired.tables.contains(table) && !retired.indexes.contains(&(*table, *index))
+            !gone(table) && !retired.indexes.contains(&(*table, *index))
         });
     }
 
@@ -143,7 +156,12 @@ impl StatsMemory {
         if built.epoch != state.epochs.get(&built.table).copied().unwrap_or(0) {
             return;
         }
+        // Statistics of a snapshot before a committed emptying or deletion, or of a removed target, are not published.
+        let floor = state.floors.get(&built.table).copied().unwrap_or(0);
         for ((index, columns), stats) in &built.prefixes {
+            if stats.counter < floor || state.removed.contains(&(built.table, *index)) {
+                continue;
+            }
             let key = (built.table, *index, *columns);
             if state
                 .prefixes
@@ -154,6 +172,9 @@ impl StatsMemory {
             }
         }
         for (column, stats) in &built.columns {
+            if stats.counter < floor || state.removed.contains(&(built.table, *column)) {
+                continue;
+            }
             let key = (built.table, *column);
             if state
                 .columns

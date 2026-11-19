@@ -128,10 +128,16 @@ impl Gather {
 
     /// The statistics of an index prefix: the distinct combinations and the most frequent ones, without a
     /// histogram (ST17).
-    pub(crate) fn finish_combinations(self, rows: u64, read: u64, counter: u64) -> ColumnStats {
-        let mut stats = self.finish(rows, read, counter);
+    pub(crate) fn finish_combinations(
+        self,
+        rows: u64,
+        read: u64,
+        counter: u64,
+        cancel: &dyn Fn() -> bool,
+    ) -> Option<ColumnStats> {
+        let mut stats = self.finish(rows, read, counter, cancel)?;
         stats.histogram.clear();
-        stats
+        Some(stats)
     }
 
     /// Counts the value of one row read.
@@ -150,7 +156,18 @@ impl Gather {
     }
 
     /// The statistics of the column, from `read` rows of a snapshot of `rows` rows and counter `counter`.
-    pub(crate) fn finish(mut self, rows: u64, read: u64, counter: u64) -> ColumnStats {
+    /// The statistics of the column, from `read` rows of a snapshot of `rows` rows and counter `counter`, or `None`
+    /// once `cancel` says so, between its steps.
+    pub(crate) fn finish(
+        mut self,
+        rows: u64,
+        read: u64,
+        counter: u64,
+        cancel: &dyn Fn() -> bool,
+    ) -> Option<ColumnStats> {
+        if cancel() {
+            return None;
+        }
         let of = |n: u64| {
             if read == 0 {
                 0.0
@@ -159,6 +176,9 @@ impl Gather {
             }
         };
         self.values.sort_unstable();
+        if cancel() {
+            return None;
+        }
         // Runs of equal elements: (element, count), in order.
         let mut runs: Vec<(Vec<u8>, u64)> = Vec::new();
         for value in self.values {
@@ -217,7 +237,7 @@ impl Gather {
                 in_bucket = 0;
             }
         }
-        ColumnStats {
+        Some(ColumnStats {
             rows,
             read,
             counter,
@@ -226,7 +246,7 @@ impl Gather {
             distinct,
             frequent,
             histogram,
-        }
+        })
     }
 }
 

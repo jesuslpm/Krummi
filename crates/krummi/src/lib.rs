@@ -1589,9 +1589,11 @@ impl WriteTransaction<'_> {
     /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        // Retired while the write still has the turn, so that no save of an older build follows the commit (ST8).
+        inner.commit()?;
+        // Only after a commit that applied (R18). A save that gets the turn before this checks the catalog's own state
+        // (identity, emptying counter, columns and indexes), and a later publication the floors kept here (R11).
         store.statistics.retire(&retired);
-        inner.commit()
+        Ok(())
     }
 
     /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
@@ -1602,8 +1604,9 @@ impl WriteTransaction<'_> {
     /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
+        inner.commit_deferred()?;
         store.statistics.retire(&retired);
-        inner.commit_deferred()
+        Ok(())
     }
 
     /// Aborts the transaction: none of its changes apply, and the next request waiting gets the turn.

@@ -472,3 +472,75 @@ fn r16_a_rename_keeps_a_pending_build() {
         assert!(read.column_statistics(&table, "m").unwrap().is_some());
     });
 }
+
+/// R11 (ST8): once a write that removed a column commits, an older read that samples it does not publish its
+/// statistics again for the others.
+#[test]
+fn r11_a_removed_column_is_not_republished() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+            .unwrap();
+        write
+            .insert_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(1))])
+            .unwrap();
+        write.commit().unwrap();
+        let old = store.read().unwrap();
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        write.drop_column(&table, "n").unwrap();
+        write.commit().unwrap();
+        let old_table = old.open_table("t").unwrap();
+        old.estimate(&old_table, &equal("n", 1)).unwrap();
+        // The old read's own sample served it, but memory keeps nothing for the removed column.
+        assert!(old.column_statistics(&old_table, "n").unwrap().is_none());
+    });
+}
+
+/// R13 (ST9): damage met by a background renewal drops it without a visible error: the stale statistics are still
+/// used and the store still accepts writes.
+#[test]
+fn r13_damage_during_a_renewal_is_dropped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+        .unwrap();
+    for id in 0..600 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.analyze("t", None).unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for id in 600..1_300 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.close().unwrap();
+    damage(tmp.path(), root_page(tmp.path(), "t"));
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let stale = read.estimate(&table, &equal("n", 1)).unwrap();
+    assert!(stale.stale, "700 modifications on 600 rows (threshold 620)");
+    drop(read);
+    store.wait_statistics_idle();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let again = read.estimate(&table, &equal("n", 1)).unwrap();
+    assert!(
+        again.stale,
+        "the renewal was dropped; the stale ones still serve"
+    );
+    drop(read);
+    let mut write = store.write().unwrap();
+    write.open_tree_with("after", OpenMode::CreateNew).unwrap();
+    write.commit().unwrap();
+}

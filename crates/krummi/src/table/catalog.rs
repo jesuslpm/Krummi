@@ -920,8 +920,10 @@ impl<'s> WriteTransaction<'s> {
         }
         let mut retired = super::estimate::Retired::default();
         for state in &tables.0 {
-            if state.deleted || state.emptied {
-                retired.tables.push(state.id);
+            if state.deleted {
+                retired.tables.push((state.id, u64::MAX));
+            } else if state.emptied {
+                retired.tables.push((state.id, state.stats.emptied));
             }
             retired
                 .columns
