@@ -763,3 +763,84 @@ fn r13_analyze_of_a_damaged_table_fails_with_damage() {
     let table = read.open_table("t").unwrap();
     assert!(read.column_statistics(&table, "n").unwrap().is_none());
 }
+
+/// R13 (ST7, ST9): analyze on the store whose save cannot open its snapshot (the second one, after the sample's)
+/// reports out of memory, keeps its statistics in memory, other writes go on, and a later estimate saves them without
+/// sampling again; they last after reopening.
+#[test]
+fn r13_analyze_out_of_memory_after_sampling_keeps_and_later_saves() {
+    use krummi_pager::testing::{self, Action, Op};
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+        .unwrap();
+    for id in 0..100 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    testing::reset();
+    testing::inject(
+        Op::Snapshot,
+        1,
+        Action::Fail(std::io::ErrorKind::OutOfMemory),
+    );
+    let error = store.analyze("t", None).unwrap_err();
+    testing::reset();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    let mut write = store.write().unwrap();
+    write.open_tree_with("after", OpenMode::CreateNew).unwrap();
+    write.commit().unwrap();
+    let samples = store.statistics_samples();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    read.estimate(&table, &equal("n", 1)).unwrap();
+    drop(read);
+    assert_eq!(store.statistics_samples(), samples, "memory served");
+    store.wait_statistics_idle();
+    store.close().unwrap();
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    assert!(
+        read.column_statistics(&table, "n").unwrap().is_some(),
+        "saved"
+    );
+}
+
+/// R13 (ST7, T11): analyze in a write over a damaged table fails with damage, the write cannot commit, and the next
+/// write works.
+#[test]
+fn r13_analyze_in_a_write_of_a_damaged_table_fails_the_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+        .unwrap();
+    for id in 0..10 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.close().unwrap();
+    damage(tmp.path(), root_page(tmp.path(), "t"));
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    write
+        .open_tree_with("previous", OpenMode::CreateNew)
+        .unwrap();
+    let table = write.open_table("t").unwrap();
+    assert_eq!(
+        write.analyze(&table, None).unwrap_err().kind(),
+        ErrorKind::Damaged
+    );
+    assert_eq!(write.commit().unwrap_err().kind(), ErrorKind::Damaged);
+    let mut write = store.write().unwrap();
+    write.open_tree_with("next", OpenMode::CreateNew).unwrap();
+    write.commit().unwrap();
+}
