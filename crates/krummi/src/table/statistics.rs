@@ -114,6 +114,10 @@ pub(crate) fn stats_column<'c>(
 
 /// Builds the statistics of the columns of `schema` (only `only` when given) from `rows`, the rows of a snapshot that
 /// has `count` rows and the modification counter `counter`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "what a build reads: the table, its schema, the snapshot's counts and the cancel check"
+)]
 pub(crate) fn build<'r>(
     table: u64,
     name: &str,
