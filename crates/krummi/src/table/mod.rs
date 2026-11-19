@@ -31,6 +31,8 @@ mod sort;
 mod statistics;
 mod stats;
 #[cfg(test)]
+mod stats_fault_tests;
+#[cfg(test)]
 mod update_tests;
 pub mod value;
 mod worker;
