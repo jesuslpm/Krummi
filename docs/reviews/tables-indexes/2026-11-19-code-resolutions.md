@@ -65,3 +65,54 @@ RDD of the fixes, `767e251..8f1343a` (risk, resilience, reliability): approved, 
 advisories: `store_knows` reads the whole catalog on each draw (`catalog.rs:800-816`; index creation and dropping
 are rare, as `create_table`'s `catalog::has_identity`), and its history branch has no test of its own
 (`catalog.rs:808-810`).
+
+## 2026-11-19 (verification)
+
+Review record: [2026-11-19-code-02.md](2026-11-19-code-02.md), follow-up over `767e251..d1f71e3`, wrapper status
+`findings`, verdict «Changes requested: R2 and R4 remain major findings.» `threadId`
+`01a1f1e6-fc04-7342-8064-02f444239943`; telemetry: coordinator `gpt-6.1-sol`/`high`, reviewer
+`krummi-review-critical` (Hubble) `gpt-6-astra`/`xhigh`.
+
+- R1: «Verified resolved for the original entry-content allocation defect».
+- R3: «Verified resolved».
+- R2: «Major, still open: Collision checks skip identities of non-table catalog objects» (the table, column and
+  history subcases verified resolved).
+- R4: new, «Collision checking aborts the process when copying another table's default», introduced by R2's fix.
+
+## 2026-11-19 (round 2 fixes)
+
+Fix commit: `09edff7`, test-first; `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+warnings` and `cargo test --workspace` passed (58 test binaries ok); the parent re-ran `cargo test -p krummi --test
+table_indexes ac_ix11`: 4 passed.
+
+### R2 — major: collision checks skip identities of non-table catalog objects
+
+- Disposition: fixed (`09edff7`).
+- Fix: `store_knows` walks `catalog::list` with `lookup_with_extra` and compares every entry's own identity, of any
+  kind, before the table-only checks. `krummi_tree::catalog::has_identity` was not reused because it filters by one
+  `TreeKind`, and a fixed-size tree's kind carries its value length.
+- Reproduction (RED before the fix: `(0, 1)`): `ac_ix11_identities_of_other_catalog_objects_are_drawn_again`
+  (`crates/krummi/tests/table_indexes.rs`), the review's scenario plus a sequence, on disk and temporary stores:
+  creation gives identity 50 and state 60, the drop state 70, and Describe after commit agrees.
+- Status: claimed fixed, unverified until a follow-up review.
+
+### R4 — major: collision checking aborts the process when copying another table's default
+
+- Disposition: fixed (`09edff7`).
+- Fix: the stored-schema parsing is split into a borrowing layer (`Reader::header`, `raw_column`, `raw_index`) shared
+  by `TableSchema::decode`, `decode_defaults` and the new `stored_identities`, which walks a table's stored bytes in
+  place, reports every identity `TableSchema::identities` gives and returns the history root, without decoding or
+  allocating. `store_knows` uses it for tables; unreadable table bytes give damage of that catalog page.
+- Evidence: the review's allocator probe (`target/review-tables-indexes/followup-catalog-oom.exe` source,
+  recompiled against the fix) prints `create_index returned: Ok(())` and exits 0, where it aborted on
+  `memory allocation of 2097152 bytes failed`. Tests: `the_stored_identities_are_the_schemas` (unit: the walk equals
+  `identities()` on a schema with indexes and a 64 KiB default; every truncation and one extra byte give `None`);
+  `checking_identities_copies_no_default_of_another_table` (fault hooks on disk and temporary stores, a 2 MiB default
+  in an unrelated table: every `Op::Alloc` failure in turn gives success or `OutOfMemory` with T11, and no failed
+  reservation is the default's size). The fault-hook test cannot see an ordinary allocation, so it guards against
+  the fix regressing; the probe is the evidence for the original abort.
+- Status: claimed fixed, unverified until a follow-up review.
+
+RDD of the fix, `8f1343a..09edff7` (resilience, reliability, readability): approved, lineage
+`review-47b0a4cbadbf4f44`; advisories: the fault-hook test cannot observe the default copy (above), two doc
+suggestions in `schema.rs`, and this file's first R2 entry read as final (superseded by this section).
