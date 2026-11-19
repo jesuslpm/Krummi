@@ -65,14 +65,23 @@ struct MemoryState {
     columns: HashMap<(u64, u64), Arc<ColumnStats>>,
     /// Those of the index prefixes, by table, index and number of key columns (ST17).
     prefixes: HashMap<(u64, u64, u8), Arc<ColumnStats>>,
-    /// Per table, how many committed emptyings or deletions retired its statistics: a build sampled before one is
-    /// dropped (ST8).
-    epochs: HashMap<u64, u64>,
+    /// How many commits retired statistics so far: a transaction keeps the value it saw when it opened.
+    generation: u64,
+    /// Per table, the generation of the last commit that emptied or deleted it: a build of a transaction opened before
+    /// is dropped (ST8, R11 of the code review).
+    retired_at: HashMap<u64, u64>,
     /// Per table, the counter of its last committed emptying, or `u64::MAX` once deleted: statistics of an earlier
     /// snapshot are not published (R11 of the code review).
     floors: HashMap<u64, u64>,
     /// The columns and indexes removed from tables by committed writes: never published again (R11).
     removed: std::collections::HashSet<(u64, u64)>,
+}
+
+fn valid(state: &MemoryState, table: u64, epoch: u64) -> bool {
+    state
+        .retired_at
+        .get(&table)
+        .is_none_or(|retired| *retired <= epoch)
 }
 
 /// What a commit retires from memory (ST8): the tables it emptied or deleted, whole, and the columns and indexes it
@@ -121,9 +130,15 @@ impl StatsMemory {
         self.state().prefixes.get(&(table, index, columns)).cloned()
     }
 
-    /// The epoch of the table `table`: how many committed emptyings or deletions retired its statistics.
-    pub(crate) fn epoch(&self, table: u64) -> u64 {
-        self.state().epochs.get(&table).copied().unwrap_or(0)
+    /// The current generation: a transaction opened now keeps it as the epoch of its builds.
+    pub(crate) fn generation(&self) -> u64 {
+        self.state().generation
+    }
+
+    /// Whether a build of the table `table` from a transaction opened at generation `epoch` is still valid: no commit
+    /// emptied or deleted the table since.
+    pub(crate) fn valid(&self, table: u64, epoch: u64) -> bool {
+        valid(&self.state(), table, epoch)
     }
 
     /// Forgets what `retired` names (ST8), before the write that changed it lets go of the turn: whole tables, whose
@@ -134,8 +149,10 @@ impl StatsMemory {
             return;
         }
         let mut state = self.state();
+        state.generation += 1;
+        let generation = state.generation;
         for (table, floor) in &retired.tables {
-            *state.epochs.entry(*table).or_default() += 1;
+            state.retired_at.insert(*table, generation);
             state.floors.insert(*table, *floor);
         }
         state.removed.extend(retired.columns.iter().copied());
@@ -153,7 +170,7 @@ impl StatsMemory {
     /// nothing when the table's epoch moved since the build started; under the same lock as [`retire`](Self::retire).
     pub(crate) fn publish(&self, built: &Built) {
         let mut state = self.state();
-        if built.epoch != state.epochs.get(&built.table).copied().unwrap_or(0) {
+        if !valid(&state, built.table, built.epoch) {
             return;
         }
         // Statistics of a snapshot before a committed emptying or deletion, or of a removed target, are not published.
@@ -245,7 +262,7 @@ impl crate::Shared {
                         name,
                         target,
                         &found,
-                        self.statistics.epoch(table),
+                        self.statistics.generation(),
                     ));
                 }
                 Some(found)
@@ -258,7 +275,7 @@ impl crate::Shared {
                         name,
                         target,
                         found,
-                        self.statistics.epoch(table),
+                        self.statistics.generation(),
                     ));
                 }
                 found

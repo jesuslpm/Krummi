@@ -77,7 +77,8 @@ pub(crate) struct Built {
     pub columns: Vec<(u64, ColumnStats)>,
     /// The index prefixes', by index identity and number of key columns (ST17).
     pub prefixes: Vec<((u64, u8), ColumnStats)>,
-    /// The epoch of the table in memory when the build started; one of an older epoch is dropped (ST8).
+    /// The statistics generation when its snapshot's transaction opened; a later emptying or deletion of the table
+    /// makes it invalid (ST8).
     pub epoch: u64,
 }
 
@@ -477,9 +478,9 @@ impl ReadTransaction<'_> {
             .transpose()?;
         let count = self.row_count(table)?;
         self.store.statistics.sampled();
-        let epoch = self.store.statistics.epoch(table.id);
         let mut built = self.build_rows(table, only, count, cancel)?;
-        built.epoch = epoch;
+        // The generation when this transaction opened: its snapshot is not later (R11).
+        built.epoch = self.statistics_epoch;
         Ok(built)
     }
 
@@ -627,7 +628,8 @@ impl WriteTransaction<'_> {
         count: u64,
         counter: u64,
     ) -> Result<Built> {
-        let epoch = self.store.statistics.epoch(table.id);
+        // A write holds the turn, and a retirement happens only under it: the current generation is its snapshot's.
+        let epoch = self.store.statistics.generation();
         if count <= WHOLE {
             let rows = self.range_rows(table, &[], ..)?;
             let mut built = build(table.id, name, schema, only, count, counter, rows, &|| {
@@ -668,7 +670,7 @@ impl WriteTransaction<'_> {
     /// table was emptied after the build's snapshot, or the tree has statistics of the column of a later snapshot
     /// (ST6). A build of another table, or of a deleted one, saves nothing.
     pub(crate) fn save_statistics(&mut self, table: &WriteTable<'_>, built: Built) -> Result<()> {
-        if built.epoch != self.store.statistics.epoch(built.table) {
+        if !self.store.statistics.valid(built.table, built.epoch) {
             // Sampled before a committed change retired the table's statistics (ST8).
             return Ok(());
         }

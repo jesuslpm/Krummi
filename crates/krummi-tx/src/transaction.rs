@@ -577,7 +577,14 @@ impl<'e> WriteTransaction<'e> {
     /// without changes writes nothing, and waits until the commits it saw are durable (E11). The transaction ends
     /// either way.
     pub fn commit(self) -> Result<()> {
-        self.commit_with(true)
+        self.commit_with(true, &mut || {})
+    }
+
+    /// Like [`commit`](Self::commit) (`durable`) or [`commit_deferred`](Self::commit_deferred), running `applied` once
+    /// the commit passed its point of no return and before it lets go of the turn: the next writer and every later
+    /// commit come after it (statistics PRD, ST8). It does not run when the commit applies nothing or fails before.
+    pub fn commit_applying(self, durable: bool, applied: &mut dyn FnMut()) -> Result<()> {
+        self.commit_with(durable, applied)
     }
 
     /// Commits the transaction in deferred mode (J10, E5 of the grouped journal PRD): it returns once the commit is
@@ -585,10 +592,10 @@ impl<'e> WriteTransaction<'e> {
     /// durable commit in its place, and read transactions see it from then on (E3). Until then any crash may lose
     /// it, with every later commit. It waits, keeping the turn, while the journal's queue is full (E2).
     pub fn commit_deferred(self) -> Result<()> {
-        self.commit_with(false)
+        self.commit_with(false, &mut || {})
     }
 
-    fn commit_with(mut self, durable: bool) -> Result<()> {
+    fn commit_with(mut self, durable: bool, applied: &mut dyn FnMut()) -> Result<()> {
         if let Some(error) = self.failure.get_mut().take() {
             return Err(error);
         }
@@ -638,6 +645,7 @@ impl<'e> WriteTransaction<'e> {
             self.engine.scratch.visible_txid(),
         );
         self.engine.hook(Point::CommitQueued);
+        applied();
         // The turn goes to the next writer before waiting for the disk. The transfer thread moves the commit to
         // `krummi.data` once it is durable, without blocking anyone (E2, J5).
         let engine = self.engine;

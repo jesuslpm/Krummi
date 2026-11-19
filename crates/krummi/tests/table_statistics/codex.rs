@@ -544,3 +544,47 @@ fn r13_damage_during_a_renewal_is_dropped() {
     write.open_tree_with("after", OpenMode::CreateNew).unwrap();
     write.commit().unwrap();
 }
+
+/// R13 (ST9, T12): a background save whose commit fails to write makes the store refuse writes: the next write request
+/// fails at once with the input/output class, estimates go on with the statistics in memory, and an estimate of another
+/// table samples without asking for a save.
+#[test]
+fn r13_a_failed_background_commit_makes_the_store_refuse_writes() {
+    use krummi_pager::testing::{self, Action, Op};
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    for name in ["t", "u"] {
+        let table = write
+            .open_table_with(name, TableMode::CreateNew(&pair_schema()))
+            .unwrap();
+        for id in 0..100 {
+            write
+                .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+                .unwrap();
+        }
+    }
+    write.commit().unwrap();
+    testing::reset();
+    for nth in 0..1_000 {
+        testing::inject(Op::Write, nth, Action::Fail(std::io::ErrorKind::Other));
+    }
+    let estimate = |name: &str| {
+        let read = store.read().unwrap();
+        let table = read.open_table(name).unwrap();
+        read.estimate(&table, &equal("n", 1)).unwrap()
+    };
+    estimate("t");
+    store.wait_statistics_idle();
+    testing::reset();
+    assert_eq!(store.write().err().map(|e| e.kind()), Some(ErrorKind::Io));
+    assert!(
+        (estimate("t").rows - 50.0).abs() < 1e-6,
+        "memory still serves"
+    );
+    let samples = store.statistics_samples();
+    estimate("u");
+    assert_eq!(store.statistics_samples(), samples + 1);
+    assert_eq!(store.statistics_work().1, 0, "no save asked for");
+    drop(store);
+}

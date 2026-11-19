@@ -78,12 +78,13 @@ impl Work {
             });
             match (same, job) {
                 (Some(Job::Save(queued)), Job::Save(built)) => {
-                    if built.epoch > queued.epoch {
+                    if !shared.statistics.valid(queued.table, queued.epoch) {
                         // The queued one was sampled before a retirement: the fresh one replaces it.
                         *queued = built;
-                    } else if built.epoch == queued.epoch {
+                    } else if shared.statistics.valid(built.table, built.epoch) {
                         merge(&mut queued.columns, built.columns);
                         merge(&mut queued.prefixes, built.prefixes);
+                        queued.epoch = queued.epoch.min(built.epoch);
                     }
                 }
                 (Some(_), _) => {}

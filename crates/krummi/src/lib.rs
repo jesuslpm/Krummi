@@ -270,7 +270,10 @@ impl Drop for Store {
 
 impl Shared {
     pub(crate) fn read(&self) -> Result<ReadTransaction<'_>> {
+        // Taken before the snapshot, so that the snapshot is not older than the generation (R11).
+        let statistics_epoch = self.statistics.generation();
         Ok(ReadTransaction {
+            statistics_epoch,
             inner: self.engine.read()?,
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
@@ -324,6 +327,8 @@ pub struct ReadTransaction<'s> {
     projections: &'s table::Projections,
     /// The store, for the statistics it keeps in memory and its snapshots (ST1, ST3 of the statistics PRD).
     store: &'s Shared,
+    /// The statistics generation when it opened, the epoch of its builds (ST8 of the statistics PRD).
+    statistics_epoch: u64,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing
@@ -1589,11 +1594,9 @@ impl WriteTransaction<'_> {
     /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        inner.commit()?;
-        // Only after a commit that applied (R18). A save that gets the turn before this checks the catalog's own state
-        // (identity, emptying counter, columns and indexes), and a later publication the floors kept here (R11).
-        store.statistics.retire(&retired);
-        Ok(())
+        // Once the commit passed its point of no return and before it lets go of the turn: only when it applies (R18),
+        // and before any later writer or save (R11).
+        inner.commit_applying(true, &mut || store.statistics.retire(&retired))
     }
 
     /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
@@ -1604,9 +1607,7 @@ impl WriteTransaction<'_> {
     /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        inner.commit_deferred()?;
-        store.statistics.retire(&retired);
-        Ok(())
+        inner.commit_applying(false, &mut || store.statistics.retire(&retired))
     }
 
     /// Aborts the transaction: none of its changes apply, and the next request waiting gets the turn.
