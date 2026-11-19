@@ -65,6 +65,10 @@ fn fixed_long(key: u64) -> Vec<u8> {
 #[test]
 fn ac_h1_a_write_never_checks_the_nodes_it_changed() {
     on_both(|store| {
+        // The read after the commit must find the committed versions in the scratch area, where their checks are
+        // counted: a transfer pass that wrote them first would leave them unchecked in the store (Q2 of the written
+        // pages PRD), and the read would check them there, outside `version_checks`.
+        store.engine.set_transfer_paused(true);
         let mut write = store.write().unwrap();
         write.inner.record_layout();
         let tree = write.open_tree_with("n", OpenMode::CreateNew).unwrap();
