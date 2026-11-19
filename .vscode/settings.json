@@ -1,0 +1,7 @@
+{
+  // Keep VS Code and language servers out of the per-copy work folder (acceptance runs, datasets, scratch)
+  "files.exclude": { "**/work": true },
+  "files.watcherExclude": { "**/work/**": true },
+  "search.exclude": { "**/work": true },
+  "rust-analyzer.files.exclude": ["work"]
+}
