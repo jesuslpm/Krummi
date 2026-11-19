@@ -96,9 +96,16 @@ impl Work {
         if thread.as_ref().is_none_or(JoinHandle::is_finished)
             && let Some(shared) = shared.this.upgrade()
         {
+            // The tests' faults follow the thread that starts the statistics thread.
+            #[cfg(feature = "test-hooks")]
+            let faults = krummi_pager::testing::context();
             let spawned = thread::Builder::new()
                 .name("krummi-statistics".into())
-                .spawn(move || run(&shared));
+                .spawn(move || {
+                    #[cfg(feature = "test-hooks")]
+                    krummi_pager::testing::adopt(&faults);
+                    run(&shared)
+                });
             // A thread the system does not give leaves the work undone; the next estimate asks again.
             *thread = spawned.ok();
         }

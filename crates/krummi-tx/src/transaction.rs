@@ -34,6 +34,11 @@ pub struct ReadTransaction<'e> {
 }
 
 impl<'e> ReadTransaction<'e> {
+    /// The id of the last commit its snapshot sees (statistics PRD, ST8).
+    pub fn snapshot_txid(&self) -> u64 {
+        self.snapshot.txid()
+    }
+
     pub(crate) fn new(snapshot: Snapshot<'e>) -> ReadTransaction<'e> {
         ReadTransaction {
             snapshot,
@@ -577,13 +582,19 @@ impl<'e> WriteTransaction<'e> {
     /// without changes writes nothing, and waits until the commits it saw are durable (E11). The transaction ends
     /// either way.
     pub fn commit(self) -> Result<()> {
-        self.commit_with(true, &mut || {})
+        self.commit_with(true, &mut |_| {})
+    }
+
+    /// The id of the last commit that this write's snapshot sees, the one it started from (statistics PRD, ST8).
+    pub fn snapshot_txid(&self) -> u64 {
+        self.writer.snapshot().txid()
     }
 
     /// Like [`commit`](Self::commit) (`durable`) or [`commit_deferred`](Self::commit_deferred), running `applied` once
     /// the commit passed its point of no return and before it lets go of the turn: the next writer and every later
-    /// commit come after it (statistics PRD, ST8). It does not run when the commit applies nothing or fails before.
-    pub fn commit_applying(self, durable: bool, applied: &mut dyn FnMut()) -> Result<()> {
+    /// commit come after it (statistics PRD, ST8); it receives the commit's id. It does not run when the commit
+    /// applies nothing or fails before.
+    pub fn commit_applying(self, durable: bool, applied: &mut dyn FnMut(u64)) -> Result<()> {
         self.commit_with(durable, applied)
     }
 
@@ -592,10 +603,10 @@ impl<'e> WriteTransaction<'e> {
     /// durable commit in its place, and read transactions see it from then on (E3). Until then any crash may lose
     /// it, with every later commit. It waits, keeping the turn, while the journal's queue is full (E2).
     pub fn commit_deferred(self) -> Result<()> {
-        self.commit_with(false, &mut || {})
+        self.commit_with(false, &mut |_| {})
     }
 
-    fn commit_with(mut self, durable: bool, applied: &mut dyn FnMut()) -> Result<()> {
+    fn commit_with(mut self, durable: bool, applied: &mut dyn FnMut(u64)) -> Result<()> {
         if let Some(error) = self.failure.get_mut().take() {
             return Err(error);
         }
@@ -645,7 +656,7 @@ impl<'e> WriteTransaction<'e> {
             self.engine.scratch.visible_txid(),
         );
         self.engine.hook(Point::CommitQueued);
-        applied();
+        applied(txid);
         // The turn goes to the next writer before waiting for the disk. The transfer thread moves the commit to
         // `krummi.data` once it is durable, without blocking anyone (E2, J5).
         let engine = self.engine;

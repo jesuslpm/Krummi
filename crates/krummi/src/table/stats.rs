@@ -43,6 +43,8 @@ pub(crate) struct ColumnStats {
     /// Elements and their fractions, from the most frequent.
     pub frequent: Vec<(Vec<u8>, f64)>,
     pub histogram: Vec<Bucket>,
+    /// The id of the last commit its snapshot saw, while in memory; 0 once read from the tree, which does not keep it.
+    pub snapshot: u64,
 }
 
 /// A bucket of a histogram: the values up to `upper`, after the previous bucket's.
@@ -246,6 +248,7 @@ impl Gather {
             distinct,
             frequent,
             histogram,
+            snapshot: 0,
         })
     }
 }
@@ -359,6 +362,7 @@ impl ColumnStats {
             distinct,
             frequent,
             histogram,
+            snapshot: 0,
         })
     }
 }

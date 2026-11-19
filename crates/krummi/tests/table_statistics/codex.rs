@@ -586,5 +586,97 @@ fn r13_a_failed_background_commit_makes_the_store_refuse_writes() {
     estimate("u");
     assert_eq!(store.statistics_samples(), samples + 1);
     assert_eq!(store.statistics_work().1, 0, "no save asked for");
-    drop(store);
+    // T12: closing writes what was committed again and ends without error; the store reopens with its rows.
+    store.close().unwrap();
+    let store = open(tmp.path());
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    assert_eq!(read.row_count(&table).unwrap(), 100);
+}
+
+/// Analyzes `t` of 600 rows and adds 700 more, so that its statistics are stale (threshold 620).
+fn stale_table(store: &Store) {
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+        .unwrap();
+    for id in 0..600 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.analyze("t", None).unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for id in 600..1_300 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+}
+
+/// R13 (ST9): a renewal whose sample runs out of memory is dropped without a visible error; the stale statistics still
+/// serve, writes go on, and the next estimate asks for a renewal again, which then renews them.
+#[test]
+fn r13_a_renewal_out_of_memory_is_dropped_and_asked_again() {
+    use krummi_pager::testing::{self, Action, Op};
+    stores(|store, _| {
+        stale_table(store);
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        testing::reset();
+        testing::inject(
+            Op::Snapshot,
+            0,
+            Action::Fail(std::io::ErrorKind::OutOfMemory),
+        );
+        assert!(read.estimate(&table, &equal("n", 1)).unwrap().stale);
+        store.wait_statistics_idle();
+        testing::reset();
+        drop(read);
+        let mut write = store.write().unwrap();
+        write.open_tree_with("after", OpenMode::CreateNew).unwrap();
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        assert!(
+            read.estimate(&table, &equal("n", 1)).unwrap().stale,
+            "dropped: still stale"
+        );
+        drop(read);
+        store.wait_statistics_idle();
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        assert!(
+            !read.estimate(&table, &equal("n", 1)).unwrap().stale,
+            "renewed when asked again"
+        );
+    });
+}
+
+/// R13 (ST7, ST12): analyze on the store that cannot open its snapshot fails with its class and changes nothing.
+#[test]
+fn r13_analyze_without_memory_for_its_snapshot_changes_nothing() {
+    use krummi_pager::testing::{self, Action, Op};
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        write
+            .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+            .unwrap();
+        write.commit().unwrap();
+        testing::reset();
+        testing::inject(
+            Op::Snapshot,
+            0,
+            Action::Fail(std::io::ErrorKind::OutOfMemory),
+        );
+        let error = store.analyze("t", None).unwrap_err();
+        testing::reset();
+        assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        assert!(read.column_statistics(&table, "n").unwrap().is_none());
+    });
 }

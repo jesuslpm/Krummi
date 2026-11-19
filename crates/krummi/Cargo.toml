@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# The statistics thread shares the fault injection of the thread that starts it, for the tests (ST9).
+test-hooks = ["krummi-pager/test-hooks"]
+
 [dependencies]
 krummi-pager = { version = "0.1.0", path = "../krummi-pager" }
 krummi-tree = { version = "0.1.0", path = "../krummi-tree" }
@@ -19,5 +23,6 @@ workspace = true
 # The engine's test hooks and fault injection, for the tests that make the store refuse writes (T12).
 krummi-pager = { path = "../krummi-pager", features = ["test-hooks"] }
 krummi-tx = { path = "../krummi-tx", features = ["test-hooks"] }
+krummi = { path = ".", features = ["test-hooks"] }
 tempfile = "3.27.0"
 trybuild = "1.0.122"

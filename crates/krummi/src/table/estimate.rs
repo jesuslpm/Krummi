@@ -65,10 +65,8 @@ struct MemoryState {
     columns: HashMap<(u64, u64), Arc<ColumnStats>>,
     /// Those of the index prefixes, by table, index and number of key columns (ST17).
     prefixes: HashMap<(u64, u64, u8), Arc<ColumnStats>>,
-    /// How many commits retired statistics so far: a transaction keeps the value it saw when it opened.
-    generation: u64,
-    /// Per table, the generation of the last commit that emptied or deleted it: a build of a transaction opened before
-    /// is dropped (ST8, R11 of the code review).
+    /// Per table, the id of the last commit that emptied or deleted it: a build from a snapshot that does not see that
+    /// commit is dropped (ST8, R11 of the code review).
     retired_at: HashMap<u64, u64>,
     /// Per table, the counter of its last committed emptying, or `u64::MAX` once deleted: statistics of an earlier
     /// snapshot are not published (R11 of the code review).
@@ -130,13 +128,8 @@ impl StatsMemory {
         self.state().prefixes.get(&(table, index, columns)).cloned()
     }
 
-    /// The current generation: a transaction opened now keeps it as the epoch of its builds.
-    pub(crate) fn generation(&self) -> u64 {
-        self.state().generation
-    }
-
-    /// Whether a build of the table `table` from a transaction opened at generation `epoch` is still valid: no commit
-    /// emptied or deleted the table since.
+    /// Whether a build of the table `table` from a snapshot that sees the commits up to `epoch` is still valid: it
+    /// sees the last commit that emptied or deleted the table.
     pub(crate) fn valid(&self, table: u64, epoch: u64) -> bool {
         valid(&self.state(), table, epoch)
     }
@@ -144,15 +137,13 @@ impl StatsMemory {
     /// Forgets what `retired` names (ST8), before the write that changed it lets go of the turn: whole tables, whose
     /// epoch grows so that a build sampled before is dropped, and removed columns and indexes. A commit that then fails
     /// only made the store sample again.
-    pub(crate) fn retire(&self, retired: &Retired) {
+    pub(crate) fn retire(&self, retired: &Retired, txid: u64) {
         if retired.tables.is_empty() && retired.columns.is_empty() && retired.indexes.is_empty() {
             return;
         }
         let mut state = self.state();
-        state.generation += 1;
-        let generation = state.generation;
         for (table, floor) in &retired.tables {
-            state.retired_at.insert(*table, generation);
+            state.retired_at.insert(*table, txid);
             state.floors.insert(*table, *floor);
         }
         state.removed.extend(retired.columns.iter().copied());
@@ -257,26 +248,14 @@ impl crate::Shared {
         match (found, private) {
             (Some(found), Some(private)) if found.counter > private.counter => {
                 if unsaved {
-                    self.request_save(&one_target(
-                        table,
-                        name,
-                        target,
-                        &found,
-                        self.statistics.generation(),
-                    ));
+                    self.request_save(&one_target(table, name, target, &found, found.snapshot));
                 }
                 Some(found)
             }
             (_, Some(private)) => Some(private),
             (found, None) => {
                 if let Some(found) = found.as_ref().filter(|_| unsaved) {
-                    self.request_save(&one_target(
-                        table,
-                        name,
-                        target,
-                        found,
-                        self.statistics.generation(),
-                    ));
+                    self.request_save(&one_target(table, name, target, found, found.snapshot));
                 }
                 found
             }

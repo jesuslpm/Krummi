@@ -77,9 +77,22 @@ pub(crate) struct Built {
     pub columns: Vec<(u64, ColumnStats)>,
     /// The index prefixes', by index identity and number of key columns (ST17).
     pub prefixes: Vec<((u64, u8), ColumnStats)>,
-    /// The statistics generation when its snapshot's transaction opened; a later emptying or deletion of the table
-    /// makes it invalid (ST8).
+    /// The id of the last commit its snapshot sees; an emptying or deletion of the table it does not see makes it
+    /// invalid (ST8).
     pub epoch: u64,
+}
+
+impl Built {
+    /// Records the id of the last commit its snapshot sees, in it and in each of its statistics.
+    pub(crate) fn stamp(&mut self, txid: u64) {
+        self.epoch = txid;
+        for (_, stats) in &mut self.columns {
+            stats.snapshot = txid;
+        }
+        for (_, stats) in &mut self.prefixes {
+            stats.snapshot = txid;
+        }
+    }
 }
 
 /// The column `name` of `schema` that statistics are asked for: a column name of 1 to 1,024 bytes, of the table, not a
@@ -479,8 +492,7 @@ impl ReadTransaction<'_> {
         let count = self.row_count(table)?;
         self.store.statistics.sampled();
         let mut built = self.build_rows(table, only, count, cancel)?;
-        // The generation when this transaction opened: its snapshot is not later (R11).
-        built.epoch = self.statistics_epoch;
+        built.stamp(self.inner.snapshot_txid());
         Ok(built)
     }
 
@@ -628,14 +640,14 @@ impl WriteTransaction<'_> {
         count: u64,
         counter: u64,
     ) -> Result<Built> {
-        // A write holds the turn, and a retirement happens only under it: the current generation is its snapshot's.
-        let epoch = self.store.statistics.generation();
+        // The commit this write started from: every retirement before it, under the turn, is in its view.
+        let epoch = self.inner.snapshot_txid();
         if count <= WHOLE {
             let rows = self.range_rows(table, &[], ..)?;
             let mut built = build(table.id, name, schema, only, count, counter, rows, &|| {
                 false
             })?;
-            built.epoch = epoch;
+            built.stamp(epoch);
             return Ok(built);
         }
         let (rows_root, reader) = self.live_rows(table)?;
@@ -662,7 +674,7 @@ impl WriteTransaction<'_> {
             rows.into_iter(),
             &|| false,
         )?;
-        built.epoch = epoch;
+        built.stamp(epoch);
         Ok(built)
     }
 
