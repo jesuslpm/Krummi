@@ -278,3 +278,5 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   ([report](../../docs/reviews/tables-indexes/2026-11-19-code-03.md), Peirce `gpt-6-astra`/`xhigh`): **approved**,
   «Approved: no findings remain open in the requested follow-up scope.» The commits after `09edff7` are documents
   (assessed `passive`). Resolutions: `docs/reviews/tables-indexes/2026-11-19-code-resolutions.md`.
+- **L20** (2026-11-19) — Closing: [closing report](tables-indexes-report.md); `docs/performance/plan.md` gains the
+  run's history row. Active 10 h 05 min against the estimate of 10–16 h.
