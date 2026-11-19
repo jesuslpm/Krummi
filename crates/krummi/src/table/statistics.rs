@@ -5,13 +5,17 @@
 //! snapshot: it drops a build of a column that no longer exists, of a table that is no longer the same or was emptied
 //! after the build's snapshot, and one older than the statistics already saved (ST6, N8).
 
+use std::borrow::Cow;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::catalog::{ReadTable, WriteTable};
 use super::key::{Direction, KeyColumn, Nulls};
-use super::rows::TableRow;
+use super::rows::{TableRow, Versions};
 use super::schema::{SchemaColumn, TableSchema, TableStats};
-use super::stats::{self, ColumnStats, Gather, column_key, element_column, has_stats, prefix_key};
+use super::stats::{
+    self, ColumnStats, Gather, WHOLE, column_key, element_column, has_stats, prefix_key,
+};
 use super::value::Value;
 use crate::{
     Error, Folder, ReadTransaction, Result, SchemaDifference, SchemaRule, Store, WriteTransaction,
@@ -363,8 +367,43 @@ impl ReadTransaction<'_> {
             .map(|name| stats_column(self.folder, &table.name, &table.schema, name).map(|c| c.id))
             .transpose()?;
         let count = self.row_count(table)?;
-        let rows = self.range_rows(table, &[], ..)?;
         self.store.statistics.sampled();
+        if count <= WHOLE {
+            let rows = self.range_rows(table, &[], ..)?;
+            return build(
+                table.id,
+                &table.name,
+                &table.schema,
+                only,
+                count,
+                table.stats.counter,
+                rows,
+            );
+        }
+        // A larger table is sampled by whole leaves reached at random (ST1).
+        let reader = &self
+            .readers
+            .keep(table.history, || Arc::clone(&table.reader))
+            .reader;
+        let mut versions = Versions::default();
+        let mut rows = Vec::new();
+        krummi_tree::sample_leaves(
+            &self.inner,
+            table.rows_root,
+            WHOLE,
+            self.store.statistics.seed(),
+            &mut |key, bytes| {
+                rows.push(reader.decode(
+                    &self.inner,
+                    table.at(),
+                    &mut versions,
+                    Cow::Borrowed(key),
+                    bytes,
+                    false,
+                ));
+                Ok(())
+            },
+        )?;
         build(
             table.id,
             &table.name,
@@ -372,7 +411,7 @@ impl ReadTransaction<'_> {
             only,
             count,
             table.stats.counter,
-            rows,
+            rows.into_iter(),
         )
     }
 }

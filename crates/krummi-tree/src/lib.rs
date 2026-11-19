@@ -569,6 +569,58 @@ pub(crate) fn descend<'t, S: PageSource + ?Sized>(
     }
 }
 
+/// Calls `visit` with the entries of leaves of the tree at `root` reached by random descents, each leaf at most once,
+/// until it gave about `rows` entries or the descents stop finding new leaves; returns how many entries it gave. Each
+/// descent picks a child at random at every branch from the generator seeded with `seed` (statistics PRD, ST1). A
+/// tree of one leaf gives that leaf.
+pub fn sample_leaves<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    root: u64,
+    rows: u64,
+    seed: u64,
+    visit: &mut impl FnMut(&'t [u8], &'t [u8]) -> Result<()>,
+) -> Result<u64> {
+    let mut state = seed | 1;
+    let mut next = move || {
+        // xorshift64*, enough to pick children.
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    };
+    let mut seen = std::collections::HashSet::new();
+    let (mut given, mut misses) = (0u64, 0u32);
+    while given < rows && misses < 64 {
+        let (mut page, mut level) = (root, None);
+        let leaf = loop {
+            let node = node_at(tx, page, level)?;
+            if node::is_leaf(node) {
+                break node;
+            }
+            level = child_level(node);
+            let children = u64::try_from(node::count(node)).expect("few children") + 1;
+            let at = usize::try_from(next() % children).expect("a child index");
+            page = node::child(node, at);
+        };
+        if !seen.insert(page) {
+            misses += 1;
+            continue;
+        }
+        misses = 0;
+        for index in 0..node::count(leaf) {
+            visit(
+                node::key(leaf, index),
+                resolve(tx, node::value(leaf, index))?,
+            )?;
+            given += 1;
+        }
+        if node::is_leaf(node_at(tx, root, None)?) {
+            break;
+        }
+    }
+    Ok(given)
+}
+
 /// Calls `visit` with every entry of the tree at `root`, in key order.
 pub fn for_each<S: PageSource + ?Sized>(
     tx: &S,

@@ -57,9 +57,24 @@ pub(crate) struct StatsMemory {
     prefixes: Mutex<HashMap<(u64, u64, u8), Arc<ColumnStats>>>,
     /// How many samples the store read, for the tests (ST14).
     samples: AtomicU64,
+    /// The seed of the samples of large tables that a test fixed, or 0 (ST14).
+    seed: AtomicU64,
 }
 
 impl StatsMemory {
+    /// The seed of the next sample of a large table: the one a test fixed, or a random one.
+    pub(crate) fn seed(&self) -> u64 {
+        match self.seed.load(Ordering::Relaxed) {
+            0 => {
+                use std::hash::{BuildHasher, Hasher};
+                std::collections::hash_map::RandomState::new()
+                    .build_hasher()
+                    .finish()
+            }
+            seed => seed,
+        }
+    }
+
     /// Counts a sample read.
     pub(crate) fn sampled(&self) {
         self.samples.fetch_add(1, Ordering::Relaxed);
@@ -358,6 +373,13 @@ impl crate::Store {
     #[doc(hidden)]
     pub fn statistics_samples(&self) -> u64 {
         self.shared().statistics.samples.load(Ordering::Relaxed)
+    }
+
+    /// A test hook, not part of the interface: fixes the seed of the samples of tables of more than 30,000 rows, or
+    /// with 0 makes it random again (ST14).
+    #[doc(hidden)]
+    pub fn set_statistics_seed(&self, seed: u64) {
+        self.shared().statistics.seed.store(seed, Ordering::Relaxed);
     }
 
     /// A test hook, not part of the interface: holds or releases a point of the statistics work (ST14).

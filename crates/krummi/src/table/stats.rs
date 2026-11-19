@@ -12,6 +12,8 @@ use std::borrow::Cow;
 use super::key::KeyColumn;
 use super::value::{ColumnType, Value};
 
+/// Tables of up to this many rows are read whole; larger ones give about this many rows by whole leaves (ST1).
+pub(crate) const WHOLE: u64 = 30_000;
 /// A `string` or `bytes` value of more than this many bytes is large: never read nor kept (ST1).
 pub(crate) const LARGE: usize = 2_048;
 /// The most frequent values a column keeps.

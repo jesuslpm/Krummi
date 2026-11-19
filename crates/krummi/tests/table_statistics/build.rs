@@ -304,3 +304,41 @@ fn ac_st9_the_errors_of_reading_and_analyze() {
         store.analyze("v", None).unwrap();
     });
 }
+
+/// AC-ST1 and AC-ST12 (ST1): a table of 200,000 rows is sampled with the seed of the test hook: fewer rows are read
+/// than it has, and the frequent value and the nulls estimate their rows within 5 % of the table.
+#[test]
+fn ac_st1_a_large_table_is_sampled() {
+    stores(|store, _| {
+        // The rule of `n` in the table of AC-ST1, in rows of two columns.
+        let small = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("n", ColumnType::I64),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        write
+            .open_table_with("d", TableMode::CreateNew(&small))
+            .unwrap();
+        write.commit().unwrap();
+        let rows = (0..200_000).map(|id| {
+            let row = distribution_row(id);
+            Ok::<_, std::convert::Infallible>(vec![row[0].clone(), row[1].clone()])
+        });
+        store.bulk_load("d", rows).unwrap();
+        store.set_statistics_seed(7);
+        store.analyze("d", None).unwrap();
+        let n = read_statistics(store, "n").unwrap();
+        assert_eq!(n.origin_rows, 200_000);
+        assert!(
+            n.rows_read < 200_000 && n.rows_read >= 20_000,
+            "{}",
+            n.rows_read
+        );
+        assert!((n.null_fraction - 0.1).abs() <= 0.05, "{}", n.null_fraction);
+        assert_eq!(n.frequent[0].0, Value::I64(7));
+        assert!((n.frequent[0].1 - 0.4).abs() <= 0.05, "{}", n.frequent[0].1);
+    });
+}
