@@ -204,3 +204,24 @@ Verdict, quoted: "Changes required. R2, R11, R12, R13, R18 and R19 remain open: 
 one minor finding. R4, R16 and R17 are verified resolved; approval is withheld." R18 (major): a failed commit retires
 statistics for changes it never applied, a consequence of retiring before the commit lets go of the turn. R19 (minor):
 every commit scans all shared statistics even with nothing to retire. All six stay open for the next session.
+
+## 2026-11-19 (round 4 fixes)
+
+The user asked to go on in this session with the findings and a new Codex round («Sigamos en esta sesión con los
+hallazgos y nueva ronda de Codex.»). Fix commit: `31c5eac`. Checks after it: fmt, clippy and `cargo test --workspace`
+pass.
+
+- R2 — pending (T7b).
+- R11 — fixed: memory keeps, per table, a floor (the counter of its last committed emptying, `u64::MAX` after a
+  deletion) and the set of removed columns and indexes; `publish` drops statistics below the floor and those of a
+  removed target. Saving already checks the catalog's identity, emptying counter, columns and indexes. Test:
+  `r11_a_removed_column_is_not_republished` (Codex's old-read case).
+- R12 — fixed: `Gather::finish` checks the cancel before and after its sort, and `build` between gatherings; a
+  cancelled build returns nothing.
+- R13 — partly fixed: damage during a background renewal is now tested (`r13_damage_during_a_renewal_is_dropped`).
+  Still missing: a background commit input/output failure that makes the store refuse writes (T12); the engine's
+  faults are per thread and the statistics thread does not adopt the test's, so it needs a hook of its own.
+- R18 — fixed: retirement runs only after a commit that applied, in `commit` and `commit_deferred`; the window
+  before it is covered by the catalog checks of saving and by the floors and removed targets of publishing (R11).
+- R19 — fixed: `retire` returns at once when nothing is retired.
+- Status: claimed, unverified until a follow-up review.
