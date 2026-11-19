@@ -308,6 +308,16 @@ impl RowLayout {
     /// `values` does not have one value per column, a value is not of its column's type, or a null is in a column
     /// that does not allow nulls: a slot is never written with another type's bytes, nor a null as zeros.
     pub fn encode(&self, values: &[Value<'_>]) -> Vec<u8> {
+        let mut row = Vec::new();
+        self.encode_into(values, &mut row);
+        row
+    }
+
+    /// Writes the row of `values` (see [`RowLayout::encode`]) into the empty `row`, which allocates nothing when it
+    /// already has room for [`RowLayout::encoded_len`] bytes: the payload of an index entry's included columns is
+    /// reserved first, so that a refused allocation fails the write instead of the process (IX2, P13).
+    pub(crate) fn encode_into(&self, values: &[Value<'_>], row: &mut Vec<u8>) {
+        debug_assert!(row.is_empty(), "the row is written from its start");
         assert_eq!(values.len(), self.columns.len(), "one value per column");
         for (column, value) in self.columns.iter().zip(values) {
             match value {
@@ -324,8 +334,8 @@ impl RowLayout {
         let variable = self.variable_len(values);
         let (code, width) = offset_width(variable);
         let var_start = self.offsets_start + self.variables.saturating_sub(1) * width;
-        let mut row = vec![0u8; var_start];
-        row.reserve_exact(variable);
+        row.reserve_exact(var_start + variable);
+        row.resize(var_start, 0);
         row[..2].copy_from_slice(&self.version.to_le_bytes());
         row[2] = code;
         // The end of each variable column; a null one takes no bytes and ends where the previous one ends.
@@ -352,10 +362,9 @@ impl RowLayout {
         }
         for (i, value) in values.iter().enumerate() {
             if let Place::Variable(_) = self.places[i] {
-                write_variable(&self.columns[i].ty, value, &mut row);
+                write_variable(&self.columns[i].ty, value, row);
             }
         }
-        row
     }
 
     /// The row in `bytes`, after checking its header and that it holds the fixed part of its layout; the columns are

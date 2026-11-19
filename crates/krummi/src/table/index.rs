@@ -100,7 +100,7 @@ use krummi_tree::catalog::MAX_EXTRA;
 use krummi_tree::{Interval, LastLeaf, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
-use super::index_key::{decode_entry, encode_entry, entry_len, index_key_len, uniqueness_range};
+use super::index_key::{decode_entry, entry_len, index_key_len, uniqueness_range, write_entry};
 use super::key::{Direction, KeyColumn, KeyRange, MAX_KEY, Nulls};
 use super::row::{MAX_ROW, RowColumn, RowLayout};
 use super::rows::{At, Reader, Versions};
@@ -502,43 +502,50 @@ impl EntryLayout {
     }
 
     /// The entry of the row whose live column at place `i`, in schema order, has `value(i)` and whose encoded primary
-    /// key is `primary`, with the values a read of the row gives (E11). Fails with [`TooLarge::Entry`] for an entry
-    /// over the maximum of a key (IX10), then with [`TooLarge::Included`] for included columns over the maximum of a
-    /// row: defaults added after a row was written can give it, and so can a row near the maximum, whose included
-    /// columns each take a null flag that the row may not have.
+    /// key is `primary`, with the values a read of the row gives (E11). Gives [`TooLarge::Entry`] for an entry over the
+    /// maximum of a key (IX10), then [`TooLarge::Included`] for included columns over the maximum of a row: defaults
+    /// added after a row was written can give it, and so can a row near the maximum, whose included columns each take
+    /// a null flag that the row may not have. Its key and its value are reserved in `tx`'s fallible way, so that memory
+    /// the system does not give fails with out of memory and T11 (IX2, P13) instead of ending the process.
     ///
     /// # Panics
     ///
     /// For a value its key column cannot hold, which only a malformed row gives (IX12, L2).
-    pub(super) fn entry<'v>(
+    pub(super) fn entry<'v, S: PageSource + ?Sized>(
         &self,
+        tx: &S,
         value: impl Fn(usize) -> Value<'v>,
         primary: &[u8],
-    ) -> std::result::Result<RowEntry, TooLarge> {
+    ) -> Result<std::result::Result<RowEntry, TooLarge>> {
         let index_values = self.key_values(&value);
         let len = entry_len(&self.key, &index_values, primary);
         if len > MAX_KEY {
-            return Err(TooLarge::Entry(len));
+            return Ok(Err(TooLarge::Entry(len)));
         }
-        let entry_value = match &self.included {
-            None => Vec::new(),
+        let included = match &self.included {
+            None => None,
             Some(included) => {
                 let values: Vec<Value<'v>> =
                     self.included_places.iter().map(|&i| value(i)).collect();
                 let len = included.encoded_len(&values);
                 if len > MAX_ROW {
-                    return Err(TooLarge::Included(len));
+                    return Ok(Err(TooLarge::Included(len)));
                 }
-                included.encode(&values)
+                Some((included, values, len))
             }
         };
+        let mut entry_value = Vec::new();
+        if let Some((included, values, len)) = included {
+            krummi_tree::reserve(tx, &mut entry_value, len)?;
+            included.encode_into(&values, &mut entry_value);
+        }
         let has_null = index_values.iter().any(|v| matches!(v, Value::Null));
         let prefix = (!has_null).then(|| index_key_len(&self.key, &index_values));
-        Ok(RowEntry {
-            key: self.encode(&index_values, primary),
+        Ok(Ok(RowEntry {
+            key: self.encode(tx, &index_values, primary, len)?,
             prefix,
             value: entry_value,
-        })
+        }))
     }
 
     /// The key of the entry of a stored row, as [`EntryLayout::entry`] gives it, to remove the entry.
@@ -547,18 +554,35 @@ impl EntryLayout {
     ///
     /// For a value its key column cannot hold or an entry over the maximum of a key, which only a malformed row gives
     /// (IX12, L2).
-    pub(super) fn entry_key<'v>(
+    pub(super) fn entry_key<'v, S: PageSource + ?Sized>(
         &self,
+        tx: &S,
         value: impl Fn(usize) -> Value<'v>,
         primary: &[u8],
-    ) -> Vec<u8> {
-        self.encode(&self.key_values(&value), primary)
+    ) -> Result<Vec<u8>> {
+        let index_values = self.key_values(&value);
+        let len = entry_len(&self.key, &index_values, primary);
+        self.encode(tx, &index_values, primary, len)
     }
 
-    fn encode(&self, index_values: &[Value<'_>], primary: &[u8]) -> Vec<u8> {
-        encode_entry(&self.key, index_values, primary).unwrap_or_else(|_| {
-            panic!("a malformed row gives a value its index column cannot hold")
-        })
+    /// The key of the entry of `index_values` and `primary`, of `len` bytes ([`entry_len`]), reserved in `tx`'s
+    /// fallible way (IX2, P13).
+    fn encode<S: PageSource + ?Sized>(
+        &self,
+        tx: &S,
+        index_values: &[Value<'_>],
+        primary: &[u8],
+        len: usize,
+    ) -> Result<Vec<u8>> {
+        let malformed =
+            || -> ! { panic!("a malformed row gives a value its index column cannot hold") };
+        if len > MAX_KEY {
+            malformed();
+        }
+        let mut entry = Vec::new();
+        krummi_tree::reserve(tx, &mut entry, len)?;
+        write_entry(&self.key, index_values, primary, &mut entry).unwrap_or_else(|_| malformed());
+        Ok(entry)
     }
 
     /// The entries that collide with `key`, the entry of the row whose live column at place `i` has `value(i)`, in a
@@ -826,7 +850,7 @@ impl<'s> WriteTransaction<'s> {
             if too_large.is_some() {
                 continue;
             }
-            match layout.entry(|i| row.value(i).expect("a live column"), key) {
+            match layout.entry(&self.inner, |i| row.value(i).expect("a live column"), key)? {
                 Ok(entry) => sorter.push(&self.inner, entry)?,
                 Err(fault) => {
                     too_large = Some(self.folder.entry_too_large(

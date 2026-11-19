@@ -42,16 +42,29 @@ pub(crate) fn encode_entry(
         return Err(KeyError::Size { received: len });
     }
     let mut entry = Vec::with_capacity(len);
+    write_entry(columns, values, primary, &mut entry)?;
+    Ok(entry)
+}
+
+/// Appends to `entry` the key that [`encode_entry`] gives, without its check of the size; it allocates nothing when
+/// `entry` has room for [`entry_len`] more bytes. Fails with the first value, in key order, that is not of its
+/// column's type or is a null in a column without nulls. Panics if there is not one value per column.
+pub(crate) fn write_entry(
+    columns: &[KeyColumn],
+    values: &[Value<'_>],
+    primary: &[u8],
+    entry: &mut Vec<u8>,
+) -> Result<(), KeyError> {
     for (column, (key_column, value)) in columns.iter().zip(values).enumerate() {
         key_column
-            .encode(value, &mut entry)
+            .encode(value, entry)
             .map_err(|rule| KeyError::Value {
                 column: Some(column),
                 rule,
             })?;
     }
     entry.extend_from_slice(primary);
-    Ok(entry)
+    Ok(())
 }
 
 /// The entries of a unique index that collide with `entry`, the key [`encode_entry`] gives for `values`: those whose

@@ -775,3 +775,92 @@ fn ac_ix14_a_temporary_store_sorts_in_memory_only() {
     }
     assert!(failed > 30, "{failed}");
 }
+
+/// Bytes of the included text of [`no_memory_for_the_content`]: 2 MiB.
+const PAYLOAD: usize = 2 << 20;
+
+/// The table `t` of `id i64 not null, k string, p string` with the row 1, whose `k` is 1,000 bytes and `p`
+/// [`PAYLOAD`] bytes, committed in `store`; and `ix_k`, on `k` with `p` included.
+fn no_memory_for_the_content(store: &Store) -> IndexDefinition {
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("k", ColumnType::String),
+            Column::new("p", ColumnType::String),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    let row = [
+        ("id", Value::I64(1)),
+        ("k", Value::String(Cow::Owned("k".repeat(1000)))),
+        ("p", Value::String(Cow::Owned("p".repeat(PAYLOAD)))),
+    ];
+    write.insert_row(&table, &row).unwrap();
+    write.commit().unwrap();
+    IndexDefinition::new("ix_k", vec![key("k")]).with_included(&["p"])
+}
+
+/// AC-IX14 (IX2, P13, T11): when the system does not give the memory of an entry's content, its key or the payload of
+/// its included columns, the creation fails with out of memory, with T11 and no change, in a store on disk and in a
+/// temporary one, instead of ending the process.
+#[test]
+fn ac_ix14_no_memory_for_an_entry_fails_the_creation_with_out_of_memory() {
+    for on_disk in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = if on_disk {
+            open(dir.path())
+        } else {
+            Store::open_temporary(&StoreOptions::default()).unwrap()
+        };
+        let index = no_memory_for_the_content(&store);
+        let before = kept(&store);
+
+        // Every reservation of the creation, counted, and the entry's key.
+        let mut write = store.write().unwrap();
+        let table = write.open_table("t").unwrap();
+        testing::reset();
+        create(&mut write, &table, &index).unwrap();
+        let reservations = testing::count(Op::Alloc);
+        testing::reset();
+        let read = write.stored_index_entries(&table, "ix_k").unwrap().unwrap();
+        let key_len = read[0].bytes.len() as u64;
+        drop(write);
+
+        // Each failing in turn.
+        let mut requested = Vec::new();
+        for nth in 0..reservations {
+            let mut write = store.write().unwrap();
+            let table = write.open_table("t").unwrap();
+            testing::reset();
+            testing::inject(Op::Alloc, nth, Action::Fail(io::ErrorKind::OutOfMemory));
+            let created = create(&mut write, &table, &index);
+            testing::reset();
+            let Err(error) = created else {
+                continue;
+            };
+            let Error::OutOfMemory { requested: bytes } = error else {
+                panic!("{nth}: {error}");
+            };
+            requested.push(bytes);
+            assert_eq!(
+                write.commit().unwrap_err().kind(),
+                ErrorKind::OutOfMemory,
+                "{nth}: T11"
+            );
+            assert_eq!(kept(&store), before, "{nth}");
+        }
+        assert!(requested.contains(&key_len), "on disk {on_disk}: the key");
+        assert!(
+            requested
+                .iter()
+                .any(|&bytes| (PAYLOAD as u64..PAYLOAD as u64 + 64).contains(&bytes)),
+            "on disk {on_disk}: the payload"
+        );
+        assert!(entries(&store, "ix_k").is_none());
+        store.close().unwrap();
+    }
+}

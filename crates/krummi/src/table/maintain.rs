@@ -113,7 +113,7 @@ impl WriteTransaction<'_> {
         let value = |i: usize| values[i].reborrow();
         let steps = (indexes.0.iter())
             .map(|index| {
-                (index.layout.entry(value, key))
+                (index.layout.entry(&self.inner, value, key)?)
                     .map(Step::Add)
                     .map_err(|fault| self.entry_too_large(table, &index.name, fault))
             })
@@ -149,10 +149,10 @@ impl WriteTransaction<'_> {
     ) -> Result<Vec<Step>> {
         let steps = (indexes.0.iter())
             .map(|index| {
-                let new = (index.layout.entry(&new, key))
+                let new = (index.layout.entry(&self.inner, &new, key)?)
                     .map_err(|fault| self.entry_too_large(table, &index.name, fault))?;
                 // The row was checked (L3) and its entry was checked when it was written.
-                let Ok(old) = index.layout.entry(&old, key) else {
+                let Ok(old) = index.layout.entry(&self.inner, &old, key)? else {
                     panic!("a stored row whose entry its index cannot hold");
                 };
                 Ok(if old.key != new.key {
@@ -246,9 +246,15 @@ impl WriteTransaction<'_> {
             false,
         )?;
         let value = |i| row.value(i).expect("a live column");
-        Ok((indexes.0.iter())
-            .map(|index| Step::Remove(index.layout.entry_key(value, key)))
-            .collect())
+        (indexes.0.iter())
+            .map(|index| {
+                Ok(Step::Remove(index.layout.entry_key(
+                    &self.inner,
+                    value,
+                    key,
+                )?))
+            })
+            .collect()
     }
 
     /// Takes `steps`, one per index of `table` in their order, in its indexes' trees. An entry to remove that is not

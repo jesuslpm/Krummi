@@ -3221,3 +3221,105 @@ fn dropping_an_included_column_fails_naming_its_index() {
         write.commit().unwrap();
     });
 }
+
+/// IX2, IX7 (P13, T11): a row write that the system does not give the memory of an index entry's content, its key or
+/// the payload of its included columns, fails with out of memory, with T11 and no change, instead of ending the
+/// process: an insert, an update of an included column and a delete, in a store on disk and in a temporary one.
+#[test]
+fn no_memory_for_an_entry_fails_the_row_write_with_out_of_memory() {
+    use krummi_pager::testing::{self, Action, Op};
+    const PAYLOAD: usize = 2 << 20;
+    type RowWrite = fn(&mut WriteTransaction<'_>, &WriteTable<'_>) -> krummi::Result<()>;
+    fn row(id: i64, p: &str) -> Vec<(&'static str, Value<'static>)> {
+        vec![
+            ("id", Value::I64(id)),
+            ("k", Value::String(Cow::Owned("k".repeat(1000)))),
+            ("p", Value::String(Cow::Owned(p.repeat(PAYLOAD)))),
+        ]
+    }
+    // Each write, and whether it reserves a payload; every one reserves an entry's key.
+    let writes: [(&str, RowWrite, bool); 3] = [
+        ("insert", |w, t| w.insert_row(t, &row(2, "b")), true),
+        (
+            "update",
+            |w, t| w.update_row(t, &row(1, "c")).map(|_| ()),
+            true,
+        ),
+        (
+            "delete",
+            |w, t| w.delete_row(t, &[Value::I64(1)]).map(|_| ()),
+            false,
+        ),
+    ];
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("k", ColumnType::String),
+                Column::new("p", ColumnType::String),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = create_table(&mut write, "t", &schema);
+        let ix = index("ix_k", &[key("k")]).with_included(&["p"]);
+        write
+            .create_index(&table, &ix, IndexMode::CreateNew)
+            .unwrap();
+        write.insert_row(&table, &row(1, "a")).unwrap();
+        write.commit().unwrap();
+        let entries = |store: &Store| {
+            let read = store.read().unwrap();
+            read.stored_index_entries(&read.open_table("t").unwrap(), "ix_k")
+                .unwrap()
+                .unwrap()
+        };
+        let before = entries(store);
+        let key_len = before[0].bytes.len() as u64;
+        for (name, row_write, payload) in writes {
+            let mut write = store.write().unwrap();
+            let table = write.open_table("t").unwrap();
+            testing::reset();
+            row_write(&mut write, &table).unwrap();
+            let reservations = testing::count(Op::Alloc);
+            testing::reset();
+            drop(write);
+            let mut requested = Vec::new();
+            for nth in 0..reservations {
+                let mut write = store.write().unwrap();
+                let table = write.open_table("t").unwrap();
+                testing::reset();
+                testing::inject(
+                    Op::Alloc,
+                    nth,
+                    Action::Fail(std::io::ErrorKind::OutOfMemory),
+                );
+                let written = row_write(&mut write, &table);
+                testing::reset();
+                let Err(error) = written else {
+                    continue;
+                };
+                let Error::OutOfMemory { requested: bytes } = error else {
+                    panic!("{name} {nth}: {error}");
+                };
+                requested.push(bytes);
+                assert_eq!(
+                    write.commit().unwrap_err().kind(),
+                    ErrorKind::OutOfMemory,
+                    "{name} {nth}: T11"
+                );
+                assert_eq!(entries(store), before, "{name} {nth}");
+            }
+            let payload_failed = (requested.iter())
+                .any(|&bytes| (PAYLOAD as u64..PAYLOAD as u64 + 64).contains(&bytes));
+            assert_eq!(
+                payload_failed, payload,
+                "{name}: the payload, {requested:?}"
+            );
+            assert!(
+                requested.contains(&key_len),
+                "{name}: the key, {requested:?}"
+            );
+        }
+    });
+}
