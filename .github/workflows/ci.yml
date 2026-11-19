@@ -73,10 +73,33 @@ jobs:
               || { echo "$test did not run with $variant"; exit 1; }
           done
 
+  # The acceptance sweeps, apart from the checks so each has its own runner and time budget: on hosted runners the
+  # AC10 step alone has taken from 9 to over 30 minutes for the same code (its time is the file writes and reopens of
+  # 65,536 cases per store), which left the 30-minute step limit and the checks job's 60 minutes without margin.
+  sweeps:
+    name: Acceptance sweeps (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
       # AC10 in full: flips every byte of a store, one at a time (65,536 reopens), for the Pager's pages and
       # for a store written through transactions.
       - name: Every-byte damage sweep (AC10)
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: |
           cargo test -p krummi-pager --test pages -- --ignored ac10
           cargo test -p krummi-tx --test commit -- --ignored ac10

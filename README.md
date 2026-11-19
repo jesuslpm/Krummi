@@ -194,7 +194,8 @@ cargo test --workspace
 ```
 
 GitHub Actions runs these checks on Linux and Windows on every push and pull request
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), plus the full AC10 sweep.
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the full acceptance sweeps (AC10 and the tree
+sweeps) in a separate job per system, so each sweep has its own runner and time budget.
 
 The suite runs a sample of the every-byte damage sweep (AC10), for the Pager's pages and for a store written through
 transactions, with and without free space, and for a store with trees. The full sweeps reopen a store 65,536 times each and are an acceptance step that CI runs on both
