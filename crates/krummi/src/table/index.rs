@@ -739,6 +739,7 @@ impl<'s> WriteTransaction<'s> {
             .add_index(SchemaIndex { id, ..build.index }, index_state);
         state.index_roots.insert(at, root);
         state.maintained = None;
+        state.emptied = true;
         state.history = history;
         self.write_table_entry(table.id)
     }
@@ -771,6 +772,7 @@ impl<'s> WriteTransaction<'s> {
         state.schema.remove_index(at, index_state);
         state.index_roots.remove(at);
         state.maintained = None;
+        state.emptied = true;
         state.history = history;
         self.write_table_entry(table.id)
     }

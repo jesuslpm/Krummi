@@ -80,7 +80,8 @@ fn r3_a_writes_own_statistics_end_when_it_empties_the_table() {
     });
 }
 
-/// R4 (AC-ST1): an interval over values whose histogram bounds were shortened keeps within 5 % of the table.
+/// R4 (AC-ST1): intervals over values whose histogram bounds were shortened keep within 5 % of the table: 4,000
+/// rows `A`, 1,000 nulls and 50 rows of each of 100 suffixes after 64 `B`s (Codex's distribution).
 #[test]
 fn r4_shortened_bounds_keep_the_interval_estimate() {
     stores(|store, _| {
@@ -92,6 +93,7 @@ fn r4_shortened_bounds_keep_the_interval_estimate() {
             &["id"],
         );
         let prefix = "B".repeat(64);
+        let suffix = |id: i64| (id / 10) % 100;
         let mut write = store.write().unwrap();
         let table = write
             .open_table_with("t", TableMode::CreateNew(&schema))
@@ -100,7 +102,7 @@ fn r4_shortened_bounds_keep_the_interval_estimate() {
             let s = match id % 10 {
                 0..=3 => Value::String(Cow::Borrowed("A")),
                 4 => Value::Null,
-                _ => Value::String(Cow::Owned(format!("{prefix}{:03}", id % 100))),
+                _ => Value::String(Cow::Owned(format!("{prefix}{:03}", suffix(id)))),
             };
             write
                 .insert_row(&table, &[("id", Value::I64(id)), ("s", s)])
@@ -110,17 +112,22 @@ fn r4_shortened_bounds_keep_the_interval_estimate() {
         store.analyze("t", None).unwrap();
         let read = store.read().unwrap();
         let table = read.open_table("t").unwrap();
-        let bound = |n: u32| Value::String(Cow::Owned(format!("{prefix}{n:03}")));
-        let condition = Condition::Range {
-            column: "s",
-            lower: std::ops::Bound::Included(bound(50)),
-            upper: std::ops::Bound::Included(bound(99)),
-        };
-        let rows = read.estimate(&table, &condition).unwrap().rows;
-        let real = (0..10_000i64)
-            .filter(|id| id % 10 >= 5 && id % 100 >= 50)
-            .count() as f64;
-        assert!((rows - real).abs() <= 500.0, "{rows} for {real}");
+        let bound = |n: i64| Value::String(Cow::Owned(format!("{prefix}{n:03}")));
+        for (from, to) in [(50, 99), (90, 99), (0, 99), (100, 199)] {
+            let condition = Condition::Range {
+                column: "s",
+                lower: std::ops::Bound::Included(bound(from)),
+                upper: std::ops::Bound::Included(bound(to)),
+            };
+            let rows = read.estimate(&table, &condition).unwrap().rows;
+            let real = (0..10_000i64)
+                .filter(|id| id % 10 >= 5 && (from..=to).contains(&suffix(*id)))
+                .count() as f64;
+            assert!(
+                (rows - real).abs() <= 500.0,
+                "{from}..{to}: {rows} for {real}"
+            );
+        }
     });
 }
 
@@ -307,6 +314,131 @@ fn r15_name_sizes_come_before_the_columns() {
         drop(read);
         assert_eq!(
             store.analyze("missing", Some("")).unwrap_err().kind(),
+            ErrorKind::InvalidSize
+        );
+    });
+}
+
+/// R1 (T11): an auxiliary snapshot that cannot open fails the requesting write too.
+#[test]
+fn r1_a_failed_auxiliary_snapshot_fails_the_write() {
+    let store = Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+        .unwrap();
+    write
+        .insert_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(1))])
+        .unwrap();
+    write.commit().unwrap();
+    let mut write = store.write().unwrap();
+    write
+        .open_tree_with("previous", OpenMode::CreateNew)
+        .unwrap();
+    let table = write.open_table("t").unwrap();
+    krummi_pager::testing::reset();
+    krummi_pager::testing::inject(
+        krummi_pager::testing::Op::Snapshot,
+        0,
+        krummi_pager::testing::Action::Fail(std::io::ErrorKind::OutOfMemory),
+    );
+    let error = write.estimate(&table, &equal("n", 1)).unwrap_err();
+    krummi_pager::testing::reset();
+    assert_eq!(error.kind(), ErrorKind::OutOfMemory);
+    assert!(write.commit().is_err(), "the write cannot commit");
+}
+
+/// R9 (ST16): a write reads the index-prefix statistics it built itself.
+#[test]
+fn r9_a_write_reads_its_own_prefix_statistics() {
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("a", ColumnType::I64),
+                Column::new("b", ColumnType::I64),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("t", TableMode::CreateNew(&schema))
+            .unwrap();
+        write
+            .create_index(
+                &table,
+                &IndexDefinition::new("ix", vec![IndexKey::new("a"), IndexKey::new("b")]),
+                IndexMode::CreateNew,
+            )
+            .unwrap();
+        write
+            .insert_row(
+                &table,
+                &[
+                    ("id", Value::I64(1)),
+                    ("a", Value::I64(1)),
+                    ("b", Value::I64(1)),
+                ],
+            )
+            .unwrap();
+        let both = Condition::EqualColumns(vec![("a", Value::I64(1)), ("b", Value::I64(1))]);
+        write.estimate(&table, &both).unwrap();
+        assert!(write.index_statistics(&table, "ix").unwrap().is_some());
+    });
+}
+
+/// R11 (ST8): a build sampled before a committed emptying is neither published nor saved.
+#[test]
+fn r11_a_build_from_before_an_emptying_is_dropped() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        write
+            .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+            .unwrap();
+        write.commit().unwrap();
+        store.hold_statistics(StatisticsPoint::WorkSampled, true);
+        std::thread::scope(|scope| {
+            let analyze = scope.spawn(|| store.analyze("t", None));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let mut write = store.write().unwrap();
+            write.open_table_with("t", TableMode::Empty).unwrap();
+            write.commit().unwrap();
+            store.hold_statistics(StatisticsPoint::WorkSampled, false);
+            analyze.join().unwrap().unwrap();
+        });
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        assert!(read.column_statistics(&table, "n").unwrap().is_none());
+    });
+}
+
+/// R15 (ST12): with a handle of a table this write deleted, an invalid name still comes first.
+#[test]
+fn r15_a_deleted_handle_comes_after_the_names() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+            .unwrap();
+        write.delete_table("t").unwrap();
+        let empty = Condition::Equal {
+            column: "",
+            value: Value::I64(1),
+        };
+        assert_eq!(
+            write.estimate(&table, &empty).unwrap_err().kind(),
+            ErrorKind::InvalidSize
+        );
+        assert_eq!(
+            write.column_statistics(&table, "").unwrap_err().kind(),
+            ErrorKind::InvalidSize
+        );
+        assert_eq!(
+            write.index_statistics(&table, "").unwrap_err().kind(),
+            ErrorKind::InvalidSize
+        );
+        assert_eq!(
+            write.analyze(&table, Some("")).unwrap_err().kind(),
             ErrorKind::InvalidSize
         );
     });

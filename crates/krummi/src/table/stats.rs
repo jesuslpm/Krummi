@@ -200,12 +200,13 @@ impl Gather {
             .collect();
         let total: u64 = others.iter().map(|(_, count)| count).sum();
         let per_bucket = total.div_ceil(BUCKETS as u64).max(1);
-        let mut histogram = Vec::new();
+        let mut histogram: Vec<Bucket> = Vec::new();
         let mut in_bucket = 0;
         for (at, (element, count)) in others.iter().enumerate() {
             in_bucket += count;
             if in_bucket >= per_bucket || at + 1 == others.len() {
-                let (upper, shortened) = shorten(&self.column, element);
+                let previous = histogram.last().map(|b| b.upper.as_slice());
+                let (upper, shortened) = shorten(&self.column, element, previous);
                 histogram.push(Bucket {
                     upper,
                     fraction: of(in_bucket),
@@ -227,28 +228,43 @@ impl Gather {
     }
 }
 
-/// The element `element` of `column`, shortened to its first [`BOUND`] bytes of text (at a character boundary) or
-/// bytes when it is longer, re-encoded; and whether it was.
-fn shorten(column: &KeyColumn, element: &[u8]) -> (Vec<u8>, bool) {
-    let value = column.decode(&mut &element[..]);
-    let short = match value {
+/// The element `element` of `column`, shortened when its text or bytes pass [`BOUND`] bytes: to the shortest prefix of
+/// at least [`BOUND`] bytes (the text at a character boundary) whose element is still greater than `previous`, the
+/// previous bucket's bound, so that the bounds keep their order; re-encoded; and whether it was.
+fn shorten(column: &KeyColumn, element: &[u8], previous: Option<&[u8]>) -> (Vec<u8>, bool) {
+    let encode = |value: &Value<'_>| {
+        let mut upper = Vec::new();
+        column
+            .encode(value, &mut upper)
+            .expect("a prefix of a value encodes");
+        upper
+    };
+    let after = |upper: &[u8]| previous.is_none_or(|p| upper > p);
+    match column.decode(&mut &element[..]) {
         Some(Value::String(text)) if text.len() > BOUND => {
             let mut end = BOUND;
-            while !text.is_char_boundary(end) {
-                end -= 1;
+            while end < text.len() {
+                if text.is_char_boundary(end) {
+                    let upper = encode(&Value::String(Cow::Borrowed(&text[..end])));
+                    if after(&upper) {
+                        return (upper, true);
+                    }
+                }
+                end += 1;
             }
-            Value::String(Cow::Owned(text[..end].to_owned()))
+            (element.to_vec(), false)
         }
         Some(Value::Bytes(bytes)) if bytes.len() > BOUND => {
-            Value::Bytes(Cow::Owned(bytes[..BOUND].to_vec()))
+            for end in BOUND..bytes.len() {
+                let upper = encode(&Value::Bytes(Cow::Borrowed(&bytes[..end])));
+                if after(&upper) {
+                    return (upper, true);
+                }
+            }
+            (element.to_vec(), false)
         }
-        _ => return (element.to_vec(), false),
-    };
-    let mut upper = Vec::new();
-    column
-        .encode(&short, &mut upper)
-        .expect("a prefix of a value encodes");
-    (upper, true)
+        _ => (element.to_vec(), false),
+    }
 }
 
 impl ColumnStats {

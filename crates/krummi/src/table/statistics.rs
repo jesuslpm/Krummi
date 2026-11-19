@@ -77,6 +77,8 @@ pub(crate) struct Built {
     pub columns: Vec<(u64, ColumnStats)>,
     /// The index prefixes', by index identity and number of key columns (ST17).
     pub prefixes: Vec<((u64, u8), ColumnStats)>,
+    /// The epoch of the table in memory when the build started; one of an older epoch is dropped (ST8).
+    pub epoch: u64,
 }
 
 /// The column `name` of `schema` that statistics are asked for: a column name of 1 to 1,024 bytes, of the table, not a
@@ -120,6 +122,7 @@ pub(crate) fn build<'r>(
     count: u64,
     counter: u64,
     rows: impl Iterator<Item = Result<TableRow<'r>>>,
+    cancel: &dyn Fn() -> bool,
 ) -> Result<Built> {
     let wanted: Vec<(usize, &SchemaColumn)> = (schema.columns().iter().enumerate())
         .filter(|(_, c)| has_stats(&c.ty) && only.is_none_or(|id| id == c.id))
@@ -162,6 +165,16 @@ pub(crate) fn build<'r>(
         .collect();
     let mut read = 0;
     for row in rows {
+        if cancel() {
+            // The caller drops a cancelled build: no gathering is finished.
+            return Ok(Built {
+                table,
+                name: name.to_owned(),
+                columns: Vec::new(),
+                prefixes: Vec::new(),
+                epoch: 0,
+            });
+        }
         let row = row?;
         read += 1;
         for ((position, _), gather) in wanted.iter().zip(&mut gathers) {
@@ -195,6 +208,7 @@ pub(crate) fn build<'r>(
                 })
             })
             .collect(),
+        epoch: 0,
     })
 }
 
@@ -279,6 +293,7 @@ fn index_statistics<S: krummi_tree::PageSource + ?Sized>(
     memory: &StatsMemory,
     seen: &Seen<'_>,
     index: &str,
+    private: &dyn Fn(u64, u8) -> Option<Arc<ColumnStats>>,
 ) -> Result<Option<Vec<PrefixStatistics>>> {
     let (table_id, table_name, table_schema, table_stats) =
         (seen.table, seen.name, seen.schema, seen.stats);
@@ -305,6 +320,12 @@ fn index_statistics<S: krummi_tree::PageSource + ?Sized>(
             (Some(saved), Some(kept)) if kept.counter > saved.counter => Some((*kept).clone()),
             (Some(saved), _) => Some(saved),
             (None, kept) => kept.map(|kept| (*kept).clone()),
+        };
+        // A write's own, when not older (R9 of the first code review).
+        let newest = match (newest, private(found.id, columns)) {
+            (Some(found), Some(own)) if found.counter > own.counter => Some(found),
+            (_, Some(own)) => Some((*own).clone()),
+            (found, None) => found,
         };
         if let Some(stats) = newest {
             let keys: Vec<KeyColumn> = (found.key[..k].iter())
@@ -413,6 +434,7 @@ impl ReadTransaction<'_> {
             &self.store.statistics,
             &seen,
             index,
+            &|_, _| None,
         )
     }
 
@@ -438,6 +460,20 @@ impl ReadTransaction<'_> {
             .transpose()?;
         let count = self.row_count(table)?;
         self.store.statistics.sampled();
+        let epoch = self.store.statistics.epoch(table.id);
+        let mut built = self.build_rows(table, only, count, cancel)?;
+        built.epoch = epoch;
+        Ok(built)
+    }
+
+    /// The rows part of [`build_statistics_until`](Self::build_statistics_until).
+    fn build_rows(
+        &self,
+        table: &ReadTable<'_>,
+        only: Option<u64>,
+        count: u64,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Built> {
         if count <= WHOLE {
             let rows = self.range_rows(table, &[], ..)?.take_while(|_| !cancel());
             return build(
@@ -448,6 +484,7 @@ impl ReadTransaction<'_> {
                 count,
                 table.stats.counter,
                 rows,
+                cancel,
             );
         }
         // A larger table is sampled by whole leaves reached at random (ST1).
@@ -470,6 +507,7 @@ impl ReadTransaction<'_> {
             count,
             table.stats.counter,
             rows.into_iter(),
+            cancel,
         )
     }
 }
@@ -483,6 +521,8 @@ impl WriteTransaction<'_> {
         table: &WriteTable<'_>,
         column: &str,
     ) -> Result<Option<ColumnStatistics>> {
+        self.check_write_table(table)?;
+        self.folder.check_column_name(column)?;
         let state = self.live_table(table)?;
         let column = stats_column(self.folder, &state.name, &state.schema, column)?;
         let target = super::estimate::Target::Column(column.id);
@@ -507,7 +547,16 @@ impl WriteTransaction<'_> {
         table: &WriteTable<'_>,
         index: &str,
     ) -> Result<Option<Vec<PrefixStatistics>>> {
+        self.check_write_table(table)?;
+        self.folder.check_index_name(index)?;
         let state = self.live_table(table)?;
+        let private = self.private_statistics.borrow();
+        let private = |index: u64, k: u8| {
+            private
+                .get(&(state.id(), super::estimate::Target::Prefix(index, k)))
+                .filter(|p| p.counter >= state.stats.emptied)
+                .cloned()
+        };
         let seen = Seen {
             table: state.id(),
             name: &state.name,
@@ -520,6 +569,7 @@ impl WriteTransaction<'_> {
             &self.store.statistics,
             &seen,
             index,
+            &private,
         )
     }
 
@@ -529,6 +579,10 @@ impl WriteTransaction<'_> {
     /// it fails (E16). Its failures are those of [`column_statistics`](Self::column_statistics), then those of
     /// reading the rows and writing the pages, the write's (T11).
     pub fn analyze(&mut self, table: &WriteTable<'_>, column: Option<&str>) -> Result<()> {
+        self.check_write_table(table)?;
+        if let Some(column) = column {
+            self.folder.check_column_name(column)?;
+        }
         let built = {
             let state = self.live_table(table)?;
             let only = column
@@ -556,9 +610,14 @@ impl WriteTransaction<'_> {
         count: u64,
         counter: u64,
     ) -> Result<Built> {
+        let epoch = self.store.statistics.epoch(table.id);
         if count <= WHOLE {
             let rows = self.range_rows(table, &[], ..)?;
-            return build(table.id, name, schema, only, count, counter, rows);
+            let mut built = build(table.id, name, schema, only, count, counter, rows, &|| {
+                false
+            })?;
+            built.epoch = epoch;
+            return Ok(built);
         }
         let (rows_root, reader) = self.live_rows(table)?;
         let history = self.live_table(table)?.at().history;
@@ -574,7 +633,7 @@ impl WriteTransaction<'_> {
             self.store.statistics.seed(),
             &|| false,
         )?;
-        build(
+        let mut built = build(
             table.id,
             name,
             schema,
@@ -582,13 +641,20 @@ impl WriteTransaction<'_> {
             count,
             counter,
             rows.into_iter(),
-        )
+            &|| false,
+        )?;
+        built.epoch = epoch;
+        Ok(built)
     }
 
     /// Saves the columns of `built` in the statistics tree of `table`, each unless its column no longer exists, the
     /// table was emptied after the build's snapshot, or the tree has statistics of the column of a later snapshot
     /// (ST6). A build of another table, or of a deleted one, saves nothing.
     pub(crate) fn save_statistics(&mut self, table: &WriteTable<'_>, built: Built) -> Result<()> {
+        if built.epoch != self.store.statistics.epoch(built.table) {
+            // Sampled before a committed change retired the table's statistics (ST8).
+            return Ok(());
+        }
         let (stats, columns, indexes) = {
             let state = self.live_table(table)?;
             if state.id() != built.table {

@@ -59,6 +59,8 @@ pub(crate) struct StatsMemory {
     samples: AtomicU64,
     /// The seed of the samples of large tables that a test fixed, or 0 (ST14).
     seed: AtomicU64,
+    /// Per table, how many committed changes retired its statistics: a build sampled before one is dropped (ST8).
+    epochs: Mutex<HashMap<u64, u64>>,
 }
 
 impl StatsMemory {
@@ -85,11 +87,22 @@ impl StatsMemory {
         memory.get(&(table, column)).cloned()
     }
 
-    /// Forgets the statistics of the tables `tables`, emptied or deleted by a write that committed (ST8).
+    /// The epoch of the table `table`: how many committed changes retired its statistics.
+    pub(crate) fn epoch(&self, table: u64) -> u64 {
+        let epochs = self.epochs.lock().unwrap_or_else(PoisonError::into_inner);
+        epochs.get(&table).copied().unwrap_or(0)
+    }
+
+    /// Forgets the statistics of the tables `tables`, emptied, deleted or changed by a write that committed (ST8).
     pub(crate) fn retire(&self, tables: &[u64]) {
         if tables.is_empty() {
             return;
         }
+        let mut epochs = self.epochs.lock().unwrap_or_else(PoisonError::into_inner);
+        for table in tables {
+            *epochs.entry(*table).or_default() += 1;
+        }
+        drop(epochs);
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.retain(|(table, _), _| !tables.contains(table));
         drop(kept);
@@ -109,6 +122,9 @@ impl StatsMemory {
 
     /// Keeps the columns of `built`, each unless memory has its statistics of a later snapshot (N8).
     pub(crate) fn publish(&self, built: &Built) {
+        if built.epoch != self.epoch(built.table) {
+            return;
+        }
         {
             let mut memory = self.prefixes.lock().unwrap_or_else(PoisonError::into_inner);
             for ((index, columns), stats) in &built.prefixes {
@@ -187,14 +203,26 @@ impl crate::Shared {
         match (found, private) {
             (Some(found), Some(private)) if found.counter > private.counter => {
                 if unsaved {
-                    self.request_save(&one_target(table, name, target, &found));
+                    self.request_save(&one_target(
+                        table,
+                        name,
+                        target,
+                        &found,
+                        self.statistics.epoch(table),
+                    ));
                 }
                 Some(found)
             }
             (_, Some(private)) => Some(private),
             (found, None) => {
                 if let Some(found) = found.as_ref().filter(|_| unsaved) {
-                    self.request_save(&one_target(table, name, target, found));
+                    self.request_save(&one_target(
+                        table,
+                        name,
+                        target,
+                        found,
+                        self.statistics.epoch(table),
+                    ));
                 }
                 found
             }
@@ -203,7 +231,7 @@ impl crate::Shared {
 }
 
 /// The statistics `found` of `target` of the table `table`, named `name`, as a save request.
-fn one_target(table: u64, name: &str, target: Target, found: &ColumnStats) -> Built {
+fn one_target(table: u64, name: &str, target: Target, found: &ColumnStats, epoch: u64) -> Built {
     let (columns, prefixes) = match target {
         Target::Column(column) => (vec![(column, found.clone())], Vec::new()),
         Target::Prefix(index, k) => (Vec::new(), vec![((index, k), found.clone())]),
@@ -213,6 +241,7 @@ fn one_target(table: u64, name: &str, target: Target, found: &ColumnStats) -> Bu
         name: name.to_owned(),
         columns,
         prefixes,
+        epoch,
     }
 }
 
@@ -341,10 +370,10 @@ fn fraction(found: &ColumnStats, checked: &Checked) -> f64 {
                         previous.is_some_and(|p| p >= l.as_slice())
                     }
                 };
-                let ends_in = below(&bucket.upper, upper) && !bucket.shortened;
-                // A shortened bound is a prefix of the bucket's greatest value, which may lie past the range's
-                // lower bound: the bucket then may meet the range.
-                let meets = (bucket.shortened || above(&bucket.upper, lower))
+                let ends_in = below(&bucket.upper, upper);
+                // A shortened bound is greater than the previous bound and not greater than the bucket's values, so
+                // it keeps the buckets' order (ST1).
+                let meets = above(&bucket.upper, lower)
                     && previous.is_none_or(|p| below_strictly(p, upper));
                 total += bucket.fraction
                     * if starts_in && ends_in {
@@ -572,6 +601,8 @@ impl WriteTransaction<'_> {
     /// the rows after an emptying of this write, it reads what the write sees, and that statistic serves only this
     /// write (ST3). It is not a change for T10 and ends no reference.
     pub fn estimate(&self, table: &WriteTable<'_>, condition: &Condition<'_>) -> Result<Estimate> {
+        self.check_write_table(table)?;
+        condition_names(self.folder, condition)?;
         let state = self.live_table(table)?;
         if let Condition::EqualColumns(pairs) = condition {
             let (rows, stats, name, schema, id) = (
@@ -659,7 +690,7 @@ impl WriteTransaction<'_> {
         schema: &TableSchema,
         stats: TableStats,
     ) -> Result<Built> {
-        let read = self.store.read()?;
+        let read = self.store.read().map_err(|error| self.inner.fail(error))?;
         let committed = match read.open_table(name) {
             Ok(handle)
                 if handle.id == id
@@ -709,6 +740,18 @@ impl WriteTransaction<'_> {
                 built
             }
         })
+    }
+}
+
+/// Fails with the invalid size of a column name of `condition` (ST12), before the table and its columns.
+fn condition_names(folder: Folder<'_>, condition: &Condition<'_>) -> Result<()> {
+    match condition {
+        Condition::Equal { column, .. } | Condition::Range { column, .. } => {
+            folder.check_column_name(column)
+        }
+        Condition::EqualColumns(pairs) => pairs
+            .iter()
+            .try_for_each(|(name, _)| folder.check_column_name(name)),
     }
 }
 

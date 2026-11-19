@@ -158,8 +158,9 @@ pub(crate) struct TableState {
     /// of its indexes, each of which clears it.
     pub(super) maintained: Option<Arc<Maintained>>,
     deleted: bool,
-    /// Whether this write emptied it: its statistics in memory end when the write commits (ST8).
-    emptied: bool,
+    /// Whether this write emptied it, or changed its schema or its indexes: its statistics in memory end when the
+    /// write commits (ST8).
+    pub(super) emptied: bool,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
     pub(super) dirty: bool,
     /// The rows tree's root and its rightmost leaf, while no change of the tree but an insert at its end has touched
@@ -205,6 +206,7 @@ impl TableState {
 
     /// Makes `schema` the table's current one, for every handle (E4, B9).
     fn set_schema(&mut self, schema: TableSchema) {
+        self.emptied = true;
         self.reader = Arc::new(Reader::new(&schema, self.reader.schema.store));
         self.schema = schema;
         self.maintained = None;
@@ -609,6 +611,15 @@ impl<'s> WriteTransaction<'s> {
 
     /// The state of the table of `table`. Fails with misuse for a handle of another transaction and with not found
     /// once the table was deleted, without reading anything (A7, E17).
+    /// Fails with misuse for a handle of another transaction, without looking at the table (E17).
+    pub(super) fn check_write_table(&self, table: &WriteTable<'_>) -> Result<()> {
+        if table.serial == self.serial {
+            Ok(())
+        } else {
+            Err(self.folder.foreign_table())
+        }
+    }
+
     pub(super) fn live_table(&self, table: &WriteTable<'_>) -> Result<Ref<'_, TableState>> {
         if table.serial != self.serial {
             return Err(self.folder.foreign_table());
