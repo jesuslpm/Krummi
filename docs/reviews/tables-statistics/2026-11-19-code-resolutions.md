@@ -262,3 +262,26 @@ fixes named: a planned fix keys retirement by the retiring commit's transaction 
 snapshot's transaction id. R13 asks for the rest of the fault matrix: renewal disk full, out of memory and read I/O
 with old statistics kept and a later request; the foreground sampling and analyze matrix with classes and transaction
 effects; and T12's close result and recovery.
+
+## 2026-11-19 (round 6 fixes)
+
+The user asked to go on in this session with as many Codex rounds as needed («Sigue en esta sesión, puedes hacer
+todas las rondas de codex que necesites.»). Fix commits: `bc82fd7` (R11, R13) and `91111a3` (R2). Checks after each:
+fmt, clippy and `cargo test --workspace` pass.
+
+- R2 — fixed: `Integrity::Unchecked` in the pager, `Snapshot::run_unchecked`, `run_unchecked` on both krummi-tx
+  transactions and on `PageSource`, and `krummi_tree::for_each_unchecked`; `sample_leaves` and the whole read of
+  tables up to 30,000 rows resolve runs unchecked, and `TableRow::stored_len` lets a large `string` or `bytes` value
+  be counted without reading it (a text is validated, so read, only when it is decoded). Test:
+  `r2_a_run_is_sampled_by_the_pages_used`: a page in the middle of a 200,000-byte value's run is damaged, analyze
+  succeeds with the other columns' statistics and the large fraction, and reading that row still fails with damage.
+  The ST14 page-count hook is not added: the damage test shows that those pages are neither checked nor read.
+- R11 — fixed: `commit_applying` passes the retiring commit's id; memory keeps it per table, and a build is valid only
+  when its snapshot's last commit (`snapshot_txid`, taken from the transaction itself, read or write) is that one or
+  later. Statistics in memory keep the commit of their snapshot, used by the save requests they make.
+- R13 — fixed: the statistics thread adopts the fault injection of the thread that starts it (feature
+  `test-hooks`, on only in krummi's own tests). New tests: a renewal whose snapshot runs out of memory is dropped, the
+  stale statistics serve, writes go on and the next estimate renews them; analyze without memory for its snapshot
+  fails with its class and changes nothing; after a refused background commit, close succeeds and the store reopens
+  with its rows.
+- Status: claimed, unverified until a follow-up review.
