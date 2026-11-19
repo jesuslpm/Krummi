@@ -132,3 +132,35 @@ pass. Regression tests: `crates/krummi/tests/table_statistics/codex.rs` and
 Review record: [2026-11-19-code.md](2026-11-19-code.md), wrapper status `findings` (R1–R15 open), thread
 `01a1f446-5ae1-70e1-b8d0-f8a49d9e3b1c`. Telemetry: coordinator `gpt-6.1-sol`/`high`; reviewer
 `krummi-review-critical` `gpt-6-astra`/`xhigh`.
+
+## 2026-11-19 (verification)
+
+Follow-up report: [2026-11-19-code-02.md](2026-11-19-code-02.md). Verdict, quoted: "Changes required. R1, R2, R4,
+R9, R11, R12, R13 and R15 remain open: two blockers, five major findings and one minor finding. R3, R5, R6, R7, R8,
+R10 and R14 are verified resolved; approval is withheld."
+
+Review record: [2026-11-19-code-02.md](2026-11-19-code-02.md), wrapper status `findings`. Telemetry as round 1.
+
+## 2026-11-19 (round 2 fixes)
+
+Fix commits: `05d3d7f` and `f1fc1a0` (`05d3d7f` was committed before its clippy check finished; the next commit adds
+an `expect` with its reason to `build`). Checks after them: fmt, clippy and `cargo test --workspace` pass.
+
+- R1 — fixed: opening the auxiliary snapshot also fails the requesting write (`self.inner.fail`). Test:
+  `r1_a_failed_auxiliary_snapshot_fails_the_write` (Codex's `Op::Snapshot` out-of-memory injection).
+- R2 — pending: the partial read of runs (T7b) is not done.
+- R4 — fixed: a shortened bound is the shortest prefix, of at least 64 bytes, greater than the previous bucket's
+  bound, so bounds keep their order and the estimate treats them as exact. Test: `r4_…` now uses Codex's
+  distribution (100 suffixes) and its four intervals `050..099`, `090..099`, `000..099`, `100..199`.
+- R9 — fixed: `WriteTransaction::index_statistics` sees the write's own prefixes, with the newest-wins and emptying
+  rules. Test: `r9_a_write_reads_its_own_prefix_statistics`.
+- R11 — fixed: each committed emptying, deletion, schema change or index change bumps the table's memory epoch and
+  retires its entries; a build carries the epoch of its start and is neither published nor saved with an older one.
+  Test: `r11_a_build_from_before_an_emptying_is_dropped` (Codex's zero-row case). A save that gets the turn between the
+  emptying's commit and its retirement can still save a zero-row build, which then still describes the table.
+- R12 — fixed: a cancelled build stops gathering and returns nothing.
+- R13 — partly fixed, as in round 1; still missing: a background commit input/output failure that makes the store
+  refuse writes (T12) and damage during a renewal.
+- R15 — fixed: write estimate, statistics reads and analyze check the handle's transaction, then the names, then a
+  deleted handle. Test: `r15_a_deleted_handle_comes_after_the_names`.
+- Status: claimed, unverified until a follow-up review.
