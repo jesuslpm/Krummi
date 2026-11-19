@@ -238,7 +238,7 @@ authoritative):*
   reads their values without checking their content, and a malformed row or entry may give data that is not the one
   written or end in a panic instead of an error (decision IX12).*
 
-*Annotation of 2026-11-19 from the table statistics ([tables-statistics.prd.md](tables/tables-statistics.prd.md), 7.3): exception to G3 and AC6 for statistics. The statistics a store holds in memory are shared: a read transaction may use statistics built from a snapshot later than its own, and two estimates in the same transaction may use different statistics (ST1). Rows, the modification counter and saved statistics still follow G3.*
+*Annotation of 2026-11-19 from the table statistics ([tables-statistics.prd.md](tables/tables-statistics.prd.md), 7.3): exception to G3 and AC6 for statistics. The statistics a store holds in memory are shared: a read transaction may use statistics built from a snapshot later than its own, and two estimates in the same transaction may use different statistics (ST1). Rows, the modification counter and saved statistics still follow G3. Exception to G6 for sampling: a row stored in a run of pages is sampled by reading only its first pages and those of its columns that are not large, without verifying the checksum of the whole run; a statistic built from a damaged run may be wrong, but no application read returns damaged data as valid (ST1).*
 
 ## Flow
 
