@@ -132,3 +132,9 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   across epochs drops the fresh sample). The wrapper reported `violation` because of Claude's own commit and phase-log
   mark during the review. The round limit is reached: the next session needs the user's authorization for round 4,
   then R2 (T7b), ST15's measurements and the closing report.
+- **L14** — 2026-11-19: the user authorized a fourth Codex round («Sí»). Round 3 fixes in `8f7f4e4` (R4, R11, R12,
+  R16, R17), resolutions in `6b6430a`. Round 4 (`2026-11-19-code-04.md`): R4, R16, R17 verified; open R2 (blocker,
+  T7b), R11 (removed targets republished from old snapshots), R12 (cancellation still finalizes gathering), R13 (T12 and
+  renewal-damage fault tests), R18 (a failed commit retires statistics: retiring before the commit releases the turn)
+  and R19 (retire scans memory with nothing to retire). Next session: these six, ST15's measurements, the RDD review of
+  the fix commits after `4386d3b`, the closing report; a fifth Codex round needs the user's authorization.

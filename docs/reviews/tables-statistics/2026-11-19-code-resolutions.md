@@ -196,3 +196,11 @@ measurements for a new session). Fix commit: `8f7f4e4`. Checks after it: fmt, cl
 - R17 — fixed: a fresh save of a newer epoch replaces the queued one; one of an older epoch is dropped; saves of one
   epoch merge.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-19 (verification, round 4)
+
+Follow-up report: [2026-11-19-code-04.md](2026-11-19-code-04.md), wrapper status `findings`, no unexpected changes.
+Verdict, quoted: "Changes required. R2, R11, R12, R13, R18 and R19 remain open: one blocker, four major findings and
+one minor finding. R4, R16 and R17 are verified resolved; approval is withheld." R18 (major): a failed commit retires
+statistics for changes it never applied, a consequence of retiring before the commit lets go of the turn. R19 (minor):
+every commit scans all shared statistics even with nothing to retire. All six stay open for the next session.
