@@ -285,3 +285,23 @@ fmt, clippy and `cargo test --workspace` pass.
   fails with its class and changes nothing; after a refused background commit, close succeeds and the store reopens
   with its rows.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-19 (verification, round 7, and its fixes)
+
+Follow-up report: [2026-11-19-code-07.md](2026-11-19-code-07.md), wrapper status `findings`, no unexpected changes.
+Verdict, quoted: "Changes required. R2, R12 and R13 remain open: one blocker and two major findings. R11 is verified
+resolved; approval is withheld."
+
+Fix commit: `144acf2`. Checks after it: fmt, clippy and `cargo test --workspace` pass.
+
+- R2 ("Partial-run sampling can panic on corrupt offsets") — fixed: `build` reads each row's values and index-prefix
+  elements under `catch_unwind`; a row that panics is left out of the sample. Test:
+  `r2_a_corrupt_run_never_panics_the_sample` (bytes 8–80 of a run's first page set to `FF`).
+- R12 ("Cancelled whole-table samples still read every leaf") — fixed: `for_each_unchecked` walks with
+  `leaves_until`, which stops at once.
+- R13 — fixed: `a_renewal_with_a_full_disk_is_dropped_and_asked_again` (the renewal's save fails, its statistics
+  serve from memory, writes go on, the next request saves them and they last after reopening),
+  `r13_analyze_with_a_failed_commit_refuses_writes` (foreground commit input/output: the error class, statistics kept
+  in memory, writes refused), and the background commit test now makes the data commit durable before its faults.
+  Read input/output of pages is not injectable in this engine (pages are mapped); damage stands for it in the tests.
+- Status: claimed, unverified until a follow-up review.
