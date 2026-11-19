@@ -49,7 +49,7 @@ pub fn distribution_row(id: i64) -> Vec<(&'static str, Value<'static>)> {
         _ => Value::Bool(false),
     };
     let big = vec![(id % 251) as u8; if id % 5 == 0 { 2_049 } else { 2_048 }];
-    let long = format!("{:0>1000}", id % 300);
+    let long = format!("{:03}{}", id % 300, "0".repeat(997));
     vec![
         ("id", Value::I64(id)),
         ("n", n),

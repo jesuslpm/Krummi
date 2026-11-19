@@ -1559,8 +1559,8 @@ impl<'s> WriteTransaction<'s> {
     /// Writes into the catalog the root and the count of every tree whose key operations changed them, and
     /// returns the transaction to commit. A transaction that already failed writes nothing: its commit reports
     /// that failure (T11). A failure here aborts the transaction.
-    fn finish(mut self) -> Result<(krummi_tx::WriteTransaction<'s>, Vec<u64>, &'s Shared)> {
-        let mut retired = Vec::new();
+    fn finish(mut self) -> Result<(krummi_tx::WriteTransaction<'s>, table::Retired, &'s Shared)> {
+        let mut retired = table::Retired::default();
         if !self.inner.has_failed() {
             let trees = self.trees.get_mut();
             for state in trees.0.iter().filter(|s| s.dirty && !s.deleted) {
@@ -1589,9 +1589,9 @@ impl WriteTransaction<'_> {
     /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        inner.commit()?;
+        // Retired while the write still has the turn, so that no save of an older build follows the commit (ST8).
         store.statistics.retire(&retired);
-        Ok(())
+        inner.commit()
     }
 
     /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
@@ -1602,9 +1602,8 @@ impl WriteTransaction<'_> {
     /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        inner.commit_deferred()?;
         store.statistics.retire(&retired);
-        Ok(())
+        inner.commit_deferred()
     }
 
     /// Aborts the transaction: none of its changes apply, and the next request waiting gets the turn.

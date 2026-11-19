@@ -202,11 +202,13 @@ impl Gather {
         let per_bucket = total.div_ceil(BUCKETS as u64).max(1);
         let mut histogram: Vec<Bucket> = Vec::new();
         let mut in_bucket = 0;
+        // The previous bucket's real greatest value: a shortened bound lies after it (R4 of the code review).
+        let mut previous: Option<&[u8]> = None;
         for (at, (element, count)) in others.iter().enumerate() {
             in_bucket += count;
             if in_bucket >= per_bucket || at + 1 == others.len() {
-                let previous = histogram.last().map(|b| b.upper.as_slice());
                 let (upper, shortened) = shorten(&self.column, element, previous);
+                previous = Some(element);
                 histogram.push(Bucket {
                     upper,
                     fraction: of(in_bucket),

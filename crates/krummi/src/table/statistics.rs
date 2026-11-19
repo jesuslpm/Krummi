@@ -195,6 +195,15 @@ pub(crate) fn build<'r>(
             }
         }
     }
+    if cancel() {
+        return Ok(Built {
+            table,
+            name: name.to_owned(),
+            columns: Vec::new(),
+            prefixes: Vec::new(),
+            epoch: 0,
+        });
+    }
     Ok(Built {
         table,
         name: name.to_owned(),

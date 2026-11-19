@@ -443,3 +443,32 @@ fn r15_a_deleted_handle_comes_after_the_names() {
         );
     });
 }
+
+/// R16 (ST8): a committed column rename while analyze samples keeps that build: it is published and saved.
+#[test]
+fn r16_a_rename_keeps_a_pending_build() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+            .unwrap();
+        write
+            .insert_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(1))])
+            .unwrap();
+        write.commit().unwrap();
+        store.hold_statistics(StatisticsPoint::WorkSampled, true);
+        std::thread::scope(|scope| {
+            let analyze = scope.spawn(|| store.analyze("t", None));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let mut write = store.write().unwrap();
+            let table = write.open_table("t").unwrap();
+            write.rename_column(&table, "n", "m").unwrap();
+            write.commit().unwrap();
+            store.hold_statistics(StatisticsPoint::WorkSampled, false);
+            analyze.join().unwrap().unwrap();
+        });
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        assert!(read.column_statistics(&table, "m").unwrap().is_some());
+    });
+}

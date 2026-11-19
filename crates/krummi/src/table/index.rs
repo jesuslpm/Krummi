@@ -739,7 +739,6 @@ impl<'s> WriteTransaction<'s> {
             .add_index(SchemaIndex { id, ..build.index }, index_state);
         state.index_roots.insert(at, root);
         state.maintained = None;
-        state.emptied = true;
         state.history = history;
         self.write_table_entry(table.id)
     }
@@ -769,10 +768,11 @@ impl<'s> WriteTransaction<'s> {
             .get_mut(table.id)
             .expect("a live handle");
         let at = state.schema.index_position(name).expect("found above");
+        let removed = state.schema.indexes()[at].id;
+        state.removed_indexes.push(removed);
         state.schema.remove_index(at, index_state);
         state.index_roots.remove(at);
         state.maintained = None;
-        state.emptied = true;
         state.history = history;
         self.write_table_entry(table.id)
     }

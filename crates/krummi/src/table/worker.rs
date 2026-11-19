@@ -78,8 +78,13 @@ impl Work {
             });
             match (same, job) {
                 (Some(Job::Save(queued)), Job::Save(built)) => {
-                    merge(&mut queued.columns, built.columns);
-                    merge(&mut queued.prefixes, built.prefixes);
+                    if built.epoch > queued.epoch {
+                        // The queued one was sampled before a retirement: the fresh one replaces it.
+                        *queued = built;
+                    } else if built.epoch == queued.epoch {
+                        merge(&mut queued.columns, built.columns);
+                        merge(&mut queued.prefixes, built.prefixes);
+                    }
                 }
                 (Some(_), _) => {}
                 (None, job) => state.queue.push_back(job),

@@ -158,9 +158,11 @@ pub(crate) struct TableState {
     /// of its indexes, each of which clears it.
     pub(super) maintained: Option<Arc<Maintained>>,
     deleted: bool,
-    /// Whether this write emptied it, or changed its schema or its indexes: its statistics in memory end when the
-    /// write commits (ST8).
+    /// Whether this write emptied it: its statistics in memory end when the write commits (ST8).
     pub(super) emptied: bool,
+    /// The columns and indexes this write removed from it, whose statistics in memory end when it commits (ST8).
+    pub(super) removed_columns: Vec<u64>,
+    pub(super) removed_indexes: Vec<u64>,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
     pub(super) dirty: bool,
     /// The rows tree's root and its rightmost leaf, while no change of the tree but an insert at its end has touched
@@ -206,7 +208,11 @@ impl TableState {
 
     /// Makes `schema` the table's current one, for every handle (E4, B9).
     fn set_schema(&mut self, schema: TableSchema) {
-        self.emptied = true;
+        for column in self.schema.columns() {
+            if !schema.columns().iter().any(|c| c.id == column.id) {
+                self.removed_columns.push(column.id);
+            }
+        }
         self.reader = Arc::new(Reader::new(&schema, self.reader.schema.store));
         self.schema = schema;
         self.maintained = None;
@@ -594,6 +600,8 @@ impl<'s> WriteTransaction<'s> {
                     maintained: None,
                     deleted: false,
                     emptied: false,
+                    removed_columns: Vec::new(),
+                    removed_indexes: Vec::new(),
                     dirty: false,
                     last: None,
                     greatest: None,
@@ -903,16 +911,25 @@ impl<'s> WriteTransaction<'s> {
 
     /// Writes into the catalog the root and the row count of every table whose rows changed them, and the roots of
     /// its indexes (see [`WriteTransaction::finish`]).
-    /// Writes the catalog entries of the tables this write changed, and returns the identities of those it emptied or
-    /// deleted, whose statistics in memory end when it commits (ST8).
-    pub(crate) fn finish_tables(&mut self) -> Result<Vec<u64>> {
+    /// Writes the catalog entries of the tables this write changed, and returns what of their statistics in memory
+    /// ends when it commits (ST8).
+    pub(crate) fn finish_tables(&mut self) -> Result<super::estimate::Retired> {
         let tables = self.tables.get_mut();
         for state in tables.0.iter().filter(|s| s.dirty && !s.deleted) {
             catalog::put_with_extra(&mut self.inner, &state.name, &state.entry(), &state.extra())?;
         }
-        Ok((tables.0.iter())
-            .filter(|s| s.deleted || s.emptied)
-            .map(|s| s.id)
-            .collect())
+        let mut retired = super::estimate::Retired::default();
+        for state in &tables.0 {
+            if state.deleted || state.emptied {
+                retired.tables.push(state.id);
+            }
+            retired
+                .columns
+                .extend(state.removed_columns.iter().map(|c| (state.id, *c)));
+            retired
+                .indexes
+                .extend(state.removed_indexes.iter().map(|i| (state.id, *i)));
+        }
+        Ok(retired)
     }
 }

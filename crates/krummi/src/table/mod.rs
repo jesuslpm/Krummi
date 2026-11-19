@@ -40,7 +40,7 @@ mod worker;
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
 pub use estimate::{Condition, Estimate};
-pub(crate) use estimate::{PrivateStatistics, StatsMemory};
+pub(crate) use estimate::{PrivateStatistics, Retired, StatsMemory};
 pub use index::{
     IndexDefinition, IndexKey, IndexMode, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
 };

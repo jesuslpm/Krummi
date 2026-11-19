@@ -52,18 +52,38 @@ pub(crate) type PrivateStatistics = HashMap<(u64, Target), Arc<ColumnStats>>;
 /// The statistics the store keeps in memory, by table and column identity (ST1): the newest built of each.
 #[derive(Default)]
 pub(crate) struct StatsMemory {
-    kept: Mutex<HashMap<(u64, u64), Arc<ColumnStats>>>,
-    /// Those of the index prefixes, by table, index and number of key columns (ST17).
-    prefixes: Mutex<HashMap<(u64, u64, u8), Arc<ColumnStats>>>,
+    /// Under one lock, so that retiring and publishing are atomic (R11 of the code review).
+    state: Mutex<MemoryState>,
     /// How many samples the store read, for the tests (ST14).
     samples: AtomicU64,
     /// The seed of the samples of large tables that a test fixed, or 0 (ST14).
     seed: AtomicU64,
-    /// Per table, how many committed changes retired its statistics: a build sampled before one is dropped (ST8).
-    epochs: Mutex<HashMap<u64, u64>>,
+}
+
+#[derive(Default)]
+struct MemoryState {
+    columns: HashMap<(u64, u64), Arc<ColumnStats>>,
+    /// Those of the index prefixes, by table, index and number of key columns (ST17).
+    prefixes: HashMap<(u64, u64, u8), Arc<ColumnStats>>,
+    /// Per table, how many committed emptyings or deletions retired its statistics: a build sampled before one is
+    /// dropped (ST8).
+    epochs: HashMap<u64, u64>,
+}
+
+/// What a commit retires from memory (ST8): the tables it emptied or deleted, whole, and the columns and indexes it
+/// removed from the tables it kept.
+#[derive(Default)]
+pub(crate) struct Retired {
+    pub tables: Vec<u64>,
+    pub columns: Vec<(u64, u64)>,
+    pub indexes: Vec<(u64, u64)>,
 }
 
 impl StatsMemory {
+    fn state(&self) -> std::sync::MutexGuard<'_, MemoryState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// The seed of the next sample of a large table: the one a test fixed, or a random one.
     pub(crate) fn seed(&self) -> u64 {
         match self.seed.load(Ordering::Relaxed) {
@@ -83,31 +103,7 @@ impl StatsMemory {
     }
 
     pub(crate) fn get(&self, table: u64, column: u64) -> Option<Arc<ColumnStats>> {
-        let memory = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        memory.get(&(table, column)).cloned()
-    }
-
-    /// The epoch of the table `table`: how many committed changes retired its statistics.
-    pub(crate) fn epoch(&self, table: u64) -> u64 {
-        let epochs = self.epochs.lock().unwrap_or_else(PoisonError::into_inner);
-        epochs.get(&table).copied().unwrap_or(0)
-    }
-
-    /// Forgets the statistics of the tables `tables`, emptied, deleted or changed by a write that committed (ST8).
-    pub(crate) fn retire(&self, tables: &[u64]) {
-        if tables.is_empty() {
-            return;
-        }
-        let mut epochs = self.epochs.lock().unwrap_or_else(PoisonError::into_inner);
-        for table in tables {
-            *epochs.entry(*table).or_default() += 1;
-        }
-        drop(epochs);
-        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        kept.retain(|(table, _), _| !tables.contains(table));
-        drop(kept);
-        let mut prefixes = self.prefixes.lock().unwrap_or_else(PoisonError::into_inner);
-        prefixes.retain(|(table, _, _), _| !tables.contains(table));
+        self.state().columns.get(&(table, column)).cloned()
     }
 
     pub(crate) fn get_prefix(
@@ -116,35 +112,55 @@ impl StatsMemory {
         index: u64,
         columns: u8,
     ) -> Option<Arc<ColumnStats>> {
-        let memory = self.prefixes.lock().unwrap_or_else(PoisonError::into_inner);
-        memory.get(&(table, index, columns)).cloned()
+        self.state().prefixes.get(&(table, index, columns)).cloned()
     }
 
-    /// Keeps the columns of `built`, each unless memory has its statistics of a later snapshot (N8).
+    /// The epoch of the table `table`: how many committed emptyings or deletions retired its statistics.
+    pub(crate) fn epoch(&self, table: u64) -> u64 {
+        self.state().epochs.get(&table).copied().unwrap_or(0)
+    }
+
+    /// Forgets what `retired` names (ST8), before the write that changed it lets go of the turn: whole tables, whose
+    /// epoch grows so that a build sampled before is dropped, and removed columns and indexes. A commit that then fails
+    /// only made the store sample again.
+    pub(crate) fn retire(&self, retired: &Retired) {
+        let mut state = self.state();
+        for table in &retired.tables {
+            *state.epochs.entry(*table).or_default() += 1;
+        }
+        state.columns.retain(|(table, column), _| {
+            !retired.tables.contains(table) && !retired.columns.contains(&(*table, *column))
+        });
+        state.prefixes.retain(|(table, index, _), _| {
+            !retired.tables.contains(table) && !retired.indexes.contains(&(*table, *index))
+        });
+    }
+
+    /// Keeps the columns and prefixes of `built`, each unless memory has its statistics of a later snapshot (N8), and
+    /// nothing when the table's epoch moved since the build started; under the same lock as [`retire`](Self::retire).
     pub(crate) fn publish(&self, built: &Built) {
-        if built.epoch != self.epoch(built.table) {
+        let mut state = self.state();
+        if built.epoch != state.epochs.get(&built.table).copied().unwrap_or(0) {
             return;
         }
-        {
-            let mut memory = self.prefixes.lock().unwrap_or_else(PoisonError::into_inner);
-            for ((index, columns), stats) in &built.prefixes {
-                let key = (built.table, *index, *columns);
-                if memory
-                    .get(&key)
-                    .is_none_or(|kept| kept.counter <= stats.counter)
-                {
-                    memory.insert(key, Arc::new(stats.clone()));
-                }
-            }
-        }
-        let mut memory = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        for (column, stats) in &built.columns {
-            let key = (built.table, *column);
-            if memory
+        for ((index, columns), stats) in &built.prefixes {
+            let key = (built.table, *index, *columns);
+            if state
+                .prefixes
                 .get(&key)
                 .is_none_or(|kept| kept.counter <= stats.counter)
             {
-                memory.insert(key, Arc::new(stats.clone()));
+                state.prefixes.insert(key, Arc::new(stats.clone()));
+            }
+        }
+        for (column, stats) in &built.columns {
+            let key = (built.table, *column);
+            if state
+                .columns
+                .get(&key)
+                .is_none_or(|kept| kept.counter <= stats.counter)
+            {
+                state.columns.insert(key, Arc::new(stats.clone()));
             }
         }
     }
