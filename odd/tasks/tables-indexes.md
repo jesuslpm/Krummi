@@ -220,3 +220,15 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   as data (sort files carry no checksum; the PRD does not ask for one; noted for the closing report). T7 launched on
   `e808a33`'s successor `1de443b`: `work/ti/full.sh` (power plan, Windows `--solo-krummi-voron`, then WSL 2 from a
   `git archive` of HEAD).
+- **L15** (2026-11-19) — T7, full runs of `1de443b` with `--solo-krummi-voron` under the bench power plan
+  (`work/ti/full.sh`): Windows 22:44–23:09 and WSL 2 23:10–00:00 UTC, both **32 of 32**
+  (`docs/benchmark/2026-11-18-windows-tables-indexes.md`, `docs/benchmark/2026-11-18-linux-tables-indexes.md`); the
+  orchestrator stops on a digest mismatch, and none happened. New loads: Windows W30 1.07, W31 1.06, W32 0.98; Linux
+  W30 1.20, W31 1.30, W32 0.99. Against the base's full runs (`docs/benchmark/2026-11-18-*-tree-append.md`, the code
+  of `0158fd4`'s parent), drops over 0.05: Windows W8 1.25 → 0.97, W23 1.45 → 1.39, W26 1.09 → 0.94, W27 1.12 → 1.00,
+  W28 1.04 → 0.96, W29 2.34 → 2.27 (every table load drops a little on Windows); Linux W6 8.63 → 7.92, W8 1.26 → 0.99,
+  W13 1.16 → 1.09, W15 1.29 → 1.15, W17 1.56 → 1.31, W20 1.36 → 1.22, W22 1.26 → 1.11, W25 1.30 → 1.20, W27 1.21 → 1.08,
+  W29 2.00 → 1.89, while W9 0.84 → 1.18, W10 2.43 → 3.32 and W11 1.09 → 1.33 rise (Linux moves both ways on loads
+  this change does not touch). To separate the branch from Voron and the machine, a Krummi-only A/B of W23–W29 on
+  Windows, base `0158fd4` against `1de443b`, each build with its own stores (format 11 against 12): five rounds for
+  W23–W25, W28, W29 and ten for W26, W27 (`work/ti/ab.sh`).
