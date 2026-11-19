@@ -572,13 +572,13 @@ pub(crate) fn descend<'t, S: PageSource + ?Sized>(
 /// Calls `visit` with the entries of leaves of the tree at `root` reached by random descents, each leaf at most once,
 /// until it gave about `rows` entries or the descents stop finding new leaves; returns how many entries it gave. Each
 /// descent picks a child at random at every branch from the generator seeded with `seed` (statistics PRD, ST1). A
-/// tree of one leaf gives that leaf.
+/// tree of one leaf gives that leaf. `visit` returns whether to go on: `false` ends the sample.
 pub fn sample_leaves<'t, S: PageSource + ?Sized>(
     tx: &'t S,
     root: u64,
     rows: u64,
     seed: u64,
-    visit: &mut impl FnMut(&'t [u8], &'t [u8]) -> Result<()>,
+    visit: &mut impl FnMut(&'t [u8], &'t [u8]) -> Result<bool>,
 ) -> Result<u64> {
     let mut state = seed | 1;
     let mut next = move || {
@@ -608,10 +608,12 @@ pub fn sample_leaves<'t, S: PageSource + ?Sized>(
         }
         misses = 0;
         for index in 0..node::count(leaf) {
-            visit(
+            if !visit(
                 node::key(leaf, index),
                 resolve(tx, node::value(leaf, index))?,
-            )?;
+            )? {
+                return Ok(given);
+            }
             given += 1;
         }
         if node::is_leaf(node_at(tx, root, None)?) {

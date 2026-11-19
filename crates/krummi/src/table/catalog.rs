@@ -158,6 +158,8 @@ pub(crate) struct TableState {
     /// of its indexes, each of which clears it.
     pub(super) maintained: Option<Arc<Maintained>>,
     deleted: bool,
+    /// Whether this write emptied it: its statistics in memory end when the write commits (ST8).
+    emptied: bool,
     /// Its rows tree's root or count differ from its catalog entry, which the commit then rewrites.
     pub(super) dirty: bool,
     /// The rows tree's root and its rightmost leaf, while no change of the tree but an insert at its end has touched
@@ -589,6 +591,7 @@ impl<'s> WriteTransaction<'s> {
                     stats: found.stats,
                     maintained: None,
                     deleted: false,
+                    emptied: false,
                     dirty: false,
                     last: None,
                     greatest: None,
@@ -718,6 +721,7 @@ impl<'s> WriteTransaction<'s> {
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
         state.stats.add(state.count);
         state.stats.emptied = state.stats.counter;
+        state.emptied = true;
         state.rows_root = root;
         state.index_roots = index_roots;
         state.count = 0;
@@ -888,11 +892,16 @@ impl<'s> WriteTransaction<'s> {
 
     /// Writes into the catalog the root and the row count of every table whose rows changed them, and the roots of
     /// its indexes (see [`WriteTransaction::finish`]).
-    pub(crate) fn finish_tables(&mut self) -> Result<()> {
+    /// Writes the catalog entries of the tables this write changed, and returns the identities of those it emptied or
+    /// deleted, whose statistics in memory end when it commits (ST8).
+    pub(crate) fn finish_tables(&mut self) -> Result<Vec<u64>> {
         let tables = self.tables.get_mut();
         for state in tables.0.iter().filter(|s| s.dirty && !s.deleted) {
             catalog::put_with_extra(&mut self.inner, &state.name, &state.entry(), &state.extra())?;
         }
-        Ok(())
+        Ok((tables.0.iter())
+            .filter(|s| s.deleted || s.emptied)
+            .map(|s| s.id)
+            .collect())
     }
 }

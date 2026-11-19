@@ -7,15 +7,11 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use super::catalog::ReadTable;
 use super::statistics::Built;
 use super::stats::ColumnStats;
 use crate::{ErrorKind, ReadTransaction, Shared, TreeKind};
-
-/// How long a save waits for the write turn before it looks whether the store is closing (ST10).
-const TURN_POLL: Duration = Duration::from_millis(20);
 
 /// A request to the background thread.
 pub(crate) enum Job {
@@ -236,6 +232,29 @@ fn find_table<'r>(
     Ok(None)
 }
 
+/// The table of identity `id` that `write` sees, by its last known name `name` or, once renamed, among the tables.
+pub(crate) fn find_write_table<'w>(
+    write: &crate::WriteTransaction<'w>,
+    id: u64,
+    name: &str,
+) -> crate::Result<Option<crate::WriteTable<'w>>> {
+    let names = (write.list_trees()?.into_iter())
+        .filter_map(|(other, kind)| (kind == TreeKind::Table && other != name).then_some(other));
+    for other in std::iter::once(name.to_owned()).chain(names) {
+        match write.open_table(&other) {
+            Ok(table) if table.id == id => return Ok(Some(table)),
+            Ok(_) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::TreeNotFound | ErrorKind::DifferentTreeType
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(None)
+}
+
 /// Renews the statistics of the table `id` from a new snapshot: publishes them in memory and saves them.
 fn renew(shared: &Shared, id: u64, name: &str) -> crate::Result<()> {
     let built = {
@@ -243,7 +262,7 @@ fn renew(shared: &Shared, id: u64, name: &str) -> crate::Result<()> {
         let Some(table) = find_table(&read, id, name)? else {
             return Ok(());
         };
-        read.build_statistics(&table, None)?
+        read.build_statistics_until(&table, None, &|| shared.work.stopping())?
     };
     shared.work.pass(StatisticsPoint::WorkSampled);
     if shared.work.stopping() {
@@ -256,37 +275,13 @@ fn renew(shared: &Shared, id: u64, name: &str) -> crate::Result<()> {
 /// Saves `built` with a short write of its own, which waits for its turn like any write (ST6), and gives it up when
 /// the store closes before it gets it.
 pub(crate) fn save(shared: &Shared, built: Built) -> crate::Result<()> {
-    let mut write = loop {
-        if shared.work.stopping() {
-            return Ok(());
-        }
-        match shared.open_write(Some(TURN_POLL)) {
-            Ok(write) => break write,
-            Err(error) if error.kind() == ErrorKind::Timeout => {}
-            Err(error) => return Err(error),
-        }
+    // One place in the write queue, kept until the turn comes or the store closes (ST6, ST10).
+    let mut write = match shared.open_write_unless(&|| shared.work.stopping()) {
+        Ok(write) => write,
+        Err(error) if error.kind() == ErrorKind::Timeout => return Ok(()),
+        Err(error) => return Err(error),
     };
-    let mut found = None;
-    for name in std::iter::once(built.name.clone()).chain(
-        write
-            .list_trees()?
-            .into_iter()
-            .filter_map(|(name, kind)| (kind == TreeKind::Table).then_some(name)),
-    ) {
-        match write.open_table(&name) {
-            Ok(table) if table.id == built.table => {
-                found = Some(table);
-                break;
-            }
-            Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    ErrorKind::TreeNotFound | ErrorKind::DifferentTreeType
-                ) => {}
-            Err(error) => return Err(error),
-        }
-    }
+    let found = find_write_table(&write, built.table, &built.name)?;
     if let Some(table) = found {
         write.save_statistics(&table, built)?;
     }

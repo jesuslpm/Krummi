@@ -281,8 +281,24 @@ impl Shared {
     }
 
     pub(crate) fn open_write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
+        self.wrap_write(self.engine.write(limit)?)
+    }
+
+    /// The write transaction, waiting for the turn in the queue until it gets it or `stop` says so (ST6, ST10 of the
+    /// statistics PRD).
+    pub(crate) fn open_write_unless(
+        &self,
+        stop: &dyn Fn() -> bool,
+    ) -> Result<WriteTransaction<'_>> {
+        self.wrap_write(self.engine.write_unless(stop)?)
+    }
+
+    fn wrap_write<'s>(
+        &'s self,
+        inner: krummi_tx::WriteTransaction<'s>,
+    ) -> Result<WriteTransaction<'s>> {
         Ok(WriteTransaction {
-            inner: self.engine.write(limit)?,
+            inner,
             folder: Folder(self.engine.folder()),
             serial: next_serial(),
             trees: RefCell::default(),
@@ -1543,7 +1559,8 @@ impl<'s> WriteTransaction<'s> {
     /// Writes into the catalog the root and the count of every tree whose key operations changed them, and
     /// returns the transaction to commit. A transaction that already failed writes nothing: its commit reports
     /// that failure (T11). A failure here aborts the transaction.
-    fn finish(mut self) -> Result<krummi_tx::WriteTransaction<'s>> {
+    fn finish(mut self) -> Result<(krummi_tx::WriteTransaction<'s>, Vec<u64>, &'s Shared)> {
+        let mut retired = Vec::new();
         if !self.inner.has_failed() {
             let trees = self.trees.get_mut();
             for state in trees.0.iter().filter(|s| s.dirty && !s.deleted) {
@@ -1555,9 +1572,9 @@ impl<'s> WriteTransaction<'s> {
                 };
                 catalog::put(&mut self.inner, &state.name, &entry)?;
             }
-            self.finish_tables()?;
+            retired = self.finish_tables()?;
         }
-        Ok(self.inner)
+        Ok((self.inner, retired, self.store))
     }
 }
 
@@ -1571,7 +1588,10 @@ impl WriteTransaction<'_> {
     /// opening: its outcome is unknown, never partial.
     /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
-        self.finish()?.commit()
+        let (inner, retired, store) = self.finish()?;
+        inner.commit()?;
+        store.statistics.retire(&retired);
+        Ok(())
     }
 
     /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
@@ -1581,7 +1601,10 @@ impl WriteTransaction<'_> {
     /// always together with every later commit and never in part. It may wait, keeping the write turn, while the
     /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
-        self.finish()?.commit_deferred()
+        let (inner, retired, store) = self.finish()?;
+        inner.commit_deferred()?;
+        store.statistics.retire(&retired);
+        Ok(())
     }
 
     /// Aborts the transaction: none of its changes apply, and the next request waiting gets the turn.

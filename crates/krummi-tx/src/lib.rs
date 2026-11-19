@@ -373,7 +373,14 @@ impl Engine {
     /// cannot be counted from now, and with the I/O class when the store refuses writes (T12), in that order
     /// (T13).
     pub fn write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
-        self.write_checked(limit)
+        self.write_checked(limit, None)
+    }
+
+    /// Like [`write`](Self::write) without a limit, keeping its place in the queue, but giving it up with the
+    /// timeout class as soon as `stop` says so; `stop` is asked at least every 20 ms while it waits (the statistics
+    /// thread's save, ST6 and ST10 of the statistics PRD).
+    pub fn write_unless(&self, stop: &dyn Fn() -> bool) -> Result<WriteTransaction<'_>> {
+        self.write_checked(None, Some(stop))
     }
 
     /// Whether the store accepts writes: not after a failed write (T12).
@@ -386,7 +393,11 @@ impl Engine {
         self.lock_queue().owner == Some(thread::current().id())
     }
 
-    fn write_checked(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
+    fn write_checked(
+        &self,
+        limit: Option<Duration>,
+        stop: Option<&dyn Fn() -> bool>,
+    ) -> Result<WriteTransaction<'_>> {
         let me = thread::current().id();
         let mut queue = self.lock_queue();
         if queue.owner == Some(me) {
@@ -406,7 +417,7 @@ impl Engine {
             if limit == Some(Duration::ZERO) {
                 return Err(self.timeout(limit));
             }
-            queue = self.wait_turn(queue, deadline, limit)?;
+            queue = self.wait_turn(queue, deadline, limit, stop)?;
         }
         queue.owner = Some(me);
         drop(queue);
@@ -728,6 +739,7 @@ impl Engine {
         mut queue: MutexGuard<'q, Queue>,
         deadline: Option<Instant>,
         limit: Option<Duration>,
+        stop: Option<&dyn Fn() -> bool>,
     ) -> Result<MutexGuard<'q, Queue>> {
         let ticket = queue.next_ticket;
         queue.next_ticket += 1;
@@ -746,9 +758,18 @@ impl Engine {
                 queue.waiting.pop_front();
                 return Ok(queue);
             }
-            queue = match deadline {
-                None => wake.wait(queue).unwrap_or_else(PoisonError::into_inner),
-                Some(deadline) => {
+            if stop.is_some_and(|stop| stop()) {
+                leave(&mut queue, ticket);
+                return Err(self.timeout(limit));
+            }
+            queue = match (deadline, stop) {
+                (None, Some(_)) => {
+                    wake.wait_timeout(queue, Duration::from_millis(20))
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0
+                }
+                (None, None) => wake.wait(queue).unwrap_or_else(PoisonError::into_inner),
+                (Some(deadline), _) => {
                     let now = Instant::now();
                     if now >= deadline {
                         // Leaving wakes nobody: had this request been first with the turn free, it would have

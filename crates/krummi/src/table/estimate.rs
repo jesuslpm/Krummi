@@ -12,9 +12,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::catalog::{ReadTable, WriteTable};
-use super::key::{Direction, KeyColumn, Nulls};
+use super::key::KeyColumn;
 use super::schema::{SchemaColumn, TableSchema, TableStats};
-use super::statistics::{Built, build, stats_column, stored, stored_prefix};
+use super::statistics::{Built, stats_column, stored, stored_prefix};
 use super::stats::{ColumnStats, element_column, is_large};
 use super::value::{Value, normalize};
 use super::worker::Job;
@@ -47,7 +47,7 @@ pub struct Estimate {
 }
 
 /// The statistics a write's estimates built from its own view, by table and column identity (ST3).
-pub(crate) type PrivateStatistics = HashMap<(u64, u64), Arc<ColumnStats>>;
+pub(crate) type PrivateStatistics = HashMap<(u64, Target), Arc<ColumnStats>>;
 
 /// The statistics the store keeps in memory, by table and column identity (ST1): the newest built of each.
 #[derive(Default)]
@@ -83,6 +83,18 @@ impl StatsMemory {
     pub(crate) fn get(&self, table: u64, column: u64) -> Option<Arc<ColumnStats>> {
         let memory = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         memory.get(&(table, column)).cloned()
+    }
+
+    /// Forgets the statistics of the tables `tables`, emptied or deleted by a write that committed (ST8).
+    pub(crate) fn retire(&self, tables: &[u64]) {
+        if tables.is_empty() {
+            return;
+        }
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.retain(|(table, _), _| !tables.contains(table));
+        drop(kept);
+        let mut prefixes = self.prefixes.lock().unwrap_or_else(PoisonError::into_inner);
+        prefixes.retain(|(table, _, _), _| !tables.contains(table));
     }
 
     pub(crate) fn get_prefix(
@@ -141,13 +153,66 @@ pub(crate) fn newest(
     }
 }
 
-/// The statistics of the column `column` of the table `table`, named `name`, as a save request.
-fn one_column(table: u64, name: &str, column: u64, found: &ColumnStats) -> Built {
+/// The saved statistics of `target` in the statistics tree of `stats`.
+pub(crate) fn saved_target<S: krummi_tree::PageSource + ?Sized>(
+    tx: &S,
+    stats: TableStats,
+    target: Target,
+) -> Result<Option<ColumnStats>> {
+    match target {
+        Target::Column(column) => stored(tx, stats, column),
+        Target::Prefix(index, k) => stored_prefix(tx, stats, index, k),
+    }
+}
+
+impl crate::Shared {
+    /// The statistics of `target` of the table `table`, named `name`, that a transaction sees (ST1): the newest of
+    /// the saved ones `saved`, those of memory and, in a write, its own `private`, those built before an emptying it
+    /// sees left out; when the newest are only in memory, it asks for them to be saved again (ST9).
+    pub(crate) fn seen(
+        &self,
+        table: u64,
+        name: &str,
+        target: Target,
+        saved: Option<ColumnStats>,
+        private: Option<Arc<ColumnStats>>,
+        stats: TableStats,
+    ) -> Option<Arc<ColumnStats>> {
+        let kept = match target {
+            Target::Column(column) => self.statistics.get(table, column),
+            Target::Prefix(index, k) => self.statistics.get_prefix(table, index, k),
+        };
+        let (found, unsaved) = newest(saved, kept, stats);
+        let private = private.filter(|p| p.counter >= stats.emptied);
+        match (found, private) {
+            (Some(found), Some(private)) if found.counter > private.counter => {
+                if unsaved {
+                    self.request_save(&one_target(table, name, target, &found));
+                }
+                Some(found)
+            }
+            (_, Some(private)) => Some(private),
+            (found, None) => {
+                if let Some(found) = found.as_ref().filter(|_| unsaved) {
+                    self.request_save(&one_target(table, name, target, found));
+                }
+                found
+            }
+        }
+    }
+}
+
+/// The statistics `found` of `target` of the table `table`, named `name`, as a save request.
+fn one_target(table: u64, name: &str, target: Target, found: &ColumnStats) -> Built {
+    let (columns, prefixes) = match target {
+        Target::Column(column) => (vec![(column, found.clone())], Vec::new()),
+        Target::Prefix(index, k) => (Vec::new(), vec![((index, k), found.clone())]),
+    };
     Built {
         table,
         name: name.to_owned(),
-        columns: vec![(column, found.clone())],
-        prefixes: Vec::new(),
+        columns,
+        prefixes,
     }
 }
 
@@ -276,8 +341,10 @@ fn fraction(found: &ColumnStats, checked: &Checked) -> f64 {
                         previous.is_some_and(|p| p >= l.as_slice())
                     }
                 };
-                let ends_in = below(&bucket.upper, upper);
-                let meets = above(&bucket.upper, lower)
+                let ends_in = below(&bucket.upper, upper) && !bucket.shortened;
+                // A shortened bound is a prefix of the bucket's greatest value, which may lie past the range's
+                // lower bound: the bucket then may meet the range.
+                let meets = (bucket.shortened || above(&bucket.upper, lower))
                     && previous.is_none_or(|p| below_strictly(p, upper));
                 total += bucket.fraction
                     * if starts_in && ends_in {
@@ -416,14 +483,11 @@ impl ReadTransaction<'_> {
         if let Condition::EqualColumns(pairs) = condition {
             let rows = self.row_count(table)?;
             let source = Source {
-                lookup: &|target| match target {
-                    Target::Column(column) => self.seen_statistics(table, column),
-                    Target::Prefix(index, k) => Ok(newest(
-                        stored_prefix(&self.inner, table.stats, index, k)?,
-                        self.store.statistics.get_prefix(table.id, index, k),
-                        table.stats,
-                    )
-                    .0),
+                lookup: &|target| {
+                    let saved = saved_target(&self.inner, table.stats, target)?;
+                    Ok(self
+                        .store
+                        .seen(table.id, &table.name, target, saved, None, table.stats))
                 },
                 sample: &|| {
                     let built = self.build_statistics(table, None)?;
@@ -494,17 +558,10 @@ impl ReadTransaction<'_> {
         column: u64,
     ) -> Result<Option<Arc<ColumnStats>>> {
         let saved = stored(&self.inner, table.stats, column)?;
-        let (found, unsaved) = newest(
-            saved,
-            self.store.statistics.get(table.id, column),
-            table.stats,
-        );
-        if let Some(found) = found.as_ref().filter(|_| unsaved) {
-            // Statistics only in memory, whose save failed or is pending, are asked to be saved again (ST9).
-            self.store
-                .request_save(&one_column(table.id, &table.name, column, found));
-        }
-        Ok(found)
+        let target = Target::Column(column);
+        Ok(self
+            .store
+            .seen(table.id, &table.name, target, saved, None, table.stats))
     }
 }
 
@@ -526,25 +583,10 @@ impl WriteTransaction<'_> {
             );
             drop(state);
             let source = Source {
-                lookup: &|target| match target {
-                    Target::Column(column) => {
-                        let private = self.private_statistics.borrow().get(&(id, column)).cloned();
-                        match private {
-                            Some(found) => Ok(Some(found)),
-                            None => Ok(newest(
-                                stored(&self.inner, stats, column)?,
-                                self.store.statistics.get(id, column),
-                                stats,
-                            )
-                            .0),
-                        }
-                    }
-                    Target::Prefix(index, k) => Ok(newest(
-                        stored_prefix(&self.inner, stats, index, k)?,
-                        self.store.statistics.get_prefix(id, index, k),
-                        stats,
-                    )
-                    .0),
+                lookup: &|target| {
+                    let saved = saved_target(&self.inner, stats, target)?;
+                    let private = self.private_statistics.borrow().get(&(id, target)).cloned();
+                    Ok(self.store.seen(id, &name, target, saved, private, stats))
                 },
                 sample: &|| self.sample_built(table, id, &name, &schema, stats),
             };
@@ -573,24 +615,10 @@ impl WriteTransaction<'_> {
                 joint: true,
             });
         }
-        let private = self
-            .private_statistics
-            .borrow()
-            .get(&(id, column.id))
-            .cloned();
-        let found = match private {
-            Some(found) => Some(found),
-            None => {
-                let saved = stored(&self.inner, stats, column.id)?;
-                let (found, unsaved) =
-                    newest(saved, self.store.statistics.get(id, column.id), stats);
-                if let Some(found) = found.as_ref().filter(|_| unsaved) {
-                    self.store
-                        .request_save(&one_column(id, &name, column.id, found));
-                }
-                found
-            }
-        };
+        let target = Target::Column(column.id);
+        let private = self.private_statistics.borrow().get(&(id, target)).cloned();
+        let saved = stored(&self.inner, stats, column.id)?;
+        let found = self.store.seen(id, &name, target, saved, private, stats);
         let found = match found {
             Some(found) if !too_small(&found, rows) => found,
             _ => self.sample_for(table, id, &name, &schema, stats, column.id)?,
@@ -641,11 +669,22 @@ impl WriteTransaction<'_> {
                     && (schema.indexes().iter())
                         .all(|i| handle.schema.indexes().iter().any(|h| h.id == i.id)) =>
             {
-                Some(read.build_statistics(&handle, None)?)
+                Some(
+                    read.build_statistics(&handle, None)
+                        .map_err(|error| self.inner.fail(error))?,
+                )
             }
             Ok(_) => None,
-            Err(error) if error.kind() == crate::ErrorKind::TreeNotFound => None,
-            Err(error) => return Err(error),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    crate::ErrorKind::TreeNotFound | crate::ErrorKind::DifferentTreeType
+                ) =>
+            {
+                None
+            }
+            // A sample that fails is this write's failure (T11).
+            Err(error) => return Err(self.inner.fail(error)),
         };
         Ok(match committed {
             Some(built) => {
@@ -657,20 +696,15 @@ impl WriteTransaction<'_> {
                 built
             }
             None => {
-                let rows = self.range_rows(table, &[], ..)?;
                 self.store.statistics.sampled();
-                let built = build(
-                    id,
-                    name,
-                    schema,
-                    None,
-                    self.row_count(table)?,
-                    stats.counter,
-                    rows,
-                )?;
+                let count = self.row_count(table)?;
+                let built = self.build_own(table, name, schema, None, count, stats.counter)?;
                 let mut private = self.private_statistics.borrow_mut();
                 for (column, found) in &built.columns {
-                    private.insert((id, *column), Arc::new(found.clone()));
+                    private.insert((id, Target::Column(*column)), Arc::new(found.clone()));
+                }
+                for ((index, k), found) in &built.prefixes {
+                    private.insert((id, Target::Prefix(*index, *k)), Arc::new(found.clone()));
                 }
                 built
             }
@@ -678,9 +712,9 @@ impl WriteTransaction<'_> {
     }
 }
 
-/// What an estimate on several columns is about (ST18): a column, or a prefix of an index's key.
-#[derive(Clone, Copy)]
-enum Target {
+/// What statistics are of: a column, or a prefix of an index's key (ST17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Target {
     Column(u64),
     Prefix(u64, u8),
 }
@@ -711,6 +745,9 @@ fn estimate_columns(
         rule,
     };
     // The names' sizes and the columns first, then the list's own rules, then the values (ST12).
+    for (name, _) in pairs {
+        folder.check_column_name(name)?;
+    }
     let mut columns: Vec<(&SchemaColumn, Checked)> = Vec::with_capacity(pairs.len());
     for (name, _) in pairs {
         columns.push((stats_column(folder, table, schema, name)?, Checked::Null));
@@ -805,16 +842,20 @@ fn estimate_columns(
         stale |= super::stats::is_stale(found.rows, found.counter, stats.counter);
         let fraction = match target {
             Target::Column(_) => fraction(found, &columns[at[0]].1),
-            Target::Prefix(..) => {
+            Target::Prefix(index, _) => {
+                // The combination in the index's own encoding, with its directions and null orders (ST17).
+                let index = (schema.indexes().iter())
+                    .find(|i| i.id == *index)
+                    .expect("a group of an index of the schema");
                 let mut element = Vec::new();
-                for a in at {
+                for (position, a) in at.iter().enumerate() {
                     let (column, _) = columns[*a];
                     let value = normalize(&column.ty, true, pairs[*a].1.clone().into_owned())
                         .map_err(|rule| invalid(Some(&column.name), rule))?;
                     let key = KeyColumn {
                         ty: column.ty,
-                        direction: Direction::Ascending,
-                        nulls: Nulls::First,
+                        direction: index.key[position].direction,
+                        nulls: index.key[position].nulls,
                         nullable: true,
                     };
                     key.encode(&value, &mut element)

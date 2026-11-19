@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use super::catalog::{ReadTable, WriteTable};
 use super::estimate::{StatsMemory, newest};
-use super::key::{Direction, KeyColumn, Nulls};
+use super::key::KeyColumn;
 use super::rows::{TableRow, Versions};
 use super::schema::{SchemaColumn, TableSchema, TableStats};
 use super::stats::{
@@ -142,8 +142,8 @@ pub(crate) fn build<'r>(
                             at,
                             KeyColumn {
                                 ty,
-                                direction: Direction::Ascending,
-                                nulls: Nulls::First,
+                                direction: k.direction,
+                                nulls: k.nulls,
                                 nullable: true,
                             },
                         )
@@ -313,8 +313,8 @@ fn index_statistics<S: krummi_tree::PageSource + ?Sized>(
                         .find(|c| c.id == key.id)
                         .expect("an index names live columns")
                         .ty,
-                    direction: Direction::Ascending,
-                    nulls: Nulls::First,
+                    direction: key.direction,
+                    nulls: key.nulls,
                     nullable: true,
                 })
                 .collect();
@@ -338,6 +338,31 @@ fn index_statistics<S: krummi_tree::PageSource + ?Sized>(
         }
     }
     Ok((!prefixes.is_empty()).then_some(prefixes))
+}
+
+/// The rows of a sample of the rows tree `at` of more than 30,000 rows: whole leaves reached at random from `seed`,
+/// about 30,000 rows, decoded by `reader`, until `cancel` says so (ST1, ST10).
+pub(crate) fn sampled_rows<'t, S: krummi_tree::PageSource + ?Sized>(
+    tx: &'t S,
+    reader: &'t Arc<super::rows::Reader>,
+    at: super::rows::At<'_>,
+    seed: u64,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Vec<Result<TableRow<'t>>>> {
+    let mut versions = Versions::default();
+    let mut rows = Vec::new();
+    krummi_tree::sample_leaves(tx, at.rows_root, WHOLE, seed, &mut |key, bytes| {
+        rows.push(reader.decode(
+            tx,
+            super::rows::At { ..at },
+            &mut versions,
+            Cow::Borrowed(key),
+            bytes,
+            false,
+        ));
+        Ok(!cancel())
+    })?;
+    Ok(rows)
 }
 
 /// The number of key columns of the index `index` among `indexes`, or 0.
@@ -397,13 +422,24 @@ impl ReadTransaction<'_> {
         table: &ReadTable<'_>,
         column: Option<&str>,
     ) -> Result<Built> {
+        self.build_statistics_until(table, column, &|| false)
+    }
+
+    /// [`build_statistics`](Self::build_statistics), reading no more rows once `cancel` says so (ST10): the build is
+    /// then of part of the sample, and the caller drops it.
+    pub(crate) fn build_statistics_until(
+        &self,
+        table: &ReadTable<'_>,
+        column: Option<&str>,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Built> {
         let only = column
             .map(|name| stats_column(self.folder, &table.name, &table.schema, name).map(|c| c.id))
             .transpose()?;
         let count = self.row_count(table)?;
         self.store.statistics.sampled();
         if count <= WHOLE {
-            let rows = self.range_rows(table, &[], ..)?;
+            let rows = self.range_rows(table, &[], ..)?.take_while(|_| !cancel());
             return build(
                 table.id,
                 &table.name,
@@ -419,24 +455,12 @@ impl ReadTransaction<'_> {
             .readers
             .keep(table.history, || Arc::clone(&table.reader))
             .reader;
-        let mut versions = Versions::default();
-        let mut rows = Vec::new();
-        krummi_tree::sample_leaves(
+        let rows = sampled_rows(
             &self.inner,
-            table.rows_root,
-            WHOLE,
+            reader,
+            table.at(),
             self.store.statistics.seed(),
-            &mut |key, bytes| {
-                rows.push(reader.decode(
-                    &self.inner,
-                    table.at(),
-                    &mut versions,
-                    Cow::Borrowed(key),
-                    bytes,
-                    false,
-                ));
-                Ok(())
-            },
+            cancel,
         )?;
         build(
             table.id,
@@ -461,16 +485,17 @@ impl WriteTransaction<'_> {
     ) -> Result<Option<ColumnStatistics>> {
         let state = self.live_table(table)?;
         let column = stats_column(self.folder, &state.name, &state.schema, column)?;
+        let target = super::estimate::Target::Column(column.id);
         let private = (self.private_statistics.borrow())
-            .get(&(state.id(), column.id))
-            .cloned();
-        let found = match private {
-            Some(found) => Some(found),
-            None => {
-                let saved = stored(&self.inner, state.stats, column.id)?;
-                let kept = self.store.statistics.get(state.id(), column.id);
-                newest(saved, kept, state.stats).0
-            }
+            .get(&(state.id(), target))
+            .cloned()
+            .filter(|private| private.counter >= state.stats.emptied);
+        let saved = stored(&self.inner, state.stats, column.id)?;
+        let kept = self.store.statistics.get(state.id(), column.id);
+        let found = match (newest(saved, kept, state.stats).0, private) {
+            (Some(found), Some(private)) if found.counter > private.counter => Some(found),
+            (_, Some(private)) => Some(private),
+            (found, None) => found,
         };
         Ok(found.map(|found| statistics(column, &found, state.stats.counter)))
     }
@@ -514,11 +539,50 @@ impl WriteTransaction<'_> {
             let (schema, count, counter) = (state.schema.clone(), state.count, state.stats.counter);
             let name = state.name.clone();
             drop(state);
-            let rows = self.range_rows(table, &[], ..)?;
             self.store.statistics.sampled();
-            build(table.id, &name, &schema, only, count, counter, rows)?
+            self.build_own(table, &name, &schema, only, count, counter)?
         };
         self.save_statistics(table, built)
+    }
+
+    /// Builds the statistics of `table`, named `name` with `schema`, from what this write sees: whole up to 30,000
+    /// rows, by a sample above (ST1, ST7).
+    pub(crate) fn build_own(
+        &self,
+        table: &WriteTable<'_>,
+        name: &str,
+        schema: &TableSchema,
+        only: Option<u64>,
+        count: u64,
+        counter: u64,
+    ) -> Result<Built> {
+        if count <= WHOLE {
+            let rows = self.range_rows(table, &[], ..)?;
+            return build(table.id, name, schema, only, count, counter, rows);
+        }
+        let (rows_root, reader) = self.live_rows(table)?;
+        let history = self.live_table(table)?.at().history;
+        let at = super::rows::At {
+            name,
+            rows_root,
+            history,
+        };
+        let rows = sampled_rows(
+            &self.inner,
+            &reader,
+            at,
+            self.store.statistics.seed(),
+            &|| false,
+        )?;
+        build(
+            table.id,
+            name,
+            schema,
+            only,
+            count,
+            counter,
+            rows.into_iter(),
+        )
     }
 
     /// Saves the columns of `built` in the statistics tree of `table`, each unless its column no longer exists, the
@@ -606,6 +670,10 @@ impl Store {
         }
         let built = {
             let read = self.read()?;
+            // The names' sizes before the catalog (ST12).
+            if let Some(column) = column {
+                read.folder.check_column_name(column)?;
+            }
             let handle = read.open_table(table)?;
             read.build_statistics(&handle, column)?
         };
@@ -616,15 +684,11 @@ impl Store {
             Some(limit) => self.write_with_timeout(limit)?,
             None => self.write()?,
         };
-        match write.open_table(table) {
-            Ok(handle) => {
-                write.save_statistics(&handle, built)?;
-                shared.work.pass(super::StatisticsPoint::SaveTurn);
-            }
-            // A table deleted or replaced while sampling: the build is dropped (ST6).
-            Err(error) if error.kind() == crate::ErrorKind::TreeNotFound => {}
-            Err(error) if error.kind() == crate::ErrorKind::DifferentTreeType => {}
-            Err(error) => return Err(error),
+        // The sampled table by identity, also renamed; one deleted or replaced while sampling drops the build (ST6).
+        let (id, name) = (built.table, built.name.clone());
+        if let Some(handle) = super::worker::find_write_table(&write, id, &name)? {
+            write.save_statistics(&handle, built)?;
+            shared.work.pass(super::StatisticsPoint::SaveTurn);
         }
         write.commit()
     }

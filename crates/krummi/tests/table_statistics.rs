@@ -11,6 +11,8 @@ mod support;
 mod background;
 #[path = "table_statistics/build.rs"]
 mod build;
+#[path = "table_statistics/codex.rs"]
+mod codex;
 #[path = "table_statistics/columns.rs"]
 mod columns;
 #[path = "table_statistics/estimate.rs"]
