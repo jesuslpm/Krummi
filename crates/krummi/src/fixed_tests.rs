@@ -27,14 +27,18 @@ fn ac_x14_reads_and_scans_of_a_fixed_size_tree_return_the_engine_s_memory() {
             write.set_fixed(&tree, key * 5, &key.to_le_bytes()).unwrap();
         }
         write.commit().unwrap();
-        assert!(store.engine.transfer_now());
+        assert!(store.shared().engine.transfer_now());
 
         let read = store.read().unwrap();
         let tree = read.open_fixed_tree("f", 8).unwrap();
         for key in [0, 5, 3000, 7495] {
             let value = read.get_fixed(&tree, key).unwrap().unwrap();
             assert_eq!(value, (key / 5).to_le_bytes());
-            assert_eq!(store.engine.memory_of(value), Some(Memory::Data), "{key}");
+            assert_eq!(
+                store.shared().engine.memory_of(value),
+                Some(Memory::Data),
+                "{key}"
+            );
             let again = read.get_fixed(&tree, key).unwrap().unwrap();
             assert_eq!(value.as_ptr(), again.as_ptr(), "no copy");
         }
@@ -45,7 +49,11 @@ fn ac_x14_reads_and_scans_of_a_fixed_size_tree_return_the_engine_s_memory() {
             .unwrap();
         assert_eq!(values.len(), 1500);
         for (key, value) in &values {
-            assert_eq!(store.engine.memory_of(value), Some(Memory::Data), "{key}");
+            assert_eq!(
+                store.shared().engine.memory_of(value),
+                Some(Memory::Data),
+                "{key}"
+            );
             let read_back = read.get_fixed(&tree, *key).unwrap().unwrap();
             assert_eq!(value.as_ptr(), read_back.as_ptr(), "no copy");
         }
@@ -70,7 +78,7 @@ fn ac_x17_ac_x20_validation_and_tipo_in_a_store_that_refuses_writes() {
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     // The transfer that fails is the one the test runs on this thread, whose faults it injects.
-    store.engine.set_transfer_paused(true);
+    store.shared().engine.set_transfer_paused(true);
     let mut write = store.write().unwrap();
     let tree = write
         .open_fixed_tree_with("f", 8, OpenMode::CreateNew)
@@ -85,7 +93,7 @@ fn ac_x17_ac_x20_validation_and_tipo_in_a_store_that_refuses_writes() {
     for nth in 0..8 {
         testing::inject(Op::Write, nth, Action::Fail(io::ErrorKind::Other));
     }
-    assert!(!store.engine.transfer_now(), "the transfer failed");
+    assert!(!store.shared().engine.transfer_now(), "the transfer failed");
     testing::reset();
     let refused = thread::scope(|s| {
         s.spawn(|| {

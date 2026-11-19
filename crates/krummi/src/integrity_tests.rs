@@ -14,7 +14,7 @@ use crate::value_tests::pattern;
 
 /// Integrity checks the store has made since it opened.
 fn checks(store: &Store) -> u64 {
-    store.engine.integrity_checks()
+    store.shared().engine.integrity_checks()
 }
 
 /// Integrity checks that `f` makes.
@@ -26,12 +26,12 @@ fn checks_of<T>(store: &Store, f: impl FnOnce() -> T) -> (T, u64) {
 
 /// Whether the integrity of page `page` is remembered.
 fn is_remembered(store: &Store, page: u64) -> bool {
-    store.engine.is_remembered(page)
+    store.shared().engine.is_remembered(page)
 }
 
 /// Whether the value run `(first, count)` is remembered as one run of that length.
 fn is_run_remembered(store: &Store, (first, count): (u64, u64)) -> bool {
-    store.engine.is_run_remembered(first, count)
+    store.shared().engine.is_run_remembered(first, count)
 }
 
 /// A value that the tree keeps off its leaf, in a run of three pages.
@@ -243,7 +243,7 @@ fn ac_s4_a_write_remembers_a_page_on_its_first_read() {
     transfer(&temporary);
     let root = root_of(&temporary, "t");
     for page in [root, leaf(&temporary, root, &long_key(150, 64))] {
-        temporary.engine.forget_integrity(page);
+        temporary.shared().engine.forget_integrity(page);
     }
 
     for store in [disk, temporary] {
@@ -278,7 +278,7 @@ fn ac_s4_a_write_remembers_a_page_on_its_first_read() {
 #[test]
 fn ac_i3_versions_and_copies_are_not_checked() {
     on_both(|store| {
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         commit_tree_with_big_value(store, "t");
         let read = store.read().unwrap();
         let ((), versions) = checks_of(store, || read_tree_with_big_value(&read, "t"));
@@ -297,7 +297,7 @@ fn ac_i3_versions_and_copies_are_not_checked() {
         });
         assert_eq!(copies, 0, "the write's own copies");
         write.commit().unwrap();
-        store.engine.set_transfer_paused(false);
+        store.shared().engine.set_transfer_paused(false);
     });
 }
 
@@ -442,11 +442,16 @@ fn ac_i7_a_page_not_read_yet_and_damaged_while_open_fails() {
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     commit_tree(&temporary, "t", 3, 64);
     transfer(&temporary);
-    temporary.engine.forget_integrity(root_of(&temporary, "t"));
+    temporary
+        .shared()
+        .engine
+        .forget_integrity(root_of(&temporary, "t"));
     for mut store in [disk, temporary] {
         let page = root_of(&store, "t");
         assert!(!is_remembered(&store, page), "not read in this opening");
-        store.engine.flip_byte_in_place(page, 100).unwrap();
+        store
+            .with_engine_mut(|engine| engine.flip_byte_in_place(page, 100))
+            .unwrap();
         let read = store.read().unwrap();
         let tree = read.open_tree("t").unwrap();
         assert_eq!(damaged_page(read.get(&tree, &long_key(1, 64))), page);
@@ -473,9 +478,11 @@ fn ac_s5_a_write_fails_on_every_read_of_a_damaged_page() {
     commit_tree(&temporary, "t", 3, 64);
     transfer(&temporary);
     let in_memory = root_of(&temporary, "t");
-    temporary.engine.forget_integrity(in_memory);
+    temporary.shared().engine.forget_integrity(in_memory);
     assert!(!is_remembered(&temporary, in_memory));
-    temporary.engine.flip_byte_in_place(in_memory, 100).unwrap();
+    temporary
+        .with_engine_mut(|engine| engine.flip_byte_in_place(in_memory, 100))
+        .unwrap();
 
     for (store, page) in [(disk, on_disk), (temporary, in_memory)] {
         let key = long_key(1, 64);
@@ -596,7 +603,9 @@ impl Kind {
         let (at, _) = found.next().expect("the entry in its leaf");
         assert!(found.next().is_none(), "the entry appears once");
         drop(read);
-        store.engine.flip_byte_in_place(page, at + offset).unwrap();
+        store
+            .with_engine_mut(|engine| engine.flip_byte_in_place(page, at + offset))
+            .unwrap();
         let mut value = entry[offset..].to_vec();
         value[0] ^= 0xFF;
         value
@@ -691,9 +700,11 @@ fn ac_i9_concurrent_reads_while_pages_move() {
         transfer(store);
         // Forgotten, as a page damaged with the store closed (AC-I6): the transfer remembers what it writes (Q1 of the
         // written pages PRD), and the store is not reopened here.
-        store.engine.forget_integrity(bad_page);
-        assert!(!store.engine.is_remembered(bad_page));
-        store.engine.flip_byte_in_place(bad_page, 0).unwrap();
+        store.shared().engine.forget_integrity(bad_page);
+        assert!(!store.shared().engine.is_remembered(bad_page));
+        store
+            .with_engine_mut(|engine| engine.flip_byte_in_place(bad_page, 0))
+            .unwrap();
     });
 }
 

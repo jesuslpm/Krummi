@@ -11,7 +11,7 @@ use super::*;
 
 /// Layout checks of versions of the scratch area so far.
 fn checks(store: &Store) -> u64 {
-    store.engine.version_checks()
+    store.shared().engine.version_checks()
 }
 
 /// Reads key `i` of every tree of [`commit_trees`] in `read`, a read or a write transaction, and checks it.
@@ -65,11 +65,14 @@ fn ac_u1_a_version_in_the_scratch_area_is_checked_on_its_first_read_only() {
         commit_trees(store);
         transfer(store);
         let page = leaf(store, root_of(store, "n"), &long_key(7, 64));
-        let integrity = store.engine.integrity_checks();
+        let integrity = store.shared().engine.integrity_checks();
         let before = checks(store);
         let read = store.read().unwrap();
         assert_eq!(
-            store.engine.memory_of(read.inner.page(page).unwrap()),
+            store
+                .shared()
+                .engine
+                .memory_of(read.inner.page(page).unwrap()),
             Some(Memory::Versions),
             "kept in the scratch area by the keeper"
         );
@@ -99,7 +102,7 @@ fn ac_u1_a_version_in_the_scratch_area_is_checked_on_its_first_read_only() {
         drop(write);
         assert_eq!(checks(store), first, "no later read checks them again");
         assert_eq!(
-            store.engine.integrity_checks(),
+            store.shared().engine.integrity_checks(),
             integrity,
             "nor their integrity"
         );
@@ -252,13 +255,16 @@ fn ac_u6_after_the_version_leaves_the_node_is_checked_from_the_store_once() {
         transfer(store);
         let read = store.read().unwrap();
         assert_eq!(
-            store.engine.memory_of(read.inner.page(page).unwrap()),
+            store
+                .shared()
+                .engine
+                .memory_of(read.inner.page(page).unwrap()),
             Some(Memory::Data)
         );
-        let (versions, remembered) = (checks(store), store.engine.checked_remembered());
+        let (versions, remembered) = (checks(store), store.shared().engine.checked_remembered());
         let tree = read.open_tree("n").unwrap();
         assert!(read.get(&tree, &long_key(0, 64)).unwrap().is_some());
-        let after_first = store.engine.checked_remembered();
+        let after_first = store.shared().engine.checked_remembered();
         // The catalog's root, read to open the tree, and the tree's root passed their check as versions.
         assert_eq!(
             after_first, remembered,
@@ -267,7 +273,7 @@ fn ac_u6_after_the_version_leaves_the_node_is_checked_from_the_store_once() {
         assert!(read.get(&tree, &long_key(0, 64)).unwrap().is_some());
         assert_eq!(checks(store), versions, "no version read");
         assert_eq!(
-            store.engine.checked_remembered(),
+            store.shared().engine.checked_remembered(),
             after_first,
             "and not again"
         );

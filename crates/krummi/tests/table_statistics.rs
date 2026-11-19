@@ -7,6 +7,8 @@
 mod common;
 mod support;
 
+#[path = "table_statistics/background.rs"]
+mod background;
 #[path = "table_statistics/build.rs"]
 mod build;
 #[path = "table_statistics/estimate.rs"]

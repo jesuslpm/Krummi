@@ -36,12 +36,12 @@ pub(crate) fn on_both(check: impl Fn(&mut Store)) {
 
 /// Contents the store remembers as checked so far.
 fn remembered(store: &Store) -> u64 {
-    store.engine.checked_remembered()
+    store.shared().engine.checked_remembered()
 }
 
 /// Writes every committed version into the store's pages, out of the scratch area.
 pub(crate) fn transfer(store: &Store) {
-    assert!(store.engine.transfer_now());
+    assert!(store.shared().engine.transfer_now());
 }
 
 /// The root page of tree `name`.
@@ -346,7 +346,7 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
     });
     for store in &stores {
         assert_eq!(
-            store.engine.checked_slots(),
+            store.shared().engine.checked_slots(),
             4,
             "the stores got the test's table"
         );
@@ -457,7 +457,7 @@ pub(crate) fn concurrent_reads_while_a_write_moves_nodes(
                 two_rounds();
                 transfer(store);
                 assert_eq!(
-                    store.engine.scratch_bytes(),
+                    store.shared().engine.scratch_bytes(),
                     0,
                     "the generation moved to the store's pages while the readers read"
                 );
@@ -631,7 +631,7 @@ fn ac_x19_a_damaged_layout_of_a_fixed_size_leaf_in_the_scratch_area_fails_every_
         damage_layout(store, page);
         transfer(store);
         assert!(
-            store.engine.scratch_bytes() > 0,
+            store.shared().engine.scratch_bytes() > 0,
             "the version stays in the scratch area"
         );
         let read = store.read().unwrap();

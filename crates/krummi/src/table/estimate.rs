@@ -16,6 +16,7 @@ use super::schema::{SchemaColumn, TableSchema, TableStats};
 use super::statistics::{Built, build, stats_column, stored};
 use super::stats::{ColumnStats, element_column, is_large};
 use super::value::{Value, normalize};
+use super::worker::Job;
 use crate::{Error, Folder, ReadTransaction, Result, ValueRule, WriteTransaction};
 
 /// A condition on one column of a table (ST2).
@@ -85,12 +86,24 @@ fn newest(
     saved: Option<ColumnStats>,
     kept: Option<Arc<ColumnStats>>,
     table: TableStats,
-) -> Option<Arc<ColumnStats>> {
+) -> (Option<Arc<ColumnStats>>, bool) {
     let kept = kept.filter(|kept| kept.counter >= table.emptied);
     match (saved, kept) {
-        (Some(saved), Some(kept)) if kept.counter > saved.counter => Some(kept),
-        (Some(saved), _) => Some(Arc::new(saved)),
-        (None, kept) => kept,
+        (Some(saved), Some(kept)) if kept.counter > saved.counter => (Some(kept), true),
+        (Some(saved), _) => (Some(Arc::new(saved)), false),
+        (None, kept) => {
+            let unsaved = kept.is_some();
+            (kept, unsaved)
+        }
+    }
+}
+
+/// The statistics of the column `column` of the table `table`, named `name`, as a save request.
+fn one_column(table: u64, name: &str, column: u64, found: &ColumnStats) -> Built {
+    Built {
+        table,
+        name: name.to_owned(),
+        columns: vec![(column, found.clone())],
     }
 }
 
@@ -292,23 +305,48 @@ pub(crate) fn alone_unique(schema: &TableSchema, column: u64) -> bool {
             .any(|index| index.unique && index.key.len() == 1 && index.key[0].id == column)
 }
 
-impl crate::Store {
-    /// Asks the store to save the statistics of `built` that an estimate sampled (ST6). The background work that
-    /// saves them comes with T5 of the execution; until then they stay in memory.
+impl crate::Shared {
+    /// Asks the statistics thread to save the statistics of `built` (ST6).
     pub(crate) fn request_save(&self, built: &Built) {
-        let _ = built;
+        self.work.request(self, Job::Save(built.clone()));
     }
 
-    /// Asks the store to renew the stale statistics of the table `table` in the background (ST6); see
-    /// [`request_save`](Self::request_save).
-    pub(crate) fn request_renewal(&self, table: u64) {
-        let _ = table;
+    /// Asks the statistics thread to renew the stale statistics of the table `table`, named `name` (ST6).
+    pub(crate) fn request_renewal(&self, table: u64, name: &str) {
+        self.work.request(
+            self,
+            Job::Renew {
+                table,
+                name: name.to_owned(),
+            },
+        );
     }
+}
 
+impl crate::Store {
     /// A test hook, not part of the interface: how many samples the store read for statistics (ST14).
     #[doc(hidden)]
     pub fn statistics_samples(&self) -> u64 {
-        self.statistics.samples.load(Ordering::Relaxed)
+        self.shared().statistics.samples.load(Ordering::Relaxed)
+    }
+
+    /// A test hook, not part of the interface: holds or releases a point of the statistics work (ST14).
+    #[doc(hidden)]
+    pub fn hold_statistics(&self, point: super::StatisticsPoint, held: bool) {
+        self.shared().work.hold(point, held);
+    }
+
+    /// A test hook, not part of the interface: whether the statistics thread runs, and the saves and renewals queued
+    /// besides the one it runs (ST14).
+    #[doc(hidden)]
+    pub fn statistics_work(&self) -> (bool, usize, usize) {
+        self.shared().work.status()
+    }
+
+    /// A test hook, not part of the interface: waits until the statistics thread has nothing to do (ST14).
+    #[doc(hidden)]
+    pub fn wait_statistics_idle(&self) {
+        self.shared().work.wait_idle();
     }
 }
 
@@ -337,6 +375,9 @@ impl ReadTransaction<'_> {
             Some(found) if !too_small(&found, rows) => found,
             _ => {
                 let built = self.build_statistics(table, None)?;
+                self.store
+                    .work
+                    .pass(super::StatisticsPoint::EstimateSampled);
                 self.store.statistics.publish(&built);
                 self.store.request_save(&built);
                 let found = built.columns.into_iter().find(|(id, _)| *id == column.id);
@@ -345,7 +386,7 @@ impl ReadTransaction<'_> {
         };
         let stale = super::stats::is_stale(found.rows, found.counter, table.stats.counter);
         if stale {
-            self.store.request_renewal(table.id);
+            self.store.request_renewal(table.id, &table.name);
         }
         Ok(estimate_with(
             &table.schema,
@@ -364,11 +405,17 @@ impl ReadTransaction<'_> {
         column: u64,
     ) -> Result<Option<Arc<ColumnStats>>> {
         let saved = stored(&self.inner, table.stats, column)?;
-        Ok(newest(
+        let (found, unsaved) = newest(
             saved,
             self.store.statistics.get(table.id, column),
             table.stats,
-        ))
+        );
+        if let Some(found) = found.as_ref().filter(|_| unsaved) {
+            // Statistics only in memory, whose save failed or is pending, are asked to be saved again (ST9).
+            self.store
+                .request_save(&one_column(table.id, &table.name, column, found));
+        }
+        Ok(found)
     }
 }
 
@@ -405,11 +452,16 @@ impl WriteTransaction<'_> {
             .cloned();
         let found = match private {
             Some(found) => Some(found),
-            None => newest(
-                stored(&self.inner, stats, column.id)?,
-                self.store.statistics.get(id, column.id),
-                stats,
-            ),
+            None => {
+                let saved = stored(&self.inner, stats, column.id)?;
+                let (found, unsaved) =
+                    newest(saved, self.store.statistics.get(id, column.id), stats);
+                if let Some(found) = found.as_ref().filter(|_| unsaved) {
+                    self.store
+                        .request_save(&one_column(id, &name, column.id, found));
+                }
+                found
+            }
         };
         let found = match found {
             Some(found) if !too_small(&found, rows) => found,
@@ -417,7 +469,7 @@ impl WriteTransaction<'_> {
         };
         let stale = super::stats::is_stale(found.rows, found.counter, stats.counter);
         if stale {
-            self.store.request_renewal(id);
+            self.store.request_renewal(id, &name);
         }
         Ok(estimate_with(
             &schema, &column, &checked, &found, rows, stale,
@@ -450,6 +502,9 @@ impl WriteTransaction<'_> {
         };
         let built = match committed {
             Some(built) => {
+                self.store
+                    .work
+                    .pass(super::StatisticsPoint::EstimateSampled);
                 self.store.statistics.publish(&built);
                 self.store.request_save(&built);
                 built
@@ -459,6 +514,7 @@ impl WriteTransaction<'_> {
                 self.store.statistics.sampled();
                 let built = build(
                     id,
+                    name,
                     schema,
                     None,
                     self.row_count(table)?,

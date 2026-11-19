@@ -33,6 +33,7 @@ mod stats;
 #[cfg(test)]
 mod update_tests;
 pub mod value;
+mod worker;
 
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
@@ -52,6 +53,9 @@ pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 pub(crate) use sequence::Sequences;
 pub use sequence::{ReadSequence, SequenceMode, WriteSequence};
 pub use statistics::{ColumnStatistics, HistogramBucket};
+#[doc(hidden)]
+pub use worker::StatisticsPoint;
+pub(crate) use worker::Work;
 
 /// Test hooks, not part of the interface.
 #[doc(hidden)]

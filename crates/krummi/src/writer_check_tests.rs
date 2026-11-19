@@ -68,7 +68,7 @@ fn ac_h1_a_write_never_checks_the_nodes_it_changed() {
         // The read after the commit must find the committed versions in the scratch area, where their checks are
         // counted: a transfer pass that wrote them first would leave them unchecked in the store (Q2 of the written
         // pages PRD), and the read would check them there, outside `version_checks`.
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         let mut write = store.write().unwrap();
         write.inner.record_layout();
         let tree = write.open_tree_with("n", OpenMode::CreateNew).unwrap();
@@ -111,7 +111,7 @@ fn ac_h1_a_write_never_checks_the_nodes_it_changed() {
             "{reads} reads of changed nodes"
         );
         write.commit().unwrap();
-        let before = store.engine.version_checks();
+        let before = store.shared().engine.version_checks();
 
         let read = store.read().unwrap();
         let tree = read.open_tree("n").unwrap();
@@ -147,7 +147,7 @@ fn ac_h1_a_write_never_checks_the_nodes_it_changed() {
         }
         // The later transaction checks what the write committed, on its first read of each version (U1).
         assert!(
-            store.engine.version_checks() > before,
+            store.shared().engine.version_checks() > before,
             "the committed nodes are checked when read"
         );
     });
@@ -196,13 +196,13 @@ fn ac_h2_a_damaged_changed_node_fails_its_first_read_after_the_commit() {
             commit_tree(store, "n", entries, LONG);
             transfer(store);
             let key = long_key(0, LONG);
-            let before = store.engine.checked_remembered();
+            let before = store.shared().engine.checked_remembered();
             let read = store.read().unwrap();
             let tree = read.open_tree("n").unwrap();
             assert!(read.get(&tree, &key).unwrap().is_some());
             drop(read);
             assert!(
-                store.engine.checked_remembered() > before,
+                store.shared().engine.checked_remembered() > before,
                 "its content before the change is remembered"
             );
             let page = leaf(store, root_of(store, "n"), &key);

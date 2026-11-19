@@ -48,8 +48,11 @@ pub struct HistogramBucket {
 }
 
 /// The statistics a build gave: of the table `table` and its columns, by identity.
+#[derive(Clone)]
 pub(crate) struct Built {
     pub table: u64,
+    /// The table's name in the snapshot.
+    pub name: String,
     pub columns: Vec<(u64, ColumnStats)>,
 }
 
@@ -88,6 +91,7 @@ pub(crate) fn stats_column<'c>(
 /// has `count` rows and the modification counter `counter`.
 pub(crate) fn build<'r>(
     table: u64,
+    name: &str,
     schema: &TableSchema,
     only: Option<u64>,
     count: u64,
@@ -108,6 +112,7 @@ pub(crate) fn build<'r>(
     }
     Ok(Built {
         table,
+        name: name.to_owned(),
         columns: (wanted.iter().zip(gathers))
             .map(|((_, column), gather)| (column.id, gather.finish(count, read, counter)))
             .collect(),
@@ -192,6 +197,7 @@ impl ReadTransaction<'_> {
         self.store.statistics.sampled();
         build(
             table.id,
+            &table.name,
             &table.schema,
             only,
             count,
@@ -230,10 +236,11 @@ impl WriteTransaction<'_> {
                 })
                 .transpose()?;
             let (schema, count, counter) = (state.schema.clone(), state.count, state.stats.counter);
+            let name = state.name.clone();
             drop(state);
             let rows = self.range_rows(table, &[], ..)?;
             self.store.statistics.sampled();
-            build(table.id, &schema, only, count, counter, rows)?
+            build(table.id, &name, &schema, only, count, counter, rows)?
         };
         self.save_statistics(table, built)
     }
@@ -303,7 +310,8 @@ impl Store {
         column: Option<&str>,
         limit: Option<Duration>,
     ) -> Result<()> {
-        if self.engine.holds_write() {
+        let shared = self.shared();
+        if shared.engine.holds_write() {
             // The misuse of T5, before sampling.
             return self.write().map(drop);
         }
@@ -312,12 +320,18 @@ impl Store {
             let handle = read.open_table(table)?;
             read.build_statistics(&handle, column)?
         };
+        shared.work.pass(super::StatisticsPoint::WorkSampled);
+        // Published first: a failure to save leaves them in memory (ST7).
+        shared.statistics.publish(&built);
         let mut write = match limit {
             Some(limit) => self.write_with_timeout(limit)?,
             None => self.write()?,
         };
         match write.open_table(table) {
-            Ok(handle) => write.save_statistics(&handle, built)?,
+            Ok(handle) => {
+                write.save_statistics(&handle, built)?;
+                shared.work.pass(super::StatisticsPoint::SaveTurn);
+            }
             // A table deleted or replaced while sampling: the build is dropped (ST6).
             Err(error) if error.kind() == crate::ErrorKind::TreeNotFound => {}
             Err(error) if error.kind() == crate::ErrorKind::DifferentTreeType => {}

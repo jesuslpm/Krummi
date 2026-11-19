@@ -40,7 +40,7 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
         Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
-        let engine = &store.engine;
+        let engine = &store.shared().engine;
         engine.set_transfer_paused(true);
         let (old, new) = (pattern(run_capacity(3), 1), pattern(run_capacity(3) + 1, 2));
 
@@ -97,7 +97,7 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
     write.set(&tree, b"k", &value).unwrap();
     write.commit().unwrap();
     assert!(store.info().page_count > pages, "the store grew");
-    assert!(store.engine.transfer_now());
+    assert!(store.shared().engine.transfer_now());
     let read = store.read().unwrap();
     let (first, count) = run_of(&read.inner, b"k");
     assert!(
@@ -106,7 +106,7 @@ fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
     );
     let bytes = get(&read, b"k");
     assert!(bytes == &value[..]);
-    assert_eq!(store.engine.memory_of(bytes), Some(Memory::Data));
+    assert_eq!(store.shared().engine.memory_of(bytes), Some(Memory::Data));
 }
 
 /// The value of entry `i` of generation `seed`: off its leaf for odd `i`, in a run of one, two or three pages, and in
@@ -182,7 +182,7 @@ fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_thei
         Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
-        let engine = &store.engine;
+        let engine = &store.shared().engine;
         let keys: Vec<Vec<u8>> = (0..90).chain(200..230).map(long_key).collect();
         let snapshot: Model = (0..6).map(|i| (long_key(i), mixed_value(i, 1))).collect();
         let mut write = store.write().unwrap();
@@ -308,7 +308,7 @@ fn scatter(store: &Store) {
     write.commit().unwrap();
     let mut stored = 0;
     loop {
-        let gap = store.info().page_count - store.engine.frontier();
+        let gap = store.info().page_count - store.shared().engine.frontier();
         if gap == 0 && stored >= 2 * VALUE_PAGES {
             break;
         }
@@ -331,7 +331,7 @@ fn scatter(store: &Store) {
         "enough scattered free pages: {stored} stored, {:?}",
         store.info()
     );
-    assert_eq!(store.info().page_count, store.engine.frontier());
+    assert_eq!(store.info().page_count, store.shared().engine.frontier());
 }
 
 /// AC-V9 (V6, F5, T11): with enough scattered free pages for a value but no hole of its size, and the store ending at
@@ -348,7 +348,7 @@ fn ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier() {
     ] {
         scatter(&store);
         let before = store.info();
-        let frontier = store.engine.frontier();
+        let frontier = store.shared().engine.frontier();
         let mut write = store.write().unwrap();
         let tree = write.open_tree("t").unwrap();
         write.set(&tree, b"big", &value).unwrap();

@@ -33,9 +33,9 @@ struct Checks {
 
 fn checks(store: &Store) -> Checks {
     Checks {
-        integrity: store.engine.integrity_checks(),
-        stored_layout: store.engine.checked_remembered(),
-        version_layout: store.engine.version_checks(),
+        integrity: store.shared().engine.integrity_checks(),
+        stored_layout: store.shared().engine.checked_remembered(),
+        version_layout: store.shared().engine.version_checks(),
     }
 }
 
@@ -136,6 +136,7 @@ fn run_of(store: &Store, name: &str, key: &[u8]) -> (u64, u64) {
 fn memory_of_page(store: &Store, page: u64) -> Memory {
     let read = store.read().unwrap();
     store
+        .shared()
         .engine
         .memory_of(read.inner.page(page).unwrap())
         .unwrap()
@@ -151,7 +152,7 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
     let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     for (on_disk, store) in [(true, disk), (false, temporary)] {
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         commit_spaced_tree(&store, "t", 3);
         transfer(&store);
         let page = root_of(&store, "t");
@@ -163,13 +164,20 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
         let read = store.read().unwrap();
         let tree = read.open_tree("t").unwrap();
         assert_eq!(
-            store.engine.memory_of(read.inner.page(page).unwrap()),
+            store
+                .shared()
+                .engine
+                .memory_of(read.inner.page(page).unwrap()),
             Some(Memory::Versions)
         );
         assert_eq!(read.get(&tree, b"added").unwrap(), Some(&b"entry"[..]));
         drop(read);
         transfer(&store);
-        assert_eq!(store.engine.scratch_bytes(), 0, "out of the scratch area");
+        assert_eq!(
+            store.shared().engine.scratch_bytes(),
+            0,
+            "out of the scratch area"
+        );
 
         let read = store.read().unwrap();
         let (value, made) = checks_of(&store, || {
@@ -182,7 +190,10 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
             "on disk {on_disk}: no check of what the transfer wrote"
         );
         assert_eq!(
-            store.engine.memory_of(read.inner.page(page).unwrap()),
+            store
+                .shared()
+                .engine
+                .memory_of(read.inner.page(page).unwrap()),
             Some(Memory::Data)
         );
         drop(read);
@@ -194,7 +205,7 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
 
         let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
         assert!(
-            !store.engine.is_remembered(page),
+            !store.shared().engine.is_remembered(page),
             "nothing remembered after reopening"
         );
         let read = store.read().unwrap();
@@ -203,7 +214,10 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
             read.get(&tree, b"added").unwrap().map(<[u8]>::to_vec)
         });
         assert_eq!(value.as_deref(), Some(&b"entry"[..]));
-        assert!(store.engine.is_remembered(page), "its integrity, checked");
+        assert!(
+            store.shared().engine.is_remembered(page),
+            "its integrity, checked"
+        );
         assert!(
             made.integrity >= 2,
             "the catalog's root and the leaf: {made:?}"
@@ -223,7 +237,7 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
 #[test]
 fn ac_q2_the_transfer_remembers_pages_but_not_values_off_their_leaf() {
     on_both(|store| {
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         commit_spaced_tree(store, "t", 200);
         transfer(store);
         let root = root_of(store, "t");
@@ -243,7 +257,7 @@ fn ac_q2_the_transfer_remembers_pages_but_not_values_off_their_leaf() {
         write.commit().unwrap();
         assert_eq!(root_of(store, "t"), root, "the root keeps its page");
         transfer(store);
-        assert_eq!(store.engine.scratch_bytes(), 0);
+        assert_eq!(store.shared().engine.scratch_bytes(), 0);
         let runs = [run_of(store, "t", b"big1"), run_of(store, "t", b"big3")];
         assert_eq!(
             [runs[0].1, runs[1].1],
@@ -252,12 +266,12 @@ fn ac_q2_the_transfer_remembers_pages_but_not_values_off_their_leaf() {
         );
 
         for page in [MAP_PAGE, root] {
-            let (read, made) = checks_of(store, || store.engine.read_in_place(page));
+            let (read, made) = checks_of(store, || store.shared().engine.read_in_place(page));
             read.unwrap();
             assert_eq!(made.integrity, 0, "page {page} is remembered");
         }
         for ((first, count), value) in runs.into_iter().zip([&one_page, &three_pages]) {
-            assert!(!store.engine.is_run_remembered(first, count));
+            assert!(!store.shared().engine.is_run_remembered(first, count));
             let read = store.read().unwrap();
             let tree = read.open_tree("t").unwrap();
             let key: &[u8] = if count == 1 { b"big1" } else { b"big3" };
@@ -268,9 +282,9 @@ fn ac_q2_the_transfer_remembers_pages_but_not_values_off_their_leaf() {
                 made.integrity, 1,
                 "the value of {count} pages alone is checked"
             );
-            assert!(store.engine.is_run_remembered(first, count));
+            assert!(store.shared().engine.is_run_remembered(first, count));
         }
-        store.engine.set_transfer_paused(false);
+        store.shared().engine.set_transfer_paused(false);
     });
 }
 
@@ -281,15 +295,15 @@ fn ac_q3_a_page_whose_transfer_write_fails_stays_forgotten() {
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     // The transfer runs on the transfer thread, which shares the faults of the thread that opened the store.
-    store.engine.set_transfer_paused(true);
+    store.shared().engine.set_transfer_paused(true);
     commit_spaced_tree(&store, "a", 3);
     commit_spaced_tree(&store, "b", 3);
     transfer(&store);
     let (a, b) = (root_of(&store, "a"), root_of(&store, "b"));
     let (first, second) = (a.min(b), a.max(b));
     for page in [first, second] {
-        store.engine.read_in_place(page).unwrap();
-        assert!(store.engine.is_remembered(page));
+        store.shared().engine.read_in_place(page).unwrap();
+        assert!(store.shared().engine.is_remembered(page));
     }
     // One commit changes both leaves, and nothing else: the pass writes them in the order of their pages.
     let mut write = store.write().unwrap();
@@ -306,14 +320,17 @@ fn ac_q3_a_page_whose_transfer_write_fails_stays_forgotten() {
     for nth in 1..9 {
         testing::inject(Op::Write, nth, Action::Fail(io::ErrorKind::Other));
     }
-    assert!(!store.engine.transfer_now(), "the transfer failed");
+    assert!(!store.shared().engine.transfer_now(), "the transfer failed");
     testing::reset();
     assert!(
-        store.engine.is_remembered(first),
+        store.shared().engine.is_remembered(first),
         "written before the failure"
     );
-    assert!(!store.engine.is_remembered(second), "its write failed");
-    let (read, made) = checks_of(&store, || store.engine.read_in_place(second));
+    assert!(
+        !store.shared().engine.is_remembered(second),
+        "its write failed"
+    );
+    let (read, made) = checks_of(&store, || store.shared().engine.read_in_place(second));
     read.unwrap();
     assert_eq!(made.integrity, 1, "its integrity is checked");
     store.close().unwrap();
@@ -329,8 +346,11 @@ fn ac_q4_damage_of_a_written_page_is_found_after_reopening() {
     commit_spaced_tree(&store, "t", 3);
     transfer(&store);
     let page = root_of(&store, "t");
-    assert!(store.engine.is_remembered(page), "the transfer wrote it");
-    assert_eq!(store.engine.scratch_bytes(), 0);
+    assert!(
+        store.shared().engine.is_remembered(page),
+        "the transfer wrote it"
+    );
+    assert_eq!(store.shared().engine.scratch_bytes(), 0);
     let value = value_of(1, 0);
     let read = store.read().unwrap();
     let payload = read.inner.page(page).unwrap();
@@ -339,7 +359,9 @@ fn ac_q4_damage_of_a_written_page_is_found_after_reopening() {
         .position(|w| w == value)
         .expect("the value in its leaf");
     drop(read);
-    store.engine.flip_byte_in_place(page, at).unwrap();
+    store
+        .with_engine_mut(|engine| engine.flip_byte_in_place(page, at))
+        .unwrap();
     let mut altered = value.clone();
     altered[0] ^= 0xFF;
 
@@ -452,7 +474,7 @@ fn read_q5(store: &Store, round: u8) {
 #[test]
 fn ac_q5_same_length_overwrites_keep_the_layout_check() {
     on_both(|store| {
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         let leaves = commit_q5(store);
         for round in [1, 2] {
             overwrite_q5(store, round);
@@ -476,7 +498,7 @@ fn ac_q5_same_length_overwrites_keep_the_layout_check() {
         for page in [leaves.normal, leaves.fixed, leaves.table] {
             assert_eq!(memory_of_page(store, page), Memory::Data);
         }
-        store.engine.set_transfer_paused(false);
+        store.shared().engine.set_transfer_paused(false);
     });
 }
 
@@ -517,7 +539,7 @@ fn ac_q6_any_other_change_of_the_leaf_drops_the_check() {
         Besides::Merge,
     ] {
         on_both(|store| {
-            store.engine.set_transfer_paused(true);
+            store.shared().engine.set_transfer_paused(true);
             commit_spaced_tree(store, "n", 200);
             transfer(store);
             let key = long_key(100, 64);
@@ -605,7 +627,7 @@ fn ac_q6_any_other_change_of_the_leaf_drops_the_check() {
                 !matches!(besides, Besides::Nothing),
                 "{besides:?}: whether its first read checks the leaf {page} (checked {checked:?})"
             );
-            store.engine.set_transfer_paused(false);
+            store.shared().engine.set_transfer_paused(false);
         });
     }
 }
@@ -617,7 +639,7 @@ fn ac_q6_any_other_change_of_the_leaf_drops_the_check() {
 #[test]
 fn ac_q7_debug_builds_check_a_leaf_that_kept_its_check() {
     on_both(|store| {
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         let leaves = commit_q5(store);
         let mut write = store.write().unwrap();
         let tree = write.open_tree("n").unwrap();
@@ -646,7 +668,7 @@ fn ac_q7_debug_builds_check_a_leaf_that_kept_its_check() {
                 "transferred {transferred}"
             );
         }
-        store.engine.set_transfer_paused(false);
+        store.shared().engine.set_transfer_paused(false);
     });
 }
 
@@ -660,7 +682,7 @@ fn debug_reads_of_kept_and_checked_leaves_run_at_once() {
     const READERS: usize = 4;
     const ROUNDS: usize = 50;
     on_both(|store| {
-        store.engine.set_transfer_paused(true);
+        store.shared().engine.set_transfer_paused(true);
         let leaves = commit_q5(store);
         overwrite_q5(store, 1);
         transfer(store);
@@ -703,7 +725,7 @@ fn debug_reads_of_kept_and_checked_leaves_run_at_once() {
             }
         });
         assert!(kept(leaves.normal), "reads add nothing to what was kept");
-        store.engine.set_transfer_paused(false);
+        store.shared().engine.set_transfer_paused(false);
     });
 }
 
@@ -821,7 +843,7 @@ fn ac_q9_concurrent_reads_while_overwrites_are_transferred() {
                 two_rounds();
                 transfer(store);
                 assert_eq!(
-                    store.engine.scratch_bytes(),
+                    store.shared().engine.scratch_bytes(),
                     0,
                     "the generation moved while the readers read"
                 );

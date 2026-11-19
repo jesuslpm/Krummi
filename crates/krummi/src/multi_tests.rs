@@ -31,7 +31,7 @@ fn ac_m16_scans_of_a_multi_value_tree_return_the_engine_s_memory() {
         assert!(write.subtree_of(&tree, b"inline").unwrap().is_none());
         assert!(write.subtree_of(&tree, b"subtree").unwrap().is_some());
         write.commit().unwrap();
-        assert!(store.engine.transfer_now());
+        assert!(store.shared().engine.transfer_now());
 
         let read = store.read().unwrap();
         let tree = read.open_multi_tree("m").unwrap();
@@ -45,7 +45,11 @@ fn ac_m16_scans_of_a_multi_value_tree_return_the_engine_s_memory() {
         let again = read.keys(&tree, ..).unwrap().next().unwrap().unwrap().0;
         assert_eq!(keys[0].as_ptr(), again.as_ptr(), "no copy");
         for key in keys {
-            assert_eq!(store.engine.memory_of(key), Some(Memory::Data), "{key:?}");
+            assert_eq!(
+                store.shared().engine.memory_of(key),
+                Some(Memory::Data),
+                "{key:?}"
+            );
             let values: Vec<&[u8]> = read
                 .values(&tree, key, ..)
                 .unwrap()
@@ -54,7 +58,7 @@ fn ac_m16_scans_of_a_multi_value_tree_return_the_engine_s_memory() {
             assert!(values.len() >= 3);
             for value in &values {
                 assert_eq!(
-                    store.engine.memory_of(value),
+                    store.shared().engine.memory_of(value),
                     Some(Memory::Data),
                     "{value:?}"
                 );

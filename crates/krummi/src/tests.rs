@@ -19,7 +19,7 @@ fn ac_b4_ac_m10_validation_failures_in_a_store_that_refuses_writes() {
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
     // The transfer that fails is the one the test runs on this thread, whose faults it injects.
-    store.engine.set_transfer_paused(true);
+    store.shared().engine.set_transfer_paused(true);
     let mut write = store.write().unwrap();
     let tree = write.open_tree_with("t", OpenMode::CreateNew).unwrap();
     write.set(&tree, b"k", b"v").unwrap();
@@ -37,7 +37,7 @@ fn ac_b4_ac_m10_validation_failures_in_a_store_that_refuses_writes() {
     for nth in 0..8 {
         testing::inject(Op::Write, nth, Action::Fail(io::ErrorKind::Other));
     }
-    assert!(!store.engine.transfer_now(), "the transfer failed");
+    assert!(!store.shared().engine.transfer_now(), "the transfer failed");
     testing::reset();
     let refused = thread::scope(|s| {
         s.spawn(|| {
@@ -553,14 +553,17 @@ fn t11_sweep_with<T: PartialEq>(
             let failure = classes[(points / step) as usize % classes.len()].error(tmp.path());
             let class = failure.kind();
             let mut write = store.write().unwrap();
-            store.engine.set_page_fault(Some((points, failure)));
+            store
+                .shared()
+                .engine
+                .set_page_fault(Some((points, failure)));
             let results = change(&mut write);
             let label = format!("point {points}");
-            if store.engine.page_fault_pending() {
+            if store.shared().engine.page_fault_pending() {
                 assert!(results.iter().all(Result::is_ok), "{label}");
                 let committed = write.commit();
-                if store.engine.page_fault_pending() {
-                    store.engine.set_page_fault(None);
+                if store.shared().engine.page_fault_pending() {
+                    store.shared().engine.set_page_fault(None);
                     committed.unwrap();
                     break;
                 }

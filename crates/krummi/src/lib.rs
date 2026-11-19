@@ -69,6 +69,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -134,11 +135,21 @@ pub struct StoreOptions {
 /// An open store. Only one can be open per folder at a time, in any process. It can be used from several threads
 /// at once; it cannot be closed while a transaction is open.
 pub struct Store {
+    /// What it shares with its statistics thread (ST6 of the statistics PRD); `None` only while it closes.
+    shared: Option<Arc<Shared>>,
+}
+
+/// The state of an open store that its transactions and its statistics thread share.
+pub(crate) struct Shared {
     engine: krummi_tx::Engine,
     /// The projections of its tables it keeps until it closes (PY5 of the projection PRD).
     projections: table::Projections,
     /// The statistics it keeps in memory (ST1 of the statistics PRD).
     statistics: table::StatsMemory,
+    /// Its background work on statistics (ST6 of the statistics PRD).
+    work: table::Work,
+    /// Itself, for the statistics thread it starts.
+    this: std::sync::Weak<Shared>,
 }
 
 impl Store {
@@ -160,26 +171,105 @@ impl Store {
 
     fn with(engine: krummi_tx::Engine) -> Store {
         Store {
-            engine,
-            projections: table::Projections::new(next_serial()),
-            statistics: table::StatsMemory::default(),
+            shared: Some(Arc::new_cyclic(|this| Shared {
+                engine,
+                projections: table::Projections::new(next_serial()),
+                statistics: table::StatsMemory::default(),
+                work: table::Work::default(),
+                this: this.clone(),
+            })),
         }
+    }
+
+    /// What the store shares with its statistics thread.
+    pub(crate) fn shared(&self) -> &Shared {
+        self.shared
+            .as_deref()
+            .expect("a store is open until it closes")
+    }
+
+    /// Runs `change` on the engine for a unit test that changes it, while no statistics thread holds the store.
+    #[cfg(test)]
+    pub(crate) fn with_engine_mut<R>(
+        &mut self,
+        change: impl FnOnce(&mut krummi_tx::Engine) -> R,
+    ) -> R {
+        let shared = self.shared.take().expect("open");
+        let mut shared = Arc::try_unwrap(shared).ok().expect("no statistics thread");
+        let result = change(&mut shared.engine);
+        self.shared = Some(Arc::new_cyclic(|this| {
+            shared.this = this.clone();
+            shared
+        }));
+        result
     }
 
     /// A test hook, not part of the interface: how many projections the store keeps (PY5 of the projection PRD).
     #[doc(hidden)]
     pub fn kept_projections(&self) -> usize {
-        self.projections.kept()
+        self.shared().projections.kept()
     }
 
     /// Information about the store.
     pub fn info(&self) -> StoreInfo {
-        self.engine.info()
+        self.shared().engine.info()
     }
 
     /// Opens a read transaction, which sees the store as it is now: every write committed before, none after.
     /// There is no limit on how many are open at once; it fails only when memory runs out.
     pub fn read(&self) -> Result<ReadTransaction<'_>> {
+        self.shared().read()
+    }
+
+    /// Opens the write transaction. While another one is open, or others are already waiting, it waits for its
+    /// turn in order of arrival, without limit. Fails with [`ErrorKind::Misuse`] if this thread already has one
+    /// open on this store, and with [`ErrorKind::Io`] if the store refuses writes after a failed write.
+    pub fn write(&self) -> Result<WriteTransaction<'_>> {
+        self.shared().open_write(None)
+    }
+
+    /// Like [`Store::write`], but waits at most `limit`; when it expires the request fails with
+    /// [`ErrorKind::Timeout`] and has no effect. A zero limit gets the write transaction only if it is free and
+    /// nobody is waiting. Limits of up to 24 hours are always accepted; one too large to count from now fails
+    /// with [`ErrorKind::Misuse`].
+    pub fn write_with_timeout(&self, limit: Duration) -> Result<WriteTransaction<'_>> {
+        self.shared().open_write(Some(limit))
+    }
+
+    /// Makes every commit made so far durable, deferred ones included, and also the ones still waiting to be
+    /// durable: when this returns, they survive a crash of the system or a power cut. It does not wait for the
+    /// open write transaction. Fails with
+    /// [`ErrorKind::Io`] if the store refuses writes after a failed write, even with nothing pending; a failure
+    /// to flush makes the store refuse writes until it is reopened. A temporary store has nothing to do.
+    pub fn make_durable(&self) -> Result<()> {
+        self.shared().engine.make_durable()
+    }
+
+    /// Closes the store: stops its statistics thread (a sample in progress and the queued work are dropped, a save
+    /// that has the write turn commits; ST10 of the statistics PRD), moves what was committed into `krummi.data`,
+    /// removes the journal and the temporary files, and releases its lock, even if writing fails; then the journal
+    /// stays and the next opening recovers every commit. Dropping a `Store` does the same, but does not report a
+    /// failure.
+    pub fn close(mut self) -> Result<()> {
+        let shared = self.shared.take().expect("a store closes once");
+        shared.work.stop();
+        let shared = Arc::try_unwrap(shared)
+            .ok()
+            .expect("the statistics thread ended and no transaction is open");
+        shared.engine.close()
+    }
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        if let Some(shared) = &self.shared {
+            shared.work.stop();
+        }
+    }
+}
+
+impl Shared {
+    pub(crate) fn read(&self) -> Result<ReadTransaction<'_>> {
         Ok(ReadTransaction {
             inner: self.engine.read()?,
             folder: Folder(self.engine.folder()),
@@ -190,38 +280,7 @@ impl Store {
         })
     }
 
-    /// Opens the write transaction. While another one is open, or others are already waiting, it waits for its
-    /// turn in order of arrival, without limit. Fails with [`ErrorKind::Misuse`] if this thread already has one
-    /// open on this store, and with [`ErrorKind::Io`] if the store refuses writes after a failed write.
-    pub fn write(&self) -> Result<WriteTransaction<'_>> {
-        self.open_write(None)
-    }
-
-    /// Like [`Store::write`], but waits at most `limit`; when it expires the request fails with
-    /// [`ErrorKind::Timeout`] and has no effect. A zero limit gets the write transaction only if it is free and
-    /// nobody is waiting. Limits of up to 24 hours are always accepted; one too large to count from now fails
-    /// with [`ErrorKind::Misuse`].
-    pub fn write_with_timeout(&self, limit: Duration) -> Result<WriteTransaction<'_>> {
-        self.open_write(Some(limit))
-    }
-
-    /// Makes every commit made so far durable, deferred ones included, and also the ones still waiting to be
-    /// durable: when this returns, they survive a crash of the system or a power cut. It does not wait for the
-    /// open write transaction. Fails with
-    /// [`ErrorKind::Io`] if the store refuses writes after a failed write, even with nothing pending; a failure
-    /// to flush makes the store refuse writes until it is reopened. A temporary store has nothing to do.
-    pub fn make_durable(&self) -> Result<()> {
-        self.engine.make_durable()
-    }
-
-    /// Closes the store: moves what was committed into `krummi.data`, removes the journal and the temporary
-    /// files, and releases its lock, even if writing fails; then the journal stays and the next opening recovers
-    /// every commit. Dropping a `Store` does the same, but does not report a failure.
-    pub fn close(self) -> Result<()> {
-        self.engine.close()
-    }
-
-    fn open_write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
+    pub(crate) fn open_write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
         Ok(WriteTransaction {
             inner: self.engine.write(limit)?,
             folder: Folder(self.engine.folder()),
@@ -248,7 +307,7 @@ pub struct ReadTransaction<'s> {
     /// The store's projections.
     projections: &'s table::Projections,
     /// The store, for the statistics it keeps in memory and its snapshots (ST1, ST3 of the statistics PRD).
-    store: &'s Store,
+    store: &'s Shared,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing
@@ -268,7 +327,7 @@ pub struct WriteTransaction<'s> {
     /// The store's projections.
     projections: &'s table::Projections,
     /// The store, for the statistics it keeps in memory and its snapshots (ST1, ST3 of the statistics PRD).
-    store: &'s Store,
+    store: &'s Shared,
     /// The statistics its estimates built from its own view, which serve only it (ST3 of the statistics PRD).
     private_statistics: RefCell<table::PrivateStatistics>,
 }

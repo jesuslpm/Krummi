@@ -376,6 +376,11 @@ impl Engine {
         self.write_checked(limit)
     }
 
+    /// Whether the store accepts writes: not after a failed write (T12).
+    pub fn accepts_writes(&self) -> bool {
+        !self.lock_queue().io_failed && self.scratch.pager().accepts_writes()
+    }
+
     /// Whether this thread has a write transaction open on this store (T5).
     pub fn holds_write(&self) -> bool {
         self.lock_queue().owner == Some(thread::current().id())
