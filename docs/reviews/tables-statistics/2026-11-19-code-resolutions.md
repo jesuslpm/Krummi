@@ -252,3 +252,13 @@ after it: fmt, clippy and `cargo test --workspace` pass.
   the next write request fails with the input/output class, estimates go on from memory, and another table's
   estimate samples without asking for a save. Together with the earlier fault tests, this covers AC-ST8's cases.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-19 (verification, round 6)
+
+Follow-up report: [2026-11-19-code-06.md](2026-11-19-code-06.md), wrapper status `findings`, no unexpected changes.
+Verdict, quoted: "Changes required. R2, R11 and R13 remain open: one blocker and two major findings; approval is
+withheld." R11 is now "Lifecycle generation can precede the sampled durable snapshot", the residual case the round 5
+fixes named: a planned fix keys retirement by the retiring commit's transaction id and validates a build by its
+snapshot's transaction id. R13 asks for the rest of the fault matrix: renewal disk full, out of memory and read I/O
+with old statistics kept and a later request; the foreground sampling and analyze matrix with classes and transaction
+effects; and T12's close result and recovery.

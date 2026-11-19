@@ -142,3 +142,9 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   renewal damage test), resolutions `87352be`. Codex round 5 (`2026-11-19-code-05.md`): R12, R18, R19 verified; open
   R2 (blocker, T7b), R11 (invalidation still races with commit publication) and R13 (T12 fault in the statistics
   thread). Verified so far: 16 of 19 findings.
+- **L16** — Round 5 fixes in `265ed1f` (`krummi_tx::WriteTransaction::commit_applying` retires statistics at the
+  commit's point of no return; builds carry the statistics generation of their transaction's opening; T12 background
+  commit test), resolutions `1d687b3`. Codex round 6 (`2026-11-19-code-06.md`): open R2 (blocker, T7b), R11 (the
+  generation can precede the sampled durable snapshot: key retirement by the retiring commit's txid and validate a
+  build by its snapshot's txid, `Scratch` snapshots expose `txid()`) and R13 (rest of the fault matrix). Stopped here
+  to leave the branch committed and resumable.
