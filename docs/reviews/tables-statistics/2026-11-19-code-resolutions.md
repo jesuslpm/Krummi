@@ -175,3 +175,24 @@ Review record: wrapper status `violation`, with `HEAD`, `refs` and `odd/tasks/ta
 during the review. Those changes were Claude's, not Codex's: the execution document's commit `docs(odd): record the
 Codex review rounds` and the phase log's `bg-start` were made while the review ran. Nothing was reverted. This was the
 third automatic round; a further round needs the user's authorization.
+
+## 2026-11-19 (round 3 fixes)
+
+The user authorized a fourth round («Sí», to fixing R16, R17, R4, R11 and R12 first and leaving R2 and the
+measurements for a new session). Fix commit: `8f7f4e4`. Checks after it: fmt, clippy and
+`cargo test --workspace` pass.
+
+- R2 — pending (T7b), as before.
+- R4 — fixed: a shortened bound is the shortest prefix, of at least 64 bytes, greater than the previous bucket's real
+  greatest value, so each bound lies in its bucket's range. AC-ST12's long texts now differ in their first bytes: with
+  997 common bytes no prefix keeps the order, and the bound stays whole.
+- R11 — fixed: the memory's columns, prefixes and epochs live under one lock, so retiring and publishing are atomic; a
+  commit retires before it lets go of the write turn, so no save of an older build follows it. A commit that then fails
+  only makes the store sample again.
+- R12 — fixed: `build` checks the cancel after its rows too and then returns nothing, without gathering.
+- R13 — partly fixed, as before.
+- R16 — fixed: only emptying and deletion retire a whole table and change its epoch; a removed column or index retires
+  its own statistics. Test: `r16_a_rename_keeps_a_pending_build`.
+- R17 — fixed: a fresh save of a newer epoch replaces the queued one; one of an older epoch is dropped; saves of one
+  epoch merge.
+- Status: claimed, unverified until a follow-up review.
