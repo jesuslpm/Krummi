@@ -40,7 +40,7 @@ pub use index_scan::{IndexEntry, ReadIndexEntries, WriteIndexEntries};
 pub use key::{Direction, Nulls};
 pub(crate) use projection::Projections;
 pub use projection::{ProjectedColumn, ProjectedRow, Projection};
-pub use ranges::{ReadRows, WriteRows};
+pub use ranges::{ReadIndexRows, ReadRows, WriteIndexRows, WriteRows};
 pub(crate) use rows::Readers;
 pub use rows::{TableRow, Upserted};
 pub use schema::{Column, Schema, SchemaColumn, TableSchema};

@@ -112,7 +112,7 @@ use super::catalog::{ReadTable, WriteTable};
 use super::index::{EntryLayout, SchemaIndex};
 use super::index_key::{decode_entry_value, index_range};
 use super::key::{KeyColumn, KeyError, KeyRange, MAX_KEY};
-use super::ranges::{ReadRows, Scan, Through, WriteRows, interval};
+use super::ranges::{ReadIndexRows, Scan, Through, WriteIndexRows, interval};
 use super::rows::write_key;
 use super::schema::TableSchema;
 use super::value::Value;
@@ -414,7 +414,7 @@ impl ReadTransaction<'_> {
         index: &str,
         prefix: &[Value<'v>],
         bounds: impl RangeBounds<Value<'v>>,
-    ) -> Result<ReadRows<'_>> {
+    ) -> Result<ReadIndexRows<'_>> {
         self.folder.check_index_name(index)?;
         self.check_table(table)?;
         let found = self.folder.find_index(
@@ -433,12 +433,12 @@ impl ReadTransaction<'_> {
             root: table.index_roots[found.at],
             key: found.key,
         };
-        Ok(ReadRows(Scan::new(
+        Ok(ReadIndexRows(Scan::new(
             &self.inner,
             reader,
             table.at(),
             &found.range,
-            Some(through),
+            through,
         )?))
     }
 
@@ -485,7 +485,7 @@ impl WriteTransaction<'_> {
         index: &str,
         prefix: &[Value<'v>],
         bounds: impl RangeBounds<Value<'v>>,
-    ) -> Result<WriteRows<'_>> {
+    ) -> Result<WriteIndexRows<'_>> {
         self.folder.check_index_name(index)?;
         let state = self.live_table(table)?;
         let found = self.folder.find_index(
@@ -504,12 +504,12 @@ impl WriteTransaction<'_> {
             root: state.index_roots[found.at],
             key: found.key,
         };
-        Ok(WriteRows(Scan::new(
+        Ok(WriteIndexRows(Scan::new(
             &self.inner,
             reader,
             state.at(),
             &found.range,
-            Some(through),
+            through,
         )?))
     }
 

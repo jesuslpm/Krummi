@@ -504,8 +504,9 @@ impl Reader {
 
     /// As [`Reader::decode`] of the entry `key`, `bytes` without `check`, into `current`, the scan's last row: a row
     /// of the current version with a key of one column, when `current` holds such a row of this reader, only takes
-    /// the place of its key and bytes, without building another row.
-    #[inline]
+    /// the place of its key and bytes, without building another row. Always inlined: out of line, the scan hands
+    /// its entry through a temporary copy on every row, about 8 % of W27's time on Windows.
+    #[inline(always)]
     pub(super) fn decode_into<'t, S: PageSource + ?Sized>(
         self: &'t Arc<Self>,
         tx: &'t S,
