@@ -27,7 +27,7 @@ decisión.
   - **Cambio de CI:** no se puede probar sin una corrida en GitHub, que requiere publicar la rama o fusionarla.
 - **Revisiones:**
   - RDD aprobó las dos porciones (tabla abajo).
-  - Codex aprobó en la ronda 2 ([resoluciones](../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-resolutions.md)).
+  - Codex aprobó en la ronda 2 ([resoluciones](../../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-resolutions.md)).
 - **Hallazgos corregidos:** R1 de Codex. El README decía que cada barrido tenía su propio runner, pero los cuatro
   comparten un job; se corrigió en `34b54a0`.
 

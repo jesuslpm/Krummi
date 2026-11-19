@@ -58,6 +58,6 @@ start: 2026-11-19 06:38:20 +0000.
 - **L5** (2026-11-19) — Codex code review over `e5b5f0b..86d9ccd`: the first attempt ended in `error`, «Codex CLI not
   found: codex» (a Node version change under nvm left the CLI in v22.21.0's global packages); reinstalled with the
   user's consent (0.170.0) and rerun: `findings`, one minor R1 (the README said each sweep had its own runner; the four
-  share one job), fixed in `34b54a0`; the follow-up approved it ([report](../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-02.md),
-  [resolutions](../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-resolutions.md)). The commits after `bcbe4ef` are
+  share one job), fixed in `34b54a0`; the follow-up approved it ([report](../../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-02.md),
+  [resolutions](../../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-resolutions.md)). The commits after `bcbe4ef` are
   documents. Pending: the CI change is only proved by a CI run on GitHub, which needs the branch pushed or merged.
