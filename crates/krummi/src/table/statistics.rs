@@ -8,9 +8,10 @@
 use std::time::Duration;
 
 use super::catalog::{ReadTable, WriteTable};
+use super::key::{Direction, KeyColumn, Nulls};
 use super::rows::TableRow;
 use super::schema::{SchemaColumn, TableSchema, TableStats};
-use super::stats::{self, ColumnStats, Gather, column_key, element_column, has_stats};
+use super::stats::{self, ColumnStats, Gather, column_key, element_column, has_stats, prefix_key};
 use super::value::Value;
 use crate::{
     Error, Folder, ReadTransaction, Result, SchemaDifference, SchemaRule, Store, WriteTransaction,
@@ -38,6 +39,21 @@ pub struct ColumnStatistics {
     pub histogram: Vec<HistogramBucket>,
 }
 
+/// The statistics of a prefix of an index's key (ST16, ST17), in a copy of the application's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrefixStatistics {
+    /// The key columns of the prefix, from the first.
+    pub columns: usize,
+    pub origin_rows: u64,
+    pub rows_read: u64,
+    pub origin_counter: u64,
+    pub stale: bool,
+    /// The estimated distinct combinations of the prefix's values, a null counting as a value.
+    pub distinct: f64,
+    /// The most frequent combinations, in the order of the prefix's columns, and their fractions.
+    pub frequent: Vec<(Vec<Value<'static>>, f64)>,
+}
+
 /// A bucket of a [`ColumnStatistics`] histogram.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HistogramBucket {
@@ -54,6 +70,8 @@ pub(crate) struct Built {
     /// The table's name in the snapshot.
     pub name: String,
     pub columns: Vec<(u64, ColumnStats)>,
+    /// The index prefixes', by index identity and number of key columns (ST17).
+    pub prefixes: Vec<((u64, u8), ColumnStats)>,
 }
 
 /// The column `name` of `schema` that statistics are asked for: a column name of 1 to 1,024 bytes, of the table, not a
@@ -102,6 +120,41 @@ pub(crate) fn build<'r>(
         .filter(|(_, c)| has_stats(&c.ty) && only.is_none_or(|id| id == c.id))
         .collect();
     let mut gathers: Vec<Gather> = wanted.iter().map(|(_, c)| Gather::new(c.ty)).collect();
+    // The prefixes of 2 or more key columns of every index, unless one column is asked for (ST17).
+    let prefixes: Vec<(u64, Vec<(usize, KeyColumn)>)> = if only.is_some() {
+        Vec::new()
+    } else {
+        (schema.indexes().iter())
+            .filter(|index| index.key.len() >= 2)
+            .map(|index| {
+                let key = (index.key.iter())
+                    .map(|k| {
+                        let at = (schema.columns().iter())
+                            .position(|c| c.id == k.id)
+                            .expect("an index names live columns");
+                        let ty = schema.columns()[at].ty;
+                        (
+                            at,
+                            KeyColumn {
+                                ty,
+                                direction: Direction::Ascending,
+                                nulls: Nulls::First,
+                                nullable: true,
+                            },
+                        )
+                    })
+                    .collect();
+                (index.id, key)
+            })
+            .collect()
+    };
+    let mut combinations: Vec<Vec<Gather>> = (prefixes.iter())
+        .map(|(_, key)| {
+            (2..=key.len())
+                .map(|_| Gather::new(schema.columns()[key[0].0].ty))
+                .collect()
+        })
+        .collect();
     let mut read = 0;
     for row in rows {
         let row = row?;
@@ -109,12 +162,33 @@ pub(crate) fn build<'r>(
         for ((position, _), gather) in wanted.iter().zip(&mut gathers) {
             gather.add(&row.value(*position).unwrap_or(Value::Null));
         }
+        for ((_, key), gathers) in prefixes.iter().zip(&mut combinations) {
+            let mut element = Vec::new();
+            for (at, (position, column)) in key.iter().enumerate() {
+                // A stored value always encodes in its column's key encoding.
+                let _ = column.encode(&row.value(*position).unwrap_or(Value::Null), &mut element);
+                if at >= 1 {
+                    gathers[at - 1].add_element(element.clone());
+                }
+            }
+        }
     }
     Ok(Built {
         table,
         name: name.to_owned(),
         columns: (wanted.iter().zip(gathers))
             .map(|((_, column), gather)| (column.id, gather.finish(count, read, counter)))
+            .collect(),
+        prefixes: (prefixes.iter().zip(combinations))
+            .flat_map(|((index, _), gathers)| {
+                (gathers.into_iter().enumerate()).map(move |(at, gather)| {
+                    let columns = u8::try_from(at + 2).expect("at most 32 key columns");
+                    (
+                        (*index, columns),
+                        gather.finish_combinations(count, read, counter),
+                    )
+                })
+            })
             .collect(),
     })
 }
@@ -126,10 +200,28 @@ pub(crate) fn stored<S: krummi_tree::PageSource + ?Sized>(
     stats: TableStats,
     column: u64,
 ) -> Result<Option<ColumnStats>> {
+    stored_at(tx, stats, &column_key(column))
+}
+
+/// The statistics of the prefix of `columns` key columns of the index `index`, as [`stored`] (ST17).
+pub(crate) fn stored_prefix<S: krummi_tree::PageSource + ?Sized>(
+    tx: &S,
+    stats: TableStats,
+    index: u64,
+    columns: u8,
+) -> Result<Option<ColumnStats>> {
+    stored_at(tx, stats, &prefix_key(index, columns))
+}
+
+fn stored_at<S: krummi_tree::PageSource + ?Sized>(
+    tx: &S,
+    stats: TableStats,
+    key: &[u8],
+) -> Result<Option<ColumnStats>> {
     if stats.root == 0 {
         return Ok(None);
     }
-    let Some(bytes) = krummi_tree::get(tx, stats.root, &column_key(column))? else {
+    let Some(bytes) = krummi_tree::get(tx, stats.root, key)? else {
         return Ok(None);
     };
     let found = ColumnStats::decode(bytes).ok_or_else(|| tx.damaged(stats.root))?;
@@ -166,6 +258,13 @@ pub(crate) fn statistics(
     }
 }
 
+/// The number of key columns of the index `index` among `indexes`, or 0.
+fn indexes_len(indexes: &[(u64, usize)], index: u64) -> usize {
+    (indexes.iter())
+        .find(|(id, _)| *id == index)
+        .map_or(0, |(_, len)| *len)
+}
+
 impl ReadTransaction<'_> {
     /// The statistics of the column `column` of `table` that the transaction sees, or `None` (ST16). It samples
     /// nothing and asks for no work, reads no page of the rows or the indexes, and fails with
@@ -181,6 +280,77 @@ impl ReadTransaction<'_> {
         let column = stats_column(self.folder, &table.name, &table.schema, column)?;
         let found = stored(&self.inner, table.stats, column.id)?;
         Ok(found.map(|found| statistics(column, &found, table.stats.counter)))
+    }
+
+    /// The statistics of the prefixes of 2 key columns up to all of the index `index` of `table` that the transaction
+    /// sees, in that order, or `None` when it sees none of them or the index has one key column (ST16). Fails with
+    /// [`ErrorKind::InvalidSize`](crate::ErrorKind::InvalidSize) for an index name of other than 1 to 1,024 bytes and
+    /// with [`ErrorKind::DifferentSchema`](crate::ErrorKind::DifferentSchema) for an index the table does not have.
+    pub fn index_statistics(
+        &self,
+        table: &ReadTable<'_>,
+        index: &str,
+    ) -> Result<Option<Vec<PrefixStatistics>>> {
+        self.check_table(table)?;
+        self.folder.check_index_name(index)?;
+        let Some(found) = table.schema.indexes().iter().find(|i| i.name == index) else {
+            return Err(Error::DifferentIndex {
+                folder: self.folder.owned(),
+                table: table.name.clone(),
+                index: index.to_owned(),
+                difference: SchemaDifference::MissingIndex,
+                expected: "an index".into(),
+                found: "no index".into(),
+            });
+        };
+        let mut prefixes = Vec::new();
+        for k in 2..=found.key.len() {
+            let columns = u8::try_from(k).expect("at most 32 key columns");
+            let saved = stored_prefix(&self.inner, table.stats, found.id, columns)?;
+            let kept = self
+                .store
+                .statistics
+                .get_prefix(table.id, found.id, columns);
+            let newest = match (
+                saved,
+                kept.filter(|kept| kept.counter >= table.stats.emptied),
+            ) {
+                (Some(saved), Some(kept)) if kept.counter > saved.counter => Some((*kept).clone()),
+                (Some(saved), _) => Some(saved),
+                (None, kept) => kept.map(|kept| (*kept).clone()),
+            };
+            if let Some(stats) = newest {
+                let keys: Vec<KeyColumn> = (found.key[..k].iter())
+                    .map(|key| KeyColumn {
+                        ty: (table.schema.columns().iter())
+                            .find(|c| c.id == key.id)
+                            .expect("an index names live columns")
+                            .ty,
+                        direction: Direction::Ascending,
+                        nulls: Nulls::First,
+                        nullable: true,
+                    })
+                    .collect();
+                prefixes.push(PrefixStatistics {
+                    columns: k,
+                    origin_rows: stats.rows,
+                    rows_read: stats.read,
+                    origin_counter: stats.counter,
+                    stale: stats::is_stale(stats.rows, stats.counter, table.stats.counter),
+                    distinct: stats.distinct,
+                    frequent: (stats.frequent.iter())
+                        .map(|(element, fraction)| {
+                            let mut rest = &element[..];
+                            let values = (keys.iter())
+                                .map(|key| key.decode(&mut rest).unwrap_or(Value::Null))
+                                .collect();
+                            (values, *fraction)
+                        })
+                        .collect(),
+                });
+            }
+        }
+        Ok((!prefixes.is_empty()).then_some(prefixes))
     }
 
     /// Builds the statistics of `table`, or of its column `column`, from the transaction's snapshot.
@@ -249,21 +419,35 @@ impl WriteTransaction<'_> {
     /// table was emptied after the build's snapshot, or the tree has statistics of the column of a later snapshot
     /// (ST6). A build of another table, or of a deleted one, saves nothing.
     pub(crate) fn save_statistics(&mut self, table: &WriteTable<'_>, built: Built) -> Result<()> {
-        let (stats, columns) = {
+        let (stats, columns, indexes) = {
             let state = self.live_table(table)?;
             if state.id() != built.table {
                 return Ok(());
             }
             let columns: Vec<u64> = state.schema.columns().iter().map(|c| c.id).collect();
-            (state.stats, columns)
+            let indexes: Vec<(u64, usize)> = (state.schema.indexes().iter())
+                .map(|index| (index.id, index.key.len()))
+                .collect();
+            (state.stats, columns, indexes)
         };
+        let entries = (built.columns.into_iter())
+            .filter(|(column, _)| columns.contains(column))
+            .map(|(column, found)| (column_key(column).to_vec(), found))
+            .chain(
+                (built.prefixes.into_iter())
+                    .filter(|((index, k), _)| {
+                        indexes.contains(&(*index, indexes_len(&indexes, *index)))
+                            && indexes_len(&indexes, *index) >= usize::from(*k)
+                    })
+                    .map(|((index, k), found)| (prefix_key(index, k).to_vec(), found)),
+            );
         let mut root = stats.root;
-        for (column, found) in built.columns {
-            if !columns.contains(&column) || found.counter < stats.emptied {
+        for (key, found) in entries {
+            if found.counter < stats.emptied {
                 continue;
             }
             let current = TableStats { root, ..stats };
-            if stored(&self.inner, current, column)?
+            if stored_at(&self.inner, current, &key)?
                 .is_some_and(|saved| saved.counter > found.counter)
             {
                 continue;
@@ -271,8 +455,7 @@ impl WriteTransaction<'_> {
             if root == 0 {
                 root = krummi_tree::create(&mut self.inner)?;
             }
-            root =
-                krummi_tree::set(&mut self.inner, root, &column_key(column), &found.encode())?.root;
+            root = krummi_tree::set(&mut self.inner, root, &key, &found.encode())?.root;
         }
         if root != stats.root {
             self.set_stats_root(table, root);

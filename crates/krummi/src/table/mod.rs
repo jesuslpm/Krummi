@@ -52,7 +52,7 @@ pub use rows::{TableRow, Upserted};
 pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 pub(crate) use sequence::Sequences;
 pub use sequence::{ReadSequence, SequenceMode, WriteSequence};
-pub use statistics::{ColumnStatistics, HistogramBucket};
+pub use statistics::{ColumnStatistics, HistogramBucket, PrefixStatistics};
 #[doc(hidden)]
 pub use worker::StatisticsPoint;
 pub(crate) use worker::Work;

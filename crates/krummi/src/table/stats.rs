@@ -23,6 +23,8 @@ const BOUND: usize = 64;
 
 /// The kind byte of a column's entry in the statistics tree.
 const COLUMN: u8 = 0;
+/// The kind byte of an index prefix's entry in the statistics tree (ST17).
+const PREFIX: u8 = 1;
 
 /// The statistics of one column, from one snapshot (ST1).
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +55,14 @@ pub(crate) struct Bucket {
 pub(crate) fn column_key(column: u64) -> [u8; 9] {
     let mut key = [COLUMN; 9];
     key[1..].copy_from_slice(&column.to_be_bytes());
+    key
+}
+
+/// The key of the entry of the prefix of `columns` key columns of the index `index` in the statistics tree (ST17).
+pub(crate) fn prefix_key(index: u64, columns: u8) -> [u8; 10] {
+    let mut key = [PREFIX; 10];
+    key[1..9].copy_from_slice(&index.to_be_bytes());
+    key[9] = columns;
     key
 }
 
@@ -107,6 +117,19 @@ impl Gather {
             large: 0,
             values: Vec::new(),
         }
+    }
+
+    /// Counts the combination of one row read, the key elements of an index prefix (ST17).
+    pub(crate) fn add_element(&mut self, element: Vec<u8>) {
+        self.values.push(element);
+    }
+
+    /// The statistics of an index prefix: the distinct combinations and the most frequent ones, without a
+    /// histogram (ST17).
+    pub(crate) fn finish_combinations(self, rows: u64, read: u64, counter: u64) -> ColumnStats {
+        let mut stats = self.finish(rows, read, counter);
+        stats.histogram.clear();
+        stats
     }
 
     /// Counts the value of one row read.

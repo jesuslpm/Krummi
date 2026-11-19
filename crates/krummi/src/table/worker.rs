@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use super::catalog::ReadTable;
 use super::statistics::Built;
+use super::stats::ColumnStats;
 use crate::{ErrorKind, ReadTransaction, Shared, TreeKind};
 
 /// How long a save waits for the write turn before it looks whether the store is closing (ST10).
@@ -81,13 +82,8 @@ impl Work {
             });
             match (same, job) {
                 (Some(Job::Save(queued)), Job::Save(built)) => {
-                    for (column, stats) in built.columns {
-                        match queued.columns.iter_mut().find(|(c, _)| *c == column) {
-                            Some((_, kept)) if kept.counter <= stats.counter => *kept = stats,
-                            Some(_) => {}
-                            None => queued.columns.push((column, stats)),
-                        }
-                    }
+                    merge(&mut queued.columns, built.columns);
+                    merge(&mut queued.prefixes, built.prefixes);
                 }
                 (Some(_), _) => {}
                 (None, job) => state.queue.push_back(job),
@@ -168,6 +164,17 @@ impl Work {
                 .wake
                 .wait(state)
                 .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// Adds `fresh` to `queued`, each kept unless `queued` has it from a later snapshot.
+fn merge<K: PartialEq>(queued: &mut Vec<(K, ColumnStats)>, fresh: Vec<(K, ColumnStats)>) {
+    for (key, stats) in fresh {
+        match queued.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, kept)) if kept.counter <= stats.counter => *kept = stats,
+            Some(_) => {}
+            None => queued.push((key, stats)),
         }
     }
 }

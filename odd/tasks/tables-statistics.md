@@ -44,9 +44,9 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 |---|---|---|---|---|
 | T1 | S1 (PRD amendment before the run) | inline | done | `b04cba7` |
 | T2 | S1: ST4, ST13 (counter, format 13), AC-ST3, AC-ST11 | inline | done | `8d1fb6e` |
-| T3 | S1: ST1, ST7, ST8, ST16 (build, store, analyze, read), AC-ST1, AC-ST6, AC-ST12 | inline | pending | |
-| T4 | S1: ST2, ST3, ST5, ST12 (estimate, sampling, memory), AC-ST2, AC-ST9 | inline | pending | |
-| T5 | S1: ST6, ST9, ST10, ST11, ST14 (thread, failures, close), AC-ST4, AC-ST5, AC-ST7, AC-ST8, AC-ST10 | inline | pending | |
+| T3 | S1: ST1, ST7, ST8, ST16 (build, store, analyze, read), AC-ST1, AC-ST6, AC-ST12 | inline | done | `7fa8911` |
+| T4 | S1: ST2, ST3, ST5, ST12 (estimate, sampling, memory), AC-ST2, AC-ST9 | inline | done | `93bac6d` |
+| T5 | S1: ST6, ST9, ST10, ST11, ST14 (thread, failures, close), AC-ST4, AC-ST5, AC-ST7, AC-ST8, AC-ST10 | inline | done | `0ddf2a1` |
 | T6 | S1: ST17, ST18 (index prefixes, multi-column), AC-ST13, AC-ST14 | inline | pending | |
 | T7 | S2, S4 (measurements, reviews, closing report) | inline | pending | |
 
@@ -68,3 +68,15 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 - **L4** — Decision (S5, recommended): T3 first samples through the row scan, which reads a run whole; the partial
   read of runs without their checksum (ST1) and the random leaf sampling of tables over 30,000 rows follow as their own
   steps, so each is reviewable alone.
+- **L5** — T3 done in `7fa8911` (build, save and read column statistics; analyze in a write and on the store; ST8
+  lifecycle), T4 in `93bac6d` (estimate with the shared in-memory statistics, sampling at once, a write's private
+  statistics) and T5 in `0ddf2a1` (background thread, the store's shared state behind an `Arc`, save retry, hooks of
+  ST14). Checks pass after each. Decisions (S5): a dropped column's statistics are ignored by identity rather than
+  removed from the tree (observably the same); memory entries are ignored after an emptying the transaction sees; a
+  renewal finds a renamed table among the catalog's tables; a save waits for the turn in 20 ms polls so that close
+  can drop it; unit tests that alter the engine rebuild the shared state (`with_engine_mut`). Not yet covered: the
+  partial read of runs and the random-leaf sampling over 30,000 rows (L4), the fault cases of AC-ST8 and AC-ST15's
+  measurements. Risk: item 4 (concurrency) for T5.
+- **L6** — RDD of the slice `8d1fb6e..0ddf2a1` (T3–T5), escalated with item 4 (concurrency): review
+  `review-2013388a3a92733c`, lenses risk, resilience and reliability, approved with no findings, acknowledged.
+  Reviewed boundary: `0ddf2a1`. The independent verifier that item 4 calls for runs once at the feature's end.
