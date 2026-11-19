@@ -127,3 +127,8 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   in `05d3d7f` and `f1fc1a0` (R2 and part of R13 still pending). `05d3d7f` was committed before its clippy check
   finished (a too-many-arguments lint), fixed in `f1fc1a0`. Round 3, the last automatic one, runs over
   `05d3d7f~1..25d1fc5`.
+- **L13** — Codex round 3 (`2026-11-19-code-03.md`): R1, R9 and R15 verified; open R2 (blocker), R4, R11, R12, R13
+  and the regressions R16 (schema and index changes retire statistics that must be kept) and R17 (merging queued saves
+  across epochs drops the fresh sample). The wrapper reported `violation` because of Claude's own commit and phase-log
+  mark during the review. The round limit is reached: the next session needs the user's authorization for round 4,
+  then R2 (T7b), ST15's measurements and the closing report.

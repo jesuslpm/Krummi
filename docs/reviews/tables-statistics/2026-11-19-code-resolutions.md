@@ -164,3 +164,14 @@ an `expect` with its reason to `build`). Checks after them: fmt, clippy and `car
 - R15 — fixed: write estimate, statistics reads and analyze check the handle's transaction, then the names, then a
   deleted handle. Test: `r15_a_deleted_handle_comes_after_the_names`.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-19 (verification, round 3)
+
+Follow-up report: [2026-11-19-code-03.md](2026-11-19-code-03.md). Verdict, quoted: "Changes required. R2, R4, R11, R12
+and R13 remain open; regressions R16 and R17 are also open. R1, R9 and R15 are verified resolved. One blocker and six
+major findings remain; approval is withheld."
+
+Review record: wrapper status `violation`, with `HEAD`, `refs` and `odd/tasks/tables-statistics-phases.tsv` changed
+during the review. Those changes were Claude's, not Codex's: the execution document's commit `docs(odd): record the
+Codex review rounds` and the phase log's `bg-start` were made while the review ran. Nothing was reverted. This was the
+third automatic round; a further round needs the user's authorization.
