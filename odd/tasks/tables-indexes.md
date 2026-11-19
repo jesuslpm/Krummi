@@ -257,3 +257,14 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   entry); the Windows full-run report says «con cambios sin confirmar» because the phase log
   `odd/tasks/tables-indexes-phases.tsv`, the only uncommitted file during the run, was modified (the measured code
   is `1de443b`, built before the run).
+- **L18** (2026-11-19) — RDD of the last slice `7220476..767e251` (readability): approved,
+  `review-2e490fdaa1ace3c2` (advisory: L15's measured commit wording). Codex code review over `0158fd4..767e251`
+  ([report](../../docs/reviews/tables-indexes/2026-11-19-code.md), `findings`, Pasteur `gpt-6-astra`/`xhigh`): three
+  major findings, all demonstrated defects, fixed test-first by a delegated writer one at a time and committed
+  separately: R3 `4bf9b3c` (a failed open after recovery removed `krummi.sort`; now removed only once the open cannot
+  fail), R2 `2d2912b` (index identities and states now redrawn against the whole catalog), R1 `8f1343a` (index entry
+  key and payload reserved fallibly: out of memory and T11 instead of an abort). Pre-existing, not changed: the same
+  open order for `krummi.temp`; local-only collision checks in `create_table` and `change_schema`; infallible row
+  encoding on row writes. RDD `767e251..8f1343a` (risk, resilience, reliability): approved,
+  `review-4d2dc3647d685d63`. Resolutions: `docs/reviews/tables-indexes/2026-11-19-code-resolutions.md`. The Codex
+  follow-up is the independent check of the fixes (R3 touches the open, item 1).
