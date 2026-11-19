@@ -232,3 +232,11 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   this change does not touch). To separate the branch from Voron and the machine, a Krummi-only A/B of W23–W29 on
   Windows, base `0158fd4` against `1de443b`, each build with its own stores (format 11 against 12): five rounds for
   W23–W25, W28, W29 and ten for W26, W27 (`work/ti/ab.sh`).
+- **L16** (2026-11-19) — A/B result (`work/ti/ab/ab-long.json`, `ab-short.json`; digests equal), head over base, op/s:
+  W23 0.993, W24 0.999, W25 1.006, W28 1.003, W29 1.002, W26 1.002, and **W27 0.929** (base 82.9–85.4 ns/row,
+  head 89.5–93.6 ns/row, no overlap in ten rounds). So the full run's Windows drops of W23, W26, W28 and W29 are
+  Voron's and the machine's, while W27 is a real regression of the branch: the primary-key range scan now carries
+  T4's optional index path (the verifier's advisory A4 of L10). W27 still meets its threshold (Windows 1.00, Linux
+  1.08), but the engineering principles do not accept a slower existing load for an unrelated feature: a delegated
+  writer removes the cost from the primary-key path, measured with the same A/B (base, head, fix on W27; head, fix
+  on W31, W32).
