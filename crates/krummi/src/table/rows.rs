@@ -1446,7 +1446,9 @@ impl WriteTransaction<'_> {
             Some(at) => krummi_tree::overwrite(&mut self.inner, at, &key, &encoded)?,
             None => false,
         };
-        if !overwritten {
+        if overwritten {
+            self.count_modified(table);
+        } else {
             let update = krummi_tree::set(&mut self.inner, rows_root, &key, &encoded)?;
             self.apply_rows(table, update.root, RowCount::Kept)?;
         }
@@ -1500,12 +1502,33 @@ impl WriteTransaction<'_> {
             state.rows_root = root;
             state.dirty = true;
         }
+        // Each row inserted, changed or removed is a modification (ST4 of the statistics PRD).
+        let modified = match change {
+            RowCount::Kept | RowCount::Added => 1,
+            RowCount::Removed(n) => n,
+        };
+        if modified > 0 {
+            state.stats.add(modified);
+            state.dirty = true;
+        }
         // The change may have split or merged the last leaf, and a removal may have taken the greatest key.
         state.last = None;
         if matches!(change, RowCount::Removed(n) if n > 0) {
             state.greatest = None;
         }
         Ok(())
+    }
+
+    /// Counts one changed row of `table` in its modification counter, for a change that keeps the tree's root and
+    /// count (ST4 of the statistics PRD).
+    fn count_modified(&mut self, table: &WriteTable<'_>) {
+        let state = self
+            .tables
+            .get_mut()
+            .get_mut(table.id)
+            .expect("a live handle");
+        state.stats.add(1);
+        state.dirty = true;
     }
 
     /// Inserts the row `row` of `key` at the end of the rows tree's last leaf when `key` is greater than every key
@@ -1531,6 +1554,7 @@ impl WriteTransaction<'_> {
             return Ok(false);
         }
         state.count = count;
+        state.stats.add(1);
         state.dirty = true;
         #[cfg(test)]
         {

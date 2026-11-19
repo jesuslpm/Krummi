@@ -25,8 +25,8 @@ use super::identity;
 use super::maintain::Maintained;
 use super::rows::{At, Reader};
 use super::schema::{
-    Change, Column, Different, Invalid, MAX_COLUMN_NAME, Schema, TableSchema, check_new,
-    identity_key, schema_names, stored_identities, version_key,
+    Change, Column, Different, Invalid, MAX_COLUMN_NAME, Schema, TableSchema, TableStats,
+    check_new, identity_key, schema_names, stored_identities, version_key,
 };
 use super::value::ColumnType;
 use crate::{Folder, ReadTransaction, Store, WriteTransaction};
@@ -46,6 +46,8 @@ pub struct ReadTable<'s> {
     pub(super) schema: TableSchema,
     /// The roots of its indexes' trees, in the order of [`TableSchema::indexes`].
     pub(super) index_roots: Vec<u64>,
+    /// Its modification counter and statistics tree as the snapshot sees them (ST4, ST13 of the statistics PRD).
+    pub(super) stats: TableStats,
     /// How its rows are read.
     pub(super) reader: Arc<Reader>,
     _store: PhantomData<&'s Store>,
@@ -146,6 +148,8 @@ pub(crate) struct TableState {
     pub(super) schema: TableSchema,
     /// The roots of its indexes' trees, in the order of [`TableSchema::indexes`].
     pub(super) index_roots: Vec<u64>,
+    /// Its modification counter and statistics tree (ST4, ST13 of the statistics PRD).
+    pub(super) stats: TableStats,
     /// How the rows of its current schema are read and written.
     pub(super) reader: Arc<Reader>,
     /// How its row writes keep its indexes, built when a row write first needs it after a change of its schema or
@@ -186,7 +190,8 @@ impl TableState {
 
     /// The bytes of its catalog entry after the fixed part: its schema with its indexes (see [`TableSchema::encode`]).
     fn extra(&self) -> Vec<u8> {
-        self.schema.encode(self.history, &self.index_roots)
+        self.schema
+            .encode(self.history, &self.index_roots, self.stats)
     }
 
     /// Makes `schema` the table's current one, for every handle (E4, B9).
@@ -203,6 +208,7 @@ struct Found {
     schema: TableSchema,
     history: u64,
     index_roots: Vec<u64>,
+    stats: TableStats,
 }
 
 /// The table `name` that `tx` sees, failing with [`Error::DifferentTreeType`] when the name is of another class of
@@ -214,13 +220,15 @@ fn find_table<S: PageSource>(folder: Folder<'_>, tx: &S, name: &str) -> Result<O
     if located.entry.kind != TreeKind::Table {
         return Err(folder.different_class(name, located.entry.kind, TreeKind::Table));
     }
-    let (schema, history, index_roots) = TableSchema::decode(located.entry.id, located.extra)
-        .ok_or_else(|| tx.damaged(located.page))?;
+    let (schema, history, index_roots, stats) =
+        TableSchema::decode(located.entry.id, located.extra)
+            .ok_or_else(|| tx.damaged(located.page))?;
     Ok(Some(Found {
         entry: located.entry,
         schema,
         history,
         index_roots,
+        stats,
     }))
 }
 
@@ -304,6 +312,7 @@ impl<'s> ReadTransaction<'s> {
             ),
             schema: found.schema,
             index_roots: found.index_roots,
+            stats: found.stats,
             _store: PhantomData,
         })
     }
@@ -318,6 +327,14 @@ impl<'s> ReadTransaction<'s> {
     pub fn table_schema(&self, table: &ReadTable<'_>) -> Result<TableSchema> {
         self.check_table(table)?;
         Ok(table.schema.clone())
+    }
+
+    /// A test hook, not part of the interface: the modification counter of `table` in the snapshot (ST4 of the
+    /// statistics PRD).
+    #[doc(hidden)]
+    pub fn modification_counter(&self, table: &ReadTable<'_>) -> Result<u64> {
+        self.check_table(table)?;
+        Ok(table.stats.counter)
     }
 
     /// The number of rows of `table` in the snapshot, read from the catalog without reading the table (E19).
@@ -422,6 +439,13 @@ impl<'s> WriteTransaction<'s> {
     /// The schema of `table` with this transaction's changes, as an owned copy.
     pub fn table_schema(&self, table: &WriteTable<'_>) -> Result<TableSchema> {
         Ok(self.live_table(table)?.schema.clone())
+    }
+
+    /// A test hook, not part of the interface: the modification counter of `table` with this transaction's changes
+    /// (ST4 of the statistics PRD).
+    #[doc(hidden)]
+    pub fn modification_counter(&self, table: &WriteTable<'_>) -> Result<u64> {
+        Ok(self.live_table(table)?.stats.counter)
     }
 
     /// The number of rows of `table`, with this transaction's changes, without reading the table (E19).
@@ -543,6 +567,7 @@ impl<'s> WriteTransaction<'s> {
                     reader: Arc::new(Reader::new(&found.schema, self.projections.serial())),
                     schema: found.schema,
                     index_roots: found.index_roots,
+                    stats: found.stats,
                     maintained: None,
                     deleted: false,
                     dirty: false,
@@ -632,7 +657,12 @@ impl<'s> WriteTransaction<'s> {
             root,
             count: 0,
         };
-        catalog::put_with_extra(&mut self.inner, name, &entry, &schema.encode(history, &[]))?;
+        catalog::put_with_extra(
+            &mut self.inner,
+            name,
+            &entry,
+            &schema.encode(history, &[], TableStats::default()),
+        )?;
         self.join(
             name,
             Found {
@@ -640,6 +670,7 @@ impl<'s> WriteTransaction<'s> {
                 schema,
                 history,
                 index_roots: Vec::new(),
+                stats: TableStats::default(),
             },
         )
     }
@@ -660,6 +691,9 @@ impl<'s> WriteTransaction<'s> {
             *index_root = krummi_tree::create(&mut self.inner)?;
         }
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
+        // Its statistics go, and the rows it removes count as modifications, so older statistics are dropped (ST8).
+        state.stats.add(state.count);
+        state.stats.emptied = state.stats.counter;
         state.rows_root = root;
         state.index_roots = index_roots;
         state.count = 0;

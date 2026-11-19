@@ -1136,6 +1136,8 @@ pub(crate) fn stored_identities(bytes: &[u8], mut visit: impl FnMut(u64)) -> Opt
     for _ in 0..index_count {
         visit(r.raw_index()?.id);
     }
+    // The statistics part (ST13 of the statistics PRD) names no identity.
+    r.take(TableStats::LEN)?;
     r.is_empty().then_some(history)
 }
 
@@ -1148,8 +1150,29 @@ const DEFAULT: u8 = 4;
 
 /// The bytes of a schema in its catalog entry ([`TableSchema::encode`]) besides its columns, its primary key
 /// columns' identities and its indexes: the history tree's root, the version, the schema state, the two counts, the
-/// index state and the number of indexes.
-const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2 + 8 + 2;
+/// index state, the number of indexes and the statistics part ([`TableStats`]).
+const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2 + 8 + 2 + TableStats::LEN;
+
+/// What a table's catalog entry keeps for its statistics (ST4, ST13 of the statistics PRD), after its indexes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TableStats {
+    /// The modification counter: the rows its committed writes inserted, changed or removed since it was created.
+    pub counter: u64,
+    /// The root of its statistics tree, or 0 while it has none.
+    pub root: u64,
+    /// The counter right after the table was last emptied, or 0: statistics of an older snapshot are dropped (ST6).
+    pub emptied: u64,
+}
+
+impl TableStats {
+    /// Its bytes in the catalog entry.
+    const LEN: usize = 3 * 8;
+
+    /// Adds `rows` modifications to the counter, which never decreases (ST4).
+    pub fn add(&mut self, rows: u64) {
+        self.counter = self.counter.saturating_add(rows);
+    }
+}
 
 /// The flag of a unique index, in the catalog.
 const UNIQUE: u8 = 1;
@@ -1195,12 +1218,13 @@ impl TableSchema {
     /// identities of the primary key columns in key order, the index state and the indexes in the order of their
     /// names, each with its identity, name, the root of its tree (`index_roots`, in the same order), flags (unique),
     /// key columns (identity, direction and null order), included columns (identity) and the condition of a partial
-    /// index, reserved and always empty (IX1, IX14 of the secondary indexes PRD).
+    /// index, reserved and always empty (IX1, IX14 of the secondary indexes PRD), and last the statistics part
+    /// (`stats`, ST13 of the statistics PRD).
     ///
     /// # Panics
     ///
     /// Unless there is one root per index.
-    pub fn encode(&self, history: u64, index_roots: &[u64]) -> Vec<u8> {
+    pub fn encode(&self, history: u64, index_roots: &[u64], stats: TableStats) -> Vec<u8> {
         assert_eq!(index_roots.len(), self.indexes.len(), "one root per index");
         let mut w = Writer(Vec::new());
         w.u64(history);
@@ -1247,6 +1271,9 @@ impl TableSchema {
             // The condition of a partial index (N7), which no index has yet.
             w.bytes(&[]);
         }
+        w.u64(stats.counter);
+        w.u64(stats.root);
+        w.u64(stats.emptied);
         debug_assert_eq!(
             w.0.len(),
             self.stored_len(),
@@ -1258,7 +1285,7 @@ impl TableSchema {
     /// The schema of the table `table_id`, the root of its history tree and the roots of its indexes' trees, in the
     /// order of the indexes, from `bytes`, or `None` when they are not what [`encode`](Self::encode) writes: the
     /// caller reports damage of the catalog page (G6).
-    pub fn decode(table_id: u64, bytes: &[u8]) -> Option<(TableSchema, u64, Vec<u64>)> {
+    pub fn decode(table_id: u64, bytes: &[u8]) -> Option<(TableSchema, u64, Vec<u64>, TableStats)> {
         let mut r = Reader(bytes);
         let (history, version, schema_state, count) = r.header()?;
         let mut columns = Vec::with_capacity(count);
@@ -1317,6 +1344,11 @@ impl TableSchema {
             indexes.push(index);
             roots.push(root);
         }
+        let stats = TableStats {
+            counter: r.u64()?,
+            root: r.u64()?,
+            emptied: r.u64()?,
+        };
         r.is_empty().then_some((
             TableSchema {
                 table_id,
@@ -1329,6 +1361,7 @@ impl TableSchema {
             },
             history,
             roots,
+            stats,
         ))
     }
 
