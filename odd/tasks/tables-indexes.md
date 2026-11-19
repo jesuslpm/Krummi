@@ -46,11 +46,11 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
 | T1 | S1, S3: index key encoding (direction, nulls, entry key = index columns ‖ primary key), decoding into owned values, value bounds of IX9 per direction; unit and property tests of order | delegated (backstop) | done (RED: `index_key_tests` did not compile; GREEN 14 of 14; six injected encoding defects each failed 3–7 tests) | `2657249` |
 | T2 | S1: definitions in the catalog (format 12, IX1, IX3, IX14), create (both modes, in-memory sort over rows) and drop (IX2, IX4, IX11), schema changes (IX5), Describe with identities and index state (IX6), changes and references (IX13), error data (IX10); AC-IX1, AC-IX7 (in-memory), AC-IX9–AC-IX12, AC-IX15 | delegated (backstop) | done (7 injected defects each caught; `table_indexes` 16 of 16; verified, L6) | `9d57e7f`, `e7b95e9` |
 | T3 | S1: maintenance in every row write (IX7, IX10, IX12), bulk load, empty; AC-IX2, AC-IX6, AC-IX8, AC-IX13 | delegated (backstop) | done (RED: 7 new tests hit the T2 stopgap panic; GREEN `table_indexes` 24 of 24; 7 injected defects caught; verified, L8) | `4a4c345` |
-| T4 | S1: index scans returning rows or entries, intervals (IX8, IX9); AC-IX3–AC-IX5 | delegated (backstop) | pending | |
-| T5 | S1: external sort in `krummi.sort` and its cleanup (IX2: open step 8, close, failures, memory-only temporary store); AC-IX14 | delegated (backstop) | pending | |
-| T6 | S2: W30–W32 in Krummi and Voron, 32 thresholds, reduced run | delegated (backstop) | pending | |
-| T7 | S2: full benchmark runs on Windows and Linux (AC-IX16) | inline (background runs) | pending | |
-| T8 | S4: final checks, RDD of the last slice, Codex review, closing report | inline | pending | |
+| T4 | S1: index scans returning rows or entries, intervals (IX8, IX9); AC-IX3–AC-IX5 | delegated (backstop) | done (RED: `table_index_scans` did not compile; GREEN 5 of 5 and `table_indexes` 27 of 27; verified, L10; W27 regression fixed, L16–L17) | `025531a`, `ba3d843`, `7220476` |
+| T5 | S1: external sort in `krummi.sort` and its cleanup (IX2: open step 8, close, failures, memory-only temporary store); AC-IX14 | delegated (backstop) | done (8 injected defects caught; `table_index_sort` 8 of 8, then 10 with the fix pass; verified, L13) | `7c33f57`, `1de443b` |
+| T6 | S2: W30–W32 in Krummi and Voron, 32 thresholds, reduced run | delegated (backstop, parallel with T5) | done (Voron selftest known digests; reduced run, digests equal) | `e340580` |
+| T7 | S2: full benchmark runs on Windows and Linux (AC-IX16) | inline (background runs) | done (32 of 32 on Windows and Linux, L15; Krummi-only A/B of W23–W29, L16) | `b41b09d` |
+| T8 | S4: final checks, RDD of the last slice, Codex review, closing report | inline | done (RDD of every slice; Codex code review approved in round 3, L18–L19; [closing report](tables-indexes-report.md)) | `d1f71e3`..the report commit |
 
 ## Log
 
@@ -268,3 +268,13 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   encoding on row writes. RDD `767e251..8f1343a` (risk, resilience, reliability): approved,
   `review-4d2dc3647d685d63`. Resolutions: `docs/reviews/tables-indexes/2026-11-19-code-resolutions.md`. The Codex
   follow-up is the independent check of the fixes (R3 touches the open, item 1).
+- **L19** (2026-11-19) — Codex follow-up 2 ([report](../../docs/reviews/tables-indexes/2026-11-19-code-02.md),
+  `findings`, Hubble `gpt-6-astra`/`xhigh`): R1 and R3 verified resolved; R2 still open for catalog objects that are
+  not tables, and a new R4 caused by the R2 fix (decoding other tables' schemas copied their defaults infallibly).
+  Both fixed test-first in `09edff7`: every catalog entry's identity is compared, and a borrowing walk
+  (`stored_identities`, sharing `Reader::header`/`raw_column`/`raw_index` with `TableSchema::decode`) reads other
+  tables' identities without copying; the review's allocator probe now returns `Ok(())`. RDD `8f1343a..09edff7`
+  (resilience, reliability, readability): approved, `review-47b0a4cbadbf4f44`. Codex follow-up 3
+  ([report](../../docs/reviews/tables-indexes/2026-11-19-code-03.md), Peirce `gpt-6-astra`/`xhigh`): **approved**,
+  «Approved: no findings remain open in the requested follow-up scope.» The commits after `09edff7` are documents
+  (assessed `passive`). Resolutions: `docs/reviews/tables-indexes/2026-11-19-code-resolutions.md`.
