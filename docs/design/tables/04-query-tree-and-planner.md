@@ -276,6 +276,8 @@ Principles check: the design is DRY (the same nodes serve filters, estimates, ex
     true, so `NOT (x = 1)` skips rows where `x` is NULL; `IS NULL` selects them); (b) two-valued logic in which NULL
     never matches a comparison but `NOT` inverts the result. Recommendation: (a), as every SQL engine the users know.
 
+*Annotation of 2026-11-19 from the statistics PRD ([tables-statistics.prd.md](../../prd/krummi/tables/tables-statistics.prd.md), 7.3), by the user's decision:* a conjunction of equalities is not combined with `sel1 * sel2` (independence) but with an exponential backoff biased to overestimate: with the fractions of the groups sorted ascending, `f1 * f2^(1/4) * f3^(1/16) * f4^(1/64)`, where an index prefix that covers several columns is one group (ST18). There are no default estimates: without statistics the estimate samples (ST3).
+
 ## Sources
 
 Local:

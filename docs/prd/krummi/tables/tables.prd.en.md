@@ -86,6 +86,22 @@ authoritative):*
 - *Output: the values of the columns of an index key and of the primary key read from an entry are returned decoded into
   a copy the application owns, text and bytes too (decision IX8).*
 
+*Annotations of 2026-11-19 from the statistics ([tables-statistics.prd.md](tables-statistics.prd.md), 7.3):*
+
+- *N8: there is no default estimate. Without statistics, the estimate samples at that moment and waits for the sample,
+  so "No other operation of the application waits for them to be computed" no longer holds for the estimate; with
+  stale statistics, it uses them and asks for their refresh in the background (ST2, ST3). Reading the statistics is
+  also a public operation (ST16); analyze is asked for on the store or in a write (ST7); ST4 fixes what adds to the
+  counter. User: «si no espera al muestreo entonces tiene que usar "suposiciones" (guesses) y es lo que no quiero».*
+- *Flow, step 5: the estimate samples when statistics are missing and refreshes them in the background when they are
+  stale.*
+- *AC-N8: "it answers the default estimation without waiting" and "it answers the default estimation and they are built
+  again"
+  no longer hold; the cases move to AC-ST2 and AC-ST4, and AC-ST2 to AC-ST8 meet the criterion.*
+- *Split, row 7.3: what it fixes is fixed in tables-statistics.prd.md.*
+- *Out of scope: "Statistics of several columns together" now excludes only declared ones over columns without an
+  index; those of index prefixes are in 7.3 (ST17, ST18).*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

@@ -124,6 +124,13 @@ reads end.*
   write fails if that store is in the queue.*
 - *T12: that internal write may be the one that meets the first I/O failure; how it is reported is fixed by 7.3.*
 
+*Annotations of 2026-11-19 from the table statistics ([tables-statistics.prd.md](../tables/tables-statistics.prd.md), 7.3):*
+
+- *T4: the internal write that saves statistics asks for its turn like any write, with no limit and at the end of the
+  queue, and an application write may wait for it (ST6).*
+- *T12: an input/output failure of that internal write is reported by no application operation when it happens, but
+  by the following write requests and by close (ST9).*
+
 ### Starting state
 
 Verified on 2026-10-22:

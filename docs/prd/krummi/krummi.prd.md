@@ -232,6 +232,8 @@ alcance.*
 
 - *G6: la excepción de las lecturas de filas (anotación del 2026-11-11) vale también para las entradas de los índices, y para las filas que se borran, una a una o en un intervalo, en una tabla con índices y las que lee la creación de un índice: Krummi lee sus valores sin comprobar su contenido, y una fila o una entrada mal formada puede dar datos que no son los escritos o terminar en un pánico en lugar de un error (decisión IX12).*
 
+*Anotación del 2026-11-19 desde las estadísticas de las tablas ([tables-statistics.prd.md](tables/tables-statistics.prd.md), 7.3): excepción a G3 y AC6 para las estadísticas. Las estadísticas que el almacén tiene en memoria son compartidas: una transacción de lectura puede usar unas construidas de una instantánea posterior a la suya, y dos estimaciones de la misma transacción pueden usar estadísticas distintas (ST1). Las filas, el contador de modificaciones y las estadísticas guardadas siguen G3.*
+
 ## Flujo
 
 1. El desarrollador integrador abre un almacén indicando su carpeta, o en modo temporal. Si la carpeta no existe,

@@ -419,6 +419,8 @@ Design (documents, then the execution):
 - The root PRD does not yet carry modules 17 to 19 nor the D2, D12 and out-of-scope annotations proposed in
   tables.prd.md (*Anotaciones a otros PRD*); this document assumes them.
 
+*Annotation of 2026-11-19 from the statistics PRD ([tables-statistics.prd.md](../../prd/krummi/tables/tables-statistics.prd.md), 7.3):* C2 is covered: reading a column's or an index's statistics is public from 7.3 (ST16). Question 7 (an option to disable background statistics) stays out of 7.3; the tooling module adds it if needed.
+
 ## Sources
 
 Repository (paths under `C:\projects\Krummi`): `docs/design/tables/README.md`, `03-keys-and-indexes.md` (statistics),

@@ -238,6 +238,8 @@ authoritative):*
   reads their values without checking their content, and a malformed row or entry may give data that is not the one
   written or end in a panic instead of an error (decision IX12).*
 
+*Annotation of 2026-11-19 from the table statistics ([tables-statistics.prd.md](tables/tables-statistics.prd.md), 7.3): exception to G3 and AC6 for statistics. The statistics a store holds in memory are shared: a read transaction may use statistics built from a snapshot later than its own, and two estimates in the same transaction may use different statistics (ST1). Rows, the modification counter and saved statistics still follow G3.*
+
 ## Flow
 
 1. The integrating developer opens a store giving its folder, or in temporary mode. If the folder does not exist,

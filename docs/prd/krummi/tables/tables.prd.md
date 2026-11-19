@@ -82,6 +82,21 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
 - *N10: esquema distinto cubre también crear si no existe un índice con otra definición y recorrer un índice que no existe (decisiones IX2 e IX9).*
 - *Salida: los valores de las columnas de la clave de un índice y de la clave primaria leídos de una entrada se devuelven decodificados en una copia propia de la aplicación, también el texto y los bytes (decisión IX8).*
 
+*Anotaciones del 2026-11-19 desde las estadísticas ([tables-statistics.prd.md](tables-statistics.prd.md), 7.3):*
+
+- *N8: no hay estimación por defecto. Sin estadísticas, la estimación muestrea en ese momento y espera a la muestra,
+  así que «Ninguna otra operación de la aplicación espera a que se calculen» deja de valer para la estimación; con
+  estadísticas viejas, las usa y pide renovarlas en segundo plano (ST2, ST3). Leer las estadísticas es también una
+  operación pública (ST16); analizar se pide en el almacén o en una escritura (ST7); lo que suma al contador lo fija ST4.
+  Usuario: «si no espera al muestreo entonces tiene que usar "suposiciones" (guesses) y es lo que no quiero».*
+- *Flujo, paso 5: la estimación muestrea cuando faltan las estadísticas y las renueva en segundo plano cuando están
+  viejas.*
+- *AC-N8: «responde la estimación por defecto sin esperar» y «responde la estimación por defecto y se vuelven a
+  construir» dejan de valer; los casos pasan a AC-ST2 y AC-ST4, y AC-ST2 a AC-ST8 cumplen el criterio.*
+- *Reparto, fila 7.3: lo que fija queda fijado en tables-statistics.prd.md.*
+- *Fuera de alcance: «Estadísticas de varias columnas juntas» pasa a excluir solo las declaradas sobre columnas sin
+  índice; las de los prefijos de los índices entran en 7.3 (ST17, ST18).*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

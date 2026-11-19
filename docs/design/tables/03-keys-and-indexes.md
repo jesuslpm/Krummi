@@ -503,6 +503,8 @@ The statistics need be neither exact nor current. A stale histogram gives a wors
   `crates/krummi-pager/src/format.rs:41`), which Krummi has done before, so declining it is not a lock-in: the count is
   derivable from the data and can be rebuilt on upgrade.
 
+*Annotation of 2026-11-19 from the statistics PRD ([tables-statistics.prd.md](../../prd/krummi/tables/tables-statistics.prd.md), 7.3), by the user's decision:* "No query waits for sampling" and the default estimates no longer hold for the estimate: without statistics it samples at that moment, uses the result and publishes it in memory for other transactions; with stale statistics it uses them and refreshes them in the background (ST2, ST3). Index statistics keep, for each key prefix of two or more columns, the distinct combinations and also the most frequent ones (ST17). The boundary-descent range estimate is not part of 7.3.
+
 ## Costs and risks
 
 - **Key bytes per entry.** `tuple(columns) ‖ tuple(pk)` repeats the primary key in each secondary index. A 16-byte ULID

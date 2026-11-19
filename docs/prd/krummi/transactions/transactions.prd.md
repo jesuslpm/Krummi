@@ -123,6 +123,13 @@ espacio se recupera al terminar las lecturas.*
 - *T12: esa escritura interna puede ser la que encuentra el primer fallo de entrada y salida; cómo se informa lo
   fija 7.3.*
 
+*Anotaciones del 2026-11-19 desde las estadísticas de las tablas ([tables-statistics.prd.md](../tables/tables-statistics.prd.md), 7.3):*
+
+- *T4: la escritura interna que guarda estadísticas pide su turno como cualquier escritura, sin límite y al final de la
+  cola, y una escritura de la aplicación puede esperarla (ST6).*
+- *T12: un fallo de entrada y salida de esa escritura interna no lo informa ninguna operación de la aplicación al
+  ocurrir, sino las peticiones de escritura siguientes y el cierre (ST9).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

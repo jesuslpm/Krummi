@@ -130,6 +130,14 @@ authoritative):*
 - *E19: in a table with indexes, deleting a row, deleting a range and creating an index read the content of the rows
   without checking it, and traversing an index does not check its entries (decision IX12).*
 
+*Annotations of 2026-11-19 from the statistics ([tables-statistics.prd.md](tables-statistics.prd.md), 7.3):*
+
+- *E3: "resets its statistics" means that it removes them, also those in memory (ST8).*
+- *E16: analyze in a write is a change for T10 when it saves and ends references even when it fails; estimating and
+  reading the statistics are not changes and do not end references (ST2, ST7, ST16).*
+- *E17: ST12 fixes the errors and the precedence of estimate, read and analyze.*
+- *E20: the format version becomes 13 (ST13).*
+
 ### Starting state
 
 - There are no tables or sequences in the code: the catalog stores normal, multi-value and fixed-size trees, each

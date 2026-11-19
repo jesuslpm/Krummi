@@ -118,6 +118,14 @@ cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
 - *E17: clave duplicada en un índice único lleva además el índice y los valores de su clave que se repiten; tamaño no válido distingue también una entrada de índice; y los errores de los índices siguen la precedencia de IX10 (decisión IX10).*
 - *E19: en una tabla con índices, borrar una fila, borrar un intervalo y crear un índice leen el contenido de las filas sin comprobarlo, y recorrer un índice no comprueba sus entradas (decisión IX12).*
 
+*Anotaciones del 2026-11-19 desde las estadísticas ([tables-statistics.prd.md](tables-statistics.prd.md), 7.3):*
+
+- *E3: «reinicia sus estadísticas» quiere decir que las quita, también las de memoria (ST8).*
+- *E16: analizar en una escritura es un cambio para T10 cuando guarda y termina las referencias aunque falle; estimar
+  y leer las estadísticas no son cambios ni terminan referencias (ST2, ST7, ST16).*
+- *E17: los errores y la precedencia de estimar, leer y analizar los fija ST12.*
+- *E20: la versión del formato pasa a 13 (ST13).*
+
 ### Estado de partida
 
 - No hay tablas ni secuencias en el código: el catálogo guarda árboles normales, multivalor y de tamaño fijo, cada
