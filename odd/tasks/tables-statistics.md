@@ -42,8 +42,8 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1 (PRD amendment before the run) | inline | pending | |
-| T2 | S1: ST4, ST13 (counter, format 13), AC-ST3, AC-ST11 | inline | pending | |
+| T1 | S1 (PRD amendment before the run) | inline | done | `b04cba7` |
+| T2 | S1: ST4, ST13 (counter, format 13), AC-ST3, AC-ST11 | inline | done | `8d1fb6e` |
 | T3 | S1: ST1, ST7, ST8, ST16 (build, store, analyze, read), AC-ST1, AC-ST6, AC-ST12 | inline | pending | |
 | T4 | S1: ST2, ST3, ST5, ST12 (estimate, sampling, memory), AC-ST2, AC-ST9 | inline | pending | |
 | T5 | S1: ST6, ST9, ST10, ST11, ST14 (thread, failures, close), AC-ST4, AC-ST5, AC-ST7, AC-ST8, AC-ST10 | inline | pending | |
@@ -59,3 +59,12 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   sampled by reading only the needed pages without the run checksum («La a) sí»); in a write, the estimate samples the
   snapshot a new read sees («a) ya que las estadísticas son estadísticas y no tienen que ser exactas ni estar siempre
   al día. Es el principio fundamental.»). Recorded in ST1 and ST3 and in G6 of the root.
+- **L3** — T2 done in `8d1fb6e`: the catalog's statistics part (counter, stats root, emptied mark), the counter on
+  every row path (`apply_rows`, the append fast path, the same-length overwrite, emptying) and format 13. Checks:
+  fmt, clippy and `cargo test --workspace` pass. AC-ST3 is checked here through a test hook on the counter; its
+  staleness part comes with T4. Risk: item 1 (persisted format). RDD: assessed `medium`/`under_budget`, escalated with
+  item 1; review `review-73b4e0b9c2555c7d` over `b04cba7..8d1fb6e`, lens risk, approved with no findings,
+  acknowledged. Reviewed boundary: `8d1fb6e`.
+- **L4** — Decision (S5, recommended): T3 first samples through the row scan, which reads a run whole; the partial
+  read of runs without their checksum (ST1) and the random leaf sampling of tables over 30,000 rows follow as their own
+  steps, so each is reviewable alone.
