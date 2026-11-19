@@ -123,8 +123,9 @@ impl StatsMemory {
 }
 
 /// The newest of `saved` and `kept`, the saved statistics a transaction sees and those of memory, with `table`'s
-/// statistics part as it sees it: memory's are ignored when built before its last emptying.
-fn newest(
+/// statistics part as it sees it: memory's are ignored when built before its last emptying; and whether those are
+/// only in memory, newer than the saved ones.
+pub(crate) fn newest(
     saved: Option<ColumnStats>,
     kept: Option<Arc<ColumnStats>>,
     table: TableStats,
@@ -709,6 +710,11 @@ fn estimate_columns(
         sequence: None,
         rule,
     };
+    // The names' sizes and the columns first, then the list's own rules, then the values (ST12).
+    let mut columns: Vec<(&SchemaColumn, Checked)> = Vec::with_capacity(pairs.len());
+    for (name, _) in pairs {
+        columns.push((stats_column(folder, table, schema, name)?, Checked::Null));
+    }
     if pairs.is_empty() {
         return Err(invalid(None, ValueRule::InvalidRange));
     }
@@ -716,10 +722,6 @@ fn estimate_columns(
         if pairs[..at].iter().any(|(other, _)| other == name) {
             return Err(invalid(Some(name), ValueRule::RepeatedColumn));
         }
-    }
-    let mut columns: Vec<(&SchemaColumn, Checked)> = Vec::with_capacity(pairs.len());
-    for (name, _) in pairs {
-        columns.push((stats_column(folder, table, schema, name)?, Checked::Null));
     }
     for ((column, checked), (_, value)) in columns.iter_mut().zip(pairs) {
         let condition = Condition::Equal {

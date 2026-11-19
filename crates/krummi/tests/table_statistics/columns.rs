@@ -173,9 +173,30 @@ fn ac_st13_index_prefixes_and_the_biased_backoff() {
             other => panic!("{other:?}"),
         };
         assert_eq!(rule(vec![]), ValueRule::InvalidRange);
+        // ST12: the names and the columns go before the list's own rules (verifier A1).
+        let kind = |pairs: Vec<(&str, Value<'_>)>| {
+            read.estimate(&table, &Condition::EqualColumns(pairs))
+                .unwrap_err()
+                .kind()
+        };
+        assert_eq!(
+            kind(vec![("nope", Value::I64(1)), ("nope", Value::I64(2))]),
+            krummi::ErrorKind::DifferentSchema
+        );
+        assert_eq!(
+            kind(vec![("", Value::I64(1)), ("", Value::I64(2))]),
+            krummi::ErrorKind::InvalidSize
+        );
         assert_eq!(
             rule(vec![("pais", Value::I64(1)), ("pais", Value::I64(2))]),
             ValueRule::RepeatedColumn
         );
+        drop(read);
+        // ST16 in a write (verifier B2).
+        let mut write = store.write().unwrap();
+        let table = write.open_table("g").unwrap();
+        write.analyze(&table, None).unwrap();
+        let prefixes = write.index_statistics(&table, "iy").unwrap().unwrap();
+        assert_eq!(prefixes[0].columns, 2);
     });
 }

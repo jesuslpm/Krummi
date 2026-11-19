@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::catalog::{ReadTable, WriteTable};
+use super::estimate::{StatsMemory, newest};
 use super::key::{Direction, KeyColumn, Nulls};
 use super::rows::{TableRow, Versions};
 use super::schema::{SchemaColumn, TableSchema, TableStats};
@@ -262,6 +263,83 @@ pub(crate) fn statistics(
     }
 }
 
+/// What a transaction sees of a table for reading its statistics.
+pub(crate) struct Seen<'a> {
+    pub table: u64,
+    pub name: &'a str,
+    pub schema: &'a TableSchema,
+    pub stats: TableStats,
+}
+
+/// The statistics of the prefixes of the index `index` that `tx` sees of the table `seen`, with those of `memory`
+/// (see [`ReadTransaction::index_statistics`]).
+fn index_statistics<S: krummi_tree::PageSource + ?Sized>(
+    folder: Folder<'_>,
+    tx: &S,
+    memory: &StatsMemory,
+    seen: &Seen<'_>,
+    index: &str,
+) -> Result<Option<Vec<PrefixStatistics>>> {
+    let (table_id, table_name, table_schema, table_stats) =
+        (seen.table, seen.name, seen.schema, seen.stats);
+    folder.check_index_name(index)?;
+    let Some(found) = table_schema.indexes().iter().find(|i| i.name == index) else {
+        return Err(Error::DifferentIndex {
+            folder: folder.owned(),
+            table: table_name.to_owned(),
+            index: index.to_owned(),
+            difference: SchemaDifference::MissingIndex,
+            expected: "an index".into(),
+            found: "no index".into(),
+        });
+    };
+    let mut prefixes = Vec::new();
+    for k in 2..=found.key.len() {
+        let columns = u8::try_from(k).expect("at most 32 key columns");
+        let saved = stored_prefix(tx, table_stats, found.id, columns)?;
+        let kept = memory.get_prefix(table_id, found.id, columns);
+        let newest = match (
+            saved,
+            kept.filter(|kept| kept.counter >= table_stats.emptied),
+        ) {
+            (Some(saved), Some(kept)) if kept.counter > saved.counter => Some((*kept).clone()),
+            (Some(saved), _) => Some(saved),
+            (None, kept) => kept.map(|kept| (*kept).clone()),
+        };
+        if let Some(stats) = newest {
+            let keys: Vec<KeyColumn> = (found.key[..k].iter())
+                .map(|key| KeyColumn {
+                    ty: (table_schema.columns().iter())
+                        .find(|c| c.id == key.id)
+                        .expect("an index names live columns")
+                        .ty,
+                    direction: Direction::Ascending,
+                    nulls: Nulls::First,
+                    nullable: true,
+                })
+                .collect();
+            prefixes.push(PrefixStatistics {
+                columns: k,
+                origin_rows: stats.rows,
+                rows_read: stats.read,
+                origin_counter: stats.counter,
+                stale: stats::is_stale(stats.rows, stats.counter, table_stats.counter),
+                distinct: stats.distinct,
+                frequent: (stats.frequent.iter())
+                    .map(|(element, fraction)| {
+                        let mut rest = &element[..];
+                        let values = (keys.iter())
+                            .map(|key| key.decode(&mut rest).unwrap_or(Value::Null))
+                            .collect();
+                        (values, *fraction)
+                    })
+                    .collect(),
+            });
+        }
+    }
+    Ok((!prefixes.is_empty()).then_some(prefixes))
+}
+
 /// The number of key columns of the index `index` among `indexes`, or 0.
 fn indexes_len(indexes: &[(u64, usize)], index: u64) -> usize {
     (indexes.iter())
@@ -282,7 +360,9 @@ impl ReadTransaction<'_> {
     ) -> Result<Option<ColumnStatistics>> {
         self.check_table(table)?;
         let column = stats_column(self.folder, &table.name, &table.schema, column)?;
-        let found = stored(&self.inner, table.stats, column.id)?;
+        let saved = stored(&self.inner, table.stats, column.id)?;
+        let kept = self.store.statistics.get(table.id, column.id);
+        let found = newest(saved, kept, table.stats).0;
         Ok(found.map(|found| statistics(column, &found, table.stats.counter)))
     }
 
@@ -296,65 +376,19 @@ impl ReadTransaction<'_> {
         index: &str,
     ) -> Result<Option<Vec<PrefixStatistics>>> {
         self.check_table(table)?;
-        self.folder.check_index_name(index)?;
-        let Some(found) = table.schema.indexes().iter().find(|i| i.name == index) else {
-            return Err(Error::DifferentIndex {
-                folder: self.folder.owned(),
-                table: table.name.clone(),
-                index: index.to_owned(),
-                difference: SchemaDifference::MissingIndex,
-                expected: "an index".into(),
-                found: "no index".into(),
-            });
+        let seen = Seen {
+            table: table.id,
+            name: &table.name,
+            schema: &table.schema,
+            stats: table.stats,
         };
-        let mut prefixes = Vec::new();
-        for k in 2..=found.key.len() {
-            let columns = u8::try_from(k).expect("at most 32 key columns");
-            let saved = stored_prefix(&self.inner, table.stats, found.id, columns)?;
-            let kept = self
-                .store
-                .statistics
-                .get_prefix(table.id, found.id, columns);
-            let newest = match (
-                saved,
-                kept.filter(|kept| kept.counter >= table.stats.emptied),
-            ) {
-                (Some(saved), Some(kept)) if kept.counter > saved.counter => Some((*kept).clone()),
-                (Some(saved), _) => Some(saved),
-                (None, kept) => kept.map(|kept| (*kept).clone()),
-            };
-            if let Some(stats) = newest {
-                let keys: Vec<KeyColumn> = (found.key[..k].iter())
-                    .map(|key| KeyColumn {
-                        ty: (table.schema.columns().iter())
-                            .find(|c| c.id == key.id)
-                            .expect("an index names live columns")
-                            .ty,
-                        direction: Direction::Ascending,
-                        nulls: Nulls::First,
-                        nullable: true,
-                    })
-                    .collect();
-                prefixes.push(PrefixStatistics {
-                    columns: k,
-                    origin_rows: stats.rows,
-                    rows_read: stats.read,
-                    origin_counter: stats.counter,
-                    stale: stats::is_stale(stats.rows, stats.counter, table.stats.counter),
-                    distinct: stats.distinct,
-                    frequent: (stats.frequent.iter())
-                        .map(|(element, fraction)| {
-                            let mut rest = &element[..];
-                            let values = (keys.iter())
-                                .map(|key| key.decode(&mut rest).unwrap_or(Value::Null))
-                                .collect();
-                            (values, *fraction)
-                        })
-                        .collect(),
-                });
-            }
-        }
-        Ok((!prefixes.is_empty()).then_some(prefixes))
+        index_statistics(
+            self.folder,
+            &self.inner,
+            &self.store.statistics,
+            &seen,
+            index,
+        )
     }
 
     /// Builds the statistics of `table`, or of its column `column`, from the transaction's snapshot.
@@ -427,8 +461,41 @@ impl WriteTransaction<'_> {
     ) -> Result<Option<ColumnStatistics>> {
         let state = self.live_table(table)?;
         let column = stats_column(self.folder, &state.name, &state.schema, column)?;
-        let found = stored(&self.inner, state.stats, column.id)?;
+        let private = (self.private_statistics.borrow())
+            .get(&(state.id(), column.id))
+            .cloned();
+        let found = match private {
+            Some(found) => Some(found),
+            None => {
+                let saved = stored(&self.inner, state.stats, column.id)?;
+                let kept = self.store.statistics.get(state.id(), column.id);
+                newest(saved, kept, state.stats).0
+            }
+        };
         Ok(found.map(|found| statistics(column, &found, state.stats.counter)))
+    }
+
+    /// The statistics of the prefixes of the index `index` of `table` that the transaction sees, with the failures
+    /// of [`ReadTransaction::index_statistics`] (ST16).
+    pub fn index_statistics(
+        &self,
+        table: &WriteTable<'_>,
+        index: &str,
+    ) -> Result<Option<Vec<PrefixStatistics>>> {
+        let state = self.live_table(table)?;
+        let seen = Seen {
+            table: state.id(),
+            name: &state.name,
+            schema: &state.schema,
+            stats: state.stats,
+        };
+        index_statistics(
+            self.folder,
+            &self.inner,
+            &self.store.statistics,
+            &seen,
+            index,
+        )
     }
 
     /// Analyzes `table`, or its column `column`, in this write (ST7): builds the statistics from what the write sees,

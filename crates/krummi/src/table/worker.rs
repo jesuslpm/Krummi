@@ -91,7 +91,7 @@ impl Work {
         }
         self.wake.notify_all();
         let mut thread = lock(&self.thread);
-        if thread.is_none()
+        if thread.as_ref().is_none_or(JoinHandle::is_finished)
             && let Some(shared) = shared.this.upgrade()
         {
             let spawned = thread::Builder::new()

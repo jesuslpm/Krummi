@@ -185,3 +185,23 @@ fn st10_close_drops_a_sample_and_waits_for_a_save_with_the_turn() {
         "no thread until a request"
     );
 }
+
+/// ST1, ST16 (verifier B1): reading the statistics of a column sees those an estimate left in memory before their save
+/// commits, and asks for no work.
+#[test]
+fn st16_reading_sees_the_statistics_in_memory() {
+    stores(|store, _| {
+        commit_distribution(store);
+        store.hold_statistics(StatisticsPoint::SaveTurn, true);
+        estimate(store);
+        let seen = read_statistics(store, "n").expect("in memory");
+        assert_eq!(seen.origin_rows, 10_000);
+        store.hold_statistics(StatisticsPoint::SaveTurn, false);
+        store.wait_statistics_idle();
+        let write = store.write().unwrap();
+        let table = write.open_table("d").unwrap();
+        let write_seen = write.column_statistics(&table, "n").unwrap();
+        drop(write);
+        assert_eq!(write_seen.map(|s| s.origin_rows), Some(10_000));
+    });
+}

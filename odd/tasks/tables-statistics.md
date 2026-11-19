@@ -89,3 +89,8 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   again each time; the committed snapshot serves a write's estimate only when it has every column and index of the
   write's schema. Pending: T7b, the partial read of runs (ST1's G6 exception), which needs a run read by pages in
   krummi-tx and a row decoder on partial bytes; today a sampled row stored in a run is read whole.
+- **L8** — RDD of the slice `0ddf2a1..` (T6, T7a, lenses risk and reliability): review `review-6f99665bc52bc8dd`,
+  approved and acknowledged, with one warning (reliability, `R3-prefix-gather-unbounded`: index-prefix gathering
+  keeps every row's key elements without the large-value guard). Disposition: no change; an index key holds no large
+  value, since an index entry cannot pass 2,048 bytes (IX10), and a build reads about 30,000 rows at most, so the
+  memory is bounded; stored values always encode in their key encoding, so the ignored result never fails.
