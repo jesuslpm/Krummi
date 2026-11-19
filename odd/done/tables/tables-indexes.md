@@ -255,11 +255,11 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   RDD `1de443b..7220476` (readability, reliability): approved, `review-3c09936c657c00f6`. Advisories: a step comment
   in `ranges.rs:233` that read as if no `Result` remained (reworded); the A/B outcome not yet in this log (this
   entry); the Windows full-run report says «con cambios sin confirmar» because the phase log
-  `odd/tasks/tables-indexes-phases.tsv`, the only uncommitted file during the run, was modified (the measured code
+  `odd/done/tables/tables-indexes-phases.tsv`, the only uncommitted file during the run, was modified (the measured code
   is `1de443b`, built before the run).
 - **L18** (2026-11-19) — RDD of the last slice `7220476..767e251` (readability): approved,
   `review-2e490fdaa1ace3c2` (advisory: L15's measured commit wording). Codex code review over `0158fd4..767e251`
-  ([report](../../docs/reviews/tables-indexes/2026-11-19-code.md), `findings`, Pasteur `gpt-6-astra`/`xhigh`): three
+  ([report](../../../docs/reviews/tables-indexes/2026-11-19-code.md), `findings`, Pasteur `gpt-6-astra`/`xhigh`): three
   major findings, all demonstrated defects, fixed test-first by a delegated writer one at a time and committed
   separately: R3 `4bf9b3c` (a failed open after recovery removed `krummi.sort`; now removed only once the open cannot
   fail), R2 `2d2912b` (index identities and states now redrawn against the whole catalog), R1 `8f1343a` (index entry
@@ -268,14 +268,14 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   encoding on row writes. RDD `767e251..8f1343a` (risk, resilience, reliability): approved,
   `review-4d2dc3647d685d63`. Resolutions: `docs/reviews/tables-indexes/2026-11-19-code-resolutions.md`. The Codex
   follow-up is the independent check of the fixes (R3 touches the open, item 1).
-- **L19** (2026-11-19) — Codex follow-up 2 ([report](../../docs/reviews/tables-indexes/2026-11-19-code-02.md),
+- **L19** (2026-11-19) — Codex follow-up 2 ([report](../../../docs/reviews/tables-indexes/2026-11-19-code-02.md),
   `findings`, Hubble `gpt-6-astra`/`xhigh`): R1 and R3 verified resolved; R2 still open for catalog objects that are
   not tables, and a new R4 caused by the R2 fix (decoding other tables' schemas copied their defaults infallibly).
   Both fixed test-first in `09edff7`: every catalog entry's identity is compared, and a borrowing walk
   (`stored_identities`, sharing `Reader::header`/`raw_column`/`raw_index` with `TableSchema::decode`) reads other
   tables' identities without copying; the review's allocator probe now returns `Ok(())`. RDD `8f1343a..09edff7`
   (resilience, reliability, readability): approved, `review-47b0a4cbadbf4f44`. Codex follow-up 3
-  ([report](../../docs/reviews/tables-indexes/2026-11-19-code-03.md), Peirce `gpt-6-astra`/`xhigh`): **approved**,
+  ([report](../../../docs/reviews/tables-indexes/2026-11-19-code-03.md), Peirce `gpt-6-astra`/`xhigh`): **approved**,
   «Approved: no findings remain open in the requested follow-up scope.» The commits after `09edff7` are documents
   (assessed `passive`). Resolutions: `docs/reviews/tables-indexes/2026-11-19-code-resolutions.md`.
 - **L20** (2026-11-19) — Closing: [closing report](tables-indexes-report.md); `docs/performance/plan.md` gains the

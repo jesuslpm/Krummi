@@ -7,7 +7,7 @@ your changes in the working tree. Another task of the same run may have left com
 ## Read first
 
 1. `CLAUDE.md` (project rules: engineering principles, English code and comments, Spanish CLI messages and PRDs).
-2. `odd/tasks/tables-indexes.md` until `## Log` (specs S1–S5, execution design, tasks), then its `## Log` entries.
+2. `odd/done/tables/tables-indexes.md` until `## Log` (specs S1–S5, execution design, tasks), then its `## Log` entries.
 3. The PRD `docs/prd/krummi/tables/tables-indexes.prd.md` (authoritative, Spanish) — the decisions and acceptance
    criteria your task names, plus anything they reference in its ancestry (`tables.prd.md`, `tables-schema.prd.md`,
    `tables-row-reads.prd.md`, `tables-projection.prd.md`, `../krummi.prd.md`) as needed.

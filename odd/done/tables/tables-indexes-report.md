@@ -1,7 +1,7 @@
 # Índices secundarios de las tablas: implementados, verificados y aprobados por Codex
 
 Informe de cierre de `tables-indexes` (2026-11-19). Enfoque de ejecución: ODD.
-Fuente de producto: [tables-indexes.prd.md](../../docs/prd/krummi/tables/tables-indexes.prd.md) (PRD hijo 7.2).
+Fuente de producto: [tables-indexes.prd.md](../../../docs/prd/krummi/tables/tables-indexes.prd.md) (PRD hijo 7.2).
 Documento de ejecución: [tables-indexes.md](tables-indexes.md).
 
 Rama `feat/tables-indexes`, desde `main` en `0158fd4`, sin fusionar y sin publicar. El último commit de código es
@@ -41,7 +41,7 @@ Rama `feat/tables-indexes`, desde `main` en `0158fd4`, sin fusionar y sin public
     - la apertura, el cierre y el abandono del almacén, en T5.
   - **RDD:** aprobó todas las porciones (tabla abajo).
   - **Codex:** la revisión de código del rango entero quedó aprobada en la ronda 3
-    ([resoluciones](../../docs/reviews/tables-indexes/2026-11-19-code-resolutions.md)).
+    ([resoluciones](../../../docs/reviews/tables-indexes/2026-11-19-code-resolutions.md)).
 - **Hallazgos corregidos durante la ejecución:**
   - **Archivos de ordenación sin longitud registrada:** un archivo truncado se leía como un final normal y el
     índice quedaba sin entradas. Ahora la creación falla con la clase de entrada y salida (`1de443b`, RDD de T5).
@@ -303,7 +303,7 @@ Todos tuvieron su verificación: verificadores independientes, RDD con escalada 
 
 ## Limpieza manual
 
-- `work/ti/` (ignorado por git): `full/stores` con los almacenes de la corrida de Windows, y `ab/` con las builds
+- `work/ti/` (ignorado por git): `ab/` (3,5 GB) con las builds
   `base-target`, `head-target` y `fix-target`, los almacenes `ab-stores` y la copia `e3-src`. Se pueden borrar;
   conviene conservar los JSON y logs como evidencia del A/B.
 - En WSL, `~/night/runs`, `~/night/src` y `~/night/target`, de la corrida de Linux.
