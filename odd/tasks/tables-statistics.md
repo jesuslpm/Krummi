@@ -94,3 +94,16 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   keeps every row's key elements without the large-value guard). Disposition: no change; an index key holds no large
   value, since an index entry cannot pass 2,048 bytes (IX10), and a build reads about 30,000 rows at most, so the
   memory is bounded; stored values always encode in their key encoding, so the ignored result never fails.
+- **L9** — Independent verifier over `ba7f27a..ea5d7b3` (989 tests pass): blockers B1 (`column_statistics` ignored
+  the statistics in memory, ST1/ST16) and B2 (no `WriteTransaction::index_statistics`, ST16); advisories A1 (in an
+  equality in several columns, the repeated-column rule came before the names and columns, against ST12), A2
+  (frequent combinations tie in ascending order, not the index's), A3 (entries of dropped columns, indexes and tables
+  stay until their tree or memory goes), A4 (a thread that ended was not started again), A5 (a save polls for the turn
+  and can be overtaken), A6 (an analyze on the store drops its build when the table is renamed while it samples), A7
+  (no tests for AC-ST8's faults nor AC-ST9's compile-time check). One correction batch, `4386d3b`, fixes B1, B2, A1
+  and A4 with tests (`st16_reading_sees_the_statistics_in_memory`, the B2 and A1 asserts in `ac_st13_…`); the other
+  advisories stay as recorded. Scratch left by the verifier: `C:\Users\jesus.lopez\AppData\Local\Temp\krummi_verify_PtZT60`.
+- **L10** — Recheck of B1 and B2 by the verifier at `4386d3b`: both fixed. RDD of `f6e56d9..4386d3b` (lens
+  reliability): review `review-e10b0bcd401bbbf2`, approved and acknowledged, one warning (`R3-worker-respawn-untested`).
+  Disposition: no change; the thread ends only when the store stops (`run` returns only on the stop mark) or on a
+  panic, and a request while stopping is refused by the same mark, so no request can be lost to an ending thread.
