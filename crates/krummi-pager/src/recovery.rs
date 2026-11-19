@@ -10,10 +10,11 @@
 //!   later ones; otherwise the journal is damaged and the opening fails without touching the store.
 //!
 //! Pass 2 writes the pages of the commits that apply, flushes `krummi.data`, records the last one in both header
-//! copies and removes the journal and the temporary area, and then `krummi.sort`, the files of a sort a crash
-//! interrupted (IX2 of the secondary indexes PRD). Each sealed page is checked before anything is written; the pages
-//! of a value run travel as raw entries, which the record's checksum covers. An interruption at any point leaves what
-//! the next opening needs to do the same again.
+//! copies and removes the journal and the temporary area. It leaves `krummi.sort`, the files of a sort a crash
+//! interrupted, to [`Scratch::finish_open`](crate::Scratch::finish_open), once nothing can reject the opening (IX2 of
+//! the secondary indexes PRD). Each sealed page is checked before anything is written; the pages of a value run
+//! travel as raw entries, which the record's checksum covers. An interruption at any point leaves what the next
+//! opening needs to do the same again.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -49,7 +50,6 @@ pub(crate) fn recover(pager: &mut Pager, folder: &Path) -> Result<Recovered> {
     let Listed {
         journal_files,
         temp_present,
-        sort_present,
     } = list(folder)?;
     let needed: Vec<&(u64, PathBuf)> = journal_files
         .iter()
@@ -105,15 +105,17 @@ pub(crate) fn recover(pager: &mut Pager, folder: &Path) -> Result<Recovered> {
     if temp_present {
         sys::remove_temp_dir(&folder.join(TEMP_DIR)).map_err(|e| access(folder, e))?;
     }
-    // The files of a sort that a crash interrupted (IX2 of the secondary indexes PRD), never read: whatever is there,
-    // also a file of that name.
-    if sort_present {
-        sys::remove_sort(&folder.join(SORT_DIR)).map_err(|e| access(folder, e))?;
-    }
     Ok(Recovered {
         last_txid,
         next_number,
     })
+}
+
+/// Removes `krummi.sort` from `folder`, the files of a sort that a crash interrupted (IX2 of the secondary indexes
+/// PRD), never read: whatever is there, also a file of that name. The opening calls it last, once nothing can reject
+/// it, so that an opening that fails leaves it.
+pub(crate) fn remove_sort(folder: &Path) -> Result<()> {
+    sys::remove_sort(&folder.join(SORT_DIR)).map_err(|e| access(folder, e))
 }
 
 /// What recovery finds in the store's folder.
@@ -122,15 +124,12 @@ struct Listed {
     journal_files: Vec<(u64, PathBuf)>,
     /// Whether `krummi.temp` is there.
     temp_present: bool,
-    /// Whether `krummi.sort` is there, of any kind.
-    sort_present: bool,
 }
 
 /// The reserved entries of `folder`. A journal file or `krummi.temp` of the wrong kind is damage (J9).
 fn list(folder: &Path) -> Result<Listed> {
     let mut files = Vec::new();
     let mut temp = false;
-    let mut sort = false;
     for entry in fs::read_dir(folder).map_err(|e| access(folder, e))? {
         let entry = entry.map_err(|e| access(folder, e))?;
         let name = entry.file_name();
@@ -145,15 +144,12 @@ fn list(folder: &Path) -> Result<Listed> {
                 return Err(damaged(folder));
             }
             temp = true;
-        } else if is_reserved(&name, SORT_DIR) {
-            sort = true;
         }
     }
     files.sort_unstable_by_key(|(number, _)| *number);
     Ok(Listed {
         journal_files: files,
         temp_present: temp,
-        sort_present: sort,
     })
 }
 

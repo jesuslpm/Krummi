@@ -231,7 +231,7 @@ impl Engine {
     }
 
     fn new(pager: Pager, folder: Option<PathBuf>) -> Result<Engine> {
-        let scratch = Scratch::open(pager)?;
+        let mut scratch = Scratch::open(pager)?;
         let pager = scratch.pager();
         let fresh = meta_is_blank(pager);
         let (frontier, free) = if fresh {
@@ -260,8 +260,12 @@ impl Engine {
         // woken its own waiters (E8).
         let woken = Arc::clone(&turns);
         scratch.set_failure_hook(Some(Arc::new(move || woken.refuse_writes())));
+        let max_size = pager.info().max_size;
+        // Last, once nothing can reject the opening: an opening that fails leaves `krummi.sort` (IX2 of the secondary
+        // indexes PRD).
+        scratch.finish_open()?;
         Ok(Engine {
-            max_size: pager.info().max_size,
+            max_size,
             scratch,
             folder,
             turns,

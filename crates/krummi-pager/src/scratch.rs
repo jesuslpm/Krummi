@@ -179,6 +179,9 @@ pub struct Scratch {
     writer: Mutex<()>,
     /// The transfer thread, which every store opened with [`Scratch::open`] has (J5).
     transfers: Option<JoinHandle<()>>,
+    /// Whether the opening succeeded, so that the close and a drop remove `krummi.sort`: one opened with
+    /// [`Scratch::open`] only after [`Scratch::finish_open`] (IX2 of the secondary indexes PRD).
+    opened: bool,
 }
 
 /// The part of a store the transfer thread uses too.
@@ -324,7 +327,7 @@ struct Live {
 impl Scratch {
     /// Recovers the store if it closed in a crash (J8 of the Journal PRD) and puts a scratch area and an empty
     /// journal in front of it, with the transfer thread (J5). Recovery removes the journal and the temporary area
-    /// a crash left.
+    /// a crash left; [`Scratch::finish_open`] ends the opening.
     pub fn open(mut pager: Pager) -> Result<Scratch> {
         let signal = Arc::new(Signal::new());
         let (journal, (transfers, sender)) = match pager.folder().map(Path::to_path_buf) {
@@ -340,7 +343,7 @@ impl Scratch {
             }
             None => (None, transfer::start(&signal)?),
         };
-        let scratch = Scratch::with_journal(pager, journal, signal, Some(transfers));
+        let scratch = Scratch::with_journal(pager, journal, signal, Some(transfers), false);
         // The thread ends at once if this fails, and the store is closed without it.
         let _ = sender.send(Arc::clone(&scratch.shared));
         Ok(scratch)
@@ -349,7 +352,18 @@ impl Scratch {
     /// Puts a scratch area in front of a store, with no journal and no transfer thread (tests of the scratch
     /// area).
     pub fn new(pager: Pager) -> Scratch {
-        Scratch::with_journal(pager, None, Arc::new(Signal::new()), None)
+        Scratch::with_journal(pager, None, Arc::new(Signal::new()), None, true)
+    }
+
+    /// Ends an opening that nothing can reject any more: removes `krummi.sort`, the files of a sort a crash
+    /// interrupted, and from then on the close and a drop remove what an index creation leaves of it. Until then
+    /// neither touches it, so an opening that fails after recovery leaves it (IX2 of the secondary indexes PRD).
+    pub fn finish_open(&mut self) -> Result<()> {
+        if let Some(folder) = self.shared.pager().folder() {
+            recovery::remove_sort(folder)?;
+        }
+        self.opened = true;
+        Ok(())
     }
 
     fn with_journal(
@@ -357,6 +371,7 @@ impl Scratch {
         journal: Option<Journal>,
         signal: Arc<Signal>,
         transfers: Option<JoinHandle<()>>,
+        opened: bool,
     ) -> Scratch {
         let header = pager.header();
         let filter = Arc::new(VersionFilter::new());
@@ -389,6 +404,7 @@ impl Scratch {
             shared: Arc::new(shared),
             writer: Mutex::new(()),
             transfers,
+            opened,
         }
     }
 
@@ -636,7 +652,7 @@ impl Scratch {
     pub fn close(mut self) -> Result<()> {
         self.stop_transfers();
         let shared = Arc::get_mut(&mut self.shared).expect("the transfer thread ended");
-        let flushed = shared.flush_all();
+        let flushed = shared.flush_all(self.opened);
         let pager = shared.pager.take().expect("the store is open");
         let closed = pager.close();
         flushed.and(closed)
@@ -712,7 +728,7 @@ impl Drop for Scratch {
         if let Some(shared) = Arc::get_mut(&mut self.shared)
             && shared.pager.is_some()
         {
-            let _ = shared.flush_all();
+            let _ = shared.flush_all(self.opened);
         }
     }
 }
@@ -902,9 +918,9 @@ impl Shared {
     }
 
     /// Makes the journal durable, writes the newest version of every page to the data file, records it in both
-    /// header copies and removes the journal, the temporary area (J14) and `krummi.sort` (IX2 of the secondary indexes
-    /// PRD).
-    fn flush_all(&mut self) -> Result<()> {
+    /// header copies and removes the journal, the temporary area (J14) and, after an opening that succeeded,
+    /// `krummi.sort` (IX2 of the secondary indexes PRD).
+    fn flush_all(&mut self, opened: bool) -> Result<()> {
         let pager = self.pager.as_mut().expect("the store is open");
         pager.allow_writes_again();
         if let Some(journal) = &self.journal {
@@ -953,7 +969,7 @@ impl Shared {
         }
         self.area.remove().map_err(|e| pager.fail_write(e, 0))?;
         // The files of a sort that its index creation could not remove (IX2 of the secondary indexes PRD).
-        match pager.folder() {
+        match pager.folder().filter(|_| opened) {
             Some(folder) => {
                 sys::remove_sort(&folder.join(SORT_DIR)).map_err(|e| pager.fail_write(e, 0))
             }

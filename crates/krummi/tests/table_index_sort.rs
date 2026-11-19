@@ -497,6 +497,37 @@ fn ac_ix14_a_failed_open_leaves_the_files_of_the_sort() {
     assert_eq!(names, [SORT_DIR]);
 }
 
+/// AC-IX14 (IX2: «una apertura que falla no lo borra»): an open that recovery lets through and a later check rejects,
+/// here a damaged transaction metadata page, leaves `krummi.sort` as it was, also when the partly opened store is
+/// dropped; once the page is whole again, the next open removes it.
+#[test]
+fn ac_ix14_an_open_rejected_after_recovery_leaves_the_files_of_the_sort() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    commit_rows(&store);
+    store.close().unwrap();
+    let sort = sort_dir(dir.path());
+    fs::create_dir(&sort).unwrap();
+    fs::write(sort.join("run.probe"), b"retain on failed open").unwrap();
+
+    support::damage(dir.path(), 2);
+    let error = Store::open(dir.path(), &StoreOptions::default())
+        .err()
+        .unwrap();
+    assert_eq!(support::damaged_page(error), 2);
+    assert_eq!(
+        fs::read(sort.join("run.probe")).unwrap(),
+        b"retain on failed open"
+    );
+
+    // The same byte flipped back.
+    support::damage(dir.path(), 2);
+    let store = open(dir.path());
+    assert!(!sort.exists());
+    assert_eq!(entries(&store, "ix_n"), None);
+    store.close().unwrap();
+}
+
 /// AC-IX14: a creation that cannot remove `krummi.sort` keeps its result; closing the store removes it, and so does
 /// dropping it without closing.
 #[test]
