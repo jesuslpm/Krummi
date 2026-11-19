@@ -259,3 +259,24 @@ fn schema_changes_keep_the_indexes_in_step() {
     let error = schema.plan(&Change::Drop("id")).err().unwrap();
     assert_eq!((error.rule, error.index), (SchemaRule::DropKeyColumn, None));
 }
+
+/// IX6: the walk over a stored schema gives the root of its history tree and every identity that
+/// [`TableSchema::identities`] gives, without decoding a default; bytes that are not a schema's layout give `None`.
+#[test]
+fn the_stored_identities_are_the_schemas() {
+    let mut schema = with_indexes();
+    schema.columns[1].default = Some(Value::String("x".repeat(1 << 16).into()));
+    let bytes = schema.encode(5, &[30, 31]);
+    let mut walked = Vec::new();
+    assert_eq!(stored_identities(&bytes, |id| walked.push(id)), Some(5));
+    let mut expected: Vec<u64> = schema.identities().collect();
+    walked.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(walked, expected);
+    for len in 0..bytes.len() {
+        assert_eq!(stored_identities(&bytes[..len], |_| {}), None, "{len}");
+    }
+    let mut longer = bytes.clone();
+    longer.push(0);
+    assert_eq!(stored_identities(&longer, |_| {}), None);
+}

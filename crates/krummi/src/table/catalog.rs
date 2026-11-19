@@ -26,7 +26,7 @@ use super::maintain::Maintained;
 use super::rows::{At, Reader};
 use super::schema::{
     Change, Column, Different, Invalid, MAX_COLUMN_NAME, Schema, TableSchema, check_new,
-    identity_key, schema_names, version_key,
+    identity_key, schema_names, stored_identities, version_key,
 };
 use super::value::ColumnType;
 use crate::{Folder, ReadTransaction, Store, WriteTransaction};
@@ -793,22 +793,27 @@ impl<'s> WriteTransaction<'s> {
         Ok(krummi_tree::get(&self.inner, history, &identity_key(id))?.is_some())
     }
 
-    /// Whether the store knows the identity `id`, as this transaction sees it: the identity of a table in the catalog,
-    /// one of its current schema or one in its history tree (IX6, design document 11). It reads the whole catalog and
-    /// one key of each table's history tree. A name that is not UTF-8, which only foreign bytes can make, is not
-    /// found again and adds nothing.
+    /// Whether the store knows the identity `id`, as this transaction sees it: the identity of an object of the catalog
+    /// of any class (a tree of any kind, a sequence or a table), or, for a table, one of its current schema or one in its
+    /// history tree (IX6, design document 11). It reads the whole catalog and one key of each table's history tree, and
+    /// reads each table's schema in place, without decoding it or copying its defaults; the names of the catalog are
+    /// its only allocations, reserved as the transaction's (P13, T11). A name that is not UTF-8, which only foreign bytes
+    /// can make, is not found again and adds nothing.
     pub(super) fn store_knows(&self, id: u64) -> Result<bool> {
-        for (name, kind) in catalog::list(&self.inner)? {
-            if kind != TreeKind::Table {
-                continue;
-            }
-            let Some(found) = find_table(self.folder, &self.inner, &name)? else {
+        for (name, _) in catalog::list(&self.inner)? {
+            let Some(located) = catalog::lookup_with_extra(&self.inner, &name)? else {
                 continue;
             };
-            if found.entry.id == id
-                || found.schema.identities().any(|known| known == id)
-                || self.known_identity(found.history, id)?
-            {
+            if located.entry.id == id {
+                return Ok(true);
+            }
+            if located.entry.kind != TreeKind::Table {
+                continue;
+            }
+            let mut known = false;
+            let history = stored_identities(located.extra, |stored| known |= stored == id)
+                .ok_or_else(|| self.inner.damaged(located.page))?;
+            if known || self.known_identity(history, id)? {
                 return Ok(true);
             }
         }

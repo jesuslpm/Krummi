@@ -907,37 +907,83 @@ impl<'b> Reader<'b> {
         check_type(&ty).ok().map(|()| ty)
     }
 
-    /// The number of live columns of a schema in the catalog: 1 to [`MAX_COLUMNS`].
-    fn column_count(&mut self) -> Option<usize> {
+    /// The start of a schema in the catalog (see [`TableSchema::encode`]): the root of its history tree, its version,
+    /// its schema state and its number of live columns, 1 to [`MAX_COLUMNS`].
+    fn header(&mut self) -> Option<(u64, u16, u64, usize)> {
+        let history = self.u64()?;
+        let version = self.u16()?;
+        let schema_state = self.u64()?;
         let count = usize::from(self.u16()?);
-        (1..=MAX_COLUMNS).contains(&count).then_some(count)
+        (1..=MAX_COLUMNS)
+            .contains(&count)
+            .then_some((history, version, schema_state, count))
     }
 
-    /// A live column of a schema in the catalog (see [`TableSchema::encode`]), its name and default borrowing the
-    /// bytes.
-    fn column(&mut self) -> Option<StoredColumn<'b>> {
+    /// The bytes of a live column of a schema in the catalog (see [`TableSchema::encode`]), with its type and flags
+    /// checked but not its name or its default, which it does not decode.
+    fn raw_column(&mut self) -> Option<RawColumn<'b>> {
         let id = self.u64()?;
-        let name = std::str::from_utf8(self.bytes()?).ok()?;
-        if !(1..=MAX_COLUMN_NAME).contains(&name.len()) {
-            return None;
-        }
+        let name = self.bytes()?;
         let ty = self.ty()?;
         let flags = self.u8()?;
         if flags & !(NULLABLE | DEFAULT) != 0 {
             return None;
         }
         let default = if flags & DEFAULT != 0 {
-            let stored = self.bytes()?;
-            Some(default_layout(ty).row(stored).ok()?.value(0).ok()??)
+            Some(self.bytes()?)
         } else {
             None
         };
-        Some(StoredColumn {
+        Some(RawColumn {
             id,
             name,
             ty,
-            nullable: flags & NULLABLE != 0,
+            flags,
             default,
+        })
+    }
+
+    /// A live column of a schema in the catalog (see [`TableSchema::encode`]), its name and default borrowing the
+    /// bytes.
+    fn column(&mut self) -> Option<StoredColumn<'b>> {
+        let raw = self.raw_column()?;
+        let name = std::str::from_utf8(raw.name).ok()?;
+        if !(1..=MAX_COLUMN_NAME).contains(&name.len()) {
+            return None;
+        }
+        let default = match raw.default {
+            Some(stored) => Some(default_layout(raw.ty).row(stored).ok()?.value(0).ok()??),
+            None => None,
+        };
+        Some(StoredColumn {
+            id: raw.id,
+            name,
+            ty: raw.ty,
+            nullable: raw.flags & NULLABLE != 0,
+            default,
+        })
+    }
+
+    /// The bytes of an index of a schema in the catalog (see [`TableSchema::encode`]), split into its parts, which it
+    /// does not check.
+    fn raw_index(&mut self) -> Option<RawIndex<'b>> {
+        let id = self.u64()?;
+        let name = self.bytes()?;
+        let root = self.u64()?;
+        let flags = self.u8()?;
+        let key_count = usize::from(self.u8()?);
+        let key = self.take(key_count * 9)?;
+        let included_count = usize::from(self.u16()?);
+        let included = self.take(included_count * 8)?;
+        let condition = self.bytes()?;
+        Some(RawIndex {
+            id,
+            name,
+            root,
+            flags,
+            key: (key_count, key),
+            included: (included_count, included),
+            condition,
         })
     }
 
@@ -946,25 +992,31 @@ impl<'b> Reader<'b> {
     /// ones, all live and distinct, no key column a vector and no included column a primary key column (the rules of
     /// IX1 and IX3 that Krummi never writes broken); and no condition.
     fn index(&mut self, columns: &[SchemaColumn], key: &[u64]) -> Option<(SchemaIndex, u64)> {
-        let id = self.u64()?;
-        let name = std::str::from_utf8(self.bytes()?).ok()?;
+        let RawIndex {
+            id,
+            name,
+            root,
+            flags,
+            key: (key_count, key_bytes),
+            included: (included_count, included_bytes),
+            condition,
+        } = self.raw_index()?;
+        let name = std::str::from_utf8(name).ok()?;
         if !(1..=MAX_INDEX_NAME).contains(&name.len()) {
             return None;
         }
-        let root = self.u64()?;
-        let flags = self.u8()?;
         if flags & !UNIQUE != 0 {
             return None;
         }
-        let key_count = usize::from(self.u8()?);
         if !(1..=MAX_INDEX_KEY).contains(&key_count) {
             return None;
         }
+        let mut r = Reader(key_bytes);
         let mut used = Vec::with_capacity(key_count);
         let mut index_key = Vec::with_capacity(key_count);
         for _ in 0..key_count {
-            let id = self.u64()?;
-            let flags = self.u8()?;
+            let id = r.u64()?;
+            let flags = r.u8()?;
             let column = columns.iter().find(|c| c.id == id)?;
             let vector = matches!(column.ty, ColumnType::Vector(_));
             if flags & !(DESCENDING | NULLS_LAST) != 0 || vector || used.contains(&id) {
@@ -986,13 +1038,13 @@ impl<'b> Reader<'b> {
                 },
             });
         }
-        let included_count = usize::from(self.u16()?);
         if included_count > columns.len() {
             return None;
         }
+        let mut r = Reader(included_bytes);
         let mut included = Vec::with_capacity(included_count);
         for _ in 0..included_count {
-            let id = self.u64()?;
+            let id = r.u64()?;
             let column = columns.iter().find(|c| c.id == id)?;
             if used.contains(&id) || key.contains(&id) {
                 return None;
@@ -1003,7 +1055,7 @@ impl<'b> Reader<'b> {
                 name: column.name.clone(),
             });
         }
-        if !self.bytes()?.is_empty() {
+        if !condition.is_empty() {
             return None;
         }
         let index = SchemaIndex {
@@ -1021,6 +1073,27 @@ impl<'b> Reader<'b> {
     }
 }
 
+/// The bytes of a live column in a table's catalog entry, with its type and flags (see [`Reader::raw_column`]).
+struct RawColumn<'b> {
+    id: u64,
+    name: &'b [u8],
+    ty: ColumnType,
+    flags: u8,
+    default: Option<&'b [u8]>,
+}
+
+/// The bytes of an index in a table's catalog entry (see [`Reader::raw_index`]): its key columns and its included
+/// columns, each with their number.
+struct RawIndex<'b> {
+    id: u64,
+    name: &'b [u8],
+    root: u64,
+    flags: u8,
+    key: (usize, &'b [u8]),
+    included: (usize, &'b [u8]),
+    condition: &'b [u8],
+}
+
 /// A live column as a table's catalog entry stores it, borrowing the entry's bytes.
 struct StoredColumn<'b> {
     id: u64,
@@ -1036,14 +1109,34 @@ struct StoredColumn<'b> {
 /// default was added reads it from here, without a copy made for that read (AC20).
 pub(crate) fn decode_defaults(bytes: &[u8]) -> Option<Vec<(u64, Option<Value<'_>>)>> {
     let mut r = Reader(bytes);
-    r.take(8 + 2 + 8)?; // the history tree's root, the version and the schema state
-    let count = r.column_count()?;
+    let (_, _, _, count) = r.header()?;
     let mut defaults = Vec::with_capacity(count);
     for _ in 0..count {
         let column = r.column()?;
         defaults.push((column.id, column.default));
     }
     Some(defaults)
+}
+
+/// The root of the history tree of a schema in a table's catalog entry (`bytes`, what [`TableSchema::encode`]
+/// writes), after calling `visit` with each identity that [`TableSchema::identities`] gives of it; `None` when the bytes
+/// are not a schema's layout. It reads the identities in place, without decoding or copying a name or a default, so
+/// that checking a drawn identity against the store allocates nothing (IX6, P13).
+pub(crate) fn stored_identities(bytes: &[u8], mut visit: impl FnMut(u64)) -> Option<u64> {
+    let mut r = Reader(bytes);
+    let (history, _, schema_state, count) = r.header()?;
+    visit(schema_state);
+    for _ in 0..count {
+        visit(r.raw_column()?.id);
+    }
+    let key_count = usize::from(r.u16()?);
+    r.take(key_count * 8)?;
+    visit(r.u64()?);
+    let index_count = usize::from(r.u16()?);
+    for _ in 0..index_count {
+        visit(r.raw_index()?.id);
+    }
+    r.is_empty().then_some(history)
 }
 
 /// The flag of a column that allows nulls.
@@ -1167,10 +1260,7 @@ impl TableSchema {
     /// caller reports damage of the catalog page (G6).
     pub fn decode(table_id: u64, bytes: &[u8]) -> Option<(TableSchema, u64, Vec<u64>)> {
         let mut r = Reader(bytes);
-        let history = r.u64()?;
-        let version = r.u16()?;
-        let schema_state = r.u64()?;
-        let count = r.column_count()?;
+        let (history, version, schema_state, count) = r.header()?;
         let mut columns = Vec::with_capacity(count);
         for _ in 0..count {
             let column = r.column()?;

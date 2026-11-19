@@ -29,8 +29,8 @@ use krummi::table::value::{
 };
 use krummi::{
     BulkLoadError, Column, Direction, Error, ErrorKind, IndexDefinition, IndexKey, IndexMode,
-    Nulls, Schema, SchemaDifference, SchemaIndex, SchemaRule, SequenceMode, SizeSubject, Store,
-    TableMode, TableSchema, Upserted, WriteTable, WriteTransaction,
+    Nulls, OpenMode, Schema, SchemaDifference, SchemaIndex, SchemaRule, SequenceMode, SizeSubject,
+    Store, TableMode, TableSchema, Upserted, WriteTable, WriteTransaction,
 };
 use support::*;
 
@@ -2146,6 +2146,137 @@ fn ac_ix11_identities_known_to_the_store_outside_the_table_are_drawn_again() {
         assert_eq!(dropped.index_state(), 70);
         write.commit().unwrap();
         assert_eq!(store.read().unwrap().describe_table("t").unwrap(), dropped);
+    });
+}
+
+/// AC-IX11 (IX6, design document 11): an index identity and an index state equal to the identity of a catalog object
+/// that is not a table, a normal, a multi-value or a fixed-size tree or a sequence, are drawn again.
+#[test]
+fn ac_ix11_identities_of_other_catalog_objects_are_drawn_again() {
+    stores(|store, _| {
+        let mut write = store.write().unwrap();
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("n", ColumnType::I32),
+            ],
+            &["id"],
+        );
+        let table = with_identity_source(repeating(vec![10, 20, 21, 30, 40]), || {
+            create_table(&mut write, "t", &schema)
+        });
+        with_identity_source(repeating(vec![100, 110, 111, 120, 130]), || {
+            create_table(&mut write, "u", &schema)
+        });
+        // The catalog's counter gives them 0, 1, 2 and 3.
+        write.open_tree_with("normal", OpenMode::CreateNew).unwrap();
+        write
+            .open_multi_tree_with("multi", OpenMode::CreateNew)
+            .unwrap();
+        write
+            .open_fixed_tree_with("fixed", 4, OpenMode::CreateNew)
+            .unwrap();
+        write
+            .open_sequence_with("seq", SequenceMode::CreateNew(None))
+            .unwrap();
+        // The identity: 0 and 1 are trees', 50 is new; the state: 3 is the sequence's, 60 is new.
+        with_identity_source(repeating(vec![0, 1, 50, 3, 60]), || {
+            write.create_index(&table, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        })
+        .unwrap();
+        let described = write.table_schema(&table).unwrap();
+        assert_eq!(
+            (described.index("ix").unwrap().id, described.index_state()),
+            (50, 60)
+        );
+        // Dropping it: 2 is the fixed-size tree's, 70 is new.
+        with_identity_source(repeating(vec![2, 70]), || write.drop_index(&table, "ix")).unwrap();
+        let dropped = write.table_schema(&table).unwrap();
+        assert_eq!(dropped.index_state(), 70);
+        write.commit().unwrap();
+        assert_eq!(store.read().unwrap().describe_table("t").unwrap(), dropped);
+    });
+}
+
+/// IX2, IX6 (P13, T11): the checks of a drawn identity against the other tables of the store copy none of their
+/// defaults: with a 2 MiB default in another table, creating and dropping an index of an empty table under every
+/// reservation failing in turn either succeeds or fails with out of memory and T11, and no reservation has the
+/// default's size.
+#[test]
+fn checking_identities_copies_no_default_of_another_table() {
+    use krummi_pager::testing::{self, Action, Op};
+    const DEFAULT: usize = 2 << 20;
+    type IndexChange = fn(&mut WriteTransaction<'_>, &WriteTable<'_>) -> krummi::Result<()>;
+    let changes: [(&str, IndexChange); 2] = [
+        ("create", |w, t| {
+            w.create_index(t, &index("ix", &[key("n")]), IndexMode::CreateNew)
+        }),
+        ("drop", |w, t| w.drop_index(t, "ix")),
+    ];
+    stores(|store, _| {
+        let small = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("n", ColumnType::I32),
+            ],
+            &["id"],
+        );
+        let large = Value::String(Cow::Owned("p".repeat(DEFAULT)));
+        let other = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("p", ColumnType::String).with_default(large),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        create_table(&mut write, "t", &small);
+        create_table(&mut write, "u", &other);
+        write.commit().unwrap();
+        for (name, change) in changes {
+            let before = store.read().unwrap().describe_table("t").unwrap();
+            let mut write = store.write().unwrap();
+            let table = write.open_table("t").unwrap();
+            testing::reset();
+            change(&mut write, &table).unwrap();
+            let reservations = testing::count(Op::Alloc);
+            testing::reset();
+            drop(write);
+            for nth in 0..reservations {
+                let mut write = store.write().unwrap();
+                let table = write.open_table("t").unwrap();
+                testing::reset();
+                testing::inject(
+                    Op::Alloc,
+                    nth,
+                    Action::Fail(std::io::ErrorKind::OutOfMemory),
+                );
+                let changed = change(&mut write, &table);
+                testing::reset();
+                let Err(error) = changed else {
+                    continue;
+                };
+                let Error::OutOfMemory { requested } = error else {
+                    panic!("{name} {nth}: {error}");
+                };
+                assert!(requested < DEFAULT as u64, "{name} {nth}: {requested}");
+                assert_eq!(
+                    write.commit().unwrap_err().kind(),
+                    ErrorKind::OutOfMemory,
+                    "{name} {nth}: T11"
+                );
+                assert_eq!(
+                    store.read().unwrap().describe_table("t").unwrap(),
+                    before,
+                    "{name} {nth}"
+                );
+            }
+            // The change itself, for the next one.
+            let mut write = store.write().unwrap();
+            let table = write.open_table("t").unwrap();
+            change(&mut write, &table).unwrap();
+            write.commit().unwrap();
+        }
     });
 }
 
