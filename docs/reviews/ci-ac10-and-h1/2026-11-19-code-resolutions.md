@@ -18,3 +18,12 @@ rerun.
 - Fix: the README now says the full acceptance sweeps run «in a separate job per system, apart from the checks, so
   the sweeps have their own runner and time budget».
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-19 (verification)
+
+Review record: [2026-11-19-code-02.md](2026-11-19-code-02.md), follow-up over `86d9ccd..0daf35c`, wrapper status
+`approved`, verdict «Approved: R1 is verified resolved; no open findings remain in the requested follow-up scope.»
+`threadId` `01a1f2fa-ce54-74d0-9705-41c767f0f83d`; telemetry: coordinator `gpt-6.1-sol`/`high`, reviewer
+`krummi-review` (Archimedes) `gpt-6.1-sol`/`high`.
+
+- R1: verified resolved.

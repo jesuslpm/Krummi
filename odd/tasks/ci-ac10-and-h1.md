@@ -25,7 +25,7 @@ start: 2026-11-19 06:38:20 +0000.
 | T1 | S2: reproduce and fix the flaky AC-H1 test | delegated (parallel with T2) | done (2 of 320 under load before, 0 of 480 after; workspace 970 passed) | `58a9798` |
 | T2 | S1: measure the AC10 sweeps between `6b49bea` and `0cb816c`/`d7fe899`, find the slowing commit | delegated (parallel with T1) | done (no slowing commit; L3) | — |
 | T3 | S1: fix the cause found by T2 | inline | done (sweeps in their own job; YAML parsed) | `bcbe4ef` |
-| T4 | S3: checks, RDD, Codex review, closing report | inline | pending | |
+| T4 | S3: checks, RDD, Codex review, closing report | inline | done (L5; [closing report](ci-ac10-and-h1-report.md)) | `34b54a0`..the report commit |
 
 ## Log
 
@@ -55,3 +55,9 @@ start: 2026-11-19 06:38:20 +0000.
   cause (stated in the job comment and L3), the moved steps (intended), `RUST_TOOLCHAIN` in the new job (a
   workflow-level `env`, available to every job), and the transfer path of AC-H1 left uncovered by that test (other
   tests cover the transfer).
+- **L5** (2026-11-19) — Codex code review over `e5b5f0b..86d9ccd`: the first attempt ended in `error`, «Codex CLI not
+  found: codex» (a Node version change under nvm left the CLI in v22.21.0's global packages); reinstalled with the
+  user's consent (0.170.0) and rerun: `findings`, one minor R1 (the README said each sweep had its own runner; the four
+  share one job), fixed in `34b54a0`; the follow-up approved it ([report](../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-02.md),
+  [resolutions](../../docs/reviews/ci-ac10-and-h1/2026-11-19-code-resolutions.md)). The commits after `bcbe4ef` are
+  documents. Pending: the CI change is only proved by a CI run on GitHub, which needs the branch pushed or merged.
