@@ -107,3 +107,16 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   reliability): review `review-e10b0bcd401bbbf2`, approved and acknowledged, one warning (`R3-worker-respawn-untested`).
   Disposition: no change; the thread ends only when the store stops (`run` returns only on the stop mark) or on a
   panic, and a request while stopping is refused by the same mark, so no request can be lost to an ending thread.
+- **L11** — Codex code review, round 1, over `ba7f27a..` (report `docs/reviews/tables-statistics/2026-11-19-code.md`,
+  thread `01a1f446-5ae1-70e1-b8d0-f8a49d9e3b1c`, coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review-critical`
+  `gpt-6-astra`/`xhigh`): "Changes required. Two blockers, eleven major findings and two minor findings remain open;
+  approval is withheld." Open, not yet handled: R1 blocker (damage while sampling in a write does not make the write
+  fail, T11), R2 blocker (sampling reads whole runs with large values: T7b), R3 (private statistics survive an
+  emptying and win over analyze), R4 (shortened bounds can estimate zero), R5 (joint estimates do not retry saving),
+  R6 (a save loses its FIFO place every 20 ms: A5), R7 (analyze drops its save on a rename: A6), R8 (sampling from a
+  write scans the whole table), R9 (private prefixes are not kept), R10 (estimating a table that replaced another
+  object fails on the old type), R11 (shared statistics are not retired with committed changes: A3), R12 (close does
+  not cancel a sample in progress), R13 (missing fault-injection coverage: A7), R14 minor (ties ignore the index's
+  direction and nulls: A2), R15 minor (ST12 precedence). The run stops here for the token budget the user warned
+  about (L1); the next session resumes with these findings, then T7b, ST15's measurements, Codex round 2 and the
+  closing report.
