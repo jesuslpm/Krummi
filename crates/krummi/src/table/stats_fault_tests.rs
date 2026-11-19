@@ -99,3 +99,56 @@ fn analyze_reports_its_save_failure_and_keeps_memory() {
     assert_eq!(store.analyze("t", None).unwrap_err().kind(), ErrorKind::Io);
     store.write().unwrap().commit().unwrap();
 }
+
+/// ST9: a background renewal whose save meets a full disk leaves the store as it was: writes go on, the renewed
+/// statistics serve from memory, and the next estimate that uses them asks to save them again, which lasts.
+#[test]
+fn a_renewal_with_a_full_disk_is_dropped_and_asked_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = store_with_rows(tmp.path());
+    store.analyze("t", None).unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for id in 1_000..2_000 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 3))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    let stale = |store: &Store| {
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let condition = Condition::Equal {
+            column: "n",
+            value: Value::I64(1),
+        };
+        read.estimate(&table, &condition).unwrap().stale
+    };
+    store
+        .shared()
+        .engine
+        .set_page_fault(Some((0, disk_full(tmp.path()))));
+    assert!(stale(&store));
+    store.wait_statistics_idle();
+    assert!(
+        !store.shared().engine.page_fault_pending(),
+        "the renewal's save failed"
+    );
+    let mut write = store.write().unwrap();
+    write
+        .open_tree_with("after", crate::OpenMode::CreateNew)
+        .unwrap();
+    write.commit().unwrap();
+    // The renewal published them before its save failed: they serve from memory, and this estimate asks to save them.
+    assert!(!stale(&store), "renewed in memory");
+    store.wait_statistics_idle();
+    store.close().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let saved = read.column_statistics(&table, "n").unwrap().unwrap();
+    assert_eq!(
+        saved.origin_rows, 2_000,
+        "saved by the request that followed"
+    );
+}

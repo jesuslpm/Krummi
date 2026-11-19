@@ -565,6 +565,8 @@ fn r13_a_failed_background_commit_makes_the_store_refuse_writes() {
         }
     }
     write.commit().unwrap();
+    // The data commit is durable before the faults start, so that only the statistics' commit meets them.
+    store.make_durable().unwrap();
     testing::reset();
     for nth in 0..1_000 {
         testing::inject(Op::Write, nth, Action::Fail(std::io::ErrorKind::Other));
@@ -730,4 +732,92 @@ fn r2_a_run_is_sampled_by_the_pages_used() {
     // Reading the damaged row itself still fails: only sampling skips the run's check.
     let error = read.get_row(&table, &[Value::I64(7)]).err();
     assert_eq!(error.map(|e| e.kind()), Some(ErrorKind::Damaged));
+}
+
+/// R2 (ST1): a run whose row header and offsets are corrupt never makes the sample panic: analyze ends, with the row
+/// left out or a damage error.
+#[test]
+fn r2_a_corrupt_run_never_panics_the_sample() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("s", ColumnType::String),
+            Column::new("blob", ColumnType::Bytes),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    for id in 0..5 {
+        write
+            .insert_row(
+                &table,
+                &[
+                    ("id", Value::I64(id)),
+                    ("s", Value::String(Cow::Borrowed("x"))),
+                    ("blob", Value::Bytes(Cow::Owned(vec![1; 50_000]))),
+                ],
+            )
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.close().unwrap();
+    let key = krummi::table::key::encode_key(&[ColumnType::I64], &[Value::I64(2)]).unwrap();
+    let (first, _) = value_run(tmp.path(), "t", &key).expect("a row in a run");
+    let path = tmp.path().join(krummi_pager::DATA_FILE);
+    let mut bytes = std::fs::read(&path).unwrap();
+    let start = first as usize * krummi_pager::format::PAGE_SIZE;
+    for byte in &mut bytes[start + 8..start + 80] {
+        *byte = 0xFF;
+    }
+    std::fs::write(&path, bytes).unwrap();
+    let store = open(tmp.path());
+    let outcome =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store.analyze("t", None)));
+    let result = outcome.expect("no panic");
+    assert!(
+        result.is_ok()
+            || result
+                .as_ref()
+                .is_err_and(|e| e.kind() == ErrorKind::Damaged),
+        "{result:?}"
+    );
+}
+
+/// R13 (ST7, T12): analyze on the store whose save commit fails to write reports the input/output class, keeps what
+/// it published in memory, and the store refuses writes after it.
+#[test]
+fn r13_analyze_with_a_failed_commit_refuses_writes() {
+    use krummi_pager::testing::{self, Action, Op};
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&pair_schema()))
+        .unwrap();
+    for id in 0..100 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.make_durable().unwrap();
+    testing::reset();
+    for nth in 0..1_000 {
+        testing::inject(Op::Write, nth, Action::Fail(std::io::ErrorKind::Other));
+    }
+    let error = store.analyze("t", None).unwrap_err();
+    testing::reset();
+    assert_eq!(error.kind(), ErrorKind::Io);
+    assert_eq!(store.write().err().map(|e| e.kind()), Some(ErrorKind::Io));
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    assert!(
+        read.column_statistics(&table, "n").unwrap().is_some(),
+        "kept in memory"
+    );
 }

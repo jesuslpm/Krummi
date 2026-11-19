@@ -662,20 +662,37 @@ pub fn for_each_unchecked<'t, S: PageSource + ?Sized>(
     root: u64,
     visit: &mut impl FnMut(&'t [u8], &'t [u8]) -> Result<bool>,
 ) -> Result<()> {
-    let mut going = true;
-    leaves(tx, root, None, &mut |_, leaf| {
+    leaves_until(tx, root, None, &mut |leaf| {
         for index in 0..node::count(leaf) {
-            if going
-                && !visit(
-                    node::key(leaf, index),
-                    resolve_unchecked(tx, node::value(leaf, index))?,
-                )?
-            {
-                going = false;
+            if !visit(
+                node::key(leaf, index),
+                resolve_unchecked(tx, node::value(leaf, index))?,
+            )? {
+                return Ok(false);
             }
         }
-        Ok(())
+        Ok(true)
     })
+    .map(drop)
+}
+
+/// As [`leaves`], stopping as soon as `visit` returns `false`; returns whether it went to the end.
+fn leaves_until<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    page: u64,
+    level: Option<u8>,
+    visit: &mut impl FnMut(&'t [u8]) -> Result<bool>,
+) -> Result<bool> {
+    let node = node_at(tx, page, level)?;
+    if node::is_leaf(node) {
+        return visit(node);
+    }
+    for index in 0..=node::count(node) {
+        if !leaves_until(tx, node::child(node, index), child_level(node), visit)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Calls `visit` with every entry of the tree at `root`, in key order.

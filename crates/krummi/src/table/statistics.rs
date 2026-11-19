@@ -194,27 +194,49 @@ pub(crate) fn build<'r>(
             });
         }
         let row = row?;
+        // A row read by the pages it uses, without the run's checksum, may be malformed: reading it may panic, and then
+        // the row is left out of the sample (ST1: a damaged run never ends in a panic).
+        let read_row = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let values: Vec<Option<Value<'_>>> = (wanted.iter())
+                .map(|(position, column)| {
+                    // A large text or bytes value is counted by its length, without reading it (ST1).
+                    let large = matches!(column.ty, ColumnType::String | ColumnType::Bytes)
+                        && row
+                            .stored_len(*position)
+                            .is_some_and(|len| len > stats::LARGE);
+                    (!large).then(|| row.value(*position).unwrap_or(Value::Null).into_owned())
+                })
+                .collect();
+            let elements: Vec<Vec<Vec<u8>>> = (prefixes.iter())
+                .map(|(_, key)| {
+                    let mut element = Vec::new();
+                    let mut prefixes = Vec::with_capacity(key.len());
+                    for (at, (position, column)) in key.iter().enumerate() {
+                        // A stored value always encodes in its column's key encoding.
+                        let _ = column
+                            .encode(&row.value(*position).unwrap_or(Value::Null), &mut element);
+                        if at >= 1 {
+                            prefixes.push(element.clone());
+                        }
+                    }
+                    prefixes
+                })
+                .collect();
+            (values, elements)
+        }));
+        let Ok((values, elements)) = read_row else {
+            continue;
+        };
         read += 1;
-        for ((position, column), gather) in wanted.iter().zip(&mut gathers) {
-            // A large text or bytes value is counted by its length, without reading it (ST1).
-            let large = matches!(column.ty, ColumnType::String | ColumnType::Bytes)
-                && row
-                    .stored_len(*position)
-                    .is_some_and(|len| len > stats::LARGE);
-            if large {
-                gather.add_large();
-            } else {
-                gather.add(&row.value(*position).unwrap_or(Value::Null));
+        for (value, gather) in values.into_iter().zip(&mut gathers) {
+            match value {
+                Some(value) => gather.add(&value),
+                None => gather.add_large(),
             }
         }
-        for ((_, key), gathers) in prefixes.iter().zip(&mut combinations) {
-            let mut element = Vec::new();
-            for (at, (position, column)) in key.iter().enumerate() {
-                // A stored value always encodes in its column's key encoding.
-                let _ = column.encode(&row.value(*position).unwrap_or(Value::Null), &mut element);
-                if at >= 1 {
-                    gathers[at - 1].add_element(element.clone());
-                }
+        for (elements, gathers) in elements.into_iter().zip(&mut combinations) {
+            for (element, gather) in elements.into_iter().zip(gathers.iter_mut()) {
+                gather.add_element(element);
             }
         }
     }
