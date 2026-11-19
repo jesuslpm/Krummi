@@ -120,3 +120,10 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   direction and nulls: A2), R15 minor (ST12 precedence). The run stops here for the token budget the user warned
   about (L1); the next session resumes with these findings, then T7b, ST15's measurements, Codex round 2 and the
   closing report.
+- **L12** — 2026-11-19, the user, after the stop of L11: «Según usage vamos por el 92%, aún quedan tokens de claude» and
+  «y en codex nos queda el 73%»; the run went on. Codex round 1 fixes in `b93f241` and `32af503` (R1, R3–R15, R13
+  partly; resolutions in `docs/reviews/tables-statistics/2026-11-19-code-resolutions.md`); round 2
+  (`2026-11-19-code-02.md`) verified R3, R5–R8, R10, R14 and left R1, R2, R4, R9, R11, R12, R13, R15 open; their fixes
+  in `05d3d7f` and `f1fc1a0` (R2 and part of R13 still pending). `05d3d7f` was committed before its clippy check
+  finished (a too-many-arguments lint), fixed in `f1fc1a0`. Round 3, the last automatic one, runs over
+  `05d3d7f~1..25d1fc5`.
