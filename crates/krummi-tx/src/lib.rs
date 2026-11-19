@@ -373,6 +373,15 @@ impl Engine {
     /// cannot be counted from now, and with the I/O class when the store refuses writes (T12), in that order
     /// (T13).
     pub fn write(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
+        self.write_checked(limit)
+    }
+
+    /// Whether this thread has a write transaction open on this store (T5).
+    pub fn holds_write(&self) -> bool {
+        self.lock_queue().owner == Some(thread::current().id())
+    }
+
+    fn write_checked(&self, limit: Option<Duration>) -> Result<WriteTransaction<'_>> {
         let me = thread::current().id();
         let mut queue = self.lock_queue();
         if queue.owner == Some(me) {

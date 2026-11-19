@@ -36,6 +36,8 @@ use crate::{Folder, ReadTransaction, Store, WriteTransaction};
 /// and fails with [`ErrorKind::Misuse`](crate::ErrorKind::Misuse) without effect in another transaction.
 pub struct ReadTable<'s> {
     serial: u64,
+    /// The table's identity (P12).
+    pub(super) id: u64,
     /// The name it was opened with, for the data of its errors.
     pub(super) name: String,
     /// The root and the row count of its rows tree.
@@ -170,6 +172,11 @@ pub(crate) struct TableState {
 }
 
 impl TableState {
+    /// Its identity (P12).
+    pub(super) fn id(&self) -> u64 {
+        self.id
+    }
+
     /// Where its rows are.
     pub(super) fn at(&self) -> At<'_> {
         At {
@@ -300,6 +307,7 @@ impl<'s> ReadTransaction<'s> {
             serial: self.serial,
             name: name.to_owned(),
             rows_root: found.entry.root,
+            id: found.entry.id,
             count: found.entry.count,
             history: found.history,
             reader: Arc::clone(
@@ -439,6 +447,17 @@ impl<'s> WriteTransaction<'s> {
     /// The schema of `table` with this transaction's changes, as an owned copy.
     pub fn table_schema(&self, table: &WriteTable<'_>) -> Result<TableSchema> {
         Ok(self.live_table(table)?.schema.clone())
+    }
+
+    /// Makes `root` the root of the statistics tree of `table`, which the commit then writes.
+    pub(super) fn set_stats_root(&mut self, table: &WriteTable<'_>, root: u64) {
+        let state = self
+            .tables
+            .get_mut()
+            .get_mut(table.id)
+            .expect("a live handle");
+        state.stats.root = root;
+        state.dirty = true;
     }
 
     /// A test hook, not part of the interface: the modification counter of `table` with this transaction's changes
@@ -692,6 +711,11 @@ impl<'s> WriteTransaction<'s> {
         }
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
         // Its statistics go, and the rows it removes count as modifications, so older statistics are dropped (ST8).
+        let stats_root = std::mem::take(&mut state.stats.root);
+        if stats_root != 0 {
+            krummi_tree::free_all(&mut self.inner, stats_root)?;
+        }
+        let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
         state.stats.add(state.count);
         state.stats.emptied = state.stats.counter;
         state.rows_root = root;
@@ -708,12 +732,20 @@ impl<'s> WriteTransaction<'s> {
     fn drop_table(&mut self, name: &str, found: Found) -> Result<()> {
         let id = self.join(name, found)?.id;
         self.projections.retire_table(id);
-        let (root, history, index_roots) = {
+        let (root, history, index_roots, stats_root) = {
             let state = self.tables.get_mut().get(id).expect("joined");
-            (state.rows_root, state.history, state.index_roots.clone())
+            (
+                state.rows_root,
+                state.history,
+                state.index_roots.clone(),
+                state.stats.root,
+            )
         };
         krummi_tree::free_all(&mut self.inner, root)?;
         krummi_tree::free_all(&mut self.inner, history)?;
+        if stats_root != 0 {
+            krummi_tree::free_all(&mut self.inner, stats_root)?;
+        }
         for index_root in index_roots {
             krummi_tree::free_all(&mut self.inner, index_root)?;
         }

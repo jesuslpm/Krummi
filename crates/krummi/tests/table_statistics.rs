@@ -1,10 +1,14 @@
-//! Statistics of the tables through the public API (statistics PRD 7.3): the modification counter (AC-ST3) and the
-//! format (AC-ST11). Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or
-//! rewrite the store's files, which run on disk only.
+//! Statistics of the tables through the public API (statistics PRD 7.3): the modification counter (AC-ST3), building
+//! and reading them (AC-ST12, parts of AC-ST1 and AC-ST6), analyze and its errors (part of AC-ST9) and the format
+//! (AC-ST11). Each criterion runs on a store on disk and on a temporary one, except the parts that reopen or rewrite
+//! the store's files, which run on disk only.
 
 #[path = "../../krummi-tx/tests/common/mod.rs"]
 mod common;
 mod support;
+
+#[path = "table_statistics/build.rs"]
+mod build;
 
 use std::convert::Infallible;
 

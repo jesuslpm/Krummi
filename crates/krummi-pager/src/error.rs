@@ -190,6 +190,9 @@ pub enum SchemaRule {
     SameIndexKey,
     /// More than 64 indexes in a table.
     TooManyIndexes,
+    /// A vector column named by an estimate, a read of statistics or analyze: vectors have no statistics (ST12 of the
+    /// statistics PRD).
+    VectorColumn,
     /// A schema whose stored form, with its column names, default values and index definitions, passes 256 MiB
     /// (decided 2026-11-11; the index definitions count since the secondary indexes PRD).
     SchemaTooLarge,
@@ -865,6 +868,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
         }
         SchemaRule::SameIndexKey => "an index key equal to another index's",
         SchemaRule::TooManyIndexes => "more than 64 indexes",
+        SchemaRule::VectorColumn => "a vector column, which has no statistics",
         SchemaRule::SchemaTooLarge => "the schema with its names and defaults would pass 256 MiB",
     }
 }

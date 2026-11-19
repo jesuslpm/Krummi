@@ -27,6 +27,8 @@ mod rows;
 pub mod schema;
 mod sequence;
 mod sort;
+mod statistics;
+mod stats;
 #[cfg(test)]
 mod update_tests;
 pub mod value;
@@ -46,6 +48,7 @@ pub use rows::{TableRow, Upserted};
 pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 pub(crate) use sequence::Sequences;
 pub use sequence::{ReadSequence, SequenceMode, WriteSequence};
+pub use statistics::{ColumnStatistics, HistogramBucket};
 
 /// Test hooks, not part of the interface.
 #[doc(hidden)]
