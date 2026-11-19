@@ -225,3 +225,10 @@ pass.
   before it is covered by the catalog checks of saving and by the floors and removed targets of publishing (R11).
 - R19 — fixed: `retire` returns at once when nothing is retired.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-19 (verification, round 5)
+
+Follow-up report: [2026-11-19-code-05.md](2026-11-19-code-05.md), wrapper status `findings`, no unexpected changes.
+Verdict, quoted: "Changes required. R2, R11 and R13 remain open: one blocker and two major findings. R12, R18 and R19
+are verified resolved; approval is withheld." R11 is now titled "Lifecycle invalidation still races with commit
+publication".

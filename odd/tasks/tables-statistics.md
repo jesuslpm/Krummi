@@ -138,3 +138,7 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   renewal-damage fault tests), R18 (a failed commit retires statistics: retiring before the commit releases the turn)
   and R19 (retire scans memory with nothing to retire). Next session: these six, ST15's measurements, the RDD review of
   the fix commits after `4386d3b`, the closing report; a fifth Codex round needs the user's authorization.
+- **L15** — Round 4 fixes in `31c5eac` (R11 floors and removed targets, R12, R18 retire after commit, R19, R13's
+  renewal damage test), resolutions `87352be`. Codex round 5 (`2026-11-19-code-05.md`): R12, R18, R19 verified; open
+  R2 (blocker, T7b), R11 (invalidation still races with commit publication) and R13 (T12 fault in the statistics
+  thread). Verified so far: 16 of 19 findings.
