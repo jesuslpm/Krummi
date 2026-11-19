@@ -680,3 +680,54 @@ fn r13_analyze_without_memory_for_its_snapshot_changes_nothing() {
         assert!(read.column_statistics(&table, "n").unwrap().is_none());
     });
 }
+
+/// R2 (ST1): rows stored in runs are sampled by the pages they use, without the run's checksum and without reading
+/// their large values: damage in the middle of a run of a large value does not fail analyze, and the statistics of the
+/// other columns and the large values' fraction are the rows'.
+#[test]
+fn r2_a_run_is_sampled_by_the_pages_used() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I64),
+            Column::new("blob", ColumnType::Bytes),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    for id in 0..20 {
+        write
+            .insert_row(
+                &table,
+                &[
+                    ("id", Value::I64(id)),
+                    ("n", Value::I64(id % 2)),
+                    ("blob", Value::Bytes(Cow::Owned(vec![id as u8; 200_000]))),
+                ],
+            )
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.close().unwrap();
+    let key = krummi::table::key::encode_key(&[ColumnType::I64], &[Value::I64(7)]).unwrap();
+    let (first, count) = value_run(tmp.path(), "t", &key).expect("a row in a run");
+    assert!(count > 4);
+    damage(tmp.path(), first + count / 2);
+    let store = open(tmp.path());
+    store.analyze("t", None).unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let n = read.column_statistics(&table, "n").unwrap().unwrap();
+    assert_eq!(n.rows_read, 20);
+    assert!((n.frequent[0].1 - 0.5).abs() < 1e-9);
+    let blob = read.column_statistics(&table, "blob").unwrap().unwrap();
+    assert!((blob.large_fraction - 1.0).abs() < 1e-9);
+    // Reading the damaged row itself still fails: only sampling skips the run's check.
+    let error = read.get_row(&table, &[Value::I64(7)]).err();
+    assert_eq!(error.map(|e| e.kind()), Some(ErrorKind::Damaged));
+}

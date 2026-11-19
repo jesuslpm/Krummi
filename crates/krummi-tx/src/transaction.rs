@@ -129,6 +129,13 @@ impl<'e> ReadTransaction<'e> {
         Ok(&self.snapshot.run(first, count)?[PAGE_HEADER_SIZE..])
     }
 
+    /// As [`run`](Self::run), without checking the run's integrity: only the pages the caller touches are read (ST1 of
+    /// the statistics PRD). A damaged run may give wrong bytes, never a failure of its own.
+    pub fn run_unchecked(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.count_read();
+        Ok(&self.snapshot.run_unchecked(first, count)?[PAGE_HEADER_SIZE..])
+    }
+
     /// Whether a value run of `count` pages from page `first` may hold data of the layers above, as
     /// [`may_hold_data`](Self::may_hold_data) for each of its pages: the whole run lies within the store's pages.
     pub fn may_hold_run(&self, first: u64, count: u64) -> bool {
@@ -447,6 +454,16 @@ impl<'e> WriteTransaction<'e> {
     ///
     /// If the pages were never reserved.
     pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.run_checked_or_not(first, count, false)
+    }
+
+    /// As [`run`](Self::run), without checking the integrity of a run that comes from the store (ST1 of the statistics
+    /// PRD).
+    pub fn run_unchecked(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.run_checked_or_not(first, count, true)
+    }
+
+    fn run_checked_or_not(&self, first: u64, count: u64, unchecked: bool) -> Result<&[u8]> {
         self.count_read();
         self.track(self.engine.injected_fault())?;
         self.check_reserved(first, count);
@@ -463,7 +480,11 @@ impl<'e> WriteTransaction<'e> {
                     return Ok(&run[PAGE_HEADER_SIZE..]);
                 }
                 None if self.runs.range(first..end).next().is_none() => {
-                    self.writer.snapshot().run(first, count)
+                    if unchecked {
+                        self.writer.snapshot().run_unchecked(first, count)
+                    } else {
+                        self.writer.snapshot().run(first, count)
+                    }
                 }
                 // Not exactly one of its own runs: what the store would report (D3).
                 _ => Err(self.damage(first)),

@@ -114,6 +114,9 @@ pub enum Integrity {
     /// Skip the check when the page is remembered; otherwise check it and remember it when it passes: the reads of
     /// read and write transactions (I2, S2).
     UseRemembered,
+    /// Do not check it, nor remember it: only for a run, so that a read touches only the pages it uses (the sample of
+    /// statistics, ST1 of the statistics PRD, an exception to G6 that may give wrong statistics, never wrong rows).
+    Unchecked,
 }
 
 #[derive(Clone, Copy)]
@@ -436,6 +439,9 @@ impl Pager {
         let Some(run) = self.raw_pages(first, count) else {
             return Err(self.damaged(first));
         };
+        if integrity == Integrity::Unchecked {
+            return Ok(run);
+        }
         if integrity == Integrity::UseRemembered && self.remembered_run(first, count, run) {
             return Ok(run);
         }

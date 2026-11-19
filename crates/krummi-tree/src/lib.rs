@@ -104,6 +104,12 @@ pub trait PageSource {
     /// header, as one sequence without copying it (V2).
     fn run(&self, first: u64, count: u64) -> Result<&[u8]>;
 
+    /// As [`run`](Self::run), without checking the run's integrity where the source can skip it (ST1 of the statistics
+    /// PRD); otherwise as `run`.
+    fn run_unchecked(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.run(first, count)
+    }
+
     /// Meta slot `slot` as the transaction sees it.
     fn slot(&self, slot: usize) -> Result<u64>;
 
@@ -163,6 +169,10 @@ impl PageSource for ReadTransaction<'_> {
         ReadTransaction::run(self, first, count)
     }
 
+    fn run_unchecked(&self, first: u64, count: u64) -> Result<&[u8]> {
+        ReadTransaction::run_unchecked(self, first, count)
+    }
+
     fn slot(&self, slot: usize) -> Result<u64> {
         ReadTransaction::slot(self, slot)
     }
@@ -211,6 +221,10 @@ impl PageSource for WriteTransaction<'_> {
 
     fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
         WriteTransaction::run(self, first, count)
+    }
+
+    fn run_unchecked(&self, first: u64, count: u64) -> Result<&[u8]> {
+        WriteTransaction::run_unchecked(self, first, count)
     }
 
     fn slot(&self, slot: usize) -> Result<u64> {
@@ -345,6 +359,23 @@ pub(crate) fn node_at_with<'t, S: PageSource + ?Sized>(
 /// The level of the children of a checked branch, of either format.
 fn child_level(branch: &[u8]) -> Option<u8> {
     Some(node::level(branch) - 1)
+}
+
+/// As [`resolve`], without checking the run's integrity: only the pages the caller touches are read (ST1 of the
+/// statistics PRD).
+fn resolve_unchecked<'t, S: PageSource + ?Sized>(tx: &'t S, value: Value<'t>) -> Result<&'t [u8]> {
+    match value {
+        Value::Inline(bytes) => Ok(bytes),
+        Value::Run { first, len } => {
+            let count = run_pages(len);
+            if !tx.may_hold_run(first, count) {
+                return Err(tx.damaged(first));
+            }
+            let run = tx.run_unchecked(first, count)?;
+            // A damaged run's length is bounded by its pages, never past them.
+            Ok(&run[..(len as usize).min(run.len())])
+        }
+    }
 }
 
 /// The bytes of a leaf entry's value: in its leaf, or its run's, without copying them (V2). A run named in a leaf
@@ -610,7 +641,7 @@ pub fn sample_leaves<'t, S: PageSource + ?Sized>(
         for index in 0..node::count(leaf) {
             if !visit(
                 node::key(leaf, index),
-                resolve(tx, node::value(leaf, index))?,
+                resolve_unchecked(tx, node::value(leaf, index))?,
             )? {
                 return Ok(given);
             }
@@ -621,6 +652,30 @@ pub fn sample_leaves<'t, S: PageSource + ?Sized>(
         }
     }
     Ok(given)
+}
+
+/// Calls `visit` with every entry of the tree at `root`, in key order, with values outside their leaf read without
+/// checking their run's integrity, until `visit` returns `false` (the statistics of a table read whole, ST1 of the
+/// statistics PRD).
+pub fn for_each_unchecked<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    root: u64,
+    visit: &mut impl FnMut(&'t [u8], &'t [u8]) -> Result<bool>,
+) -> Result<()> {
+    let mut going = true;
+    leaves(tx, root, None, &mut |_, leaf| {
+        for index in 0..node::count(leaf) {
+            if going
+                && !visit(
+                    node::key(leaf, index),
+                    resolve_unchecked(tx, node::value(leaf, index))?,
+                )?
+            {
+                going = false;
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Calls `visit` with every entry of the tree at `root`, in key order.

@@ -714,6 +714,21 @@ impl Reader {
         }
     }
 
+    /// The bytes the column `i` of a stored row takes, when they are in the row, without reading them: `None` for a
+    /// key column, a default or a null (ST1 of the statistics PRD: a large value is counted without being read).
+    fn stored_len(&self, bytes: &[u8], old: Option<&OldVersion>, i: usize) -> Option<usize> {
+        let column = &self.columns[i];
+        if column.in_key.is_some() {
+            return None;
+        }
+        let (layout, place) = match old {
+            None => (&self.layout, Some(i)),
+            Some(old) => (&old.layout, old.places[i]),
+        };
+        let row = layout.row(bytes).ok()?;
+        row.column_bytes(place?).ok().flatten().map(<[u8]>::len)
+    }
+
     /// The default of each live column, [`Value::Null`] for one without, borrowed from the catalog entry `name` of
     /// the table, whose schema is this reader's (D11, AC20). An entry that is not there or does not hold this schema is
     /// damage of the catalog page that should hold it (G6).
@@ -985,6 +1000,17 @@ impl<'t> TableRow<'t> {
             ),
             Stored::Owned(values) => values[position].clone(),
         })
+    }
+
+    /// The bytes the live column at `position` takes in the stored row, without reading them, when it is stored there
+    /// (ST1 of the statistics PRD).
+    pub(crate) fn stored_len(&self, position: usize) -> Option<usize> {
+        match &self.stored {
+            Stored::Row { bytes, old, .. } if position < self.len() => {
+                self.reader.stored_len(bytes, old.as_deref(), position)
+            }
+            _ => None,
+        }
     }
 
     /// The value of the live column `name`.

@@ -1347,6 +1347,16 @@ impl<'a> Snapshot<'a> {
     ///
     /// If `first` is a header page.
     pub fn run(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.run_with(first, count, Integrity::UseRemembered)
+    }
+
+    /// As [`run`](Self::run), without checking the run's integrity when it comes from the store (ST1 of the statistics
+    /// PRD): only the pages the caller touches are read.
+    pub fn run_unchecked(&self, first: u64, count: u64) -> Result<&[u8]> {
+        self.run_with(first, count, Integrity::Unchecked)
+    }
+
+    fn run_with(&self, first: u64, count: u64, integrity: Integrity) -> Result<&[u8]> {
         assert!(
             first >= HEADER_PAGES,
             "header pages are not read through Snapshot::run"
@@ -1394,7 +1404,7 @@ impl<'a> Snapshot<'a> {
             // None of these pages has a version up to this snapshot in the scratch area: as in `Snapshot::page`, the
             // store has what it sees, and no flush writes these pages while the snapshot is open. A remembered run is
             // used without checking it, by read and write transactions alike (I2, S2).
-            None => pager.run_with(first, count, Integrity::UseRemembered),
+            None => pager.run_with(first, count, integrity),
         }
     }
 }

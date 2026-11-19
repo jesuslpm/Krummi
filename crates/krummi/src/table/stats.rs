@@ -142,6 +142,11 @@ impl Gather {
         Some(stats)
     }
 
+    /// Counts a large value of one row read, which was not read (ST1).
+    pub(crate) fn add_large(&mut self) {
+        self.large += 1;
+    }
+
     /// Counts the value of one row read.
     pub(crate) fn add(&mut self, value: &Value<'_>) {
         if let Value::Null = value {

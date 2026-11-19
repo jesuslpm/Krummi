@@ -17,7 +17,7 @@ use super::schema::{SchemaColumn, TableSchema, TableStats};
 use super::stats::{
     self, ColumnStats, Gather, WHOLE, column_key, element_column, has_stats, prefix_key,
 };
-use super::value::Value;
+use super::value::{ColumnType, Value};
 use crate::{
     Error, Folder, ReadTransaction, Result, SchemaDifference, SchemaRule, Store, WriteTransaction,
 };
@@ -195,8 +195,17 @@ pub(crate) fn build<'r>(
         }
         let row = row?;
         read += 1;
-        for ((position, _), gather) in wanted.iter().zip(&mut gathers) {
-            gather.add(&row.value(*position).unwrap_or(Value::Null));
+        for ((position, column), gather) in wanted.iter().zip(&mut gathers) {
+            // A large text or bytes value is counted by its length, without reading it (ST1).
+            let large = matches!(column.ty, ColumnType::String | ColumnType::Bytes)
+                && row
+                    .stored_len(*position)
+                    .is_some_and(|len| len > stats::LARGE);
+            if large {
+                gather.add_large();
+            } else {
+                gather.add(&row.value(*position).unwrap_or(Value::Null));
+            }
         }
         for ((_, key), gathers) in prefixes.iter().zip(&mut combinations) {
             let mut element = Vec::new();
@@ -399,11 +408,12 @@ pub(crate) fn sampled_rows<'t, S: krummi_tree::PageSource + ?Sized>(
     reader: &'t Arc<super::rows::Reader>,
     at: super::rows::At<'_>,
     seed: u64,
+    whole: bool,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<Result<TableRow<'t>>>> {
     let mut versions = Versions::default();
     let mut rows = Vec::new();
-    krummi_tree::sample_leaves(tx, at.rows_root, WHOLE, seed, &mut |key, bytes| {
+    let mut visit = |key, bytes| {
         rows.push(reader.decode(
             tx,
             super::rows::At { ..at },
@@ -413,7 +423,12 @@ pub(crate) fn sampled_rows<'t, S: krummi_tree::PageSource + ?Sized>(
             false,
         ));
         Ok(!cancel())
-    })?;
+    };
+    if whole {
+        krummi_tree::for_each_unchecked(tx, at.rows_root, &mut visit)?;
+    } else {
+        krummi_tree::sample_leaves(tx, at.rows_root, WHOLE, seed, &mut visit)?;
+    }
     Ok(rows)
 }
 
@@ -504,20 +519,7 @@ impl ReadTransaction<'_> {
         count: u64,
         cancel: &dyn Fn() -> bool,
     ) -> Result<Built> {
-        if count <= WHOLE {
-            let rows = self.range_rows(table, &[], ..)?.take_while(|_| !cancel());
-            return build(
-                table.id,
-                &table.name,
-                &table.schema,
-                only,
-                count,
-                table.stats.counter,
-                rows,
-                cancel,
-            );
-        }
-        // A larger table is sampled by whole leaves reached at random (ST1).
+        // Read whole up to 30,000 rows, by whole leaves reached at random above, with runs read by the pages used (ST1).
         let reader = &self
             .readers
             .keep(table.history, || Arc::clone(&table.reader))
@@ -527,6 +529,7 @@ impl ReadTransaction<'_> {
             reader,
             table.at(),
             self.store.statistics.seed(),
+            count <= WHOLE,
             cancel,
         )?;
         build(
@@ -642,14 +645,6 @@ impl WriteTransaction<'_> {
     ) -> Result<Built> {
         // The commit this write started from: every retirement before it, under the turn, is in its view.
         let epoch = self.inner.snapshot_txid();
-        if count <= WHOLE {
-            let rows = self.range_rows(table, &[], ..)?;
-            let mut built = build(table.id, name, schema, only, count, counter, rows, &|| {
-                false
-            })?;
-            built.stamp(epoch);
-            return Ok(built);
-        }
         let (rows_root, reader) = self.live_rows(table)?;
         let history = self.live_table(table)?.at().history;
         let at = super::rows::At {
@@ -662,6 +657,7 @@ impl WriteTransaction<'_> {
             &reader,
             at,
             self.store.statistics.seed(),
+            count <= WHOLE,
             &|| false,
         )?;
         let mut built = build(
