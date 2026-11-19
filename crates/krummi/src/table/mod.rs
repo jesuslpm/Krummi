@@ -4,6 +4,7 @@
 
 mod bulk;
 pub mod catalog;
+mod estimate;
 mod identity;
 mod index;
 mod index_key;
@@ -35,6 +36,8 @@ pub mod value;
 
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
+pub use estimate::{Condition, Estimate};
+pub(crate) use estimate::{PrivateStatistics, StatsMemory};
 pub use index::{
     IndexDefinition, IndexKey, IndexMode, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
 };

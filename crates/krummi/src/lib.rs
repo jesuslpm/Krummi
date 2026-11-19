@@ -86,11 +86,12 @@ pub mod ids;
 pub mod table;
 
 pub use table::{
-    BulkLoadError, Column, ColumnStatistics, Direction, HistogramBucket, IndexDefinition,
-    IndexEntry, IndexKey, IndexMode, Nulls, ProjectedColumn, ProjectedRow, Projection,
-    ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn,
-    SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SequenceMode, TableMode, TableRow, TableSchema,
-    Upserted, WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence, WriteTable,
+    BulkLoadError, Column, ColumnStatistics, Condition, Direction, Estimate, HistogramBucket,
+    IndexDefinition, IndexEntry, IndexKey, IndexMode, Nulls, ProjectedColumn, ProjectedRow,
+    Projection, ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, Schema,
+    SchemaColumn, SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SequenceMode, TableMode,
+    TableRow, TableSchema, Upserted, WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence,
+    WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
@@ -136,6 +137,8 @@ pub struct Store {
     engine: krummi_tx::Engine,
     /// The projections of its tables it keeps until it closes (PY5 of the projection PRD).
     projections: table::Projections,
+    /// The statistics it keeps in memory (ST1 of the statistics PRD).
+    statistics: table::StatsMemory,
 }
 
 impl Store {
@@ -159,6 +162,7 @@ impl Store {
         Store {
             engine,
             projections: table::Projections::new(next_serial()),
+            statistics: table::StatsMemory::default(),
         }
     }
 
@@ -182,6 +186,7 @@ impl Store {
             serial: next_serial(),
             readers: table::Readers::default(),
             projections: &self.projections,
+            store: self,
         })
     }
 
@@ -226,6 +231,8 @@ impl Store {
             sequences: RefCell::default(),
             readers: table::Readers::default(),
             projections: &self.projections,
+            store: self,
+            private_statistics: RefCell::default(),
         })
     }
 }
@@ -240,6 +247,8 @@ pub struct ReadTransaction<'s> {
     readers: table::Readers,
     /// The store's projections.
     projections: &'s table::Projections,
+    /// The store, for the statistics it keeps in memory and its snapshots (ST1, ST3 of the statistics PRD).
+    store: &'s Store,
 }
 
 /// The write transaction of a store. It stays on the thread that opened it. Dropping it without committing
@@ -258,6 +267,10 @@ pub struct WriteTransaction<'s> {
     readers: table::Readers,
     /// The store's projections.
     projections: &'s table::Projections,
+    /// The store, for the statistics it keeps in memory and its snapshots (ST1, ST3 of the statistics PRD).
+    store: &'s Store,
+    /// The statistics its estimates built from its own view, which serve only it (ST3 of the statistics PRD).
+    private_statistics: RefCell<table::PrivateStatistics>,
 }
 
 /// How [`WriteTransaction::open_tree_with`], [`WriteTransaction::open_multi_tree_with`] and

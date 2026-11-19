@@ -9,6 +9,8 @@ mod support;
 
 #[path = "table_statistics/build.rs"]
 mod build;
+#[path = "table_statistics/estimate.rs"]
+mod estimate;
 
 use std::convert::Infallible;
 

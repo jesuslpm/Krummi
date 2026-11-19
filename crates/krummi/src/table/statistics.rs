@@ -189,6 +189,7 @@ impl ReadTransaction<'_> {
             .transpose()?;
         let count = self.row_count(table)?;
         let rows = self.range_rows(table, &[], ..)?;
+        self.store.statistics.sampled();
         build(
             table.id,
             &table.schema,
@@ -231,6 +232,7 @@ impl WriteTransaction<'_> {
             let (schema, count, counter) = (state.schema.clone(), state.count, state.stats.counter);
             drop(state);
             let rows = self.range_rows(table, &[], ..)?;
+            self.store.statistics.sampled();
             build(table.id, &schema, only, count, counter, rows)?
         };
         self.save_statistics(table, built)
