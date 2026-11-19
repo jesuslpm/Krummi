@@ -47,7 +47,9 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 | T3 | S1: ST1, ST7, ST8, ST16 (build, store, analyze, read), AC-ST1, AC-ST6, AC-ST12 | inline | done | `7fa8911` |
 | T4 | S1: ST2, ST3, ST5, ST12 (estimate, sampling, memory), AC-ST2, AC-ST9 | inline | done | `93bac6d` |
 | T5 | S1: ST6, ST9, ST10, ST11, ST14 (thread, failures, close), AC-ST4, AC-ST5, AC-ST7, AC-ST8, AC-ST10 | inline | done | `0ddf2a1` |
-| T6 | S1: ST17, ST18 (index prefixes, multi-column), AC-ST13, AC-ST14 | inline | pending | |
+| T6 | S1: ST17, ST18 (index prefixes, multi-column), AC-ST13, AC-ST14 | inline | done | `34cbe58` |
+| T7a | S1: ST1 (random-leaf sampling over 30,000 rows), part of AC-ST1 and AC-ST12 | inline | done | `ea5d7b3` |
+| T7b | S1: ST1 (partial read of rows stored in runs, without the run checksum) | inline | pending | |
 | T7 | S2, S4 (measurements, reviews, closing report) | inline | pending | |
 
 ## Log
@@ -80,3 +82,10 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 - **L6** — RDD of the slice `8d1fb6e..0ddf2a1` (T3–T5), escalated with item 4 (concurrency): review
   `review-2013388a3a92733c`, lenses risk, resilience and reliability, approved with no findings, acknowledged.
   Reviewed boundary: `0ddf2a1`. The independent verifier that item 4 calls for runs once at the feature's end.
+- **L7** — T6 done in `34cbe58` (index prefix statistics, equality in several columns with the biased backoff,
+  index statistics readable) and T7a in `ea5d7b3` (`krummi_tree::sample_leaves`: random descents to distinct
+  leaves, about 30,000 rows, seed fixable by a test hook). Checks pass after each. Decisions (S5): a write's private
+  statistics keep columns, not index prefixes, so a multi-column estimate in a write on a table it created samples
+  again each time; the committed snapshot serves a write's estimate only when it has every column and index of the
+  write's schema. Pending: T7b, the partial read of runs (ST1's G6 exception), which needs a run read by pages in
+  krummi-tx and a row decoder on partial bytes; today a sampled row stored in a run is read whole.
