@@ -230,7 +230,7 @@ impl<'t, S: PageSource + ?Sized, L: Locate> Scan<'t, S, L> {
         if self.failed {
             return None;
         }
-        // As in `lend`, the entry is matched without a `Result` in between.
+        // As in `lend`, the step's entry is matched before it is located, so no joined `Result` holds it.
         let row = match step(&mut self.entries)? {
             Ok(entry) => self.locator.locate(self.tx, self.rows_root, entry),
             Err(error) => Err(error),

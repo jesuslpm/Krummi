@@ -240,3 +240,20 @@ Codex PRD review on 2026-11-18). Branch: `feat/tables-indexes` (from `main` at `
   1.08), but the engineering principles do not accept a slower existing load for an unrelated feature: a delegated
   writer removes the cost from the primary-key path, measured with the same A/B (base, head, fix on W27; head, fix
   on W31, W32).
+- **L17** (2026-11-19) — W27 fix (delegated writer, then one line by the parent): the `Option<Through>` branch was not
+  the cost (removing it by monomorphization alone gave 99.1 ns/row against head's 90.9); the entry was copied
+  through memory each row with 16-byte loads straddling two 8-byte stores (no store-to-load forwarding), from the
+  shape of `Scan::lend` (an `and_then` chain joined into one `Result`) and an out-of-line `Reader::decode_into`.
+  Loop alignment and the store data were ruled out. The fix: `Scan<'t, S, L: Locate>` with a zero-sized
+  `PrimaryKey` locator and `Through` for indexes (one shared scan), `lend` matching each step, and
+  `#[inline(always)]` on `decode_into` (`rows.rs`, outside the writer's surface, added by the parent). `index_rows`
+  now returns `ReadIndexRows`/`WriteIndexRows` (new on this branch; S5, instead of a public type parameter).
+  Windows A/B with the bench power plan, digests equal: W27 base 84.8, fix 82.5 ns/row (six rounds; the ten-round
+  runs of the intermediate versions are in `work/ti/ab/ab-*.json`); W31 3,445 against head 3,474 and W32 1,051
+  against head 1,061. Checks by the parent: fmt, clippy, workspace 963 passed. Risk: item 3 (`index_rows`' return
+  type) and item 6 (no test catches a performance regression; the A/B is the evidence).
+  RDD `1de443b..7220476` (readability, reliability): approved, `review-3c09936c657c00f6`. Advisories: a step comment
+  in `ranges.rs:233` that read as if no `Result` remained (reworded); the A/B outcome not yet in this log (this
+  entry); the Windows full-run report says «con cambios sin confirmar» because the phase log
+  `odd/tasks/tables-indexes-phases.tsv`, the only uncommitted file during the run, was modified (the measured code
+  is `1de443b`, built before the run).
