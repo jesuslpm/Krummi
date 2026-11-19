@@ -12,7 +12,7 @@ use std::time::Duration;
 use super::catalog::{ReadTable, WriteTable};
 use super::estimate::{StatsMemory, newest};
 use super::key::KeyColumn;
-use super::rows::{TableRow, Versions};
+use super::rows::{StoredLen, TableRow, Versions};
 use super::schema::{SchemaColumn, TableSchema, TableStats};
 use super::stats::{
     self, ColumnStats, Gather, WHOLE, column_key, element_column, has_stats, prefix_key,
@@ -194,21 +194,30 @@ pub(crate) fn build<'r>(
             });
         }
         let row = row?;
-        // A row read by the pages it uses, without the run's checksum, may be malformed: reading it may panic, and then
-        // the row is left out of the sample (ST1: a damaged run never ends in a panic).
-        let read_row = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let values: Vec<Option<Value<'_>>> = (wanted.iter())
-                .map(|(position, column)| {
-                    // A large text or bytes value is counted by its length, without reading it (ST1).
-                    let large = matches!(column.ty, ColumnType::String | ColumnType::Bytes)
-                        && row
-                            .stored_len(*position)
-                            .is_some_and(|len| len > stats::LARGE);
-                    (!large).then(|| row.value(*position).unwrap_or(Value::Null).into_owned())
-                })
-                .collect();
-            let elements: Vec<Vec<Vec<u8>>> = (prefixes.iter())
-                .map(|(_, key)| {
+        read += 1;
+        // A row read by the pages it uses, without the run's checksum, may be malformed: each column is classified
+        // before it is read, a large value or a malformed one counts as large and is not read, and a read that panics
+        // leaves only that column or prefix out (ST1: a damaged run never ends in a panic).
+        for ((position, column), gather) in wanted.iter().zip(&mut gathers) {
+            let text = matches!(column.ty, ColumnType::String | ColumnType::Bytes);
+            match row.stored_len(*position) {
+                StoredLen::Invalid => gather.add_large(),
+                StoredLen::Len(len) if text && len > stats::LARGE => gather.add_large(),
+                _ => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    row.value(*position)
+                }))
+                .ok()
+                .flatten()
+                {
+                    // A default is borrowed from the catalog: `add` measures it before reading it (R20).
+                    Some(value) => gather.add(&value),
+                    None => gather.add_large(),
+                },
+            }
+        }
+        let elements: Vec<Option<Vec<Vec<u8>>>> = (prefixes.iter())
+            .map(|(_, key)| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut element = Vec::new();
                     let mut prefixes = Vec::with_capacity(key.len());
                     for (at, (position, column)) in key.iter().enumerate() {
@@ -220,20 +229,14 @@ pub(crate) fn build<'r>(
                         }
                     }
                     prefixes
-                })
-                .collect();
-            (values, elements)
-        }));
-        let Ok((values, elements)) = read_row else {
-            continue;
-        };
-        read += 1;
-        for (value, gather) in values.into_iter().zip(&mut gathers) {
-            match value {
-                Some(value) => gather.add(&value),
-                None => gather.add_large(),
-            }
-        }
+                }))
+                .ok()
+            })
+            .collect();
+        let elements: Vec<Vec<Vec<u8>>> = elements
+            .into_iter()
+            .map(Option::unwrap_or_default)
+            .collect();
         for (elements, gathers) in elements.into_iter().zip(&mut combinations) {
             for (element, gather) in elements.into_iter().zip(gathers.iter_mut()) {
                 gather.add_element(element);

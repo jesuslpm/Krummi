@@ -545,57 +545,6 @@ fn r13_damage_during_a_renewal_is_dropped() {
     write.commit().unwrap();
 }
 
-/// R13 (ST9, T12): a background save whose commit fails to write makes the store refuse writes: the next write request
-/// fails at once with the input/output class, estimates go on with the statistics in memory, and an estimate of another
-/// table samples without asking for a save.
-#[test]
-fn r13_a_failed_background_commit_makes_the_store_refuse_writes() {
-    use krummi_pager::testing::{self, Action, Op};
-    let tmp = tempfile::tempdir().unwrap();
-    let store = open(tmp.path());
-    let mut write = store.write().unwrap();
-    for name in ["t", "u"] {
-        let table = write
-            .open_table_with(name, TableMode::CreateNew(&pair_schema()))
-            .unwrap();
-        for id in 0..100 {
-            write
-                .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
-                .unwrap();
-        }
-    }
-    write.commit().unwrap();
-    // The data commit is durable before the faults start, so that only the statistics' commit meets them.
-    store.make_durable().unwrap();
-    testing::reset();
-    for nth in 0..1_000 {
-        testing::inject(Op::Write, nth, Action::Fail(std::io::ErrorKind::Other));
-    }
-    let estimate = |name: &str| {
-        let read = store.read().unwrap();
-        let table = read.open_table(name).unwrap();
-        read.estimate(&table, &equal("n", 1)).unwrap()
-    };
-    estimate("t");
-    store.wait_statistics_idle();
-    testing::reset();
-    assert_eq!(store.write().err().map(|e| e.kind()), Some(ErrorKind::Io));
-    assert!(
-        (estimate("t").rows - 50.0).abs() < 1e-6,
-        "memory still serves"
-    );
-    let samples = store.statistics_samples();
-    estimate("u");
-    assert_eq!(store.statistics_samples(), samples + 1);
-    assert_eq!(store.statistics_work().1, 0, "no save asked for");
-    // T12: closing writes what was committed again and ends without error; the store reopens with its rows.
-    store.close().unwrap();
-    let store = open(tmp.path());
-    let read = store.read().unwrap();
-    let table = read.open_table("t").unwrap();
-    assert_eq!(read.row_count(&table).unwrap(), 100);
-}
-
 /// Analyzes `t` of 600 rows and adds 700 more, so that its statistics are stale (threshold 620).
 fn stale_table(store: &Store) {
     let mut write = store.write().unwrap();
@@ -788,36 +737,29 @@ fn r2_a_corrupt_run_never_panics_the_sample() {
     );
 }
 
-/// R13 (ST7, T12): analyze on the store whose save commit fails to write reports the input/output class, keeps what
-/// it published in memory, and the store refuses writes after it.
+/// R13 (ST7, ST12): analyze on the store of a table with a damaged page fails with damage and publishes nothing.
 #[test]
-fn r13_analyze_with_a_failed_commit_refuses_writes() {
-    use krummi_pager::testing::{self, Action, Op};
+fn r13_analyze_of_a_damaged_table_fails_with_damage() {
     let tmp = tempfile::tempdir().unwrap();
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
     let table = write
         .open_table_with("t", TableMode::CreateNew(&pair_schema()))
         .unwrap();
-    for id in 0..100 {
+    for id in 0..10 {
         write
-            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id % 2))])
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(id))])
             .unwrap();
     }
     write.commit().unwrap();
-    store.make_durable().unwrap();
-    testing::reset();
-    for nth in 0..1_000 {
-        testing::inject(Op::Write, nth, Action::Fail(std::io::ErrorKind::Other));
-    }
-    let error = store.analyze("t", None).unwrap_err();
-    testing::reset();
-    assert_eq!(error.kind(), ErrorKind::Io);
-    assert_eq!(store.write().err().map(|e| e.kind()), Some(ErrorKind::Io));
+    store.close().unwrap();
+    damage(tmp.path(), root_page(tmp.path(), "t"));
+    let store = open(tmp.path());
+    assert_eq!(
+        store.analyze("t", None).unwrap_err().kind(),
+        ErrorKind::Damaged
+    );
     let read = store.read().unwrap();
     let table = read.open_table("t").unwrap();
-    assert!(
-        read.column_statistics(&table, "n").unwrap().is_some(),
-        "kept in memory"
-    );
+    assert!(read.column_statistics(&table, "n").unwrap().is_none());
 }

@@ -152,3 +152,74 @@ fn a_renewal_with_a_full_disk_is_dropped_and_asked_again() {
         "saved by the request that followed"
     );
 }
+
+/// Fails every write to the files from now on, once everything committed is in `krummi.data`: only a later commit meets
+/// the faults (R13 of the code review: the earlier commit's transfer must not).
+fn fail_writes_after_the_transfer(store: &Store) {
+    use krummi_pager::testing::{self, Action, Op};
+    store.shared().engine.checkpoint().unwrap();
+    testing::reset();
+    for nth in 0..1_000 {
+        testing::inject(Op::Write, nth, Action::Fail(io::ErrorKind::Other));
+    }
+}
+
+/// ST9, T12: a background save whose commit fails to write makes the store refuse writes: the next write request fails
+/// with the input/output class, estimates go on from memory, another table's estimate samples without asking for a
+/// save, and closing then succeeds and the store reopens with its rows.
+#[test]
+fn a_failed_background_commit_makes_the_store_refuse_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = store_with_rows(tmp.path());
+    let mut write = store.write().unwrap();
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I64),
+        ],
+        &["id"],
+    );
+    let other = write
+        .open_table_with("u", TableMode::CreateNew(&schema))
+        .unwrap();
+    write
+        .insert_row(&other, &[("id", Value::I64(1)), ("n", Value::I64(1))])
+        .unwrap();
+    write.commit().unwrap();
+    fail_writes_after_the_transfer(&store);
+    estimate(&store);
+    store.wait_statistics_idle();
+    krummi_pager::testing::reset();
+    assert_eq!(store.write().err().map(|e| e.kind()), Some(ErrorKind::Io));
+    assert!(seen(&store), "memory still serves");
+    let samples = store.statistics_samples();
+    let read = store.read().unwrap();
+    let table = read.open_table("u").unwrap();
+    let condition = Condition::Equal {
+        column: "n",
+        value: Value::I64(1),
+    };
+    read.estimate(&table, &condition).unwrap();
+    drop(read);
+    assert_eq!(store.statistics_samples(), samples + 1);
+    assert_eq!(store.statistics_work().1, 0, "no save asked for");
+    store.close().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    assert_eq!(read.row_count(&table).unwrap(), 1_000);
+}
+
+/// ST7, T12: analyze on the store whose save commit fails to write reports the input/output class, keeps what it
+/// published in memory, and the store refuses writes after it.
+#[test]
+fn analyze_with_a_failed_commit_refuses_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = store_with_rows(tmp.path());
+    fail_writes_after_the_transfer(&store);
+    let error = store.analyze("t", None).unwrap_err();
+    krummi_pager::testing::reset();
+    assert_eq!(error.kind(), ErrorKind::Io);
+    assert_eq!(store.write().err().map(|e| e.kind()), Some(ErrorKind::Io));
+    assert!(seen(&store), "kept in memory");
+}

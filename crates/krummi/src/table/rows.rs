@@ -714,19 +714,25 @@ impl Reader {
         }
     }
 
-    /// The bytes the column `i` of a stored row takes, when they are in the row, without reading them: `None` for a
-    /// key column, a default or a null (ST1 of the statistics PRD: a large value is counted without being read).
-    fn stored_len(&self, bytes: &[u8], old: Option<&OldVersion>, i: usize) -> Option<usize> {
+    /// The bytes the column `i` of a stored row takes, when they are in the row, without reading them (ST1 of the
+    /// statistics PRD: a large value is counted without being read).
+    fn stored_len(&self, bytes: &[u8], old: Option<&OldVersion>, i: usize) -> StoredLen {
         let column = &self.columns[i];
         if column.in_key.is_some() {
-            return None;
+            return StoredLen::NotStored;
         }
         let (layout, place) = match old {
             None => (&self.layout, Some(i)),
             Some(old) => (&old.layout, old.places[i]),
         };
-        let row = layout.row(bytes).ok()?;
-        row.column_bytes(place?).ok().flatten().map(<[u8]>::len)
+        let Some(place) = place else {
+            return StoredLen::NotStored;
+        };
+        match layout.row(bytes).and_then(|row| row.column_bytes(place)) {
+            Ok(Some(bytes)) => StoredLen::Len(bytes.len()),
+            Ok(None) => StoredLen::NotStored,
+            Err(_) => StoredLen::Invalid,
+        }
     }
 
     /// The default of each live column, [`Value::Null`] for one without, borrowed from the catalog entry `name` of
@@ -1004,12 +1010,12 @@ impl<'t> TableRow<'t> {
 
     /// The bytes the live column at `position` takes in the stored row, without reading them, when it is stored there
     /// (ST1 of the statistics PRD).
-    pub(crate) fn stored_len(&self, position: usize) -> Option<usize> {
+    pub(crate) fn stored_len(&self, position: usize) -> StoredLen {
         match &self.stored {
             Stored::Row { bytes, old, .. } if position < self.len() => {
                 self.reader.stored_len(bytes, old.as_deref(), position)
             }
-            _ => None,
+            _ => StoredLen::NotStored,
         }
     }
 
@@ -1207,6 +1213,17 @@ pub(super) enum RowCount {
     Kept,
     Added,
     Removed(u64),
+}
+
+/// The bytes a column takes in a stored row (ST1 of the statistics PRD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StoredLen {
+    /// Its value takes this many bytes in the row.
+    Len(usize),
+    /// It is not in the row: a key column, a null, or a column added after the row (its default).
+    NotStored,
+    /// The row's layout does not hold it: the row is malformed.
+    Invalid,
 }
 
 /// What a write of a row did.
