@@ -305,3 +305,25 @@ Fix commit: `144acf2`. Checks after it: fmt, clippy and `cargo test --workspace`
   in memory, writes refused), and the background commit test now makes the data commit durable before its faults.
   Read input/output of pages is not injectable in this engine (pages are mapped); damage stands for it in the tests.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-19 (verification, round 8, and its fixes)
+
+Follow-up report: [2026-11-19-code-08.md](2026-11-19-code-08.md), wrapper status `findings`, no unexpected changes.
+Verdict, quoted: "Changes required. R2 and R13 remain open; regression R20 is also open: three major findings. R12 is
+verified resolved; approval is withheld."
+
+Fix commit: `da56d24`. Checks after it: fmt, clippy and `cargo test --workspace` pass.
+
+- R2 ("Invalid run offsets discard rows instead of counting large values") — fixed: `TableRow::stored_len` tells a
+  value's length, a column not stored in the row, or a layout that does not hold it (`StoredLen::Invalid`); an invalid
+  or large `string`/`bytes` column counts as large without being read; any other read runs under its own panic guard,
+  and a column or prefix that panics counts as large or is left out alone, so the row's other columns still count.
+- R20 ("Sampling now copies entire large defaults for every old-version row") — fixed: values are no longer copied
+  before classification; a default borrowed from the catalog goes to `Gather::add`, which measures it first.
+- R13 — fixed: the two commit input/output tests are unit tests now
+  (`a_failed_background_commit_makes_the_store_refuse_writes`, `analyze_with_a_failed_commit_refuses_writes`) that
+  call `Engine::checkpoint` before their faults, so the earlier commit's transfer cannot meet them; the first also
+  closes and reopens. `r13_analyze_of_a_damaged_table_fails_with_damage` is the deterministic damage case. Read
+  input/output of table pages is not injectable (the pages are mapped; `Op::Read` is the journal's): damage stands for
+  it.
+- Status: claimed, unverified until a follow-up review.
