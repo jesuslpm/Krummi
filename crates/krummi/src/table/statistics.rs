@@ -206,7 +206,9 @@ pub(crate) fn build<'r>(
             |position: usize| pages.extend(row.run_pages(position).into_iter().flatten());
         // A row read by the pages it uses, without the run's checksum, may be malformed: each column is classified
         // before it is read, a large value or a malformed one counts as large and is not read, and a read that panics
-        // leaves only that column or prefix out (ST1: a damaged run never ends in a panic).
+        // leaves only that column or prefix out (ST1: a damaged run never ends in a panic). The guards need unwinding:
+        // built with `panic = "abort"`, such a panic ends the process. The workspace's profiles set no `panic`, so it
+        // unwinds.
         for ((position, column), gather) in wanted.iter().zip(&mut gathers) {
             let text = matches!(column.ty, ColumnType::String | ColumnType::Bytes);
             match row.stored_len(*position) {
