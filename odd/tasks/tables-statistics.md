@@ -165,3 +165,16 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   `ac_st12_a_sample_counts_the_pages_before_the_values`, RED 5 against 10). Round 11 over `e14a61c..HEAD`.
 - **L19** — 2026-11-20: Codex round 11 (`2026-11-20-code-02.md`): `approved`; R2 verified, no finding open. The Codex
   code review chain is closed. Next: the RDD review of the fix commits, ST15's measurements and the closing report.
+- **L20** — 2026-11-20, RDD review of the fix commits after `4386d3b`. The whole range (4,204 lines) failed with
+  `lens_context_budget_exceeded`; it was reviewed in four slices, each with HEAD detached at its end, lenses risk,
+  resilience and reliability, consent granted (project rule). All four approved and acknowledged:
+
+  | Slice | Lineage | Findings (none blocking) |
+  |---|---|---|
+  | `4386d3b..bf69c8b` | `review-8a1ddb485d4376ba` | WARNING resilience: `find_write_table` opens every table under the write turn when the sampled one is no longer under its name (O(tables), unmeasured). WARNING reliability: `write_unless` has no test of its own; r7 test orders a rename by a 100 ms sleep. |
+  | `bf69c8b..6b6430a` | `review-6ebd4c9a8f72400c` | WARNING reliability: r11 and r16 tests order by a 100 ms sleep; retiring before the commit is durable (already replaced in `265ed1f` by retiring at the commit's point of no return). |
+  | `6b6430a..88bacde` | `review-799413ea30a2ac85` | WARNING risk: `Integrity::Unchecked` relaxes integrity for sampling by design (ST1). SUGGESTION risk: keep the `test-hooks` feature out of production builds. WARNING reliability: the `removed` set of retired targets is never pruned; the r13 commit fault test's isolation (already replaced in `da56d24` by unit tests after a checkpoint); the unchecked random-leaf and write paths have no damage test. |
+  | `88bacde..c6b0331` | `review-85d2949481d8f1fc` | WARNING risk: the panic guards of sampling do nothing under `panic=abort` (the project builds with unwinding). |
+
+  Resolution: the three sleeps (r7, r11, r16) are replaced by a wait on the sample counter, which analyze bumps after
+  opening its snapshot and the table (`wait_sampling`). The other warnings stay as follow-ups for the closing report.
