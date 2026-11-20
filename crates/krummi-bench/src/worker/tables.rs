@@ -17,7 +17,8 @@
 //! `KRUMMI_BENCH_ESTIMATES` adds statistics estimates to W23 and W28 for the measurements of ST15 of
 //! tables-statistics.prd.md, a measuring hook outside the benchmark's interface that writes only to stderr:
 //! `thread` runs a second thread that, after each write of the load, asks for an estimate of each column; `first`
-//! times the first estimate on W23's table after its load, outside its measured time.
+//! times the first estimate on W23's table after its load, outside its measured time. Any other value fails W23 and
+//! W28 before they run.
 
 use std::borrow::Cow;
 use std::convert::Infallible;
@@ -56,9 +57,33 @@ fn with_projection() -> bool {
 /// The variable whose value adds statistics estimates to W23 and W28: `thread` or `first` (ST15).
 pub const ESTIMATES_VARIABLE: &str = "KRUMMI_BENCH_ESTIMATES";
 
-/// Whether [`ESTIMATES_VARIABLE`] is `mode`.
-fn estimates(mode: &str) -> bool {
-    std::env::var_os(ESTIMATES_VARIABLE).is_some_and(|value| value == mode)
+/// The estimates [`ESTIMATES_VARIABLE`] asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Estimates {
+    /// No estimates: the variable is not set.
+    None,
+    /// The estimating thread beside the load's writes.
+    Thread,
+    /// The first estimate after W23's load.
+    First,
+}
+
+/// The estimates [`ESTIMATES_VARIABLE`] asks for; a value other than `thread` or `first` fails.
+fn estimates() -> Result<Estimates> {
+    estimates_of(std::env::var_os(ESTIMATES_VARIABLE).as_deref())
+}
+
+/// The estimates the value `value` of [`ESTIMATES_VARIABLE`] asks for.
+fn estimates_of(value: Option<&std::ffi::OsStr>) -> Result<Estimates> {
+    match value.map(|value| value.to_str()) {
+        None => Ok(Estimates::None),
+        Some(Some("thread")) => Ok(Estimates::Thread),
+        Some(Some("first")) => Ok(Estimates::First),
+        Some(value) => Err(format!(
+            "{ESTIMATES_VARIABLE} vale {}: se espera thread o first",
+            value.map_or_else(|| "algo que no es UTF-8".to_owned(), |v| format!("«{v}»"))
+        )),
+    }
 }
 
 /// Runs the table load of `cx` (W23–W32).
@@ -79,6 +104,11 @@ pub(super) fn run(cx: &Context) -> Result<()> {
             };
             let rows = table_data::rows(n, kind);
             let schema = schema(kind);
+            let estimates = if load == Load::W23 {
+                estimates()?
+            } else {
+                Estimates::None
+            };
             cx.modifying::<Krummi>(Tree::Normal, |store| {
                 let store = store.inner();
                 let insert = |tx: &mut WriteTransaction<'_>, table: &WriteTable<'_>, j: usize| {
@@ -101,7 +131,8 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                     }
                     Load::W23 => {
                         let row = values(&rows[0], kind);
-                        let time = with_estimates(store, estimates("thread"), &row, |notify| {
+                        let thread = estimates == Estimates::Thread;
+                        let time = with_estimates(store, thread, &row, |notify| {
                             timed(|| {
                                 let schema = Some(&schema);
                                 batches_notifying(
@@ -115,7 +146,7 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                             })
                         })?
                         .1;
-                        if estimates("first") {
+                        if estimates == Estimates::First {
                             first_estimate(store, &row)?;
                         }
                         time
@@ -156,34 +187,11 @@ pub(super) fn run(cx: &Context) -> Result<()> {
             let keys = ulid_keys(order);
             let first = table_data::rows(1, KeyKind::Ulid);
             let condition_row = values(&first[0], KeyKind::Ulid);
+            let thread = estimates()? == Estimates::Thread;
             cx.modifying::<Krummi>(Tree::Normal, |store| {
-                let ((), time) = with_estimates(
-                    store.inner(),
-                    estimates("thread"),
-                    &condition_row,
-                    |notify| {
-                        timed(|| {
-                            let update = |tx: &mut WriteTransaction<'_>,
-                                          table: &WriteTable<'_>,
-                                          j: usize| {
-                                // Only `n` (E10): the other columns keep their values.
-                                let row = [("id", ulid(&keys[j])), ("n", Value::I64(new_n[j]))];
-                                match tx.update_row(table, &row).map_err(cause)? {
-                                    true => Ok(()),
-                                    false => Err(missing(&keys[j])),
-                                }
-                            };
-                            batches_notifying(
-                                store.inner(),
-                                keys.len(),
-                                p.batch,
-                                None,
-                                notify,
-                                update,
-                            )
-                        })
-                    },
-                )?;
+                let ((), time) = with_estimates(store.inner(), thread, &condition_row, |notify| {
+                    timed(|| update_n(store.inner(), &keys, &new_n, p.batch, notify))
+                })?;
                 // After the measured time: every row holds its new `n`.
                 let tx = store.inner().read().map_err(cause)?;
                 let table = tx.open_table(TABLE).map_err(cause)?;
@@ -583,6 +591,25 @@ fn equal_conditions<'r>(row: &'r [(&'static str, Value<'r>)]) -> Vec<Condition<'
         .collect()
 }
 
+/// W28's measured write: sets `n` of the rows of `keys` to `new_n`, in writes of `batch` rows, waking `notify` after
+/// each commit. Only `n` (E10): the other columns keep their values.
+fn update_n(
+    store: &krummi::Store,
+    keys: &[[u8; ID_LEN]],
+    new_n: &[i64],
+    batch: u64,
+    notify: Option<&mpsc::Sender<()>>,
+) -> Result<()> {
+    let update = |tx: &mut WriteTransaction<'_>, table: &WriteTable<'_>, j: usize| {
+        let row = [("id", ulid(&keys[j])), ("n", Value::I64(new_n[j]))];
+        match tx.update_row(table, &row).map_err(cause)? {
+            true => Ok(()),
+            false => Err(missing(&keys[j])),
+        }
+    };
+    batches_notifying(store, keys.len(), batch, None, notify, update)
+}
+
 /// Runs `write(notify)`, with `thread` (from [`ESTIMATES_VARIABLE`]) beside the estimating thread of [`estimating`];
 /// then writes its rounds and the samples the statistics work took to stderr.
 fn with_estimates<T>(
@@ -607,7 +634,7 @@ fn with_estimates<T>(
 /// an estimate of each column with the values of `row` (ST15): the first samples and the stale ones ask for a renewal
 /// in the background. Each wake gets its own round, in order: those that arrive while it estimates wait their turn.
 /// After `write`, it waits for the thread and the statistics work, and returns what `write` returned and the thread's
-/// rounds.
+/// rounds; when both fail, the error names both.
 fn estimating<T>(
     store: &krummi::Store,
     row: &[(&'static str, Value<'_>)],
@@ -634,7 +661,13 @@ fn estimating<T>(
             .join()
             .map_err(|_| "el hilo de estimaciones falló".to_owned())?;
         store.wait_statistics_idle();
-        Ok((written?, rounds?))
+        match (written, rounds) {
+            (Ok(written), Ok(rounds)) => Ok((written, rounds)),
+            (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
+            (Err(write), Err(thread)) => Err(format!(
+                "{write}; el hilo de estimaciones también falló: {thread}"
+            )),
+        }
     })
 }
 
@@ -747,6 +780,74 @@ mod tests {
         assert_eq!(
             first_estimate(&store, &row[..1]).unwrap_err(),
             "la fila no tiene la columna n"
+        );
+    }
+
+    /// ST15: W28's updates run beside the estimating thread, which estimates after each of their commits and samples
+    /// the table; every row ends with its new `n`.
+    #[test]
+    fn w28_updates_beside_the_estimating_thread() {
+        let n = 5_000;
+        let store = loaded(n);
+        let order = table_data::order(Load::W28.number(), n);
+        let new_n: Vec<i64> = (order.iter())
+            .map(|&r| table_data::new_n(u64::from(r)))
+            .collect();
+        let keys = ulid_keys(order);
+        let first = table_data::rows(1, KeyKind::Ulid);
+        let row = values(&first[0], KeyKind::Ulid);
+        let samples = store.statistics_samples();
+        let ((), rounds) = estimating(&store, &row, |notify| {
+            update_n(&store, &keys, &new_n, 1_000, notify)
+        })
+        .unwrap();
+        assert_eq!(rounds, 5, "one round after each of the 5 commits");
+        assert!(store.statistics_samples() > samples);
+        let tx = store.read().unwrap();
+        let table = tx.open_table(TABLE).unwrap();
+        for (key, &n) in keys.iter().zip(&new_n) {
+            let row = tx.get_row(&table, &[ulid(key)]).unwrap().unwrap();
+            assert_eq!(row.get("n"), Some(Value::I64(n)));
+        }
+    }
+
+    /// When the write and the estimating thread both fail, the error names both.
+    #[test]
+    fn a_failed_write_and_thread_report_both_errors() {
+        // No table: the thread fails to open it at its first wake.
+        let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+        let rows = table_data::rows(1, KeyKind::Ulid);
+        let row = values(&rows[0], KeyKind::Ulid);
+        let error = estimating(&store, &row, |notify| -> Result<()> {
+            notify.expect("the estimating thread").send(()).unwrap();
+            Err("la escritura falló".to_owned())
+        })
+        .unwrap_err();
+        let prefix = "la escritura falló; el hilo de estimaciones también falló: ";
+        assert!(error.starts_with(prefix), "{error}");
+        assert!(error.len() > prefix.len(), "{error}");
+    }
+
+    /// The values of `KRUMMI_BENCH_ESTIMATES`: unset, `thread` or `first`; any other fails.
+    #[test]
+    fn the_estimates_variable_takes_only_its_modes() {
+        use std::ffi::OsStr;
+        assert_eq!(estimates_of(None), Ok(Estimates::None));
+        assert_eq!(
+            estimates_of(Some(OsStr::new("thread"))),
+            Ok(Estimates::Thread)
+        );
+        assert_eq!(
+            estimates_of(Some(OsStr::new("first"))),
+            Ok(Estimates::First)
+        );
+        assert_eq!(
+            estimates_of(Some(OsStr::new("Thread"))),
+            Err("KRUMMI_BENCH_ESTIMATES vale «Thread»: se espera thread o first".to_owned())
+        );
+        assert_eq!(
+            estimates_of(Some(OsStr::new(""))),
+            Err("KRUMMI_BENCH_ESTIMATES vale «»: se espera thread o first".to_owned())
         );
     }
 
