@@ -850,8 +850,15 @@ fn r13_analyze_in_a_write_of_a_damaged_table_fails_the_write() {
 
 /// Waits until a sample started after the store had read `samples`: its transaction already sees the table, so a change
 /// committed now is one that sample does not see (instead of a fixed sleep; RDD review of the fix commits).
+/// Analyze counts its sample after `read` and `open_table` (`Store::analyze_with_timeout`); a sample that never starts
+/// fails the test after a minute instead of hanging it.
 fn wait_sampling(store: &Store, samples: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while store.statistics_samples() == samples {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "analyze never started its sample"
+        );
         std::thread::yield_now();
     }
 }

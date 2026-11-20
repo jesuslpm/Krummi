@@ -178,3 +178,7 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 
   Resolution: the three sleeps (r7, r11, r16) are replaced by a wait on the sample counter, which analyze bumps after
   opening its snapshot and the table (`wait_sampling`). The other warnings stay as follow-ups for the closing report.
+- **L21** — 2026-11-20, RDD review of `c6b0331..d6e3a8a` (lens reliability): approved, lineage
+  `review-ecaa3549b076a9b1`. WARNING: `wait_sampling` had no deadline (fixed: it fails after a minute); WARNING: the
+  counter-after-snapshot ordering is only documented (it holds by source, `Store::analyze_with_timeout` opens the read
+  and the table before `build_statistics` counts the sample; now cited in the helper's comment).
