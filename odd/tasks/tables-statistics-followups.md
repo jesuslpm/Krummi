@@ -68,3 +68,11 @@ behavior changes, so no PRD.
   clippy, 1,030 passed.
 - **L6** — 2026-11-20, Codex follow-up of `7bcc9db..dd00194`
   ([report](../../docs/reviews/tables-statistics-followups/2026-11-20-code-02.md)): `approved`, R1 verified resolved.
+- **L7** — 2026-11-20, RDD review of the last slice `3addc0e..341a002` (assessment: medium, `under_budget`), lenses
+  reliability and resilience, consent granted: approved and acknowledged, lineage `review-b1bfbacaeec45264`. Findings,
+  none blocking: R4-queue-stop-proof-depends-on-no-deadline (SUGGESTION) and R3-queue-stop-bound-removed (WARNING),
+  both asking whether `write_unless` has a deadline of its own that could end the wait without `stop`. Not changed:
+  it has none (`Engine::write_unless` calls `write_checked(None, Some(stop))`, `crates/krummi-tx/src/lib.rs`), so a
+  regression that ignored `stop` would hang the test while the turn is held, never pass it; the wall-clock assert was
+  removed because it could fail on a loaded machine (L4).
+- **L8** — 2026-11-20, closing report: [tables-statistics-followups-report.md](tables-statistics-followups-report.md).

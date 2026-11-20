@@ -11,3 +11,13 @@
 2026-11-20T18:34:43+00:00	bg-start	review	rdd-followups
 2026-11-20T18:35:23+00:00	bg-end	review	rdd-followups
 2026-11-20T18:35:58+00:00	mark	fix	rdd-followups
+2026-11-20T18:37:24+00:00	bg-start	review	codex-R1
+2026-11-20T18:51:57+00:00	bg-end	review	codex-R1
+2026-11-20T18:52:10+00:00	mark	fix	codex-R1
+2026-11-20T19:04:45+00:00	bg-start	review	codex-R2
+2026-11-20T19:08:29+00:00	bg-end	review	codex-R2
+2026-11-20T19:08:46+00:00	mark	review	
+2026-11-20T19:09:12+00:00	bg-start	review	rdd-last-slice
+2026-11-20T19:09:34+00:00	bg-end	review	rdd-last-slice
+2026-11-20T19:09:53+00:00	mark	close	
+2026-11-20T19:09:53+00:00	end		
