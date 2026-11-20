@@ -202,3 +202,9 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   dropped when the write also fails; no test runs W28 under the thread; unknown values of `KRUMMI_BENCH_ESTIMATES`
   run silently without estimates; the Cargo.lock self dependency (it belongs to `bc82fd7`, committed apart in
   `ce991db`). They stay as follow-ups.
+- **L25** — 2026-11-20, Codex round 12 (`2026-11-20-code-03.md`, over `3e0641a..79a5d05`): `findings`, R21 minor: the
+  ST15 estimating thread merged the wakes that arrived while it estimated, so W28 ran 996–999 rounds for 1,000
+  commits. Fixed in `879b73c`: one round per wake, in order; test RED 5 against 10 rounds when five wakes arrive
+  together. The estimates were measured again on `879b73c` (Windows 13:48–13:58 UTC, Linux 13:58–14:17 UTC): 1,000
+  rounds in every W23 and W28 run; first estimate 82.4 ms and 79.8 ms; the thread costs W23 2.9 % and 6.5 % of op/s,
+  and W28 3.7 % and 1.6 %. The single-load A/B stands: plain runs do not reach the changed code.

@@ -395,3 +395,25 @@ Commits after the head round 11 reviewed (`3e0641a`), with no finding of this ch
 
 Checks on `c6c43ce`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and
 `cargo test --workspace` pass (59 binaries, 1,022 passed, 0 failed, 35 ignored).
+
+## 2026-11-20 (round 12)
+
+Review record: [2026-11-20-code-03.md](2026-11-20-code-03.md), wrapper status `findings`, no unexpected changes,
+`threadId` `01a1f922-3237-7a30-ad4c-b21d36fd3c52`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review` `gpt-6.1-sol` / `high`. Verdict, quoted: "Changes required. R21 remains open as minor; the previously
+verified R1–R20 remain closed. No storage regression was established."
+
+Fix commit: `879b73c`. Checks after it: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+warnings` and `cargo test --workspace` pass (59 binaries, 1,022 passed, 0 failed, 35 ignored).
+
+### R21 — Minor: ST15 benchmark drops required per-commit estimation rounds
+
+- Disposition: fixed.
+- Fix: the estimating thread no longer drains the wakes that arrived while it estimated; each wake gets its own round,
+  in order, and the thread finishes the pending ones before `write` returns its result. The round count moved to
+  `estimating`, which returns it, so the test can check it.
+- Test: `the_estimating_thread_and_the_first_estimate_sample` sends five wakes together after the five commits of a
+  W23 load and asserts 10 rounds. RED on the previous code: 5 rounds against 10, in three of three runs.
+- Measurements again on `879b73c` (`work/st/est.json`, `work/st/linux/est.json`): 1,000 rounds in each of the 20 W23
+  and 20 W28 runs with the thread, on Windows and on Linux.
+- Status: claimed, unverified until a follow-up review.
