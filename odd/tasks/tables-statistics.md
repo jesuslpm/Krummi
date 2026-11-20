@@ -49,8 +49,8 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 | T5 | S1: ST6, ST9, ST10, ST11, ST14 (thread, failures, close), AC-ST4, AC-ST5, AC-ST7, AC-ST8, AC-ST10 | inline | done | `0ddf2a1` |
 | T6 | S1: ST17, ST18 (index prefixes, multi-column), AC-ST13, AC-ST14 | inline | done | `34cbe58` |
 | T7a | S1: ST1 (random-leaf sampling over 30,000 rows), part of AC-ST1 and AC-ST12 | inline | done | `ea5d7b3` |
-| T7b | S1: ST1 (partial read of rows stored in runs, without the run checksum) | inline | pending | |
-| T7 | S2, S4 (measurements, reviews, closing report) | inline | pending | |
+| T7b | S1: ST1 (partial read of rows stored in runs, without the run checksum) | inline | done | `91111a3`, `da56d24`, `a1946cf`, `aa0b474` |
+| T7 | S2, S4 (measurements, reviews, closing report) | inline | in progress: Codex approved (round 11), RDD of every commit done; ST15 measurements and closing report pending | |
 
 ## Log
 
@@ -182,3 +182,8 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   `review-ecaa3549b076a9b1`. WARNING: `wait_sampling` had no deadline (fixed: it fails after a minute); WARNING: the
   counter-after-snapshot ordering is only documented (it holds by source, `Store::analyze_with_timeout` opens the read
   and the table before `build_statistics` counts the sample; now cited in the helper's comment).
+- **L22** — 2026-11-20, RDD review of `d6e3a8a..51a2779` (lens reliability): approved, lineage
+  `review-fe219df848f1e6ad`; one SUGGESTION (the deadline's message could show the counts). Every commit of the branch
+  has been through RDD; reviewed boundary `51a2779`. Pending in T7: ST15's measurements, which need a bench mode with an
+  estimating thread and a timed first estimate (the bench has no estimation today), on Windows and Linux, plus the
+  single-load W1–W32 before and after; then the closing report.
