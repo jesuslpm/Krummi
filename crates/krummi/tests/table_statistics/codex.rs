@@ -801,16 +801,19 @@ fn a_random_leaf_sample_skips_the_runs_checksum() {
     assert_eq!(error.map(|e| e.kind()), Some(ErrorKind::Damaged));
 }
 
-/// RDD follow-up (ST1, T11): an estimate that samples in a write reads the runs without their checksum: damage in
-/// the middle of a run of a large value neither fails the estimate nor keeps the write from committing.
+/// RDD follow-up (ST1, ST3, T11): an estimate in a write that changed the table's columns samples the write's own view,
+/// reading the runs without their checksum: damage in the middle of a run of a large value neither fails the estimate
+/// nor keeps the write from committing (R1 of docs/reviews/tables-statistics-followups/2026-11-20-code.md).
 #[test]
 fn sampling_in_a_write_skips_the_runs_checksum() {
     let tmp = tempfile::tempdir().unwrap();
     damaged_runs(tmp.path(), 20, 4);
     let store = open(tmp.path());
     let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    // A column the committed table does not have: the estimate samples through the write (ST3).
     write
-        .open_tree_with("previous", OpenMode::CreateNew)
+        .add_column(&table, &Column::new("extra", ColumnType::I64))
         .unwrap();
     let table = write.open_table("t").unwrap();
     let estimate = write.estimate(&table, &equal("n", 1)).unwrap();
