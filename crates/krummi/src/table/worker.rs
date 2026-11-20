@@ -245,6 +245,17 @@ fn find_table<'r>(
     Ok(None)
 }
 
+/// The name of the table of identity `id` in `read`, by its last known name `name` or, once renamed, among the
+/// tables; `None` once deleted. Looked up before the write turn, so that [`find_write_table`] opens the table by name
+/// and scans the tables under the turn only when it is renamed or deleted in between.
+pub(crate) fn current_name(
+    read: &ReadTransaction<'_>,
+    id: u64,
+    name: &str,
+) -> crate::Result<Option<String>> {
+    Ok(find_table(read, id, name)?.map(|table| table.name))
+}
+
 /// The table of identity `id` that `write` sees, by its last known name `name` or, once renamed, among the tables.
 pub(crate) fn find_write_table<'w>(
     write: &crate::WriteTransaction<'w>,
@@ -288,13 +299,18 @@ fn renew(shared: &Shared, id: u64, name: &str) -> crate::Result<()> {
 /// Saves `built` with a short write of its own, which waits for its turn like any write (ST6), and gives it up when
 /// the store closes before it gets it.
 pub(crate) fn save(shared: &Shared, built: Built) -> crate::Result<()> {
+    // The table's name now, outside the turn; a deleted table is never found again.
+    let name = current_name(&shared.read()?, built.table, &built.name)?;
     // One place in the write queue, kept until the turn comes or the store closes (ST6, ST10).
     let mut write = match shared.open_write_unless(&|| shared.work.stopping()) {
         Ok(write) => write,
         Err(error) if error.kind() == ErrorKind::Timeout => return Ok(()),
         Err(error) => return Err(error),
     };
-    let found = find_write_table(&write, built.table, &built.name)?;
+    let found = match &name {
+        Some(name) => find_write_table(&write, built.table, name)?,
+        None => None,
+    };
     if let Some(table) = found {
         write.save_statistics(&table, built)?;
     }

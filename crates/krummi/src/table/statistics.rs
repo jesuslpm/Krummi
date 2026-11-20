@@ -824,13 +824,18 @@ impl Store {
         shared.work.pass(super::StatisticsPoint::WorkSampled);
         // Published first: a failure to save leaves them in memory (ST7).
         shared.statistics.publish(&built);
+        // The sampled table by identity, also renamed; one deleted or replaced while sampling drops the build (ST6).
+        // Its name now is looked up outside the turn; a deleted table is never found again.
+        let name = super::worker::current_name(&self.read()?, built.table, &built.name)?;
         let mut write = match limit {
             Some(limit) => self.write_with_timeout(limit)?,
             None => self.write()?,
         };
-        // The sampled table by identity, also renamed; one deleted or replaced while sampling drops the build (ST6).
-        let (id, name) = (built.table, built.name.clone());
-        if let Some(handle) = super::worker::find_write_table(&write, id, &name)? {
+        let found = match &name {
+            Some(name) => super::worker::find_write_table(&write, built.table, name)?,
+            None => None,
+        };
+        if let Some(handle) = found {
             write.save_statistics(&handle, built)?;
             shared.work.pass(super::StatisticsPoint::SaveTurn);
         }
