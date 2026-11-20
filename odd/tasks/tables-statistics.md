@@ -187,3 +187,18 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   has been through RDD; reviewed boundary `51a2779`. Pending in T7: ST15's measurements, which need a bench mode with an
   estimating thread and a timed first estimate (the bench has no estimation today), on Windows and Linux, plus the
   single-load W1–W32 before and after; then the closing report.
+- **L23** — 2026-11-20, ST15. Bench hook `d4ff730` (`KRUMMI_BENCH_ESTIMATES=thread|first`, stderr only). Measured on
+  Windows and WSL 2 under the bench power plan (`work/st/st15.py`): the first estimate on W23 takes a median 82.7 ms
+  (Windows) and 76.4 ms (Linux); the estimating thread costs W23 2.8 % and 7.4 % of op/s, and W28 nothing beyond noise.
+  The single-load A/B `ba7f27a` against `d4ff730` ran W1–W32 with 3 rounds; the first try stopped at W13, which has no
+  process of its own (W12's reports it), and was rerun without it. The loads beyond ±3 % were rerun with 10 rounds:
+  all came back to ±3 % except W7 (−2.7 %, 10 of 10 rounds), W9 (−8.1 %, 8 of 10, noisy) and W20 (−3.9 %, 10 of 10)
+  on Windows and W18 (−4.2 %, 7 of 10) on Linux, reads whose path the change does not touch; cause not measured.
+  User decision during the wait: N11 of the tables PRD annotated (`05128f4`), and the Codex round limit raised to ten
+  (`59bc95d`).
+- **L24** — 2026-11-20, RDD review of `51a2779..f1aa8f0` (lenses readability and reliability): approved, lineage
+  `review-fb0cd071ffaf8627`. WARNING R2-001: `first_estimate` took the condition of `n` by position (fixed: by name,
+  with a test of a row without `n`; the measurement had used `n`, index 1). SUGGESTIONS: the estimator's error is
+  dropped when the write also fails; no test runs W28 under the thread; unknown values of `KRUMMI_BENCH_ESTIMATES`
+  run silently without estimates; the Cargo.lock self dependency (it belongs to `bc82fd7`, committed apart in
+  `ce991db`). They stay as follow-ups.

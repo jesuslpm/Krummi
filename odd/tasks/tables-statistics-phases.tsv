@@ -41,3 +41,5 @@
 2026-11-20T12:13:46+00:00	bg-start	acceptance	st15-ab10-linux
 2026-11-20T13:05:58+00:00	bg-end	acceptance	st15-ab10-linux
 2026-11-20T13:06:59+00:00	mark	review	T7
+2026-11-20T13:12:55+00:00	mark	fix	T7
+2026-11-20T13:13:03+00:00	mark	checks	T7
