@@ -417,3 +417,11 @@ warnings` and `cargo test --workspace` pass (59 binaries, 1,022 passed, 0 failed
 - Measurements again on `879b73c` (`work/st/est.json`, `work/st/linux/est.json`): 1,000 rounds in each of the 20 W23
   and 20 W28 runs with the thread, on Windows and on Linux.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-20 (verification, round 13)
+
+Review record: [2026-11-20-code-04.md](2026-11-20-code-04.md), wrapper status `approved`, no unexpected changes,
+`threadId` `01a1f952-9f8e-74c0-8c5b-7b1b684e53f3`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review` `gpt-6.1-sol` / `high`. Verdict, quoted: "Approved for the requested follow-up scope. R21 is verified
+resolved; no findings remain open, and no regression caused by the reviewed correction was established." All 21
+findings of the chain are verified resolved.

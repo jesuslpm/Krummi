@@ -208,3 +208,5 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   together. The estimates were measured again on `879b73c` (Windows 13:48–13:58 UTC, Linux 13:58–14:17 UTC): 1,000
   rounds in every W23 and W28 run; first estimate 82.4 ms and 79.8 ms; the thread costs W23 2.9 % and 6.5 % of op/s,
   and W28 3.7 % and 1.6 %. The single-load A/B stands: plain runs do not reach the changed code.
+- **L26** — 2026-11-20, Codex round 13 (`2026-11-20-code-04.md`, over `79a5d05..0d3af54`): `approved`; R21 verified,
+  the 21 findings of the chain are closed.
