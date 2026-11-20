@@ -19,7 +19,7 @@ evidence and fix commit or artifact version in the report's separate `*-resoluti
 append-only updates. Link the report and resolutions from the execution log or closing report when relevant.
 A claimed fix remains unverified until a follow-up review confirms it; do not rewrite the reviewer's verdict.
 **Codex cross review, always.** Run it with the `codex-review` skill (review, fix or dismiss with evidence,
-verify, up to three rounds) without waiting to be asked, as RDD runs:
+verify, up to ten rounds) without waiting to be asked, as RDD runs:
 
 - **PRD:** once the draft is agreed with the user and no product question is open, before its translations and
   its elaboration time.

@@ -1,6 +1,6 @@
 ---
 name: codex-review
-description: "Trigger: revisión con Codex, revisión cruzada, que lo revise Codex, Codex review, cross review. Run the Claude–Codex cross review of a PRD or a finished change: Codex reviews, Claude fixes or dismisses with evidence, Codex verifies, up to three rounds."
+description: "Trigger: revisión con Codex, revisión cruzada, que lo revise Codex, Codex review, cross review. Run the Claude–Codex cross review of a PRD or a finished change: Codex reviews, Claude fixes or dismisses with evidence, Codex verifies, up to ten rounds."
 license: MIT
 metadata:
   author: inercya
@@ -53,8 +53,8 @@ Codex when it does not load `.codex/config.toml` (worktree copies are not truste
 
 ## The loop
 
-Three rounds (one review and two follow-ups) is the limit of automatic runs; a further round runs only when the
-user authorizes it. Reaching the limit never approves anything: open findings stay open or `pending`.
+Ten rounds (one review and nine follow-ups) is the limit of automatic runs: run each follow-up without asking while
+findings remain; a further round runs only when the user authorizes it. Reaching the limit never approves anything: open findings stay open or `pending`.
 
 1. **Round 1, independent.** Run the review before reading or discussing anything with Codex. Pass only the
    target; never add context, rationale or summaries, and do not edit the prompt the wrapper builds.
