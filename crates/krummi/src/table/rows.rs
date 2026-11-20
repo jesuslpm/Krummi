@@ -131,10 +131,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
-use std::ops::Bound;
 use std::ops::Deref;
+use std::ops::{Bound, RangeInclusive};
 use std::sync::{Arc, OnceLock};
 
+use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
 
@@ -717,22 +718,33 @@ impl Reader {
     /// The bytes the column `i` of a stored row takes, when they are in the row, without reading them (ST1 of the
     /// statistics PRD: a large value is counted without being read).
     fn stored_len(&self, bytes: &[u8], old: Option<&OldVersion>, i: usize) -> StoredLen {
+        match self.stored_slice(bytes, old, i) {
+            Ok(Some(slice)) => StoredLen::Len(slice.len()),
+            Ok(None) => StoredLen::NotStored,
+            Err(_) => StoredLen::Invalid,
+        }
+    }
+
+    /// The bytes of the column `i` in a stored row, without reading them: `Ok(None)` for a column not stored there, and
+    /// an error for a layout that does not hold it.
+    fn stored_slice<'b>(
+        &self,
+        bytes: &'b [u8],
+        old: Option<&OldVersion>,
+        i: usize,
+    ) -> std::result::Result<Option<&'b [u8]>, RowDamaged> {
         let column = &self.columns[i];
         if column.in_key.is_some() {
-            return StoredLen::NotStored;
+            return Ok(None);
         }
         let (layout, place) = match old {
             None => (&self.layout, Some(i)),
             Some(old) => (&old.layout, old.places[i]),
         };
         let Some(place) = place else {
-            return StoredLen::NotStored;
+            return Ok(None);
         };
-        match layout.row(bytes).and_then(|row| row.column_bytes(place)) {
-            Ok(Some(bytes)) => StoredLen::Len(bytes.len()),
-            Ok(None) => StoredLen::NotStored,
-            Err(_) => StoredLen::Invalid,
-        }
+        layout.row(bytes).and_then(|row| row.column_bytes(place))
     }
 
     /// The default of each live column, [`Value::Null`] for one without, borrowed from the catalog entry `name` of
@@ -1016,6 +1028,29 @@ impl<'t> TableRow<'t> {
                 self.reader.stored_len(bytes, old.as_deref(), position)
             }
             _ => StoredLen::NotStored,
+        }
+    }
+
+    /// Whether the row lives in a value run, off its leaf (D2 of the trees PRD).
+    pub(crate) fn in_run(&self) -> bool {
+        matches!(&self.stored, Stored::Row { key, bytes, .. }
+            if bytes.len() > krummi_tree::max_inline_value(key.len()))
+    }
+
+    /// The pages of the row's value run that hold its live column at `position`, counted from the run's first page,
+    /// without reading them: `None` when the row is not in a run or the column is not stored in it (ST14 of the
+    /// statistics PRD counts them).
+    pub(crate) fn run_pages(&self, position: usize) -> Option<RangeInclusive<usize>> {
+        match &self.stored {
+            Stored::Row { bytes, old, .. } if self.in_run() && position < self.len() => {
+                let column = (self.reader)
+                    .stored_slice(bytes, old.as_deref(), position)
+                    .ok()
+                    .flatten()?;
+                let start = PAGE_HEADER_SIZE + (column.as_ptr() as usize - bytes.as_ptr() as usize);
+                Some(start / PAGE_SIZE..=(start + column.len().max(1) - 1) / PAGE_SIZE)
+            }
+            _ => None,
         }
     }
 

@@ -56,6 +56,8 @@ pub(crate) struct StatsMemory {
     state: Mutex<MemoryState>,
     /// How many samples the store read, for the tests (ST14).
     samples: AtomicU64,
+    /// The pages of value runs its samples read, for the tests (ST14).
+    pages: AtomicU64,
     /// The seed of the samples of large tables that a test fixed, or 0 (ST14).
     seed: AtomicU64,
 }
@@ -108,6 +110,11 @@ impl StatsMemory {
             }
             seed => seed,
         }
+    }
+
+    /// Counts the pages of value runs a sample read.
+    pub(crate) fn read_pages(&self, pages: u64) {
+        self.pages.fetch_add(pages, Ordering::Relaxed);
     }
 
     /// Counts a sample read.
@@ -275,6 +282,7 @@ fn one_target(table: u64, name: &str, target: Target, found: &ColumnStats, epoch
         columns,
         prefixes,
         epoch,
+        pages: 0,
     }
 }
 
@@ -503,6 +511,13 @@ impl crate::Store {
     #[doc(hidden)]
     pub fn statistics_samples(&self) -> u64 {
         self.shared().statistics.samples.load(Ordering::Relaxed)
+    }
+
+    /// A test hook, not part of the interface: how many pages of value runs the store's samples read; a large value is
+    /// counted without reading its pages (ST14, AC-ST12).
+    #[doc(hidden)]
+    pub fn statistics_pages_read(&self) -> u64 {
+        self.shared().statistics.pages.load(Ordering::Relaxed)
     }
 
     /// A test hook, not part of the interface: fixes the seed of the samples of tables of more than 30,000 rows, or

@@ -76,8 +76,9 @@ fn a_failed_background_save_keeps_memory_and_is_asked_again() {
     assert!(seen(&store), "saved by the second request");
 }
 
-/// ST7: analyze on the store reports its save's failure with its class and leaves what it published in memory; an
-/// input/output failure there is the write's (T11) and the store goes on accepting writes.
+/// ST7: analyze on the store reports its save's failure with its class (a full disk, memory running out or
+/// input/output) and leaves what it published in memory; a failure there is the write's (T11) and the store goes on
+/// accepting writes.
 #[test]
 fn analyze_reports_its_save_failure_and_keeps_memory() {
     let tmp = tempfile::tempdir().unwrap();
@@ -97,6 +98,16 @@ fn analyze_reports_its_save_failure_and_keeps_memory() {
         },
     )));
     assert_eq!(store.analyze("t", None).unwrap_err().kind(), ErrorKind::Io);
+    // R13 of the code review: memory running out while the save writes its pages.
+    store
+        .shared()
+        .engine
+        .set_page_fault(Some((0, Error::OutOfMemory { requested: 8_192 })));
+    assert_eq!(
+        store.analyze("t", None).unwrap_err().kind(),
+        ErrorKind::OutOfMemory
+    );
+    assert!(seen(&store));
     store.write().unwrap().commit().unwrap();
 }
 

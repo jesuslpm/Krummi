@@ -81,6 +81,54 @@ pub fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9
 }
 
+/// AC-ST12 (ST1, ST14): rows stored in value runs of about 25 pages, with a large value between a fixed column and
+/// a short text, are sampled by the pages the hook counts: the run's first page, with the fixed part, and the last
+/// one, with the short text; never the pages of the large value.
+#[test]
+fn ac_st12_a_sample_does_not_read_the_pages_of_large_values() {
+    const RUN_ROWS: i64 = 20;
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("n", ColumnType::I64),
+                Column::new("big", ColumnType::Bytes),
+                Column::new("tail", ColumnType::String),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("r", TableMode::CreateNew(&schema))
+            .unwrap();
+        let big = vec![7_u8; 200_000];
+        for id in 0..RUN_ROWS {
+            let row = [
+                ("id", Value::I64(id)),
+                ("n", Value::I64(id % 4)),
+                ("big", Value::Bytes(Cow::Borrowed(&big))),
+                ("tail", Value::String(Cow::Owned(format!("t{id}")))),
+            ];
+            write.insert_row(&table, &row).unwrap();
+        }
+        write.commit().unwrap();
+        let before = store.statistics_pages_read();
+        store.analyze("r", None).unwrap();
+        let pages = store.statistics_pages_read() - before;
+        assert_eq!(
+            pages,
+            2 * RUN_ROWS as u64,
+            "the first and the last page of each run"
+        );
+        let read = store.read().unwrap();
+        let table = read.open_table("r").unwrap();
+        let stats = read.column_statistics(&table, "big").unwrap().unwrap();
+        assert!(close(stats.large_fraction, 1.0), "{}", stats.large_fraction);
+        let tail = read.column_statistics(&table, "tail").unwrap().unwrap();
+        assert!(close(tail.distinct, RUN_ROWS as f64), "{}", tail.distinct);
+    });
+}
+
 /// AC-ST12 (ST16), with the table of AC-ST1: before analyze there are none; after it, each column's origin and
 /// fractions are those of its rows.
 #[test]

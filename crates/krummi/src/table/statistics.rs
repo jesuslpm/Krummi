@@ -80,6 +80,8 @@ pub(crate) struct Built {
     /// The id of the last commit its snapshot sees; an emptying or deletion of the table it does not see makes it
     /// invalid (ST8).
     pub epoch: u64,
+    /// The pages of value runs it read, for the test hook of ST14.
+    pub pages: u64,
 }
 
 impl Built {
@@ -182,6 +184,7 @@ pub(crate) fn build<'r>(
         })
         .collect();
     let mut read = 0;
+    let mut pages_read = 0;
     for row in rows {
         if cancel() {
             // The caller drops a cancelled build: no gathering is finished.
@@ -191,10 +194,15 @@ pub(crate) fn build<'r>(
                 columns: Vec::new(),
                 prefixes: Vec::new(),
                 epoch: 0,
+                pages: 0,
             });
         }
         let row = row?;
         read += 1;
+        // The pages of a row stored in a run that this build reads: its first page, and those of every column read.
+        let mut pages: Vec<usize> = Vec::new();
+        let mut touch =
+            |position: usize| pages.extend(row.run_pages(position).into_iter().flatten());
         // A row read by the pages it uses, without the run's checksum, may be malformed: each column is classified
         // before it is read, a large value or a malformed one counts as large and is not read, and a read that panics
         // leaves only that column or prefix out (ST1: a damaged run never ends in a panic).
@@ -203,17 +211,30 @@ pub(crate) fn build<'r>(
             match row.stored_len(*position) {
                 StoredLen::Invalid => gather.add_large(),
                 StoredLen::Len(len) if text && len > stats::LARGE => gather.add_large(),
-                _ => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    row.value(*position)
-                }))
-                .ok()
-                .flatten()
-                {
-                    // A default is borrowed from the catalog: `add` measures it before reading it (R20).
-                    Some(value) => gather.add(&value),
-                    None => gather.add_large(),
-                },
+                _ => {
+                    touch(*position);
+                    let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        row.value(*position)
+                    }));
+                    match value.ok().flatten() {
+                        // A default is borrowed from the catalog: `add` measures it before reading it (R20).
+                        Some(value) => gather.add(&value),
+                        None => gather.add_large(),
+                    }
+                }
             }
+        }
+        for (_, key) in &prefixes {
+            for (position, _) in key {
+                touch(*position);
+            }
+        }
+        if row.in_run() {
+            // The run's first page holds the row's header and offsets, read for every row.
+            pages.push(0);
+            pages.sort_unstable();
+            pages.dedup();
+            pages_read += pages.len() as u64;
         }
         let elements: Vec<Option<Vec<Vec<u8>>>> = (prefixes.iter())
             .map(|(_, key)| {
@@ -250,6 +271,7 @@ pub(crate) fn build<'r>(
         columns: Vec::new(),
         prefixes: Vec::new(),
         epoch: 0,
+        pages: 0,
     };
     let mut columns = Vec::with_capacity(wanted.len());
     for ((_, column), gather) in wanted.iter().zip(gathers) {
@@ -274,6 +296,7 @@ pub(crate) fn build<'r>(
         columns,
         prefixes: finished,
         epoch: 0,
+        pages: pages_read,
     })
 }
 
@@ -533,6 +556,7 @@ impl ReadTransaction<'_> {
         self.store.statistics.sampled();
         let mut built = self.build_rows(table, only, count, cancel)?;
         built.stamp(self.inner.snapshot_txid());
+        self.store.statistics.read_pages(built.pages);
         Ok(built)
     }
 
@@ -696,6 +720,7 @@ impl WriteTransaction<'_> {
             &|| false,
         )?;
         built.stamp(epoch);
+        self.store.statistics.read_pages(built.pages);
         Ok(built)
     }
 
