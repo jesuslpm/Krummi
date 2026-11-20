@@ -48,3 +48,16 @@ behavior changes, so no PRD.
   2026-11-20T18:04:19+00:00 (phase log).
 - **L3** — 2026-11-20, checks after T1–T7: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D
   warnings` ok; `cargo test --workspace`: 59 binaries, 1,030 passed, 0 failed, 35 ignored.
+- **L4** — 2026-11-20, RDD review of `134c6f2..3addc0e` (assessment: medium, `under_budget`, so reviewed as the
+  last slice), lenses risk, resilience and reliability, consent granted (project rule): approved and acknowledged,
+  lineage `review-2dc33303854f3e5d`. Findings, none blocking:
+  - R1-001 (SUGGESTION), R4-save-read-before-stop (SUGGESTION), R3-save-read-before-turn (WARNING): the background
+    save now opens a read before the write queue, and a read that fails while the store closes returns an error
+    instead of `Ok(())`. Not changed: the only callers are the worker's jobs, whose result is discarded (`let _ =
+    match job`, "Failures drop the job (ST9)", `crates/krummi/src/table/worker.rs`), so no caller can observe the
+    difference.
+  - R4-removed-retain-every-retire (SUGGESTION): the retain ran on every retire. Fixed: it runs only when a table
+    was deleted.
+  - R3-queue-timing-assert (SUGGESTION): the `write_unless` test bounded the stop with a wall-clock assert. Fixed: the
+    assert is removed; the join happens while the turn is still held, which already proves that `stop` ended the wait.
+  Fix commit `a1a03dc`; checks: queue (10), estimate unit (2) and table_statistics (48) tests pass, clippy clean.
