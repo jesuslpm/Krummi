@@ -300,3 +300,62 @@ fn releasing_the_turn_wakes_only_the_request_that_gets_it() {
     // One per handoff, plus room for spurious wakeups; waking every request gives 8 + 7 + ... + 1 = 36.
     assert!(wakeups <= 12, "{wakeups} wakeups for {waiting} handoffs");
 }
+
+/// `write_unless` (ST6 and ST10 of the statistics PRD): with the turn free it opens the write at once; queued, it keeps
+/// its place in arrival order while `stop` says no, and it leaves the queue with the timeout class as soon as `stop`
+/// says so, without anyone waking it, letting the requests behind it go on.
+#[test]
+fn write_unless_keeps_its_place_until_stop_says_so() {
+    both(|engine| {
+        let page = new_page(engine, "0");
+        let mut tx = engine.write_unless(&|| false).unwrap();
+        put(&mut tx, page, "1");
+        tx.commit().unwrap();
+
+        // Queued behind a held turn: it gets the turn once released, before a request that arrived later.
+        let order = Mutex::new(Vec::new());
+        let held = engine.write(None).unwrap();
+        thread::scope(|s| {
+            let order = &order;
+            s.spawn(move || {
+                let tx = engine.write_unless(&|| false).unwrap();
+                order.lock().unwrap().push("unless");
+                tx.commit().unwrap();
+            });
+            wait_until(|| engine.queued() == 1);
+            s.spawn(move || {
+                let tx = engine.write(None).unwrap();
+                order.lock().unwrap().push("later");
+                tx.commit().unwrap();
+            });
+            wait_until(|| engine.queued() == 2);
+            drop(held);
+        });
+        assert_eq!(*order.lock().unwrap(), ["unless", "later"]);
+
+        // Stopped while queued: it leaves with the timeout class, and the request behind it gets the turn.
+        let stop = AtomicBool::new(false);
+        let held = engine.write(None).unwrap();
+        thread::scope(|s| {
+            let stop = &stop;
+            let unless =
+                s.spawn(move || engine.write_unless(&|| stop.load(Ordering::SeqCst)).err());
+            wait_until(|| engine.queued() == 1);
+            let later = s.spawn(move || {
+                let mut tx = engine.write(None).unwrap();
+                put(&mut tx, page, "2");
+                tx.commit().unwrap();
+            });
+            wait_until(|| engine.queued() == 2);
+            let started = Instant::now();
+            stop.store(true, Ordering::SeqCst);
+            let error = unless.join().unwrap().expect("a stopped request fails");
+            assert_eq!(error.kind(), ErrorKind::Timeout);
+            assert!(started.elapsed() < LONG, "stop is asked while waiting");
+            assert_eq!(engine.queued(), 1, "it left the queue");
+            drop(held);
+            later.join().unwrap();
+        });
+        assert_eq!(read_text(engine, page), "2");
+    });
+}
