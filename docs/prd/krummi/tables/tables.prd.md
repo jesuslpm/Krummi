@@ -97,6 +97,15 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
 - *Fuera de alcance: «Estadísticas de varias columnas juntas» pasa a excluir solo las declaradas sobre columnas sin
   índice; las de los prefijos de los índices entran en 7.3 (ST17, ST18).*
 
+*Anotación del 2026-11-20 (decisión del usuario, en el cierre de 7.3):*
+
+- *N11 y AC-N10: en los PRD hijos posteriores a 7.3, las mediciones de una sola carga antes y después del cambio son
+  una pasada de una ronda de todas las cargas del banco, como red de seguridad, y de 10 a 20 rondas de las cargas que
+  el PRD hijo nombra como afectadas por su cambio y de las que en esa pasada se aparten más de un 3 % de la base. 7.1,
+  7.2 y 7.3 conservan lo que fijaron. Usuario: «¿Siempre tenemos que hacer todas las mediciones? esto lleva mucho
+  tiempo, no sería mejor hacer sólo las mediciones que más pudieran ser afectadas en función de lo que se
+  implemente?»*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

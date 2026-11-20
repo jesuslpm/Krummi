@@ -102,6 +102,14 @@ authoritative):*
 - *Out of scope: "Statistics of several columns together" now excludes only declared ones over columns without an
   index; those of index prefixes are in 7.3 (ST17, ST18).*
 
+*Annotation of 2026-11-20 (user decision, at the close of 7.3):*
+
+- *N11 and AC-N10: in the child PRDs after 7.3, the single-workload measurements before and after the change are one
+  pass of one round of every benchmark workload, as a safety net, and 10 to 20 rounds of the workloads the child PRD
+  names as affected by its change and of those that differ from the base by more than 3 % in that pass. 7.1, 7.2 and
+  7.3 keep what they fixed. User: «¿Siempre tenemos que hacer todas las mediciones? esto lleva mucho tiempo, no sería
+  mejor hacer sólo las mediciones que más pudieran ser afectadas en función de lo que se implemente?»*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:
