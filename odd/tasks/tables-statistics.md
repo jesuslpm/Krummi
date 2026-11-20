@@ -160,3 +160,6 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   `Store::statistics_pages_read` with test `ac_st12_a_sample_does_not_read_the_pages_of_large_values`, save-page OOM
   case). Next: Codex round 10 over `8240385..HEAD`, then the RDD review of the fix commits, ST15's measurements and
   the closing report.
+- **L18** — 2026-11-20: Codex round 10 (`2026-11-20-code.md`): R13 verified; R2 (minor) open: the hook missed metadata
+  pages past a run's first page. Fixed in `aa0b474` (`TableRow::run_metadata_pages`, test
+  `ac_st12_a_sample_counts_the_pages_before_the_values`, RED 5 against 10). Round 11 over `e14a61c..HEAD`.

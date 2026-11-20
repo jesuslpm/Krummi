@@ -350,3 +350,24 @@ Fix commits: `4aac063` and `a1946cf`. Checks after them: fmt, clippy and
   `ac_st12_a_sample_does_not_read_the_pages_of_large_values` (20 rows in runs of about 25 pages, with a 200,000-byte
   value between a fixed column and a short text: the hook counts exactly 2 pages per row).
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-20 (verification, round 10, and its fixes)
+
+Review record: [2026-11-20-code.md](2026-11-20-code.md), wrapper status `findings`, no unexpected changes, `threadId`
+`01a1f780-dd61-7122-a902-f262c1a7f8cf`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Verdict, quoted: "Changes required. R2 remains open as minor; R13 is
+verified resolved. No additional functional regression was established; approval is withheld."
+
+Fix commit: `aa0b474`. Checks after it: fmt, clippy
+and `cargo test --workspace` pass.
+
+- R2 ("Sampling page counter omits metadata pages actually read") — fixed: every sampled row stored in a run counts
+  the pages from the run's first page up to the end of what comes before its values (header, null bitmap, fixed
+  section and end offsets), `TableRow::run_metadata_pages`, plus the pages of each column read. The whole metadata area
+  is counted, an upper bound of what classification reads; payload pages of large values are never counted. Test:
+  `ac_st12_a_sample_counts_the_pages_before_the_values` (the reproduction of the report: 600 null `ulid` columns,
+  analyzing only `big` counts 2 pages per row, and all columns 3). RED observed on `e14a61c`: 5 pages for 5 rows
+  instead of 10.
+- R13 note on coverage precision — the comment of the save-page `OutOfMemory` case now says the failure meets a page
+  the save reads while it finds the table.
+- Status: claimed, unverified until a follow-up review.
