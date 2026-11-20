@@ -2,7 +2,7 @@
 
 Informe de cierre de `tables-statistics-followups` (2026-11-20). Enfoque de ejecución: ODD.
 Fuente de producto: ninguna nueva; son los pendientes no bloqueantes del
-[informe de cierre de tables-statistics](../done/tables/tables-statistics-report.md), sin cambio de producto, así que
+[informe de cierre de tables-statistics](tables-statistics-report.md), sin cambio de producto, así que
 no llevan PRD. Documento de ejecución: [tables-statistics-followups.md](tables-statistics-followups.md).
 
 Rama `feat/tables-statistics`, de `134c6f2` a este cierre, sin fusionar y sin publicar. La rama queda para tu revisión:
@@ -33,9 +33,9 @@ la fusión y la publicación son decisiones tuyas.
   `WriteTransaction::run_unchecked` lo verifica. La prueba de los dos errores falla con el `Ok((written?, rounds?))`
   anterior. La de T3 fue RED antes de la corrección (quedaban 4 destinos y se esperaban 2).
 - **Revisiones:** dos revisiones RDD aprobadas (tabla de abajo). Codex: ronda 1 con un hallazgo mayor (R1) y ronda 2
-  aprobada ([informe](../../docs/reviews/tables-statistics-followups/2026-11-20-code.md),
-  [seguimiento](../../docs/reviews/tables-statistics-followups/2026-11-20-code-02.md),
-  [resoluciones](../../docs/reviews/tables-statistics-followups/2026-11-20-code-resolutions.md)).
+  aprobada ([informe](../../../docs/reviews/tables-statistics-followups/2026-11-20-code.md),
+  [seguimiento](../../../docs/reviews/tables-statistics-followups/2026-11-20-code-02.md),
+  [resoluciones](../../../docs/reviews/tables-statistics-followups/2026-11-20-code-resolutions.md)).
 - **Hallazgos corregidos:** R1 de Codex: la prueba de muestreo en una escritura muestreaba por una lectura, porque la
   escritura no cambiaba la tabla; ahora añade una columna y muestrea su propia vista (`e2a12bd`).
 

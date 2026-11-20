@@ -1,7 +1,7 @@
 # Tables statistics — follow-ups
 
 Objective: close the non-blocking RDD warnings and suggestions and the cleanup left by the tables-statistics run
-([closing report](../done/tables/tables-statistics-report.md), *Pendiente* and *Limpieza manual*). Branch
+([closing report](tables-statistics-report.md), *Pendiente* and *Limpieza manual*). Branch
 `feat/tables-statistics`; delivery: local commits, no merge; tests with `cargo test --workspace`.
 
 ## Specs
@@ -62,12 +62,12 @@ behavior changes, so no PRD.
     assert is removed; the join happens while the turn is still held, which already proves that `stop` ended the wait.
   Fix commit `a1a03dc`; checks: queue (10), estimate unit (2) and table_statistics (48) tests pass, clippy clean.
 - **L5** — 2026-11-20, Codex code review of `134c6f2..7bcc9db`
-  ([report](../../docs/reviews/tables-statistics-followups/2026-11-20-code.md),
-  [resolutions](../../docs/reviews/tables-statistics-followups/2026-11-20-code-resolutions.md)): status `findings`, R1
+  ([report](../../../docs/reviews/tables-statistics-followups/2026-11-20-code.md),
+  [resolutions](../../../docs/reviews/tables-statistics-followups/2026-11-20-code-resolutions.md)): status `findings`, R1
   (major) — the write damage test sampled through a read. Fixed in `e2a12bd` (T2 reopened and closed again); checks: fmt,
   clippy, 1,030 passed.
 - **L6** — 2026-11-20, Codex follow-up of `7bcc9db..dd00194`
-  ([report](../../docs/reviews/tables-statistics-followups/2026-11-20-code-02.md)): `approved`, R1 verified resolved.
+  ([report](../../../docs/reviews/tables-statistics-followups/2026-11-20-code-02.md)): `approved`, R1 verified resolved.
 - **L7** — 2026-11-20, RDD review of the last slice `3addc0e..341a002` (assessment: medium, `under_budget`), lenses
   reliability and resilience, consent granted: approved and acknowledged, lineage `review-b1bfbacaeec45264`. Findings,
   none blocking: R4-queue-stop-proof-depends-on-no-deadline (SUGGESTION) and R3-queue-stop-bound-removed (WARNING),
