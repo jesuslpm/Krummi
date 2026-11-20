@@ -22,3 +22,13 @@ Artifact versions: fix commit `e2a12bd`.
 Review record: report `docs/reviews/tables-statistics-followups/2026-11-20-code.md`, wrapper status `findings`,
 `threadId` `01a1fa3f-e474-7ac2-a21a-bac572c332e8`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-20 (verification)
+
+Follow-up report: [2026-11-20-code-02.md](2026-11-20-code-02.md), range `7bcc9db..dd00194`, wrapper status
+`approved`, `threadId` `01a1fa58-d833-7341-9e5f-665e1d360e40`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+- R1: «Verified resolved (original severity: major)».
+
+Verdict, quoted: «Approved: no open findings in the requested follow-up scope.»

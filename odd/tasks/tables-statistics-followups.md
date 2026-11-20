@@ -66,3 +66,5 @@ behavior changes, so no PRD.
   [resolutions](../../docs/reviews/tables-statistics-followups/2026-11-20-code-resolutions.md)): status `findings`, R1
   (major) — the write damage test sampled through a read. Fixed in `e2a12bd` (T2 reopened and closed again); checks: fmt,
   clippy, 1,030 passed.
+- **L6** — 2026-11-20, Codex follow-up of `7bcc9db..dd00194`
+  ([report](../../docs/reviews/tables-statistics-followups/2026-11-20-code-02.md)): `approved`, R1 verified resolved.
