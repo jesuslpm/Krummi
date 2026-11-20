@@ -693,6 +693,7 @@ dependencies = [
 name = "krummi"
 version = "0.1.0"
 dependencies = [
+ "krummi",
  "krummi-pager",
  "krummi-tree",
  "krummi-tx",
