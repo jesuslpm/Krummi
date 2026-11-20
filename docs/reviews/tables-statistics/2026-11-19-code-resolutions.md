@@ -171,7 +171,7 @@ Follow-up report: [2026-11-19-code-03.md](2026-11-19-code-03.md). Verdict, quote
 and R13 remain open; regressions R16 and R17 are also open. R1, R9 and R15 are verified resolved. One blocker and six
 major findings remain; approval is withheld."
 
-Review record: wrapper status `violation`, with `HEAD`, `refs` and `odd/tasks/tables-statistics-phases.tsv` changed
+Review record: wrapper status `violation`, with `HEAD`, `refs` and `odd/done/tables/tables-statistics-phases.tsv` changed
 during the review. Those changes were Claude's, not Codex's: the execution document's commit `docs(odd): record the
 Codex review rounds` and the phase log's `bg-start` were made while the review ran. Nothing was reverted. This was the
 third automatic round; a further round needs the user's authorization.

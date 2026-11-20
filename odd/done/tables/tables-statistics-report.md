@@ -1,7 +1,7 @@
 # Estadísticas de las tablas: implementadas, verificadas y aprobadas por Codex
 
 Informe de cierre de `tables-statistics` (2026-11-20). Enfoque de ejecución: ODD.
-Fuente de producto: [tables-statistics.prd.md](../../docs/prd/krummi/tables/tables-statistics.prd.md) (PRD hijo 7.3).
+Fuente de producto: [tables-statistics.prd.md](../../../docs/prd/krummi/tables/tables-statistics.prd.md) (PRD hijo 7.3).
 Documento de ejecución: [tables-statistics.md](tables-statistics.md).
 
 Rama `feat/tables-statistics`, desde `main` en `ba7f27a`, sin fusionar y sin publicar. El último commit de código es
@@ -30,10 +30,10 @@ Rama `feat/tables-statistics`, desde `main` en `ba7f27a`, sin fusionar y sin pub
     la segunda pasada; avisos A1–A7 (L9–L10 del documento).
   - **RDD:** aprobó todas las porciones (tabla abajo).
   - **Codex:** la revisión del PRD quedó aprobada en la ronda 2; la del código, sobre el rango entero, en la ronda 13,
-    con los 21 hallazgos verificados ([resoluciones](../../docs/reviews/tables-statistics/2026-11-19-code-resolutions.md),
-    último informe [2026-11-20-code-04.md](../../docs/reviews/tables-statistics/2026-11-20-code-04.md)). La anotación
+    con los 21 hallazgos verificados ([resoluciones](../../../docs/reviews/tables-statistics/2026-11-19-code-resolutions.md),
+    último informe [2026-11-20-code-04.md](../../../docs/reviews/tables-statistics/2026-11-20-code-04.md)). La anotación
     de N11 en el PRD de las tablas quedó aprobada en su seguimiento
-    ([2026-11-20-prd.md](../../docs/reviews/tables/2026-11-20-prd.md)).
+    ([2026-11-20-prd.md](../../../docs/reviews/tables/2026-11-20-prd.md)).
 - **Hallazgos corregidos durante la ejecución:** los 21 de Codex, entre ellos:
   - **R1:** un daño al muestrear en una escritura no hacía fallar la escritura (T11).
   - **R2:** el muestreo leía tramos enteros con valores grandes. Se resolvió con lecturas parciales sin verificar
