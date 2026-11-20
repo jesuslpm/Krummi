@@ -503,6 +503,12 @@ pub struct Row<'l, 'r> {
 }
 
 impl<'r> Row<'_, 'r> {
+    /// Where the variable section starts: the header, the null bitmap, the fixed section and the end offsets come
+    /// before it.
+    pub(crate) fn variable_start(&self) -> usize {
+        self.var_start
+    }
+
     /// The stored length of the row: the size that [`MAX_ROW`] limits (E18).
     pub fn len(&self) -> usize {
         self.bytes.len()

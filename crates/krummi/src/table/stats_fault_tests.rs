@@ -98,7 +98,7 @@ fn analyze_reports_its_save_failure_and_keeps_memory() {
         },
     )));
     assert_eq!(store.analyze("t", None).unwrap_err().kind(), ErrorKind::Io);
-    // R13 of the code review: memory running out while the save writes its pages.
+    // R13 of the code review: memory running out on a page the save reads or writes, here while it finds the table.
     store
         .shared()
         .engine

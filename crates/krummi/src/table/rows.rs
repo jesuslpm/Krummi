@@ -725,6 +725,15 @@ impl Reader {
         }
     }
 
+    /// How many bytes come before the variable section of a stored row: its header, null bitmap, fixed section and end
+    /// offsets; only the header for a row whose layout does not hold it.
+    fn metadata_len(&self, bytes: &[u8], old: Option<&OldVersion>) -> usize {
+        let layout = old.map_or(&self.layout, |old| &old.layout);
+        layout
+            .row(bytes)
+            .map_or(1, |row| row.variable_start().max(1))
+    }
+
     /// The bytes of the column `i` in a stored row, without reading them: `Ok(None)` for a column not stored there, and
     /// an error for a layout that does not hold it.
     fn stored_slice<'b>(
@@ -1049,6 +1058,19 @@ impl<'t> TableRow<'t> {
                     .flatten()?;
                 let start = PAGE_HEADER_SIZE + (column.as_ptr() as usize - bytes.as_ptr() as usize);
                 Some(start / PAGE_SIZE..=(start + column.len().max(1) - 1) / PAGE_SIZE)
+            }
+            _ => None,
+        }
+    }
+
+    /// The pages of the row's value run that hold what comes before its values (header, null bitmap, fixed section and
+    /// end offsets), counted from the run's first page: `None` when the row is not in a run (ST14 of the statistics PRD
+    /// counts them for every row a sample reads).
+    pub(crate) fn run_metadata_pages(&self) -> Option<RangeInclusive<usize>> {
+        match &self.stored {
+            Stored::Row { bytes, old, .. } if self.in_run() => {
+                let len = self.reader.metadata_len(bytes, old.as_deref());
+                Some(0..=(PAGE_HEADER_SIZE + len - 1) / PAGE_SIZE)
             }
             _ => None,
         }

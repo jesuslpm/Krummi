@@ -129,6 +129,51 @@ fn ac_st12_a_sample_does_not_read_the_pages_of_large_values() {
     });
 }
 
+/// AC-ST12 (ST1, ST14), R2 of the tenth Codex code review: in a row whose 600 null fixed columns take its header,
+/// fixed part and offsets past the run's first page, the hook counts those two pages for every row; analyzing only
+/// the large value reads no other page.
+#[test]
+fn ac_st12_a_sample_counts_the_pages_before_the_values() {
+    const RUN_ROWS: i64 = 5;
+    stores(|store, _| {
+        let mut columns = vec![Column::new("id", ColumnType::I64).not_null()];
+        columns.extend((0..600).map(|i| Column::new(format!("u{i}"), ColumnType::Ulid)));
+        columns.push(Column::new("big", ColumnType::Bytes).not_null());
+        columns.push(Column::new("tail", ColumnType::String).not_null());
+        let schema = Schema::new(columns, &["id"]);
+        let mut write = store.write().unwrap();
+        let table = write
+            .open_table_with("w", TableMode::CreateNew(&schema))
+            .unwrap();
+        let big = vec![7_u8; 200_000];
+        for id in 0..RUN_ROWS {
+            let row = [
+                ("id", Value::I64(id)),
+                ("big", Value::Bytes(Cow::Borrowed(&big))),
+                ("tail", Value::String(Cow::Borrowed("tail"))),
+            ];
+            write.insert_row(&table, &row).unwrap();
+        }
+        write.commit().unwrap();
+        let before = store.statistics_pages_read();
+        store.analyze("w", Some("big")).unwrap();
+        let pages = store.statistics_pages_read() - before;
+        assert_eq!(
+            pages,
+            2 * RUN_ROWS as u64,
+            "the two pages before the values"
+        );
+        let before = store.statistics_pages_read();
+        store.analyze("w", None).unwrap();
+        let pages = store.statistics_pages_read() - before;
+        assert_eq!(
+            pages,
+            3 * RUN_ROWS as u64,
+            "and the last page, with the short text"
+        );
+    });
+}
+
 /// AC-ST12 (ST16), with the table of AC-ST1: before analyze there are none; after it, each column's origin and
 /// fractions are those of its rows.
 #[test]

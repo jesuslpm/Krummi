@@ -199,7 +199,8 @@ pub(crate) fn build<'r>(
         }
         let row = row?;
         read += 1;
-        // The pages of a row stored in a run that this build reads: its first page, and those of every column read.
+        // The pages of a row stored in a run that this build reads: those before its values, and those of every column
+        // read.
         let mut pages: Vec<usize> = Vec::new();
         let mut touch =
             |position: usize| pages.extend(row.run_pages(position).into_iter().flatten());
@@ -229,9 +230,9 @@ pub(crate) fn build<'r>(
                 touch(*position);
             }
         }
-        if row.in_run() {
-            // The run's first page holds the row's header and offsets, read for every row.
-            pages.push(0);
+        if let Some(metadata) = row.run_metadata_pages() {
+            // What comes before the values is read for every row: the header, the fixed part and the offsets.
+            pages.extend(metadata);
             pages.sort_unstable();
             pages.dedup();
             pages_read += pages.len() as u64;
