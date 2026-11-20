@@ -84,3 +84,15 @@ implementation within the requested follow-up scope." Per-ID outcome, quoted fro
 
 No finding remains open in this chain. Review record: telemetry coordinator `gpt-6.1-sol` / `high`, reviewer
 `krummi-review` `gpt-6.1-sol` / `high`.
+
+## 2026-11-20
+
+Artifact version: `05128f4`, an annotation of N11 and AC-N10 in `tables.prd.md` and its translation, a user decision
+during the close of 7.3: child PRDs after 7.3 measure one round of every benchmark workload and 10 to 20 rounds of
+the workloads they name as affected and of those beyond 3 % in that pass.
+
+## 2026-11-20 (verification)
+
+Review record: [2026-11-20-prd.md](2026-11-20-prd.md), wrapper status `approved`, no unexpected changes, `threadId`
+`01a1f955-9354-7292-85a3-2bd9b65ff655`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`. Verdict, quoted: "Ready for implementation within the requested follow-up scope."

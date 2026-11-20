@@ -210,3 +210,5 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   and W28 3.7 % and 1.6 %. The single-load A/B stands: plain runs do not reach the changed code.
 - **L26** — 2026-11-20, Codex round 13 (`2026-11-20-code-04.md`, over `79a5d05..0d3af54`): `approved`; R21 verified,
   the 21 findings of the chain are closed.
+- **L27** — 2026-11-20, Codex follow-up of the tables PRD over the N11 annotation (`docs/reviews/tables/2026-11-20-prd.md`,
+  `59bc95d..05128f4`): `approved`.
