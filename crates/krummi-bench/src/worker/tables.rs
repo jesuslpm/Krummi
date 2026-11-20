@@ -583,10 +583,8 @@ fn equal_conditions<'r>(row: &'r [(&'static str, Value<'r>)]) -> Vec<Condition<'
         .collect()
 }
 
-/// Runs `write(notify)`, with `thread` (from [`ESTIMATES_VARIABLE`]) beside a second thread that, each time `notify` wakes
-/// it after a commit, asks in a new read for an estimate of each column with the values of `row` (ST15): the first
-/// samples and the stale ones ask for a renewal in the background. Wakes that arrive while it estimates are merged
-/// into one. After `write`, it waits for the thread and the statistics work and writes their counts to stderr.
+/// Runs `write(notify)`, with `thread` (from [`ESTIMATES_VARIABLE`]) beside the estimating thread of [`estimating`];
+/// then writes its rounds and the samples the statistics work took to stderr.
 fn with_estimates<T>(
     store: &krummi::Store,
     thread: bool,
@@ -596,14 +594,31 @@ fn with_estimates<T>(
     if !thread {
         return write(None);
     }
-    let conditions = equal_conditions(row);
     let samples = store.statistics_samples();
+    let (written, rounds) = estimating(store, row, write)?;
+    eprintln!(
+        "estimates rounds {rounds} samples {}",
+        store.statistics_samples() - samples
+    );
+    Ok(written)
+}
+
+/// Runs `write(notify)` beside a second thread that, each time `notify` wakes it after a commit, asks in a new read for
+/// an estimate of each column with the values of `row` (ST15): the first samples and the stale ones ask for a renewal
+/// in the background. Each wake gets its own round, in order: those that arrive while it estimates wait their turn.
+/// After `write`, it waits for the thread and the statistics work, and returns what `write` returned and the thread's
+/// rounds.
+fn estimating<T>(
+    store: &krummi::Store,
+    row: &[(&'static str, Value<'_>)],
+    write: impl FnOnce(Option<&mpsc::Sender<()>>) -> Result<T>,
+) -> Result<(T, u64)> {
+    let conditions = equal_conditions(row);
     let (sender, receiver) = mpsc::channel::<()>();
     std::thread::scope(|scope| {
         let estimator = scope.spawn(move || -> Result<u64> {
             let mut rounds = 0;
             while receiver.recv().is_ok() {
-                while receiver.try_recv().is_ok() {}
                 let tx = store.read().map_err(cause)?;
                 let table = tx.open_table(TABLE).map_err(cause)?;
                 for condition in &conditions {
@@ -619,13 +634,7 @@ fn with_estimates<T>(
             .join()
             .map_err(|_| "el hilo de estimaciones falló".to_owned())?;
         store.wait_statistics_idle();
-        let written = written?;
-        eprintln!(
-            "estimates rounds {} samples {}",
-            rounds?,
-            store.statistics_samples() - samples
-        );
-        Ok(written)
+        Ok((written?, rounds?))
     })
 }
 
@@ -699,8 +708,8 @@ mod tests {
         }
     }
 
-    /// ST15 of the statistics PRD: the estimating thread estimates after the writes of a W23 load, sampling the table
-    /// once, and the first estimate after a load samples it; without the thread nothing samples.
+    /// ST15 of the statistics PRD: the estimating thread estimates after each commit of a W23 load, sampling the
+    /// table, and the first estimate after a load samples it; without the thread nothing samples.
     #[test]
     fn the_estimating_thread_and_the_first_estimate_sample() {
         let n = 5_000;
@@ -711,14 +720,27 @@ mod tests {
                 .map_err(cause)
         };
         let schema = schema(KeyKind::Ulid);
-        for thread in [false, true] {
-            let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
-            with_estimates(&store, thread, &row, |notify| {
-                batches_notifying(&store, rows.len(), 1_000, Some(&schema), notify, insert)
-            })
-            .unwrap();
-            assert_eq!(store.statistics_samples() > 0, thread, "thread {thread}");
-        }
+        let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+        with_estimates(&store, false, &row, |notify| {
+            batches_notifying(&store, rows.len(), 1_000, Some(&schema), notify, insert)
+        })
+        .unwrap();
+        assert_eq!(store.statistics_samples(), 0);
+        let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+        let ((), rounds) = estimating(&store, &row, |notify| {
+            batches_notifying(&store, rows.len(), 1_000, Some(&schema), notify, insert)?;
+            // Wakes that arrive together, as when commits outrun the estimates, each get their own round.
+            for _ in 0..5 {
+                notify.expect("the estimating thread").send(()).unwrap();
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            rounds, 10,
+            "one round of estimates after each of the 5 commits and each of the 5 wakes"
+        );
+        assert!(store.statistics_samples() > 0);
         let store = loaded(n);
         first_estimate(&store, &row).unwrap();
         assert_eq!(store.statistics_samples(), 1);
