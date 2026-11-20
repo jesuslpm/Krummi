@@ -371,3 +371,11 @@ and `cargo test --workspace` pass.
 - R13 note on coverage precision — the comment of the save-page `OutOfMemory` case now says the failure meets a page
   the save reads while it finds the table.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-20 (verification, round 11)
+
+Review record: [2026-11-20-code-02.md](2026-11-20-code-02.md), wrapper status `approved`, no unexpected changes,
+`threadId` `01a1f795-33c1-7682-a22b-53172dd8473c`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`. Verdict, quoted: "Approved for the requested follow-up scope. R2 is
+verified resolved; no findings remain open, and no regression caused by the reviewed corrections was established."
+All 20 findings of the chain are verified resolved.

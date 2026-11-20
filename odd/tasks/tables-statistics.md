@@ -163,3 +163,5 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 - **L18** — 2026-11-20: Codex round 10 (`2026-11-20-code.md`): R13 verified; R2 (minor) open: the hook missed metadata
   pages past a run's first page. Fixed in `aa0b474` (`TableRow::run_metadata_pages`, test
   `ac_st12_a_sample_counts_the_pages_before_the_values`, RED 5 against 10). Round 11 over `e14a61c..HEAD`.
+- **L19** — 2026-11-20: Codex round 11 (`2026-11-20-code-02.md`): `approved`; R2 verified, no finding open. The Codex
+  code review chain is closed. Next: the RDD review of the fix commits, ST15's measurements and the closing report.
