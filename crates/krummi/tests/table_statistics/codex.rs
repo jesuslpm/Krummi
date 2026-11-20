@@ -740,6 +740,84 @@ fn r2_a_corrupt_run_never_panics_the_sample() {
     );
 }
 
+/// The rows of a table `t` of `id`, `n` (`id % 2`) and `blob`, of 50,000 bytes in one row of every `every` and null
+/// in the rest, loaded into a new store at `folder`, which is closed; the middle page of each value run is damaged.
+/// Returns the keys of the rows in runs.
+fn damaged_runs(folder: &std::path::Path, rows: i64, every: i64) -> Vec<i64> {
+    let store = open(folder);
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I64),
+            Column::new("blob", ColumnType::Bytes),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    write.commit().unwrap();
+    let values = (0..rows).map(|id| {
+        let blob = match id % every {
+            0 => Value::Bytes(Cow::Owned(vec![id as u8; 50_000])),
+            _ => Value::Null,
+        };
+        Ok::<_, std::convert::Infallible>(vec![
+            ("id", Value::I64(id)),
+            ("n", Value::I64(id % 2)),
+            ("blob", blob),
+        ])
+    });
+    store.bulk_load("t", values).unwrap();
+    store.close().unwrap();
+    let large: Vec<i64> = (0..rows).filter(|id| id % every == 0).collect();
+    for id in &large {
+        let key = krummi::table::key::encode_key(&[ColumnType::I64], &[Value::I64(*id)]).unwrap();
+        let (first, count) = value_run(folder, "t", &key).expect("a row in a run");
+        assert!(count > 2);
+        damage(folder, first + count / 2);
+    }
+    large
+}
+
+/// RDD follow-up (ST1): a table of more than 30,000 rows is sampled by leaves reached at random, also without the
+/// run's checksum: damage in the middle of the runs of its large values does not fail analyze, and the large values
+/// read count in their fraction.
+#[test]
+fn a_random_leaf_sample_skips_the_runs_checksum() {
+    let tmp = tempfile::tempdir().unwrap();
+    let large = damaged_runs(tmp.path(), 31_000, 500);
+    let store = open(tmp.path());
+    store.set_statistics_seed(7);
+    store.analyze("t", None).unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let n = read.column_statistics(&table, "n").unwrap().unwrap();
+    assert!(n.rows_read < 31_000, "sampled: {}", n.rows_read);
+    let blob = read.column_statistics(&table, "blob").unwrap().unwrap();
+    assert!(blob.large_fraction > 0.0, "damaged runs sampled");
+    let error = read.get_row(&table, &[Value::I64(large[0])]).err();
+    assert_eq!(error.map(|e| e.kind()), Some(ErrorKind::Damaged));
+}
+
+/// RDD follow-up (ST1, T11): an estimate that samples in a write reads the runs without their checksum: damage in
+/// the middle of a run of a large value neither fails the estimate nor keeps the write from committing.
+#[test]
+fn sampling_in_a_write_skips_the_runs_checksum() {
+    let tmp = tempfile::tempdir().unwrap();
+    damaged_runs(tmp.path(), 20, 4);
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    write
+        .open_tree_with("previous", OpenMode::CreateNew)
+        .unwrap();
+    let table = write.open_table("t").unwrap();
+    let estimate = write.estimate(&table, &equal("n", 1)).unwrap();
+    assert!(estimate.rows > 0.0, "{estimate:?}");
+    write.commit().unwrap();
+}
+
 /// R13 (ST7, ST12): analyze on the store of a table with a damaged page fails with damage and publishes nothing.
 #[test]
 fn r13_analyze_of_a_damaged_table_fails_with_damage() {
