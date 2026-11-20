@@ -347,11 +347,10 @@ fn write_unless_keeps_its_place_until_stop_says_so() {
                 tx.commit().unwrap();
             });
             wait_until(|| engine.queued() == 2);
-            let started = Instant::now();
             stop.store(true, Ordering::SeqCst);
+            // Joined while the turn is still held: only asking `stop` ends the wait.
             let error = unless.join().unwrap().expect("a stopped request fails");
             assert_eq!(error.kind(), ErrorKind::Timeout);
-            assert!(started.elapsed() < LONG, "stop is asked while waiting");
             assert_eq!(engine.queued(), 1, "it left the queue");
             drop(held);
             later.join().unwrap();

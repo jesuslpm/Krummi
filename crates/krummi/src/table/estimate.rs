@@ -164,7 +164,9 @@ impl StatsMemory {
         let deleted = |table: &u64| {
             (retired.tables.iter()).any(|(t, floor)| t == table && *floor == u64::MAX)
         };
-        state.removed.retain(|(table, _)| !deleted(table));
+        if retired.tables.iter().any(|(_, floor)| *floor == u64::MAX) {
+            state.removed.retain(|(table, _)| !deleted(table));
+        }
         let gone = |table: &u64| retired.tables.iter().any(|(t, _)| t == table);
         state.columns.retain(|(table, column), _| {
             !gone(table) && !retired.columns.contains(&(*table, *column))
