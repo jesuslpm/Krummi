@@ -379,3 +379,19 @@ Review record: [2026-11-20-code-02.md](2026-11-20-code-02.md), wrapper status `a
 `krummi-review-critical` `gpt-6-astra` / `xhigh`. Verdict, quoted: "Approved for the requested follow-up scope. R2 is
 verified resolved; no findings remain open, and no regression caused by the reviewed corrections was established."
 All 20 findings of the chain are verified resolved.
+
+## 2026-11-20 (changes after round 11)
+
+Commits after the head round 11 reviewed (`3e0641a`), with no finding of this chain open:
+
+- `f5a2cd1`, `51a2779` — RDD warnings: the race tests r7, r11 and r16 wait for the sample counter instead of a fixed
+  100 ms sleep, and the wait fails after a minute when analyze never starts its sample.
+- `d4ff730`, `b80503a` — ST15: the bench hook `KRUMMI_BENCH_ESTIMATES` (`thread`: a second thread estimates each column
+  after each commit of W23 and W28; `first`: the first estimate after W23's load is timed), stderr only; then the
+  first estimate takes the column `n` by name (RDD warning R2-001 of lineage `review-fb0cd071ffaf8627`), with a test.
+- `ce991db` — the `Cargo.lock` entry of the `krummi` test-hooks dev dependency added by `bc82fd7`.
+- `5c94644`, `d6e3a8a`, `f1aa8f0`, `c6c43ce`, `59bc95d`, `05128f4` — documentation only (execution log, phase log,
+  the Codex round limit, the N11 annotation of the tables PRD).
+
+Checks on `c6c43ce`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` pass (59 binaries, 1,022 passed, 0 failed, 35 ignored).
