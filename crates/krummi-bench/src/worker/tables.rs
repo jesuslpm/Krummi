@@ -635,8 +635,15 @@ fn first_estimate(store: &krummi::Store, row: &[(&'static str, Value<'_>)]) -> R
     let samples = store.statistics_samples();
     let tx = store.read().map_err(cause)?;
     let table = tx.open_table(TABLE).map_err(cause)?;
-    let condition = &equal_conditions(row)[1];
-    let (_, time) = timed(|| tx.estimate(&table, condition).map_err(cause))?;
+    let (column, value) = row
+        .iter()
+        .find(|(column, _)| *column == "n")
+        .ok_or_else(|| "la fila no tiene la columna n".to_owned())?;
+    let condition = Condition::Equal {
+        column,
+        value: value.clone(),
+    };
+    let (_, time) = timed(|| tx.estimate(&table, &condition).map_err(cause))?;
     drop(tx);
     store.wait_statistics_idle();
     eprintln!(
@@ -715,6 +722,10 @@ mod tests {
         let store = loaded(n);
         first_estimate(&store, &row).unwrap();
         assert_eq!(store.statistics_samples(), 1);
+        assert_eq!(
+            first_estimate(&store, &row[..1]).unwrap_err(),
+            "la fila no tiene la columna n"
+        );
     }
 
     /// A store with W30's table, with its two indexes, and W23's first `n` rows.
