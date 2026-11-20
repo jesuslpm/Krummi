@@ -13,16 +13,22 @@
 //! W26, W27, W31 and W32 read the columns of their rows with a projection prepared at the start of each repetition,
 //! inside its measured time (PY7 of tables-projection.prd.md). `KRUMMI_BENCH_PROJECTION=off` reads them by position
 //! instead, a diagnostic hook to measure the projection (AC-PY11), not part of the benchmark's interface.
+//!
+//! `KRUMMI_BENCH_ESTIMATES` adds statistics estimates to W23 and W28 for the measurements of ST15 of
+//! tables-statistics.prd.md, a measuring hook outside the benchmark's interface that writes only to stderr:
+//! `thread` runs a second thread that, after each write of the load, asks for an estimate of each column; `first`
+//! times the first estimate on W23's table after its load, outside its measured time.
 
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::sync::mpsc;
 
 use krummi::ids::{Ulid, Uuid};
 use krummi::table::projection::{TextBytes, Timestamp};
 use krummi::table::value::{ColumnType, UuidOrder, Value};
 use krummi::{
-    Column, IndexDefinition, IndexKey, IndexMode, ProjectedColumn, Projection, ReadTable,
-    ReadTransaction, Schema, TableMode, TableRow, WriteTable, WriteTransaction,
+    Column, Condition, IndexDefinition, IndexKey, IndexMode, ProjectedColumn, Projection,
+    ReadTable, ReadTransaction, Schema, TableMode, TableRow, WriteTable, WriteTransaction,
 };
 
 use super::{Context, check_count, check_sum, hex, missing, timed};
@@ -45,6 +51,14 @@ pub const PROJECTION_VARIABLE: &str = "KRUMMI_BENCH_PROJECTION";
 /// Whether the loads that read rows do it with a projection: unless [`PROJECTION_VARIABLE`] is `off`.
 fn with_projection() -> bool {
     std::env::var_os(PROJECTION_VARIABLE).is_none_or(|value| value != "off")
+}
+
+/// The variable whose value adds statistics estimates to W23 and W28: `thread` or `first` (ST15).
+pub const ESTIMATES_VARIABLE: &str = "KRUMMI_BENCH_ESTIMATES";
+
+/// Whether [`ESTIMATES_VARIABLE`] is `mode`.
+fn estimates(mode: &str) -> bool {
+    std::env::var_os(ESTIMATES_VARIABLE).is_some_and(|value| value == mode)
 }
 
 /// Runs the table load of `cx` (W23–W32).
@@ -85,6 +99,27 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                         create_table(store, &schema, &indexes())?;
                         timed(|| batches(store, rows.len(), p.batch, None, insert))?.1
                     }
+                    Load::W23 => {
+                        let row = values(&rows[0], kind);
+                        let time = with_estimates(store, estimates("thread"), &row, |notify| {
+                            timed(|| {
+                                let schema = Some(&schema);
+                                batches_notifying(
+                                    store,
+                                    rows.len(),
+                                    p.batch,
+                                    schema,
+                                    notify,
+                                    insert,
+                                )
+                            })
+                        })?
+                        .1;
+                        if estimates("first") {
+                            first_estimate(store, &row)?;
+                        }
+                        time
+                    }
                     _ => timed(|| batches(store, rows.len(), p.batch, Some(&schema), insert))?.1,
                 };
                 Ok(vec![(load, n, time)])
@@ -119,17 +154,36 @@ pub(super) fn run(cx: &Context) -> Result<()> {
                 .map(|&r| table_data::new_n(u64::from(r)))
                 .collect();
             let keys = ulid_keys(order);
+            let first = table_data::rows(1, KeyKind::Ulid);
+            let condition_row = values(&first[0], KeyKind::Ulid);
             cx.modifying::<Krummi>(Tree::Normal, |store| {
-                let ((), time) = timed(|| {
-                    batches(store.inner(), keys.len(), p.batch, None, |tx, table, j| {
-                        // Only `n` (E10): the other columns keep their values.
-                        let row = [("id", ulid(&keys[j])), ("n", Value::I64(new_n[j]))];
-                        match tx.update_row(table, &row).map_err(cause)? {
-                            true => Ok(()),
-                            false => Err(missing(&keys[j])),
-                        }
-                    })
-                })?;
+                let ((), time) = with_estimates(
+                    store.inner(),
+                    estimates("thread"),
+                    &condition_row,
+                    |notify| {
+                        timed(|| {
+                            let update = |tx: &mut WriteTransaction<'_>,
+                                          table: &WriteTable<'_>,
+                                          j: usize| {
+                                // Only `n` (E10): the other columns keep their values.
+                                let row = [("id", ulid(&keys[j])), ("n", Value::I64(new_n[j]))];
+                                match tx.update_row(table, &row).map_err(cause)? {
+                                    true => Ok(()),
+                                    false => Err(missing(&keys[j])),
+                                }
+                            };
+                            batches_notifying(
+                                store.inner(),
+                                keys.len(),
+                                p.batch,
+                                None,
+                                notify,
+                                update,
+                            )
+                        })
+                    },
+                )?;
                 // After the measured time: every row holds its new `n`.
                 let tx = store.inner().read().map_err(cause)?;
                 let table = tx.open_table(TABLE).map_err(cause)?;
@@ -482,6 +536,18 @@ fn batches(
     n: usize,
     batch: u64,
     schema: Option<&Schema>,
+    op: impl FnMut(&mut WriteTransaction<'_>, &WriteTable<'_>, usize) -> Result<()>,
+) -> Result<()> {
+    batches_notifying(store, n, batch, schema, None, op)
+}
+
+/// [`batches`], sending to `notify`, when it is given, after each commit.
+fn batches_notifying(
+    store: &krummi::Store,
+    n: usize,
+    batch: u64,
+    schema: Option<&Schema>,
+    notify: Option<&mpsc::Sender<()>>,
     mut op: impl FnMut(&mut WriteTransaction<'_>, &WriteTable<'_>, usize) -> Result<()>,
 ) -> Result<()> {
     let batch = usize::try_from(batch).unwrap_or(usize::MAX).max(1);
@@ -498,8 +564,86 @@ fn batches(
             op(&mut tx, &table, j)?;
         }
         tx.commit().map_err(cause)?;
+        if let Some(notify) = notify {
+            // The estimating thread is gone only after an error of its own, which it reports.
+            let _ = notify.send(());
+        }
         start = end;
     }
+    Ok(())
+}
+
+/// One equality condition for each column of `row`.
+fn equal_conditions<'r>(row: &'r [(&'static str, Value<'r>)]) -> Vec<Condition<'r>> {
+    row.iter()
+        .map(|(column, value)| Condition::Equal {
+            column,
+            value: value.clone(),
+        })
+        .collect()
+}
+
+/// Runs `write(notify)`, with `thread` (from [`ESTIMATES_VARIABLE`]) beside a second thread that, each time `notify` wakes
+/// it after a commit, asks in a new read for an estimate of each column with the values of `row` (ST15): the first
+/// samples and the stale ones ask for a renewal in the background. Wakes that arrive while it estimates are merged
+/// into one. After `write`, it waits for the thread and the statistics work and writes their counts to stderr.
+fn with_estimates<T>(
+    store: &krummi::Store,
+    thread: bool,
+    row: &[(&'static str, Value<'_>)],
+    write: impl FnOnce(Option<&mpsc::Sender<()>>) -> Result<T>,
+) -> Result<T> {
+    if !thread {
+        return write(None);
+    }
+    let conditions = equal_conditions(row);
+    let samples = store.statistics_samples();
+    let (sender, receiver) = mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let estimator = scope.spawn(move || -> Result<u64> {
+            let mut rounds = 0;
+            while receiver.recv().is_ok() {
+                while receiver.try_recv().is_ok() {}
+                let tx = store.read().map_err(cause)?;
+                let table = tx.open_table(TABLE).map_err(cause)?;
+                for condition in &conditions {
+                    tx.estimate(&table, condition).map_err(cause)?;
+                }
+                rounds += 1;
+            }
+            Ok(rounds)
+        });
+        let written = write(Some(&sender));
+        drop(sender);
+        let rounds = estimator
+            .join()
+            .map_err(|_| "el hilo de estimaciones falló".to_owned())?;
+        store.wait_statistics_idle();
+        let written = written?;
+        eprintln!(
+            "estimates rounds {} samples {}",
+            rounds?,
+            store.statistics_samples() - samples
+        );
+        Ok(written)
+    })
+}
+
+/// Times the first estimate on the table just loaded, of `n` with its value in `row`, which samples it (ST3), and
+/// writes the time in nanoseconds to stderr; then waits for the statistics work it asked for.
+fn first_estimate(store: &krummi::Store, row: &[(&'static str, Value<'_>)]) -> Result<()> {
+    let samples = store.statistics_samples();
+    let tx = store.read().map_err(cause)?;
+    let table = tx.open_table(TABLE).map_err(cause)?;
+    let condition = &equal_conditions(row)[1];
+    let (_, time) = timed(|| tx.estimate(&table, condition).map_err(cause))?;
+    drop(tx);
+    store.wait_statistics_idle();
+    eprintln!(
+        "first-estimate nanos {} samples {}",
+        time.as_nanos(),
+        store.statistics_samples() - samples
+    );
     Ok(())
 }
 
@@ -546,6 +690,31 @@ mod tests {
             );
             assert_eq!(store.kept_projections(), usize::from(projected));
         }
+    }
+
+    /// ST15 of the statistics PRD: the estimating thread estimates after the writes of a W23 load, sampling the table
+    /// once, and the first estimate after a load samples it; without the thread nothing samples.
+    #[test]
+    fn the_estimating_thread_and_the_first_estimate_sample() {
+        let n = 5_000;
+        let rows = table_data::rows(n, KeyKind::Ulid);
+        let row = values(&rows[0], KeyKind::Ulid);
+        let insert = |tx: &mut WriteTransaction<'_>, table: &WriteTable<'_>, j: usize| {
+            tx.insert_row(table, &values(&rows[j], KeyKind::Ulid))
+                .map_err(cause)
+        };
+        let schema = schema(KeyKind::Ulid);
+        for thread in [false, true] {
+            let store = krummi::Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
+            with_estimates(&store, thread, &row, |notify| {
+                batches_notifying(&store, rows.len(), 1_000, Some(&schema), notify, insert)
+            })
+            .unwrap();
+            assert_eq!(store.statistics_samples() > 0, thread, "thread {thread}");
+        }
+        let store = loaded(n);
+        first_estimate(&store, &row).unwrap();
+        assert_eq!(store.statistics_samples(), 1);
     }
 
     /// A store with W30's table, with its two indexes, and W23's first `n` rows.
