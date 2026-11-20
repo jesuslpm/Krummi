@@ -146,8 +146,9 @@ fn r7_analyze_saves_for_a_table_renamed_while_it_sampled() {
     write.commit().unwrap();
     store.hold_statistics(StatisticsPoint::WorkSampled, true);
     std::thread::scope(|scope| {
+        let samples = store.statistics_samples();
         let analyze = scope.spawn(|| store.analyze("t", None));
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        wait_sampling(&store, samples);
         let mut write = store.write().unwrap();
         write.rename_table("t", "u", false).unwrap();
         write.commit().unwrap();
@@ -398,8 +399,9 @@ fn r11_a_build_from_before_an_emptying_is_dropped() {
         write.commit().unwrap();
         store.hold_statistics(StatisticsPoint::WorkSampled, true);
         std::thread::scope(|scope| {
+            let samples = store.statistics_samples();
             let analyze = scope.spawn(|| store.analyze("t", None));
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            wait_sampling(store, samples);
             let mut write = store.write().unwrap();
             write.open_table_with("t", TableMode::Empty).unwrap();
             write.commit().unwrap();
@@ -458,8 +460,9 @@ fn r16_a_rename_keeps_a_pending_build() {
         write.commit().unwrap();
         store.hold_statistics(StatisticsPoint::WorkSampled, true);
         std::thread::scope(|scope| {
+            let samples = store.statistics_samples();
             let analyze = scope.spawn(|| store.analyze("t", None));
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            wait_sampling(store, samples);
             let mut write = store.write().unwrap();
             let table = write.open_table("t").unwrap();
             write.rename_column(&table, "n", "m").unwrap();
@@ -843,4 +846,12 @@ fn r13_analyze_in_a_write_of_a_damaged_table_fails_the_write() {
     let mut write = store.write().unwrap();
     write.open_tree_with("next", OpenMode::CreateNew).unwrap();
     write.commit().unwrap();
+}
+
+/// Waits until a sample started after the store had read `samples`: its transaction already sees the table, so a change
+/// committed now is one that sample does not see (instead of a fixed sleep; RDD review of the fix commits).
+fn wait_sampling(store: &Store, samples: u64) {
+    while store.statistics_samples() == samples {
+        std::thread::yield_now();
+    }
 }
