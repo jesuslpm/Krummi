@@ -50,7 +50,7 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
 | T6 | S1: ST17, ST18 (index prefixes, multi-column), AC-ST13, AC-ST14 | inline | done | `34cbe58` |
 | T7a | S1: ST1 (random-leaf sampling over 30,000 rows), part of AC-ST1 and AC-ST12 | inline | done | `ea5d7b3` |
 | T7b | S1: ST1 (partial read of rows stored in runs, without the run checksum) | inline | done | `91111a3`, `da56d24`, `a1946cf`, `aa0b474` |
-| T7 | S2, S4 (measurements, reviews, closing report) | inline | in progress: Codex approved (round 11), RDD of every commit done; ST15 measurements and closing report pending | |
+| T7 | S2, S4 (measurements, reviews, closing report) | inline | done: ST15 measured on Windows and Linux, Codex approved (round 13), RDD of every commit done, [closing report](tables-statistics-report.md) | `d4ff730`, `b80503a`, `879b73c` |
 
 ## Log
 
@@ -212,3 +212,7 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   the 21 findings of the chain are closed.
 - **L27** — 2026-11-20, Codex follow-up of the tables PRD over the N11 annotation (`docs/reviews/tables/2026-11-20-prd.md`,
   `59bc95d..05128f4`): `approved`.
+- **L28** — 2026-11-20, RDD review of `f1aa8f0..106d3c9` (lens reliability): approved with no findings, lineage
+  `review-dfbad5d365070c30`. Every code commit of the branch has been through RDD and Codex. Closing report next.
+- **L29** — 2026-11-20: closing report [tables-statistics-report.md](tables-statistics-report.md); active time since
+  the confirmed start 18 h 19 min against the 14–22 h estimate. The run closes unmerged on `feat/tables-statistics`.
