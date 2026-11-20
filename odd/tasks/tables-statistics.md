@@ -148,3 +148,15 @@ runner: `cargo test --workspace` (Windows; Linux in WSL 2 Ubuntu). Estimate: 14 
   generation can precede the sampled durable snapshot: key retirement by the retiring commit's txid and validate a
   build by its snapshot's txid, `Scratch` snapshots expose `txid()`) and R13 (rest of the fault matrix). Stopped here
   to leave the branch committed and resumable.
+- **L17** — 2026-11-19 and 2026-11-20, the user: «Sigamos en esta sesión con los hallazgos y nueva ronda de Codex.»,
+  «Sigue y lanza la sexta ronda de codex» and «Sigue en esta sesión, puedes hacer todas las rondas de codex que
+  necesites.» Round 6 fixes in `bc82fd7` (R11: retirement keyed by the retiring commit's txid, builds validated by
+  their snapshot's txid; R13 fault matrix) and `91111a3` (T7b: rows in runs sampled by the pages they use, unchecked);
+  records `88bacde`. Round 7 (`2026-11-19-code-07.md`): R11 verified; R2, R12, R13 open; fixes `144acf2`, record
+  `4012b31`. Round 8 (`2026-11-19-code-08.md`): R12 verified; R2, R13 and regression R20 open; fixes `da56d24`, record
+  `8240385`. Round 9 (`2026-11-19-code-09.md`): R20 verified; open R13 (major: OOM after publication, save-page OOM,
+  write-analyze failure) and R2 (minor: ST14's page-access hook absent). The user chose to implement the hook («a»)
+  instead of removing it from ST14/AC-ST12. Fixes: `4aac063` (R13 tests) and `a1946cf` (R2 hook
+  `Store::statistics_pages_read` with test `ac_st12_a_sample_does_not_read_the_pages_of_large_values`, save-page OOM
+  case). Next: Codex round 10 over `8240385..HEAD`, then the RDD review of the fix commits, ST15's measurements and
+  the closing report.

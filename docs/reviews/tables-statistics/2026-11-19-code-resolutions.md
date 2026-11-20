@@ -327,3 +327,26 @@ Fix commit: `da56d24`. Checks after it: fmt, clippy and `cargo test --workspace`
   input/output of table pages is not injectable (the pages are mapped; `Op::Read` is the journal's): damage stands for
   it.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-20 (verification, round 9, and its fixes)
+
+Follow-up report: [2026-11-19-code-09.md](2026-11-19-code-09.md), wrapper status `findings`, no unexpected changes.
+Verdict, quoted: "Changes required. R13 remains open as major and R2 as minor; R20 is verified resolved. No new
+regression was established; approval is withheld."
+
+Fix commits: `4aac063` and `a1946cf`. Checks after them: fmt, clippy and
+`cargo test --workspace` pass.
+
+- R13 ("Reachable failure phases still lack acceptance coverage") — fixed: `4aac063` adds
+  `r13_analyze_out_of_memory_after_sampling_keeps_and_later_saves` (`Op::Snapshot` failure number 1: analyze reports
+  `OutOfMemory`, the statistics stay in memory, writes go on and a later estimate saves them without another sample)
+  and `r13_analyze_in_a_write_of_a_damaged_table_fails_the_write` (T11: analyze and commit fail with damage and the
+  next write works). `analyze_reports_its_save_failure_and_keeps_memory` now also fails a save page with
+  `OutOfMemory`: analyze reports that class and keeps what it published in memory.
+- R2 ("Sampling page-access verification is still absent") — fixed: the ST14 hook `Store::statistics_pages_read`
+  counts the pages of value runs that samples read. Each sampled row stored in a run counts its first page (header,
+  fixed part and offsets) and the pages of every column it reads, from `TableRow::run_pages`, at the place where the
+  value is read; large and malformed values are classified before and never counted. AC-ST12 test:
+  `ac_st12_a_sample_does_not_read_the_pages_of_large_values` (20 rows in runs of about 25 pages, with a 200,000-byte
+  value between a fixed column and a short text: the hook counts exactly 2 pages per row).
+- Status: claimed, unverified until a follow-up review.
