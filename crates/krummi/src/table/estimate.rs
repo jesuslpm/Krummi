@@ -18,6 +18,9 @@ use super::statistics::{Built, stats_column, stored, stored_prefix};
 use super::stats::{ColumnStats, element_column, is_large};
 use super::value::{Value, normalize};
 use super::worker::Job;
+#[cfg(test)]
+#[path = "estimate_tests.rs"]
+mod tests;
 use crate::{Error, Folder, ReadTransaction, Result, ValueRule, WriteTransaction};
 
 /// A condition on one column of a table (ST2).
@@ -73,7 +76,9 @@ struct MemoryState {
     /// Per table, the counter of its last committed emptying, or `u64::MAX` once deleted: statistics of an earlier
     /// snapshot are not published (R11 of the code review).
     floors: HashMap<u64, u64>,
-    /// The columns and indexes removed from tables by committed writes: never published again (R11).
+    /// The columns and indexes removed from tables by committed writes: never published again (R11). Those of a
+    /// table are forgotten when it is deleted, which its floor covers; the rest stay until the store closes, one entry
+    /// per removed column or index, like `retired_at` and `floors`, one entry per table emptied or deleted.
     removed: std::collections::HashSet<(u64, u64)>,
 }
 
@@ -155,6 +160,11 @@ impl StatsMemory {
         }
         state.removed.extend(retired.columns.iter().copied());
         state.removed.extend(retired.indexes.iter().copied());
+        // A deleted table's floor keeps every statistic of it out, so its removed targets are no longer needed.
+        let deleted = |table: &u64| {
+            (retired.tables.iter()).any(|(t, floor)| t == table && *floor == u64::MAX)
+        };
+        state.removed.retain(|(table, _)| !deleted(table));
         let gone = |table: &u64| retired.tables.iter().any(|(t, _)| t == table);
         state.columns.retain(|(table, column), _| {
             !gone(table) && !retired.columns.contains(&(*table, *column))
