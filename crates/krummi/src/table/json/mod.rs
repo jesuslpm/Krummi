@@ -27,10 +27,26 @@ pub(crate) const FORM_TEXT_V1: u8 = 0x01;
 /// The value of a JSON column (JS3, JS5): as given by an application, a text or bytes that a write validates and
 /// normalizes; as read back, the document's normalized text (JS4), borrowed from the row or the index entry when it
 /// can be (D11).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Two values are equal when their bytes are: a document read back equals one given with its normalized text.
+#[derive(Debug, Clone)]
 pub struct Json<'a> {
     bytes: Cow<'a, [u8]>,
     normalized: bool,
+}
+
+impl PartialEq for Json<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl Eq for Json<'_> {}
+
+impl std::hash::Hash for Json<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.bytes.hash(state);
+    }
 }
 
 impl<'a> Json<'a> {
@@ -101,5 +117,20 @@ impl<'a> Json<'a> {
             bytes: Cow::Owned(self.bytes.into_owned()),
             normalized: self.normalized,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::Json;
+
+    #[test]
+    fn values_with_the_same_bytes_are_equal_whether_given_or_read_back() {
+        let read_back = Json::normalized(Cow::Borrowed("[1]"));
+        assert_eq!(read_back, Json::new("[1]"));
+        assert_eq!(read_back, Json::from_bytes(&b"[1]"[..]));
+        assert_ne!(read_back, Json::new("[ 1 ]"));
     }
 }
