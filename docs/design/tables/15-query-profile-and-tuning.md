@@ -31,6 +31,9 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
   ejecuciones", "aparte de las ejecuciones individuales hay que mantener los agregados. ¿Cómo hacemos esto?", "El
   histograma de donde sale?", "No termino de entender el peso que añades a cada ejecución" and, to adding it here,
   "Entendido, agrégalo todo al documento 15 y haz el commit".
+- On the load at the start of a period: "Lo que me preocupa es el inicio del período donde la base de datos de perfil
+  se somete a fuerte carga.", "¿Cual de las tres recomiendas?", "¿Cómo encajaría esto con rate limiters? en realidad
+  estamos haciendo un rate limiter un poco esotérico" and, to adding it here, "Sí".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -135,7 +138,8 @@ Each gap names what it changes in the design.
 | H18 | The feedback loop and the tuner act on the same shapes | A directive changes the plan, the profile sees another plan, the tuner adds an index, the directive no longer fits | Directives are bound to the catalog state tokens (P12) and the statistics they were learned on, and expire with them |
 | H19 | Aggregates alone hide the individual executions | Sensitivity to parameter values (a 2 ms mean of 0.1 ms and 800 ms executions), patterns in time (N+1, bursts), which values an estimate misses, and what happened at a given moment are invisible | A sample of individual executions with their parameter values (*Sampled executions*) |
 | H20 | Expensive shapes are usually expensive because they run often | Capturing every execution of exactly those shapes is the worst case for volume (about 2 MB/s at 10,000 executions per second of 200 bytes [I]) | A probability of keeping an execution that falls as its shape runs more often |
-| H21 | That probability is higher at the start of a period | An unweighted sample is biased towards the start, which may be a cold cache after a restart | Each kept execution stores its probability; analysis weights it by 1/p and calibrates the weights to the exact count |
+| H21 | That probability varies: a new shape starts high, a restart starts every shape again, a spike lowers the global factor | An unweighted sample is biased towards the executions kept with a higher probability, which may be a cold cache | Each kept execution stores its probability; analysis weights it by 1/p and calibrates the weights to the exact count |
+| H22 | A counter that restarts every period restarts every shape at once | A synchronized burst of sampled rows at the start of each period, about 10⁶ rows (200 MB) with 1,000 shapes and `T = 1,000` [I], with drops exactly then | A decayed count that never restarts, and a global budget that lowers the probability before the draw |
 
 ## The profile
 
@@ -163,12 +167,12 @@ The sink does two things with the record, both in memory and without waiting:
 
 1. It adds the record to the **aggregates** of (shape, plan) for the current interval (*Aggregates*). Every
    execution counts there, exactly.
-2. It decides whether the record is also kept as a **sampled execution** (*Sampled executions*), with the probability
-   given by the shape's count of executions so far in the period.
+2. It decides whether the record is also kept as a **sampled execution** (*Sampled executions*), with a probability
+   given by the shape's decayed count of recent executions and a global factor.
 
 The first time a shape or plan is seen, its canonical bytes are kept once, identified by hash with a full comparison
 after it (document 11), in a **shape registry** shared by all threads and read almost always. Each entry holds the
-shape's period counter as an atomic integer: the same count serves the aggregates and the sampling decision.
+shape's decayed counter of recent executions as an atomic value, read by the sampling decision.
 
 ### Aggregates
 
@@ -221,55 +225,79 @@ thread's map and a few additions [I].
 spends most of its budget on them, and a fixed-size sample per shape (a reservoir, Vitter's Algorithm R [L]) replaces
 rows already kept, which needs the sample held in memory until the period ends or rewritten in the profile, against
 fire and forget. Instead, each execution is kept or not when it ends, and a kept one is written once and forgotten:
-append only. The probability depends on `n`, the shape's count of executions so far in the period:
+append only. The probability depends on `n`, the shape's **decayed count** of recent executions, and on a global
+factor `g` (below):
 
-$$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big)$$
+$$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big) \qquad p_{draw} = g \cdot p(n)$$
 
-With `p_max = 1` the first `T` executions of each shape are all kept, so rare shapes are complete; then the
-probability falls as `T/n` until it reaches `p_min`. The rows kept for a shape with `N` executions in the period are,
-in expectation,
+**The count decays and never restarts.** At each flush the profile thread multiplies every shape's counter by
+`e^(−Δt/τ)`, with `τ` = 1 day as a start [I], one operation per shape and interval, so `n` approximates the shape's
+executions over the last `τ`. A new shape starts at `n = 0`, so with `p_max = 1` its first `T` executions are all kept
+(rare shapes are complete) and its probability falls as it runs more often. A steady shape reaches `n ≈ λτ` (`λ` its
+rate) and a nearly constant `p`, so it keeps about `max(T, p_min·N)` rows a day (`N` its executions a day), spread
+evenly through the day. With `T = 2,000`, `p_min = 10⁻⁴` and 200 bytes per row [I]:
 
-$$E[S] \approx T + T\ln\frac{\min(N,\ T/p_{min})}{T} + p_{min}\cdot\max\big(0,\ N - T/p_{min}\big)$$
+| Executions per day | `p` | Rows kept per day | Size |
+|---|---|---|---|
+| 10⁴ | 0.2 | 2,000 | 0.4 MB |
+| 10⁶ | 0.002 | 2,000 | 0.4 MB |
+| 10⁷ | 0.0002 | 2,000 | 0.4 MB |
+| 10⁸ | 10⁻⁴ (`p_min`) | 10,000 | 2 MB |
+| 10⁹ | 10⁻⁴ (`p_min`) | 100,000 | 20 MB |
 
-a logarithmic growth (the harmonic series) in the `T/n` zone and a linear one at `p_min`. With `T = 1,000`,
-`p_min = 10⁻⁴` and 200 bytes per row [I]:
+In its first `τ` a new shape keeps more, about `T(1 + ln(N/T))` rows (the harmonic series of `T/n`), and new shapes
+appear at different moments, so this costs no burst.
 
-| Executions per day | Rows kept | Size |
-|---|---|---|
-| 10⁴ | about 3,300 | 0.7 MB |
-| 10⁷ | about 10,200 | 2 MB |
-| 10⁸ | about 19,200 | 4 MB |
-| 10⁹ | about 109,000 | 22 MB |
+**Why not a counter that restarts every period** (H22). Restarting every shape's counter at the same moment puts
+every shape back at `p = 1` together: with 1,000 active shapes and `T = 1,000`, about 10⁶ rows (200 MB) in the first
+seconds or minutes of each period [I], with the buffers filling and dropping exactly then. It is a fixed-window rate
+limiter, biased towards the start of each window; the decayed count is its sliding-window counterpart.
 
-**The counter restarts every period** (a day as a start, [I]). Counting since the beginning would give today's
-executions a tiny probability, and this afternoon's regression, which is what the analysis looks for, would barely
-appear.
+**`p_min` gives the most frequent shapes more rows than `T`**, which the analysis of subgroups needs (*Sizing `T`*);
+its cost is linear in `N`, so it is set from a target of rows for those shapes or from a byte budget [I].
 
-**`p_min` keeps the end of the period visible.** Without it, the afternoon of a shape with 10⁹ executions a day is
-thinly sampled; with it, every hour keeps at least `p_min` times its executions. Its cost is linear in `N`, so it is
-set from a target of rows per hour for the most frequent shapes, or from a byte budget [I].
+**The global factor `g` brakes before the draw.** A budget of `B` sampled rows per second, a token bucket: every
+second the profile thread computes the expected demand `D`, the sum of `p(n)` over the last second's executions (an
+addition per execution in the thread's accumulators), and sets `g = min(1, B/D)`, smoothed; the query path reads `g`
+from one atomic value. The draw uses `g·p(n)`, and that is the probability stored with the row. It brakes any spike:
+a deployment with hundreds of new shapes, an unusual load, and the restart of the process, when every counter starts
+again at 0. Seeding the counters at opening from the profile's last day would also spread the budget by frequency
+after a restart instead of evenly during the first day; it is a refinement left out until a measurement asks for it.
 
-**The weight.** A kept execution represents `1/p` executions: with `T = 1,000`, execution 500 (`p = 1`) represents
-itself, execution 10,000 (`p = 0.1`) represents 10, and execution 1,000,000 (`p = 0.001`) represents 1,000. Because
-the start of the period is kept with a higher probability, an unweighted sample is biased towards it (H21). Example: a
-shape whose first 1,000 executions take 50 ms (a cold cache) and whose next 999,000 take 1 ms. The sample keeps the
-1,000 slow ones and about 6,900 fast ones (the sum of `1000/n` from 1,001 to 10⁶). The true mean is
-(1,000·50 + 999,000·1) / 1,000,000 ≈ 1.05 ms; the unweighted mean of the sample is (1,000·50 + 6,900·1) / 7,900 ≈
-7.2 ms; weighted, the slow rows add 1,000 of weight and the fast ones about 999,000, so the mean is again about
-1.05 ms. Unweighted, the p95 would be 50 ms, since 12.7 % of the rows are slow; the true p95 is 1 ms. When a shape
-behaves the same through the period, weighted and unweighted agree; the weight matters exactly when behavior
-changes, which is what is looked for.
+**The statistical rule: brake before the draw, never after.** A deterministic token bucket that rejects rows already
+drawn depends on the order of arrival, so the real probability of a kept row is unknown and its weight is wrong. A
+factor applied before the draw is known and stored, so the weight stays exact. The only deterministic limit left is
+the memory bound of the buffers, which protects rather than samples: if it ever drops drawn rows, the interval is
+marked **degraded**, its dropped rows are counted, and the analysis knows that its weights are not reliable. With `g`
+working it should never happen, so it also serves as an alarm.
 
-Only `p` is stored, one number per row; the weight is computed when read. Totals use the Horvitz-Thompson estimator
-[L], means and ratios the Hájek estimator [L], percentiles a weighted cumulative sum. Since the aggregates know the
-exact `N` of each (shape, period), the weights are **calibrated** so that they add up to `N` exactly, a ratio
-estimator that lowers the variance at no cost. Totals always come from the aggregates; the sample gives detail and
-relations.
+**The same design in distributed tracing** [L]: AWS X-Ray's sampling rules keep a reservoir of requests per second
+and a fixed rate beyond it (`p_max`, `T` and `p_min` here); Jaeger's adaptive sampling adjusts each operation's
+probability towards a target of traces per second (the decayed count); OpenTelemetry's probability sampling records
+an adjusted count, `1/p`, with each sampled trace so that metrics can be derived from the sample without bias (the
+weight). Two pieces suffice here, the probability per shape and the factor `g`; no generic rate-limiting framework.
 
-**Effective size.** With unequal weights the effective size is Kish's `n_eff = (Σw)² / Σw²` [L]. For `p = T/n`,
-`E[Σw²] = Σ 1/p_i ≈ N²/(2T)` and `E[Σw] = N`, so `n_eff ≈ 2T`: over the whole period, the `T(1 + ln(N/T))` rows kept
-estimate as well as about `2T` uniform ones, and the extra rows give detail on the start of the period. `p_min`
-raises `n_eff`, because it stops the weights from growing.
+**The weight.** A kept execution represents `1/p_draw` executions: with `T = 1,000`, a new shape's execution 500
+(`p = 1`) represents itself, execution 10,000 (`p = 0.1`) represents 10, and execution 1,000,000 (`p = 0.001`)
+represents 1,000. Wherever the probability varies (a new shape, a restart, a change of `g`), an unweighted sample is
+biased towards the executions kept with a higher probability (H21). Example: a new shape whose first 1,000
+executions take 50 ms (a cold cache) and whose next 999,000 take 1 ms. The sample keeps the 1,000 slow ones and
+about 6,900 fast ones (the sum of `1000/n` from 1,001 to 10⁶). The true mean is (1,000·50 + 999,000·1) / 1,000,000 ≈
+1.05 ms; the unweighted mean of the sample is (1,000·50 + 6,900·1) / 7,900 ≈ 7.2 ms; weighted, the slow rows add
+1,000 of weight and the fast ones about 999,000, so the mean is again about 1.05 ms. Unweighted, the p95 would be
+50 ms, since 12.7 % of the rows are slow; the true p95 is 1 ms. When the probability is the same for every row,
+weighted and unweighted agree; the weight matters exactly when it changes.
+
+Only `p_draw` is stored, one number per row; the weight is computed when read. Totals use the Horvitz-Thompson
+estimator [L], means and ratios the Hájek estimator [L], percentiles a weighted cumulative sum. Since the aggregates
+know the exact `N` of each (shape, interval), the weights are **calibrated** so that they add up to `N` exactly, a
+ratio estimator that lowers the variance at no cost. Totals always come from the aggregates; the sample gives detail
+and relations.
+
+**Effective size.** With unequal weights the effective size is Kish's `n_eff = (Σw)² / Σw²` [L]. A steady shape has
+nearly equal weights, so `n_eff` is close to the rows kept. In a new shape's first `τ`, with `p = T/n`,
+`E[Σw²] = Σ 1/p_i ≈ N²/(2T)` and `E[Σw] = N`, so `n_eff ≈ 2T` for its `T(1 + ln(N/T))` rows; `p_min` raises it,
+because it stops the weights from growing.
 
 **Sizing `T`.** For a proportion `p` with margin `e` at confidence `z`, Cochran's formula [L] gives
 `T₀ = z²·p(1-p)/e²` and, with the finite population correction, `T = T₀ / (1 + (T₀-1)/P)`; the size hardly depends on
@@ -278,14 +306,15 @@ and ±1 % 9,604. A percentile `q`, whatever the distribution, has a rank whose v
 within ±1 percentile point needs 1,825 and the p99 within ±0.2 points 9,508. A mean with relative error `ε` needs
 `(z·CV/ε)²`, which depends on the spread (`CV = σ/μ`; 1,537 for `CV = 1` and ±5 %, 13,830 for `CV = 3`), so means come
 from the exact aggregates. These sizes apply to the effective size and **to each subgroup analyzed**: splitting a
-shape's sample into 20 buckets of a parameter leaves each bucket with about a twentieth of it.
+shape's sample into 20 buckets of a parameter leaves each bucket with about a twentieth of it. With nearly equal
+weights, `T = 2,000` a day gives about ±2.2 % on proportions and the p95 within ±1 point per shape and day.
 
 **Outliers** are always kept, apart, with `p = 1` and a cap of their own: errors, executions with a q-error over 4×,
 and executions beyond the p95 of their shape in the previous interval. Past the cap they are sampled like the rest,
 with their probability stored.
 
-**A sampled row** holds the record of the sink (above), its `p`, whether it was kept as an outlier, and the parameter
-values, masked per column when question 1 asks for it.
+**A sampled row** holds the record of the sink (above), its `p_draw`, whether it was kept as an outlier, and the
+parameter values, masked per column when question 1 asks for it.
 
 ### Flush
 
@@ -501,7 +530,9 @@ A natural flow: the daily job runs `codex exec` or `claude -p` with the skill an
 | Fixed-size sample per shape (reservoir) | Exact size; uniform | Replaces kept rows: holds the sample in memory or rewrites it, against fire and forget | Rejected |
 | Sample drawn per transaction | Keeps sequences | The interest is per query; sequences come from the executions-per-transaction histogram | Rejected |
 | Fixed summaries (heavy hitters, values per bucket) | Constant size; see every execution | Answer only the questions fixed in advance; an abstraction without a need yet | Rejected |
-| **Exact aggregates plus executions kept with a probability that falls with the shape's count** | Append only; rare shapes complete; logarithmic growth; any question can be asked later | A weight per row, calibrated, in every estimate | **Chosen** |
+| A counter restarted every period (a fixed window) | Simple | A synchronized burst at every restart; biased towards the start of the window (H22) | Rejected |
+| A deterministic token bucket after the draw | A hard limit | The real probability of a kept row depends on the order of arrival, so weights are wrong | Rejected; only the memory bound, which marks the interval degraded |
+| **Exact aggregates plus executions kept with a probability that falls with the shape's decayed count, braked by a global factor before the draw** | Append only; rare shapes complete; rows spread evenly; no burst; any question can be asked later | A weight per row, calibrated, in every estimate | **Chosen** |
 
 **Learning from estimate misses**
 
@@ -553,9 +584,9 @@ practice.
   random number, a lookup in the thread's map and additions, one histogram bucket per measure (bit arithmetic), and
   the transaction's map of shapes [I]. Very short queries through the query interface are where this shows; to
   measure.
-- Sampled executions: `T(1 + ln(N/T))` rows per shape and period plus `p_min` times the executions past `T/p_min`
-  (*Sampled executions*), about 2 to 22 MB per day for one shape between 10⁷ and 10⁹ executions with `T = 1,000` and
-  `p_min = 10⁻⁴` [I].
+- Sampled executions: about `max(T, p_min·N)` rows per steady shape and day, and `T(1 + ln(N/T))` in a new shape's
+  first day (*Sampled executions*): 0.4 to 20 MB per day for one shape between 10⁴ and 10⁹ executions with
+  `T = 2,000` and `p_min = 10⁻⁴` [I], never more than `B` rows per second overall.
 - The page counter of M3: one increment per page access [I]; to measure.
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
@@ -567,6 +598,7 @@ practice.
 | Risk | Effect | Mitigation |
 |---|---|---|
 | Capture overhead on short queries | Slower point queries | Measure; accumulators per thread; sink off by option |
+| A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
 | Wrong what-if recommendations | An index that does not help, or hurts writes | Write overhead in the evaluation; validation after applying; revert |
@@ -588,6 +620,7 @@ practice.
 6. Cost per execution of the sampling decision, the histograms and the transaction's map of shapes.
 7. Bias and variance of weighted, calibrated estimates against the exact aggregates, on a synthetic load whose
    behavior changes late in the period (a regression in the afternoon).
+8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load.
 
 ## Product questions
 
@@ -608,8 +641,8 @@ practice.
    the store's background thread.
 7. **Automatic indexes.** Recommended: never, while IX2 holds the write turn. Alternative: automatic once an online,
    batched index build exists, with revert.
-8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 1,000`,
-   `p_max = 1`, `p_min = 10⁻⁴`, a day as the period and `k = 4`). Recommended: fixed defaults,
+8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
+   `p_max = 1`, `p_min = 10⁻⁴`, `τ` = 1 day, the budget `B` and `k = 4`). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
@@ -647,4 +680,6 @@ data", SIGMOD 1999; candidate merging in the Database Engine Tuning Advisor.
 
 Statistics and data structures from knowledge, not fetched: Cochran's sample size formula with the finite population
 correction; the Horvitz-Thompson and Hájek estimators; Kish's effective sample size; Vitter's reservoir sampling
-(Algorithm R); HdrHistogram's log-linear buckets; DDSketch's geometric buckets.
+(Algorithm R); HdrHistogram's log-linear buckets; DDSketch's geometric buckets; fixed-window, sliding-window and
+token-bucket rate limiters; AWS X-Ray's sampling rules (reservoir and fixed rate), Jaeger's adaptive sampling and
+OpenTelemetry's probability sampling with its adjusted count.
