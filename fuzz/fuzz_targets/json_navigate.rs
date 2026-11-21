@@ -44,7 +44,7 @@ fuzz_target!(|data: &[u8]| {
                     assert_eq!(value.get(&name), Some(member));
                     pending.push((member, pointer.clone() + &step(&name)));
                 }
-                assert_eq!(value.elements(), None);
+                assert!(value.elements().is_none());
             }
             JsonKind::Array => {
                 let elements: Vec<_> = value.elements().expect("an array").collect();
