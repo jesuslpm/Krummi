@@ -91,9 +91,10 @@ pub(crate) fn element_column(ty: ColumnType) -> KeyColumn {
     KeyColumn::primary(ty)
 }
 
-/// Whether a column of type `ty` has statistics: every type but vectors (ST1).
+/// Whether a column of type `ty` has statistics: every type but vectors (ST1) and JSON (JS10 of the JSON columns
+/// PRD).
 pub(crate) fn has_stats(ty: &ColumnType) -> bool {
-    !matches!(ty, ColumnType::Vector(_))
+    !matches!(ty, ColumnType::Vector(_) | ColumnType::Json)
 }
 
 /// Whether `value` is large (ST1).

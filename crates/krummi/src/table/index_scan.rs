@@ -127,11 +127,11 @@ const MALFORMED: &str = "a malformed index entry: a value that does not decode";
 /// is not one of them: it comes, once, among the primary key columns.
 ///
 /// The values have the normalization of a row's (N4, E7: a `uuid` in the byte order of RFC 9562 also in a column of
-/// SQL Server's order). The included columns are read as a row's: text, bytes and vectors borrow the transaction's
-/// pages without copying them (D11). The values of the key columns and of the primary key are decoded from the entry's
-/// key when they are read, each into a copy of its own, text and bytes included, since the key escapes them (IX8's
-/// exception to D11). An entry binds to no projection, and it lives until the next operation that may modify its
-/// transaction.
+/// SQL Server's order). The included columns are read as a row's: text, bytes, vectors and JSON borrow the
+/// transaction's pages without copying them (D11). The values of the key columns and of the primary key are decoded
+/// from the entry's key when they are read, each into a copy of its own, text and bytes included, since the key
+/// escapes them (IX8's exception to D11). An entry binds to no projection, and it lives until the next operation that
+/// may modify its transaction.
 ///
 /// A scan does not check an entry's content (IX12): a malformed entry, in a page whose integrity holds, comes without
 /// error, and reading one of its values gives a value that is not the written one or panics, as a malformed row does
@@ -213,7 +213,7 @@ impl<'t> IndexEntry<'t> {
     }
 
     /// The value of its column at `position`: a key or primary key column's decoded into a copy of its own, also text
-    /// and bytes; an included column's read as a row's, text, bytes and vectors borrowing the page.
+    /// and bytes; an included column's read as a row's, text, bytes, vectors and JSON borrowing the page.
     ///
     /// # Panics
     ///

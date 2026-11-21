@@ -98,7 +98,7 @@ impl Built {
 }
 
 /// The column `name` of `schema` that statistics are asked for: a column name of 1 to 1,024 bytes, of the table, not a
-/// vector (ST12).
+/// vector (ST12) nor JSON (JS10 of the JSON columns PRD).
 pub(crate) fn stats_column<'c>(
     folder: Folder<'_>,
     table: &str,
@@ -121,7 +121,10 @@ pub(crate) fn stats_column<'c>(
             folder: folder.owned(),
             table: table.to_owned(),
             column: Some(name.to_owned()),
-            rule: SchemaRule::VectorColumn,
+            rule: match column.ty {
+                ColumnType::Json => SchemaRule::JsonColumn,
+                _ => SchemaRule::VectorColumn,
+            },
             index: None,
         });
     }

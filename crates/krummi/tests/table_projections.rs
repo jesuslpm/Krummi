@@ -10,7 +10,7 @@ use std::path::Path;
 
 use krummi::ids::{Ulid, Uuid};
 use krummi::table::projection::{
-    Bytes, Date, Duration, MAX_PROJECTIONS, Text, TextBytes, Time, Timestamp, Vector,
+    Bytes, Date, Duration, JsonDocument, MAX_PROJECTIONS, Text, TextBytes, Time, Timestamp, Vector,
 };
 use krummi::table::value::{ColumnType, Decimal, UuidOrder, Value, VectorElement, VectorType};
 use krummi::{
@@ -202,6 +202,7 @@ fn read<'t>(
         ColumnType::Uuid(_) => get!(Uuid, Uuid),
         ColumnType::Ulid => get!(Ulid, Ulid),
         ColumnType::Vector(_) => get!(Vector, Vector),
+        ColumnType::Json => get!(JsonDocument, Json),
     }
     .unwrap_or(Value::Null)
 }

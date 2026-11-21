@@ -136,14 +136,17 @@ use std::ops::{Bound, RangeInclusive};
 use std::sync::{Arc, OnceLock};
 
 use krummi_pager::format::{PAGE_HEADER_SIZE, PAGE_SIZE};
-use krummi_pager::{Error, Result, SchemaDifference, SizeSubject, ValueRule};
+use krummi_pager::{Error, JsonFault, Result, SchemaDifference, SizeSubject, ValueRule};
 use krummi_tree::PageSource;
 
 use super::catalog::{ReadTable, WriteTable};
+use super::json::{self, Json};
 use super::key::{
     KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
 };
-use super::projection::{Bytes, Date, Duration, ReadAs, Text, TextBytes, Time, Timestamp};
+use super::projection::{
+    Bytes, Date, Duration, JsonDocument, ReadAs, Text, TextBytes, Time, Timestamp,
+};
 use super::row::{MAX_ROW, Row, RowDamaged, RowLayout, Slot, row_version};
 use super::schema::{Different, TableSchema, decode_defaults, decode_version, version_key};
 use super::value::{ColumnType, Value, key_text, normalize};
@@ -176,6 +179,18 @@ impl LiveColumn {
 
     fn fault(&self, rule: ValueRule) -> Fault {
         Fault::Value(Some(self.name.clone()), rule)
+    }
+
+    /// The fault of `value`, given for this column, that breaks `rule`: for a JSON document that is not valid, with the
+    /// fault of JS8 of the JSON columns PRD, which the reader finds again on this path of errors only.
+    fn value_fault(&self, rule: ValueRule, value: &Value<'_>) -> Fault {
+        match (rule, value) {
+            (ValueRule::InvalidJson, Value::Json(document)) => Fault::Json(
+                self.name.clone(),
+                Box::new(json::normalize(document.as_bytes()).expect_err("an invalid document")),
+            ),
+            _ => self.fault(rule),
+        }
     }
 }
 
@@ -220,6 +235,8 @@ pub(super) enum Fault {
     Unknown(String),
     /// A value that breaks `rule`, in the column when there is one (E17).
     Value(Option<String>, ValueRule),
+    /// A text in the column that is not a JSON document, with its fault (JS8 of the JSON columns PRD).
+    Json(String, Box<JsonFault>),
     /// A primary key or a row with this stored size, over its maximum (E18).
     Size(SizeSubject, usize),
 }
@@ -244,6 +261,14 @@ impl Fault {
                 column,
                 sequence: None,
                 rule,
+            },
+            Fault::Json(column, fault) => Error::InvalidValue {
+                json: Some(fault),
+                folder: folder.owned(),
+                table: Some(table.to_owned()),
+                column: Some(column),
+                sequence: None,
+                rule: ValueRule::InvalidJson,
             },
             Fault::Size(what, received) => {
                 let (min, max) = match what {
@@ -372,7 +397,7 @@ impl Reader {
                 .map(|((_, value), column)| {
                     normalize(&column.ty, column.nullable, value.reborrow())
                         .map(Some)
-                        .map_err(|rule| column.fault(rule))
+                        .map_err(|rule| column.value_fault(rule, value))
                 })
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             let key = self.encode_key_of(&values)?;
@@ -402,7 +427,7 @@ impl Reader {
             values.push(match value {
                 Some(value) => Some(
                     normalize(&column.ty, column.nullable, value.reborrow())
-                        .map_err(|rule| column.fault(rule))?,
+                        .map_err(|rule| column.value_fault(rule, value))?,
                 ),
                 None if fill => Some(column.missing()?),
                 None => None,
@@ -842,12 +867,12 @@ pub(super) struct FastColumn {
     primary_key: bool,
 }
 
-/// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes or
-/// vector one.
+/// Whether a default is borrowed from the table's catalog entry (D11) rather than kept by the reader: a text, bytes,
+/// vector or JSON one.
 pub(super) fn needs_stored(default: &Value<'_>) -> bool {
     matches!(
         default,
-        Value::String(_) | Value::Bytes(_) | Value::Vector(_)
+        Value::String(_) | Value::Bytes(_) | Value::Vector(_) | Value::Json(_)
     )
 }
 
@@ -949,9 +974,9 @@ fn row_damage<S: PageSource + ?Sized>(tx: &S, rows_root: u64, key: &[u8]) -> Err
 /// live columns, with null or its default in a column added after the row was written; a dropped column never
 /// appears. Each value is decoded when it is asked for; reading and scanning do not check a row's content, so a
 /// column of a malformed row, in a page whose integrity holds, reads a value that is not the written one or panics
-/// (L2 of the row reads PRD). Text, bytes and
-/// vectors borrow the transaction's pages without copying them (D11), so the row and its values live until the next
-/// operation that may modify the transaction.
+/// (L2 of the row reads PRD). Text, bytes,
+/// vectors and JSON documents borrow the transaction's pages without copying them (D11), so the row and its values
+/// live until the next operation that may modify the transaction.
 pub struct TableRow<'t> {
     pub(super) reader: RowReader<'t>,
     pub(super) stored: Stored<'t>,
@@ -1004,8 +1029,8 @@ impl<'t> TableRow<'t> {
     }
 
     /// The value of the live column at `position`, in schema order. A row read decodes it from the stored bytes, so a
-    /// text, bytes or vector value borrows the page; a row made by [`into_owned`](Self::into_owned) gives a copy of
-    /// the value it owns.
+    /// text, bytes, vector or JSON value borrows the page; a row made by [`into_owned`](Self::into_owned) gives a copy
+    /// of the value it owns.
     #[inline]
     pub fn value(&self, position: usize) -> Option<Value<'t>> {
         if position >= self.len() {
@@ -1232,6 +1257,7 @@ typed_accessors! {
     uuid, "uuid", Uuid, Uuid;
     text, "string", Text, Cow<'t, str>;
     bytes, "bytes", Bytes, Cow<'t, [u8]>;
+    json, "json", JsonDocument, Json<'t>;
 }
 
 impl fmt::Debug for TableRow<'_> {

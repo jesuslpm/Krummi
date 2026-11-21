@@ -989,7 +989,9 @@ fn special_values(ty: &ColumnType) -> Vec<Value<'static>> {
                 })
                 .collect()
         }
-        ColumnType::Vector(_) => unreachable!("vectors are not orderable"),
+        ColumnType::Vector(_) | ColumnType::Json => {
+            unreachable!("vectors and JSON are not orderable")
+        }
     }
 }
 
@@ -1059,7 +1061,9 @@ fn random_value(rng: &mut Rng, ty: &ColumnType) -> Value<'static> {
                 Value::Uuid(Uuid(bytes))
             }
         }
-        ColumnType::Vector(_) => unreachable!("vectors are not orderable"),
+        ColumnType::Vector(_) | ColumnType::Json => {
+            unreachable!("vectors and JSON are not orderable")
+        }
     }
 }
 

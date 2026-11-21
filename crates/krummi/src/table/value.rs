@@ -7,6 +7,7 @@ use std::fmt;
 
 use krummi_pager::{SchemaRule, ValueRule};
 
+use super::json::{self, Json};
 use crate::ids::{Ulid, Uuid};
 
 /// The largest dimension of a vector column, for every element type (N4).
@@ -70,6 +71,8 @@ pub enum ColumnType {
     Uuid(UuidOrder),
     Ulid,
     Vector(VectorType),
+    /// A JSON document, stored as its normalized text (the JSON columns PRD, JS1 and JS4).
+    Json,
 }
 
 /// The order of a `uuid` column's key (N5; document 3, *UUID and ULID*).
@@ -123,7 +126,7 @@ impl VectorType {
 
 impl ColumnType {
     /// The width of the type in the fixed section of a row (16 bytes at most), or `None` for the types of the
-    /// variable section: `string`, `bytes` and vectors (document 1, *Row layout*).
+    /// variable section: `string`, `bytes`, vectors and JSON (document 1, *Row layout*).
     pub fn fixed_width(&self) -> Option<usize> {
         Some(match self {
             ColumnType::Bool | ColumnType::I8 | ColumnType::U8 => 1,
@@ -136,13 +139,16 @@ impl ColumnType {
             | ColumnType::Timestamp
             | ColumnType::Duration => 8,
             ColumnType::Decimal { .. } | ColumnType::Uuid(_) | ColumnType::Ulid => 16,
-            ColumnType::String | ColumnType::Bytes | ColumnType::Vector(_) => return None,
+            ColumnType::String | ColumnType::Bytes | ColumnType::Vector(_) | ColumnType::Json => {
+                return None;
+            }
         })
     }
 
-    /// Whether the type has an order, so that it can be in a primary key: every type but vectors (N5).
+    /// Whether the type has an order, so that it can be in a primary key or in the key of an index: every type but
+    /// vectors (N5) and JSON (JS1 of the JSON columns PRD).
     pub fn is_orderable(&self) -> bool {
-        !matches!(self, ColumnType::Vector(_))
+        !matches!(self, ColumnType::Vector(_) | ColumnType::Json)
     }
 }
 
@@ -170,7 +176,8 @@ pub fn is_of_type(ty: &ColumnType, value: &Value<'_>) -> bool {
         | (ColumnType::Timestamp, Value::Timestamp(_))
         | (ColumnType::Duration, Value::Duration(_))
         | (ColumnType::Uuid(_), Value::Uuid(_))
-        | (ColumnType::Ulid, Value::Ulid(_)) => true,
+        | (ColumnType::Ulid, Value::Ulid(_))
+        | (ColumnType::Json, Value::Json(_)) => true,
         _ => false,
     }
 }
@@ -220,6 +227,7 @@ impl fmt::Display for ColumnType {
             ColumnType::Uuid(UuidOrder::Rfc9562) => "uuid",
             ColumnType::Uuid(UuidOrder::SqlServer) => "uuid(sql server)",
             ColumnType::Ulid => "ulid",
+            ColumnType::Json => "json",
             ColumnType::Decimal { precision, scale } => {
                 return write!(f, "decimal({precision}, {scale})");
             }
@@ -274,7 +282,7 @@ pub struct Decimal {
     pub scale: u8,
 }
 
-/// A value of a column, as given to Krummi and as read back (N4). Text, bytes and vectors borrow when they can:
+/// A value of a column, as given to Krummi and as read back (N4). Text, bytes, vectors and JSON borrow when they can:
 /// a value read from a row borrows the page (D11), a default value is owned by its schema.
 ///
 /// Temporal values carry nanoseconds, so that a value given with a fraction below the microsecond is rounded by the
@@ -309,6 +317,9 @@ pub enum Value<'a> {
     /// The elements of a vector and, for `i8`, its scale: [`VectorType::value_len`] bytes in the layout of
     /// document 5. A column with the cosine metric computes and stores the norm itself.
     Vector(Cow<'a, [u8]>),
+    /// A JSON document (the JSON columns PRD, JS3 and JS5): as given, a text or bytes that a write validates and
+    /// normalizes; as read back, its normalized text.
+    Json(Json<'a>),
 }
 
 impl Value<'_> {
@@ -318,6 +329,7 @@ impl Value<'_> {
             Value::String(text) => Value::String(Cow::Borrowed(text)),
             Value::Bytes(bytes) => Value::Bytes(Cow::Borrowed(bytes)),
             Value::Vector(bytes) => Value::Vector(Cow::Borrowed(bytes)),
+            Value::Json(json) => Value::Json(json.reborrow()),
             other => other.clone(),
         }
     }
@@ -338,6 +350,7 @@ impl Value<'_> {
             Value::String(text) => Value::String(Cow::Owned(text.into_owned())),
             Value::Bytes(bytes) => Value::Bytes(Cow::Owned(bytes.into_owned())),
             Value::Vector(bytes) => Value::Vector(Cow::Owned(bytes.into_owned())),
+            Value::Json(json) => Value::Json(json.into_owned()),
             Value::Null => Value::Null,
             Value::Bool(v) => Value::Bool(v),
             Value::I8(v) => Value::I8(v),
@@ -363,12 +376,14 @@ impl Value<'_> {
 
 /// Validates `value` for a column of type `ty` that allows nulls when `nullable` and returns it normalized, or the
 /// first rule it breaks in the order of E17: null not allowed, wrong type, out of domain (also after rounding),
-/// decimal precision, vector dimension, NaN or infinity in a vector, zero vector with the cosine metric.
+/// decimal precision, vector dimension, NaN or infinity in a vector, zero vector with the cosine metric; and, in a
+/// JSON column, a text that is not a JSON document (JS8 of the JSON columns PRD).
 ///
 /// Normalization (N4, E7, E8): `-0` becomes `+0` and every NaN the one canonical NaN in `f32` and `f64`, and `-0`
 /// becomes `+0` inside `f32` and `f16` vectors and in an `i8` vector's scale; a `decimal` is rounded to the column's
 /// scale with ties away from zero; a `time`, `timestamp` or `duration` is rounded to the nearest microsecond with
-/// ties up. `ty` must pass [`check_type`].
+/// ties up; a JSON document given by the application becomes its normalized text (JS4), and one read back, already
+/// normalized, is kept as it is. `ty` must pass [`check_type`].
 pub fn normalize<'a>(
     ty: &ColumnType,
     nullable: bool,
@@ -417,6 +432,13 @@ pub fn normalize<'a>(
         (ColumnType::Vector(vector), Value::Vector(bytes)) => {
             Value::Vector(normalize_vector(vector, bytes)?)
         }
+        (ColumnType::Json, Value::Json(document)) if document.is_normalized() => {
+            Value::Json(document)
+        }
+        (ColumnType::Json, Value::Json(document)) => match json::normalize(document.as_bytes()) {
+            Ok(text) => Value::Json(Json::normalized(Cow::Owned(text))),
+            Err(_) => return Err(ValueRule::InvalidJson),
+        },
         _ => return wrong,
     })
 }
@@ -617,7 +639,8 @@ pub fn f16_to_f64(bits: u16) -> f64 {
 /// decimal (floats with Rust's shortest round-trip form, `NaN`, `inf`); text quoted with Rust's escapes; bytes as
 /// `0x` and lowercase hexadecimal; `date` as `YYYY-MM-DD`, `time` as `HH:MM:SS[.f]`, `timestamp` as
 /// `YYYY-MM-DDTHH:MM:SS[.f]Z` and `duration` as seconds with an `s`, the fraction without trailing zeros; `uuid` as
-/// RFC 9562 text and `ulid` as Crockford Base32 (E9); a vector by its size.
+/// RFC 9562 text and `ulid` as Crockford Base32 (E9); a vector by its size; a JSON document as its text, with the
+/// bytes that are not UTF-8 of one given by the application replaced by U+FFFD.
 impl fmt::Display for Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -658,6 +681,7 @@ impl fmt::Display for Value<'_> {
             Value::Uuid(uuid) => write!(f, "{uuid}"),
             Value::Ulid(ulid) => write!(f, "{ulid}"),
             Value::Vector(bytes) => write!(f, "vector({} bytes)", bytes.len()),
+            Value::Json(json) => f.write_str(&String::from_utf8_lossy(json.as_bytes())),
         }
     }
 }

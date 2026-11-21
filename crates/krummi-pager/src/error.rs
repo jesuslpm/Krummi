@@ -183,7 +183,8 @@ pub enum ValueRule {
 pub enum SchemaRule {
     /// No primary key.
     NoPrimaryKey,
-    /// A primary key column that allows nulls, is a vector or has a default value.
+    /// A primary key column that allows nulls, is a vector or JSON (JS1 of the JSON columns PRD) or has a default
+    /// value.
     InvalidKeyColumn,
     /// A primary key that names a column that does not exist, or repeats a column.
     InvalidKeyReference,
@@ -212,7 +213,7 @@ pub enum SchemaRule {
     /// An index definition without key columns (IX3 of the secondary indexes PRD, whose rules follow in its order;
     /// a column it names that does not exist is [`SchemaRule::ColumnNotFound`]).
     NoIndexKey,
-    /// A vector column in the key of an index.
+    /// A vector or JSON column in the key of an index (JSON since the JSON columns PRD, JS1).
     VectorIndexKey,
     /// A column given more than once in an index definition: in its key, in its included columns or in both.
     RepeatedIndexColumn,
@@ -911,7 +912,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
     match rule {
         SchemaRule::NoPrimaryKey => "no primary key",
         SchemaRule::InvalidKeyColumn => {
-            "a primary key column allows nulls, is a vector or has a default value"
+            "a primary key column allows nulls, is a vector or JSON, or has a default value"
         }
         SchemaRule::InvalidKeyReference => {
             "the primary key names a column that does not exist or repeats one"
@@ -928,7 +929,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
         SchemaRule::DropKeyColumn => "a primary key column cannot be dropped",
         SchemaRule::VersionExhausted => "the schema version would pass 65,535",
         SchemaRule::NoIndexKey => "an index without key columns",
-        SchemaRule::VectorIndexKey => "a vector column in the key of an index",
+        SchemaRule::VectorIndexKey => "a vector or JSON column in the key of an index",
         SchemaRule::RepeatedIndexColumn => "a column given more than once in an index",
         SchemaRule::TooManyIndexKeyColumns => "more than 32 key columns in an index",
         SchemaRule::RedundantIndexKey => {

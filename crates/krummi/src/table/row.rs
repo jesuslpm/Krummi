@@ -8,18 +8,20 @@
 //! ceil(N / 8)      null bitmap, one bit per nullable column in version order, 1 = null; absent when N = 0
 //! F                fixed section: the columns of up to 16 bytes, by descending width, ties in version order
 //! (V - 1) × w      end offsets of the variable columns but the last, relative to the variable section
-//! rest             variable section: `string`, `bytes` and vectors in version order
+//! rest             variable section: `string`, `bytes`, vectors and JSON in version order
 //! ```
 //!
 //! Fixed-width primary key columns are not in the row, only in the key; `string` and `bytes` primary key columns
 //! are in both, so that they read without a copy. A null fixed column keeps its slot (zeros); a null variable column
-//! takes no bytes. Reads are zero-copy and O(1) per column, and never panic on bytes that do not fit the layout:
+//! takes no bytes. A JSON value is its stored form v1 (document 13): the header byte [`FORM_TEXT_V1`], then its
+//! normalized text. Reads are zero-copy and O(1) per column, and never panic on bytes that do not fit the layout:
 //! they report [`RowDamaged`].
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::convert::Infallible;
 
+use super::json::{FORM_TEXT_V1, Json};
 use super::value::{
     ColumnType, Decimal, NANOS_PER_MICRO, Value, fits_precision, is_of_type, stored_in_domain,
     vector_norm,
@@ -430,7 +432,8 @@ fn read_offset(bytes: &[u8]) -> usize {
     u32::from_le_bytes(le) as usize
 }
 
-/// The bytes of a value of the variable section: a vector of a cosine column takes its norm too.
+/// The bytes of a value of the variable section: a vector of a cosine column takes its norm too, and a JSON
+/// document its header.
 fn variable_bytes_len(ty: &ColumnType, value: &Value<'_>) -> usize {
     match (ty, value) {
         (_, Value::String(text)) => text.len(),
@@ -438,6 +441,7 @@ fn variable_bytes_len(ty: &ColumnType, value: &Value<'_>) -> usize {
         (ColumnType::Vector(vector), Value::Vector(bytes)) => {
             bytes.len() + if vector.cosine { 8 } else { 0 }
         }
+        (_, Value::Json(json)) => 1 + json.as_bytes().len(),
         _ => 0,
     }
 }
@@ -451,6 +455,14 @@ fn write_variable(ty: &ColumnType, value: &Value<'_>, row: &mut Vec<u8>) {
             if vector.cosine {
                 row.extend_from_slice(&vector_norm(vector, bytes).to_le_bytes());
             }
+        }
+        (_, Value::Json(json)) => {
+            debug_assert!(
+                json.is_normalized(),
+                "a JSON document normalized for its column"
+            );
+            row.push(FORM_TEXT_V1);
+            row.extend_from_slice(json.as_bytes());
         }
         (_, Value::Null) => {}
         _ => panic!("a value of another type than its variable column"),
@@ -485,7 +497,7 @@ fn fixed_bytes(value: &Value<'_>) -> [u8; FIXED_BYTES] {
         Value::Timestamp(nanos) | Value::Duration(nanos) => &micros(*nanos).to_le_bytes(),
         Value::Uuid(uuid) => &uuid.0,
         Value::Ulid(ulid) => &ulid.0,
-        Value::Null | Value::String(_) | Value::Bytes(_) | Value::Vector(_) => {
+        Value::Null | Value::String(_) | Value::Bytes(_) | Value::Vector(_) | Value::Json(_) => {
             panic!("a value of another type than its fixed column")
         }
     };
@@ -679,6 +691,7 @@ fn check_stored(ty: &ColumnType, bytes: &[u8]) -> Result<(), RowDamaged> {
         }
         ColumnType::String => std::str::from_utf8(bytes).is_ok(),
         ColumnType::Vector(vector) => bytes.len() == vector.stored_len(),
+        ColumnType::Json => json_text(bytes).is_some(),
         _ => true,
     };
     if valid { Ok(()) } else { Err(RowDamaged) }
@@ -775,7 +788,20 @@ fn decode_with<'r, E>(
             }
             Value::Vector(Cow::Borrowed(&bytes[..vector.value_len()]))
         }
+        ColumnType::Json => Value::Json(Json::normalized(Cow::Borrowed(
+            json_text(bytes).ok_or_else(damaged)?,
+        ))),
     })
+}
+
+/// The text of a stored JSON value in stored form v1 (document 13): its header byte, then UTF-8; `None` for one of
+/// another form or whose text is not UTF-8. The text is not checked to be a normalized document (L1).
+#[inline]
+pub(crate) fn json_text(bytes: &[u8]) -> Option<&str> {
+    match bytes.split_first() {
+        Some((&FORM_TEXT_V1, text)) => std::str::from_utf8(text).ok(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -811,6 +837,7 @@ mod tests {
             ColumnType::String,
             ColumnType::Bytes,
             vector,
+            ColumnType::Json,
         ];
         let mut patterns: Vec<Vec<u8>> = vec![
             b"text".to_vec(),
@@ -818,6 +845,12 @@ mod tests {
             vec![0xC3],
             vec![0xFF, 0xFE],
             vec![],
+            // JSON values: stored form v1, its header alone, a text that is not UTF-8, unknown forms.
+            b"\x01{\"a\":1}".to_vec(),
+            b"\x01".to_vec(),
+            b"\x01\xC3".to_vec(),
+            b"\x02{}".to_vec(),
+            b"\x11{}".to_vec(),
         ];
         for width in [1, 2, 4, 8, 12, 16, 20] {
             for b in [0x00, 0x01, 0x02, 0x7F, 0x80, 0xFE, 0xFF] {

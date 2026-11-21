@@ -24,10 +24,11 @@ and fixed-size trees, whose keys are unsigned 64-bit integers in numeric order a
 0 to 2,048 bytes, given when the tree is created; asking for a tree's kind by its name gives that length too.
 Module 7 has its first part, **tables with schema** ([module PRD](docs/prd/krummi/tables/tables.prd.en.md),
 [PRD](docs/prd/krummi/tables/tables-schema.prd.en.md)): named tables of typed columns (integers, floats, `decimal`, text,
-bytes, dates and times, `uuid`, `ulid` and vectors) with a primary key, created, opened, described, renamed, emptied
-and deleted like trees; rows inserted, updated (only the columns given), read, deleted and scanned from both ends by
-ranges of the primary key; schema changes that never rewrite rows; an atomic bulk load; named sequences; and
-generators of `ulid`, version 7 `uuid` and SQL Server sequential `uuid` values.
+bytes, dates and times, `uuid`, `ulid`, vectors and [JSON documents](docs/prd/krummi/tables/tables-json.prd.en.md),
+validated when written, read back without a copy, navigated and read as Krummi types) with a primary key, created,
+opened, described, renamed, emptied and deleted like trees; rows inserted, updated (only the columns given), read,
+deleted and scanned from both ends by ranges of the primary key; schema changes that never rewrite rows; an atomic
+bulk load; named sequences; and generators of `ulid`, version 7 `uuid` and SQL Server sequential `uuid` values.
 The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/<module>/` (see `CLAUDE.md`).

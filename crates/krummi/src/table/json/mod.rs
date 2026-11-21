@@ -15,7 +15,6 @@ pub use normalize::normalize;
 
 /// The first byte of a stored JSON value in stored form v1 (document 13, *Stored form v1*): form 1, normalized text,
 /// with no navigation index (bit 4 clear) and the reserved bits zero. The normalized text follows it.
-#[allow(dead_code, reason = "used by the tables integration, T4")]
 pub(crate) const FORM_TEXT_V1: u8 = 0x01;
 
 /// The value of a JSON column (JS3, JS5): as given by an application, a text or bytes that a write validates and
@@ -49,7 +48,6 @@ impl<'a> Json<'a> {
     }
 
     /// A normalized text, as read back or produced by [`normalize`].
-    #[allow(dead_code, reason = "used by the tables integration, T4")]
     pub(crate) fn normalized(text: Cow<'a, str>) -> Self {
         let mut json = Json::new(text);
         json.normalized = true;
@@ -78,7 +76,6 @@ impl<'a> Json<'a> {
     }
 
     /// Whether this is a normalized text (read back), not a text given by the application.
-    #[allow(dead_code, reason = "used by the tables integration, T4")]
     pub(crate) fn is_normalized(&self) -> bool {
         self.normalized
     }

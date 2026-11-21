@@ -65,8 +65,9 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use krummi_pager::{Error, Result, SchemaDifference, ValueRule};
 
 use super::catalog::{ReadTable, WriteTable};
+use super::json::Json;
 use super::key::key_value;
-use super::row::{FixedSlot, RowLayout, Slot, slot_array};
+use super::row::{FixedSlot, RowLayout, Slot, json_text, slot_array};
 use super::rows::{Fault, OldVersion, Reader, SchemaId, Stored, TableRow, needs_stored};
 use super::schema::Different;
 use super::value::{ColumnType, Decimal, NANOS_PER_MICRO, Value};
@@ -312,8 +313,8 @@ impl<T: ReadAs> fmt::Debug for ProjectedColumn<T> {
 }
 
 /// A row bound to a projection (PY3), from [`Projection::bind`], whose columns read with the projection's
-/// [`ProjectedColumn`]s. Its values live as the row's do: text, bytes and vectors of a row read or scanned borrow the
-/// transaction's pages (D11), and those of a copied row are copies of their own.
+/// [`ProjectedColumn`]s. Its values live as the row's do: text, bytes, vectors and JSON of a row read or scanned borrow
+/// the transaction's pages (D11), and those of a copied row are copies of their own.
 pub struct ProjectedRow<'p, 't> {
     prepared: &'p Prepared,
     plan: &'p [Planned],
@@ -588,9 +589,10 @@ mod sealed {
 
 /// A type a column is read as, with a [`ProjectedColumn`] or a typed read of [`TableRow`] (PY2): the column's Rust
 /// type where it has one, and a marker of this module otherwise ([`Text`], [`TextBytes`], [`Bytes`], [`Date`],
-/// [`Time`], [`Timestamp`], [`Duration`], [`Vector`]). `Output` is the value read, as [`Value`] holds it. A `decimal`,
-/// a `uuid` and a vector column are read as [`Decimal`], [`Uuid`] and [`Vector`] whatever their precision and scale,
-/// key order, element type or dimension; a `string` column also as [`TextBytes`], its bytes without checking them.
+/// [`Time`], [`Timestamp`], [`Duration`], [`Vector`], [`JsonDocument`]). `Output` is the value read, as [`Value`]
+/// holds it. A `decimal`, a `uuid` and a vector column are read as [`Decimal`], [`Uuid`] and [`Vector`] whatever their
+/// precision and scale, key order, element type or dimension; a `string` column also as [`TextBytes`], its bytes
+/// without checking them.
 pub trait ReadAs: sealed::Sealed + 'static {
     /// The value read, borrowing the row's text, bytes or vector for `'t`.
     type Output<'t>;
@@ -631,6 +633,10 @@ pub struct Timestamp;
 pub struct Duration;
 /// A vector column, read as its elements and, for `i8`, its scale, as [`Value::Vector`] holds them.
 pub struct Vector;
+/// A JSON column, read as its document (JS5 of the JSON columns PRD): its normalized text, borrowed from the row, or
+/// a copy of its own from a copied row, which [`Json::document`] navigates. A stored value of a form other than the
+/// one Krummi writes, or a text that is not UTF-8, panics (L2).
+pub struct JsonDocument;
 
 /// Implements [`ReadAs`] for `$read`, read as `$out` from columns of types `$ty`, with `$stored` from the stored bytes
 /// and from `Value::$variant` through `$value`.
@@ -728,6 +734,11 @@ read_as! {
         };
         // The stored bytes of a cosine column end with the norm, which the value does not have.
         Cow::Borrowed(&b[..vector.value_len()])
+    };
+    JsonDocument, "json", ColumnType::Json, Json<'t>, Json, |v| v, |_: &ColumnType, b: &'t [u8]| {
+        Json::normalized(Cow::Borrowed(
+            json_text(b).expect("a malformed row: a JSON value of another form or not UTF-8"),
+        ))
     };
 }
 

@@ -294,10 +294,7 @@ pub(super) fn check_definition(
         }
     }
     let k = definition.key.len();
-    if let Some(column) = columns[..k]
-        .iter()
-        .find(|c| matches!(c.ty, ColumnType::Vector(_)))
-    {
+    if let Some(column) = columns[..k].iter().find(|c| !c.ty.is_orderable()) {
         return fail(SchemaRule::VectorIndexKey, Some(&column.name));
     }
     for (i, column) in columns.iter().enumerate() {

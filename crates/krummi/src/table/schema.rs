@@ -249,9 +249,7 @@ fn check_general(
         return invalid(SchemaRule::NoPrimaryKey, None);
     }
     for column in columns {
-        let bad_key = column.nullable
-            || matches!(column.ty, ColumnType::Vector(_))
-            || column.default.is_some();
+        let bad_key = column.nullable || !column.ty.is_orderable() || column.default.is_some();
         if bad_key && key.contains(&column.name) {
             return invalid(SchemaRule::InvalidKeyColumn, Some(column.name));
         }
@@ -605,7 +603,7 @@ impl TableSchema {
             Change::Modify { name, ty, nullable } => {
                 let at = self.position(name);
                 let key = at.is_some_and(|at| self.key.contains(&self.columns[at].id));
-                if key && (nullable || matches!(ty, ColumnType::Vector(_))) {
+                if key && (nullable || !ty.is_orderable()) {
                     return invalid(SchemaRule::InvalidKeyColumn, Some(name));
                 }
                 if let Err(rule) = check_type(&ty) {
@@ -796,6 +794,7 @@ impl Writer {
             ColumnType::Uuid(_) => 18,
             ColumnType::Ulid => 19,
             ColumnType::Vector(_) => 20,
+            ColumnType::Json => 21,
         };
         self.u8(code);
         match ty {
@@ -902,6 +901,7 @@ impl<'b> Reader<'b> {
                     cosine,
                 })
             }
+            21 => ColumnType::Json,
             _ => return None,
         };
         check_type(&ty).ok().map(|()| ty)
@@ -1018,8 +1018,8 @@ impl<'b> Reader<'b> {
             let id = r.u64()?;
             let flags = r.u8()?;
             let column = columns.iter().find(|c| c.id == id)?;
-            let vector = matches!(column.ty, ColumnType::Vector(_));
-            if flags & !(DESCENDING | NULLS_LAST) != 0 || vector || used.contains(&id) {
+            let unordered = !column.ty.is_orderable();
+            if flags & !(DESCENDING | NULLS_LAST) != 0 || unordered || used.contains(&id) {
                 return None;
             }
             used.push(id);
@@ -1307,10 +1307,8 @@ impl TableSchema {
         for _ in 0..key_count {
             let id = r.u64()?;
             let column = columns.iter().find(|c| c.id == id)?;
-            // A primary key column without nulls, not a vector, without a default (E4).
-            let bad_key = column.nullable
-                || matches!(column.ty, ColumnType::Vector(_))
-                || column.default.is_some();
+            // A primary key column without nulls, not a vector or JSON, without a default (E4).
+            let bad_key = column.nullable || !column.ty.is_orderable() || column.default.is_some();
             if key.contains(&id) || bad_key {
                 return None;
             }

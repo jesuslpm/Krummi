@@ -630,7 +630,7 @@ fn decode_element(ty: &ColumnType, rest: &mut &[u8]) -> Option<Value<'static>> {
     let expected = match ty {
         ColumnType::Bool if code == FALSE => return Some(Value::Bool(false)),
         ColumnType::Bool if code == TRUE => return Some(Value::Bool(true)),
-        ColumnType::Bool | ColumnType::Vector(_) => return None,
+        ColumnType::Bool | ColumnType::Vector(_) | ColumnType::Json => return None,
         ColumnType::F32 => F32,
         ColumnType::F64 => F64,
         ColumnType::Decimal { .. } => DECIMAL,
@@ -736,7 +736,7 @@ fn unescape(rest: &mut &[u8], descending: bool) -> Option<Vec<u8>> {
 /// element starts with it.
 fn fixed_element_len(ty: &ColumnType, code: u8) -> Option<usize> {
     match ty {
-        ColumnType::String | ColumnType::Bytes | ColumnType::Vector(_) => None,
+        ColumnType::String | ColumnType::Bytes | ColumnType::Vector(_) | ColumnType::Json => None,
         ColumnType::Bool => Some(1),
         ColumnType::F32 => Some(5),
         ColumnType::F64 => Some(9),
