@@ -697,6 +697,7 @@ dependencies = [
  "krummi-pager",
  "krummi-tree",
  "krummi-tx",
+ "serde_json",
  "tempfile",
  "trybuild",
 ]
