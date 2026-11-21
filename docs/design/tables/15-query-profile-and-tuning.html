@@ -124,8 +124,10 @@ td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 
 <section aria-labelledby="s-two">
   <h2 id="s-two">Two records of every execution</h2>
-  <p>When a query ends, the executor hands one record to the profile sink. The sink does two things with it, in
-  memory and without making the query wait.</p>
+  <p>When a query ends, its thread writes one small record into a ring of its own and goes on. One consumer thread
+  drains every ring and keeps the two records below, so the query's thread shares nothing it writes. The query's
+  thread only draws whether the execution is also kept as a row, with a probability the consumer publishes, and adds
+  the parameter values when it is.</p>
   <div class="flow" role="img" aria-label="A finished execution goes to the aggregates and to the sampler; both reach the thread buffers, which the flush writes into the profile store in one deferred write per interval">
     <div class="box"><b>Execution ends</b>Shape, plan, duration, pages, rows, estimates per node, parameter values.</div>
     <div class="arrow" aria-hidden="true">→</div>
@@ -277,8 +279,8 @@ bucket = octave * 2^k + sub</pre>
       <thead><tr><th>Parameter</th><th>Start value</th><th>What it controls</th></tr></thead>
       <tbody>
         <tr><td>T</td><td>2,000</td><td>Rows a steady entry keeps per <code>τ</code>; the first rows of a new entry kept whole.</td></tr>
-        <tr><td>p_max</td><td>1</td><td>Probability of a new entry's first executions; 1 keeps rare shapes complete.</td></tr>
-        <tr><td>p_min</td><td>0.0001</td><td>Floor of the probability; gives the most frequent shapes more than <code>T</code> rows, at a cost linear in their executions.</td></tr>
+        <tr><td>p_max</td><td>1, fixed</td><td>Probability of a new entry's first executions; 1 keeps rare shapes complete.</td></tr>
+        <tr><td>p_min</td><td>deferred (0.0001 when it comes)</td><td>Floor of the probability; gives the most frequent shapes more than <code>T</code> rows, at a cost linear in their executions.</td></tr>
         <tr><td>τ</td><td>1 day</td><td>Memory of the decayed count: how far back "recent executions" reaches.</td></tr>
         <tr><td>R</td><td>10 per second</td><td>Cap per entry: spreads a new entry's first rows over time.</td></tr>
         <tr><td>B</td><td>to measure</td><td>Budget of the whole profile, enforced by <code>g</code> before the draw.</td></tr>

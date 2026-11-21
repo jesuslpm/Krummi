@@ -37,6 +37,11 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
 - On new shapes: "Y qué pasa con una forma nueva?" and, to adding the counter per (shape, plan) and the trajectory,
   "Sí, agrégalo y haz el commit. Yo lo que sigo pensando es en el tramo incial. ¿No sería conveniente limitar el
   número de guardados por segundo?" and, to adding the cap per entry and second, "Sí, agrégalo y haz el commit".
+- On the assessment and the threads: "Cómo calificarías/evaluarías todo esto? es eficaz? es eficiente? es
+  complejo?", "Y si usamos un patrón de múltiples productores y un único consumidor en vez de calcular las cosas en
+  el hilo que hace la consulta.", "Dices que el hilo de la consulta calcule la probabilidad p, ya de paso lo prodría
+  sortear y enviar a la cola sólo si tiene la suerte." and, to adding it all here, "Sí, agrégalo todo y haz el
+  commit".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -55,11 +60,12 @@ Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source
    their estimates missed. **Estimate feedback** turns repeated misses into small, explainable **directives** that the
    planner applies. A **tuner** ranks the queries by total cost and recommends indexes, index removals, directives and
    plans for the few that matter.
-2. **The profile lives in a separate Krummi store**, written by a background thread in one deferred commit per
-   interval, fire and forget. A query adds to exact, mergeable aggregates in memory and, with a probability that
-   starts high and falls as its shape runs more often, is also kept as an individual execution with its parameter
-   values and the weight that undoes that probability. The profile never takes the main store's write turn, and a
-   profile that fails to open, write or read turns profiling off without failing any query.
+2. **The profile lives in a separate Krummi store**, written in one deferred commit per interval, fire and forget.
+   A query's thread only writes a small record into a ring of its own and, when a draw keeps the execution, its
+   parameter values; one consumer thread keeps exact, mergeable aggregates of every execution and publishes the
+   probability of keeping one, which starts high and falls as its shape runs more often; a kept execution carries the
+   weight that undoes that probability. The profile never takes the main store's write turn, and a profile that fails
+   to open, write or read turns profiling off without failing any query.
 3. **Feedback corrects the source of an estimate, never the number.** No correction factors: a predicate whose
    estimate misses by more than 4× in the same direction, over several executions, gets a directive that estimates it
    from a sample of the table, which already holds the correlation between its columns. Directives are validated after
@@ -78,6 +84,9 @@ Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source
    them, answers questions by asking the tuner to measure, and proposes candidates the rules do not generate. It
    proposes and explains; Krummi measures; a person decides. Every number in its report is checked against the
    evidence by a deterministic check (*Language models on the analysis machine*).
+8. **Built in stages, each decided by a measurement.** First the requirements for module 17, the aggregates and the
+   producers and one consumer; then a minimal sampling; then the tuner; directives only if the profile shows they
+   pay (*Assessment and stages*).
 
 ## Starting state
 
@@ -136,7 +145,7 @@ Each gap names what it changes in the design.
 | H10 | A daily window misses periodic loads | Month-end queries never rank | A rolling window of 7 to 30 days, weighted towards recent days (question 4) |
 | H11 | Ranking by total cost misses rare slow queries | A screen with a 30 s p99 never ranks | Two lists: total cost, and p95 and maximum |
 | H12 | A full profile | Query Store goes read-only when full [V] | Evict the cheapest shapes; never stop recording |
-| H13 | Many threads update one map | Contention on the query path | Accumulators per thread, swapped and merged at each flush; only the shape registry is shared, and read almost always |
+| H13 | Many threads update one map | Contention on the query path | Each thread writes only its own ring; one consumer keeps every shared structure, without locks or atomics on the query's path (*Capture*) |
 | H14 | Direct table calls (read by key, scan an index) are not module 17 queries | They cost resources but have no plan to tune | Counted per table and index (M4); not tuned |
 | H15 | What survives the loss of the profile | If accepted directives and fixed plans live in the profile, a damaged profile changes production performance | Learned directives live in the profile and are disposable; accepted items live in the main store's catalog (M7) |
 | H16 | A profile copied next to another store | Feedback from one store applied to another | The profile records the main store's identity and is discarded when it differs |
@@ -148,6 +157,8 @@ Each gap names what it changes in the design.
 | H22 | A counter that restarts every period restarts every shape at once | A synchronized burst of sampled rows at the start of each period, about 10⁶ rows (200 MB) with 1,000 shapes and `T = 1,000` [I], with drops exactly then | A decayed count that never restarts, and a global budget that lowers the probability before the draw |
 | H23 | A new plan of a frequent shape is not a new shape | With a counter per shape, a plan regression is sampled with the shape's low steady probability, exactly when detail is needed | The counter is kept per (shape, plan); shapes that re-plan on every call keep one per shape |
 | H24 | The global factor acts only on the total | One entry can still spend its first rows in a fraction of a second: a load on the profile at one moment, and a start portrayed by its first instant | A cap of `R` rows per second per (shape, plan), applied before the draw |
+| H25 | One consumer processes every execution | Past its throughput the rings fill and drop, and that interval's aggregates stop being exact | Measure its cost per record and size the rings; a dropping interval is marked degraded, with its drops counted |
+| H26 | Shared atomic counters on the query path | For the hottest shapes every core's addition bounces one cache line between cores | No shared writes in the query's thread: a ring per thread and one consumer |
 
 ## The profile
 
@@ -171,17 +182,32 @@ logical pages touched, peak memory, bytes spilled, replans, per node the estimat
 completed flag (M1), the wall-clock time, the transaction's identity and the execution's ordinal within it, and the
 parameter values. With no sink, nothing is built.
 
-The sink does two things with the record, both in memory and without waiting:
+**Producers and one consumer.** The work is split so that the query's thread does almost nothing:
 
-1. It adds the record to the **aggregates** of (shape, plan) for the current interval (*Aggregates*). Every
-   execution counts there, exactly.
-2. It decides whether the record is also kept as a **sampled execution** (*Sampled executions*), with a probability
-   given by the shape's decayed count of recent executions and a global factor.
+1. **The query's thread, a producer,** builds a fixed-size record without the parameter values (about 64 to 128
+   bytes [I]). It reads its entry's probability from a snapshot that the consumer publishes (*Sampled executions*),
+   draws, and only when the draw keeps the execution appends the parameter values and the probability. It writes the
+   record into a **ring of bytes of its own**, with one producer and one consumer, and returns. If its ring is full it
+   drops the record and counts the drop; it never waits.
+2. **The profile's consumer thread** drains every thread's ring. It alone keeps the aggregates, the shape registry,
+   the decayed counters, the executions per second, the demand and `g`, in plain single-threaded structures without
+   atomics or locks. Every tick (100 ms as a start [I]) it publishes a new read-only snapshot with each entry's
+   probability, replaced as a whole by swapping one pointer [I].
+3. **The writer thread** receives each finished interval from the consumer and writes it to the profile store
+   (*Flush*), so that writing never stops the draining.
 
-The first time a shape or plan is seen, its canonical bytes are kept once, identified by hash with a full comparison
-after it (document 11), in a **shape registry** shared by all threads and read almost always. Each entry holds the
-shape's plans, each with its decayed counter of recent executions as an atomic value, read by the sampling
-decision (*Sampled executions*, *The key is (shape, plan)*).
+**Every execution is sent, not only the kept ones.** The aggregates, the calibration of the weights and the counters
+that give the probability all need the exact count. Sending only the kept executions would turn the aggregates into
+estimates with thin tails, leave no exact `N` to calibrate with, and feed the probability with counts estimated from
+a sample drawn with that same probability. The parameter values, the costly part of variable size, travel only with
+kept executions.
+
+An entry that is not yet in the snapshot uses `p = 1` for at most one tick: at most its rate times the tick in rows,
+once, about 1,000 for a new shape at 10,000 executions per second with a 100 ms tick [I].
+
+A shape's canonical bytes are kept once in the consumer's registry, identified by hash with a full comparison after
+it (document 11). A thread sends them with its first record of a shape (a small set per thread of the shapes it has
+sent); later records carry only the identifiers.
 
 ### Aggregates
 
@@ -220,13 +246,14 @@ percentile `q` accumulates the counters in order until it reaches `q·N` and ret
 These histograms are not 7.3's statistics, which describe the values of a column and are built from a sample of the
 table; those serve here only to place a masked parameter value (question 1).
 
-The executions per transaction need a small map of shape to count in each transaction that runs queries, added to
-the aggregates when the transaction ends; a shape that runs 500 times in one transaction with different keys is an
-N+1, visible without keeping any execution [I]; its cost is to measure (*Experiments*).
+The executions per transaction come from the transaction's identity in every record: the consumer counts
+executions per transaction and shape, and closes a transaction's counts when its producer sends a small record at
+the end of a transaction that ran queries. A shape that runs 500 times in one transaction with different keys is an
+N+1, visible without keeping any execution [I]. It belongs to a later stage (*Assessment and stages*).
 
-The aggregates are kept per thread, keyed by (shape, plan), behind a mutex that only the flush thread competes for,
-so it is almost never contended. Per execution the cost is the shape counter's atomic addition, one lookup in the
-thread's map and a few additions [I].
+The aggregates are kept by the consumer alone, in plain structures keyed by (shape, plan): no locks and no atomics,
+and exact as long as no ring drops a record. A drop makes that interval's aggregates inexact; the interval is marked
+**degraded**, with its dropped records counted (H25).
 
 ### Sampled executions
 
@@ -239,7 +266,11 @@ executions per second (*A cap per entry and second*), and on a global factor `g`
 
 $$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big) \qquad p_{draw} = g \cdot \min\Big(\frac{R}{c},\ p(n)\Big)$$
 
-**The count decays and never restarts.** At each flush the profile thread multiplies every counter by
+The consumer computes `p_draw` for each entry and publishes it at every tick; the query's thread only reads it and
+draws (*Capture*). The first version fixes `p_max = 1` and leaves `p_min` out (*Assessment and stages*); the text
+below shows where they act.
+
+**The count decays and never restarts.** At each flush the consumer multiplies every counter by
 `e^(−Δt/τ)`, with `τ` = 1 day as a start [I], one operation per shape and interval, so `n` approximates the shape's
 executions over the last `τ`. A new shape starts at `n = 0`, so with `p_max = 1` its first `T` executions are all kept
 (rare shapes are complete) and its probability falls as it runs more often. A steady shape reaches `n ≈ λτ` (`λ` its
@@ -296,16 +327,16 @@ an entry may keep up to 864,000 rows a day, far above `T`. With `λ` = 100 per s
 | The first 2,000 rows | in 20 s | in about 200 s |
 | Rows in the first 200 s | about 6,600 | about 2,000 |
 
-Its cost is one counter of the current second per entry; once a second the profile thread moves it to the previous
-second and sets it to zero, a pass over the active entries that stays cheap with thousands of them [I].
+The consumer counts each entry's executions per second as it drains them and folds the cap into the probability it
+publishes at each tick; nothing is counted in the query's thread.
 
 **`p_min` gives the most frequent shapes more rows than `T`**, which the analysis of subgroups needs (*Sizing `T`*);
 its cost is linear in `N`, so it is set from a target of rows for those shapes or from a byte budget [I].
 
 **The global factor `g` brakes before the draw.** A budget of `B` sampled rows per second, a token bucket: every
-second the profile thread computes the expected demand `D`, the sum of `p(n)` over the last second's executions (an
-addition per execution in the thread's accumulators), and sets `g = min(1, B/D)`, smoothed; the query path reads `g`
-from one atomic value. The draw uses `g·p(n)`, and that is the probability stored with the row. It brakes any spike:
+second the consumer computes the expected demand `D`, the sum of the probabilities of the last second's executions,
+and sets `g = min(1, B/D)`, smoothed. `g` is part of the probability the consumer publishes, so the draw uses
+`g·min(R/c, p(n))`, and that is the probability stored with the row. It brakes any spike:
 a deployment with hundreds of new shapes, an unusual load, and the restart of the process, when every counter starts
 again at 0. Seeding the counters at opening from the profile's last day would also spread the budget by frequency
 after a restart instead of evenly during the first day; it is a refinement left out until a measurement asks for it.
@@ -365,12 +396,12 @@ parameter values, masked per column when question 1 asks for it.
 ### Flush
 
 Every interval (15 minutes as a start [I]; Query Store aggregates per 60 minutes and writes every 15 by default [V])
-the profile's background thread swaps the threads' aggregates and sample buffers, merges the aggregates and writes,
-in **one** write transaction of the profile store committed in deferred mode (J10), the interval's aggregates and the
-executions sampled since the last flush. A crash loses at most the interval in flight, which is acceptable for
+the consumer closes the interval's aggregates and the executions sampled since the last flush and hands them to the
+writer thread, which writes them in **one** write transaction of the profile store committed in deferred mode
+(J10). A crash loses at most the interval in flight, which is acceptable for
 statistics that need be neither exact nor current; because both go in the same transaction, they are lost together,
-and a sample never exists without its aggregates. If the write fails or the profile is slow, the next interval
-merges in memory up to a memory bound; past it the cheapest shapes are dropped and counted. A query never waits for
+and a sample never exists without its aggregates. If the write fails or the profile is slow, closed intervals
+wait in memory up to a bound; past it the cheapest shapes are dropped and counted. A query never waits for
 any of this.
 
 Because the aggregates merge exactly, retention loses resolution, never precision: 15-minute intervals for 7 days,
@@ -554,6 +585,49 @@ the difference is only how many proposals turn out useful [I].
 A natural flow: the daily job runs `codex exec` or `claude -p` with the skill and leaves the report; the discussion
 ("why not (a, b)?") happens in an interactive session on the same copy.
 
+## Assessment and stages
+
+Asked "Cómo calificarías/evaluarías todo esto? es eficaz? es eficiente? es complejo?", the assessment of 2026-11-21:
+
+| Layer | Effectiveness | Efficiency | Complexity | Note |
+|---|---|---|---|---|
+| Requirements for module 17 (M1-M7) | High | High | Low | The most valuable part: cheap now, expensive later |
+| Mergeable aggregates | High | High | Low | The model of Query Store and `pg_stat_statements` |
+| Sampled executions | High | High with producers and one consumer | High | Statistically sound, but five parameters, a controller, calibration, outliers and the degraded mark add up |
+| Estimate directives | Uncertain | High | Medium | See the first finding |
+| What-if tuner | Medium | High | Medium | Rests on estimates, which are what fails |
+| Tuner measured on a copy | High | Medium | Medium | The most reliable; needs a machine and parameter values |
+| Language model agent | Medium to high | — | Low for Krummi | The deterministic check keeps the risk low |
+
+Findings:
+
+1. **Directives answer SQL Server's pain, which is not the pain of module 17's first version.** In SQL Server bad
+   plans come mostly from joins: a misestimate picks the join order and algorithm, and the error multiplies at each
+   level [I]. Module 17's first version runs one table per query, without joins (document 4), so a misestimate only
+   chooses between an index, a full scan and an intersection, and revalidation per execution already exists. The
+   profile itself measures whether directives are worth building: the q-error per node, and how often a miss changes
+   the plan.
+2. **Shared atomic counters on the query's path** (H26). The earlier design kept each entry's counter as an atomic
+   value shared by all threads; for the hottest shapes every core's addition bounces one cache line between cores,
+   at the busiest place. The producers and one consumer (*Capture*) remove every shared write from the query's
+   thread.
+3. **Too many sampling parameters to start with.** `p_max` is always 1; `p_min` only gives the hottest shapes more
+   rows than `T`, which the decayed count already gives every shape each day; the outliers with a cap of their own
+   and the executions per transaction can wait. The minimal core is `p = g · min(R/c, T/n)`: `T`, `τ`, `R` and the
+   budget `B`.
+
+Stages, each one decided by a measurement:
+
+1. **With module 17:** M1-M7, the aggregates, and the producers and one consumer. Almost free, and it opens the door,
+   which was the first aim.
+2. **Minimal sampling:** `p = g · min(R/c, T/n)`. `p_min`, the outliers, the executions per transaction and the
+   seeding of counters at opening come only when a measurement asks for them.
+3. **The tuner:** measured on a copy first, the reliable mode; what-if afterwards; the language model agent with it.
+4. **Directives:** only if the profile shows that misestimates change plans often.
+
+In short: effective; efficient once the shared atomics are gone; more complex than this stage needs as a whole,
+so it is built in stages.
+
 ## Alternatives considered
 
 **Where the profile lives**
@@ -564,6 +638,16 @@ A natural flow: the daily job runs `codex exec` or `claude -p` with the skill an
 | **A separate Krummi store** | Isolated; reuses the engine, encryption and backup | A second folder and lock | **Chosen** |
 | Rotated log files | Cheapest writes; easy to ship | A new format with no integrity check; querying means loading | Rejected (DRY, G6) |
 | A callback or OpenTelemetry export | Fits existing monitoring | The tuner cannot rely on it | Possible later as an extra sink |
+
+**Where the work happens**
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| In the query's thread, with shared atomic counters | Simple to write | The hottest shapes bounce one cache line between cores (H26) | Rejected |
+| Accumulators per thread, merged at each flush | No shared writes per execution | Per-thread maps, a mutex, a merge, and logic spread over threads that is hard to test | Rejected |
+| One queue with many producers | One structure | Every producer contends on the same queue | Rejected |
+| **A ring per producer thread and one consumer** | Nothing shared written by the query; single-threaded logic, testable as a function of a stream of records and a clock | Aggregates inexact under extreme overload, marked degraded (H25); the consumer's throughput to measure | **Chosen** |
+| Sending only the kept executions | No traffic for most executions | Aggregates estimated, no exact `N`, probability fed by its own estimates | Rejected |
 
 **Granularity of capture**
 
@@ -626,14 +710,16 @@ practice.
 
 ## Costs
 
-- Per execution: the counters of document 8 (already per batch), one record, the shape counter's atomic addition, one
-  random number, a lookup in the thread's map and additions, one histogram bucket per measure (bit arithmetic), and
-  the transaction's map of shapes [I]. Very short queries through the query interface are where this shows; to
-  measure.
+- Per execution, in the query's thread: the counters of document 8 (already per batch), a fixed record of about 64
+  to 128 bytes written into its own ring, one read of the published snapshot and one random number; the parameter
+  values only when the draw keeps the execution [I]. Very short queries through the query interface are where this
+  shows; to measure.
+- Per record, in the consumer: a lookup and additions, one histogram bucket per measure (bit arithmetic) and the
+  counters; every tick, a new snapshot [I]. Its throughput bounds the rate of executions it can follow (H25).
 - Sampled executions: about `max(T, p_min·N)` rows per steady shape and day, and `T(1 + ln(N/T))` in a new shape's
   first day (*Sampled executions*): 0.4 to 20 MB per day for one shape between 10⁴ and 10⁹ executions with
-  `T = 2,000` and `p_min = 10⁻⁴` [I], never more than `R` rows per second per (shape, plan) nor `B` overall; one
-  counter of the current second per entry, reset once a second by the profile thread.
+  `T = 2,000` and `p_min = 10⁻⁴` [I], never more than `R` rows per second per (shape, plan) nor `B` overall, all
+  counted by the consumer.
 - The page counter of M3: one increment per page access [I]; to measure.
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
@@ -644,7 +730,8 @@ practice.
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Capture overhead on short queries | Slower point queries | Measure; accumulators per thread; sink off by option |
+| Capture overhead on short queries | Slower point queries | Measure; one ring per thread; sink off by option |
+| The consumer falls behind | Rings fill and drop; that interval's aggregates are inexact | Measure its cost per record; size the rings; mark the interval degraded (H25) |
 | A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
@@ -664,7 +751,8 @@ practice.
 3. Gain of a sampling directive on synthetic correlated columns without a shared index.
 4. Agreement between what-if and measured evaluation on the bench tables.
 5. Profile size per thousand shapes over 30 days of intervals, and the sampled executions' size per day.
-6. Cost per execution of the sampling decision, the histograms and the transaction's map of shapes.
+6. Cost per execution in the query's thread (record, ring write, snapshot read, draw), cost per record in the
+   consumer and its maximum throughput, and the ring size that a flush or a pause of the consumer needs.
 7. Bias and variance of weighted, calibrated estimates against the exact aggregates, on a synthetic load whose
    behavior changes late in the period (a regression in the afternoon).
 8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load; the
@@ -690,7 +778,8 @@ practice.
 7. **Automatic indexes.** Recommended: never, while IX2 holds the write turn. Alternative: automatic once an online,
    batched index build exists, with revert.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
-   `p_max = 1`, `p_min = 10⁻⁴`, `τ` = 1 day, the cap `R = 10` per entry and second, the budget `B` and `k = 4`). Recommended: fixed defaults,
+   `p_max = 1` fixed, `p_min` deferred (10⁻⁴ when it comes), `τ` = 1 day, the cap `R = 10` per entry and second, the
+   budget `B`, a 100 ms tick and `k = 4`). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
