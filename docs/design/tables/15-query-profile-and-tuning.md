@@ -43,6 +43,9 @@ Status: proposal. Nothing here is implemented, built or measured, and no PRD tak
 redesign later is listed in *Requirements for module 17*. The product questions at the end stay open until this work
 is planned.
 
+An illustrated companion, [15-query-profile-and-tuning.html](15-query-profile-and-tuning.html), shows with
+interactive charts how the sampling of executions and the aggregates work (open it in a browser).
+
 Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source (fetched 2026-11-21, with the URL in
 *Sources*); **[K]** Krummi's own documents; **[I]** inference or estimate; **[L]** from knowledge, not fetched.
 

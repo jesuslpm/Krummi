@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Query profile sampling</title>
+<style>
+/* Layout: one reading column; each section is text, its controls and one or two charts. */
+:root {
+  --bg: #fafaf8;
+  --surface: #ffffff;
+  --fg: #151514;
+  --fg-2: #52514e;
+  --fg-3: #85847e;
+  --rule: #e2e1dc;
+  --grid: #eeede9;
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --neutral: #9a998f;
+  --code-bg: #f2f1ed;
+  --font-text: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-num: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --surface: #1c1c1b; --fg: #f0efec; --fg-2: #c3c2b7; --fg-3: #8f8e86;
+    --rule: #34332f; --grid: #282826; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --neutral: #77766f; --code-bg: #232321; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --surface: #1c1c1b; --fg: #f0efec; --fg-2: #c3c2b7; --fg-3: #8f8e86;
+  --rule: #34332f; --grid: #282826; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --neutral: #77766f; --code-bg: #232321; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--font-text);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 56px;
+}
+main { max-width: 860px; margin: 0 auto; display: grid; gap: 44px; }
+header { display: grid; gap: 8px; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+h2 { font-size: 1.25rem; margin: 0; text-wrap: balance; }
+section { display: grid; gap: 14px; min-width: 0; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--fg-2); font-size: 1.02rem; }
+.eyebrow { font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+code, .mono { font-family: var(--font-num); font-size: .88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { margin: 0; background: var(--code-bg); border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+  font: .85rem/1.5 var(--font-num); }
+ul { margin: 0; padding-left: 1.2em; max-width: 68ch; }
+li + li { margin-top: 4px; }
+.formula { font-family: var(--font-num); font-size: .92rem; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 10px 14px; overflow-x: auto; white-space: nowrap; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; }
+.control { display: grid; gap: 3px; }
+.control label { font-size: .72rem; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-2); }
+select { font: inherit; font-size: .9rem; color: var(--fg); background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 5px; padding: 4px 8px; }
+select:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+.chart { position: relative; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 12px 12px 6px; display: grid; gap: 6px; min-width: 0; }
+.chart-title { font-size: .9rem; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .82rem; color: var(--fg-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: 22px; height: 8px; overflow: visible; }
+.chart svg.plot { display: block; width: 100%; height: auto; }
+.plot text { font-family: var(--font-num); font-size: 11px; fill: var(--fg-3); }
+.plot .axis-title { font-family: var(--font-text); font-size: 12px; fill: var(--fg-2); }
+.plot .end-label { font-family: var(--font-text); font-size: 11.5px; fill: var(--fg-2); }
+.plot .guide-label { font-family: var(--font-text); font-size: 11px; fill: var(--fg-2); }
+.tip { position: absolute; pointer-events: none; z-index: 2; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 7px 10px; font-size: .78rem; box-shadow: 0 4px 16px rgb(0 0 0 / .14); min-width: 150px; }
+.tip .tip-h { color: var(--fg-2); margin-bottom: 3px; }
+.tip .tip-r { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; }
+.tip .sw { width: 10px; height: 3px; border-radius: 2px; }
+.tip .v { font-family: var(--font-num); text-align: right; font-variant-numeric: tabular-nums; }
+details { font-size: .85rem; }
+summary { cursor: pointer; color: var(--fg-2); }
+.table-wrap { overflow-x: auto; margin-top: 6px; }
+table { border-collapse: collapse; font-size: .82rem; width: 100%; }
+th, td { padding: 4px 8px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
+th { color: var(--fg-2); font-weight: 500; }
+th:first-child, td:first-child { text-align: left; }
+td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 8px; }
+.flow .stack { display: grid; gap: 8px; }
+.box { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; font-size: .85rem; }
+.box b { display: block; font-size: .88rem; margin-bottom: 2px; }
+.box.a { border-left: 3px solid var(--s1); }
+.box.b { border-left: 3px solid var(--s2); }
+.arrow { color: var(--fg-3); font-size: 1.2rem; text-align: center; }
+@media (max-width: 640px) {
+  .flow { grid-template-columns: 1fr; }
+  .arrow { transform: rotate(90deg); }
+}
+.params td:first-child, .params td:nth-child(2) { font-family: var(--font-num); }
+.params td { white-space: normal; text-align: left; }
+.params th { text-align: left; }
+.note { color: var(--fg-2); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="eyebrow">Krummi · tables design · document 15</div>
+  <h1>Query profile sampling</h1>
+  <p class="lede">How the query profile keeps every execution in exact aggregates and a sample of executions as
+  individual rows, and why the sample's probability has the shape it has. It accompanies
+  <a href="15-query-profile-and-tuning.md">15-query-profile-and-tuning.md</a>, sections <em>Aggregates</em> and
+  <em>Sampled executions</em>. The curves are expected values computed from the design's formulas, not a random
+  simulation. Where lines coincide they are drawn a few pixels apart, so that none hides another; hover a chart to
+  read the exact values, and each chart has a data table below it.</p>
+</header>
+
+<section aria-labelledby="s-two">
+  <h2 id="s-two">Two records of every execution</h2>
+  <p>When a query ends, the executor hands one record to the profile sink. The sink does two things with it, in
+  memory and without making the query wait.</p>
+  <div class="flow" role="img" aria-label="A finished execution goes to the aggregates and to the sampler; both reach the thread buffers, which the flush writes into the profile store in one deferred write per interval">
+    <div class="box"><b>Execution ends</b>Shape, plan, duration, pages, rows, estimates per node, parameter values.</div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="stack">
+      <div class="box a"><b>Aggregates: every execution, exact</b>Counts, sums, minimum and maximum, histograms per (shape, plan, interval).</div>
+      <div class="box b"><b>Sampler: some executions, as rows</b>Kept with probability <span class="mono">p</span>, stored with the row.</div>
+    </div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="box"><b>Flush every 15 minutes</b>One deferred write to the profile store with the interval's aggregates and sampled rows, so a crash loses both together.</div>
+  </div>
+  <p>The aggregates give exact totals: how many executions, how much time and how many pages, which is what the
+  ranking of the costliest queries and the validation after a change need. The sampled rows give detail that
+  totals hide: which parameter values are slow, what happened at 10:42, how one plan behaves against another. The
+  rest of this page is about the sampler: how often it keeps a row, and why.</p>
+</section>
+
+<section aria-labelledby="s-size">
+  <h2 id="s-size">How large a sample needs to be</h2>
+  <p>A sample's precision depends on its size, not on the size of the population it comes from. To estimate a
+  proportion within ±2 % at 95 % confidence, about 2,400 rows are enough whether the shape ran ten thousand times or
+  a billion. Below a few thousand executions the sample is the whole population: everything is kept.</p>
+  <div class="chart" id="c-size"></div>
+  <p>So keeping a fixed fraction of executions is wasteful: a shape that runs a billion times a day would keep
+  millions of rows and gain no precision. The probability of keeping a row must fall as a shape runs more often.
+  That is the job of <code>T</code>: roughly how many rows a shape keeps per day.</p>
+</section>
+
+<section aria-labelledby="s-new">
+  <h2 id="s-new">A new entry: its probability over time</h2>
+  <p>An entry is a (shape, plan) pair; a new plan of an old shape is a new entry, so a plan regression gets detail
+  at once. The probability of keeping an execution of an entry is</p>
+  <div class="formula">p = g · min( R / c, min( p_max, max( p_min, T / n ) ) )</div>
+  <ul>
+    <li><code>n</code> is the entry's count of recent executions. It <strong>decays</strong>: at each flush it is
+      multiplied by <code>e^(−Δt/τ)</code>, so it approximates the executions of the last <code>τ</code> (a day) and
+      never restarts.</li>
+    <li><code>T / n</code> keeps the first <code>T</code> executions of a new entry (with <code>p_max = 1</code>) and
+      then falls as the entry runs more often; <code>p_min</code> is its floor.</li>
+    <li><code>R / c</code> caps the entry at <code>R</code> kept rows per second, where <code>c</code> is its
+      executions per second.</li>
+    <li><code>g ≤ 1</code> is a global factor that keeps the whole store under a budget of <code>B</code> rows per
+      second (last chart).</li>
+  </ul>
+  <p>The chart compares three ways of counting for one new entry that runs at a constant rate.</p>
+  <div class="controls" id="ctl-new">
+    <div class="control"><label for="lam">Rate of the entry</label>
+      <select id="lam"><option value="1">1 per second</option><option value="10">10 per second</option><option value="100" selected>100 per second</option><option value="1000">1,000 per second</option><option value="10000">10,000 per second</option></select></div>
+    <div class="control"><label for="tt">T</label>
+      <select id="tt"><option>500</option><option>1000</option><option selected>2000</option><option>5000</option><option>10000</option></select></div>
+    <div class="control"><label for="rr">R, rows per second</label>
+      <select id="rr"><option>1</option><option>5</option><option selected>10</option><option>20</option><option>50</option><option>100</option></select></div>
+    <div class="control"><label for="pmin">p_min</label>
+      <select id="pmin"><option value="1e-6">0.000001</option><option value="1e-5">0.00001</option><option value="1e-4" selected>0.0001</option><option value="1e-3">0.001</option></select></div>
+    <div class="control"><label for="tau">τ</label>
+      <select id="tau"><option value="3600">1 hour</option><option value="21600">6 hours</option><option value="86400" selected>1 day</option><option value="604800">7 days</option></select></div>
+  </div>
+  <div class="chart" id="c-p"></div>
+  <ul>
+    <li><strong>Counter since the first execution</strong> (blue): keeps everything, then falls as
+      <code>T/n</code> forever, down to <code>p_min</code>. Restarted every day for every shape, it is the scheme
+      that floods the profile at midnight (last chart).</li>
+    <li><strong>Decayed count</strong> (orange): identical at the start, then flattens at <code>T/(rate·τ)</code>
+      once the count reaches a day's worth of executions. A steady entry keeps about <code>T</code> rows a day, spread
+      evenly through the day.</li>
+    <li><strong>Decayed count with the cap R</strong> (green): during the first seconds it cannot keep more than
+      <code>R</code> rows per second, so its first <code>T</code> rows spread over minutes instead of a fraction of a
+      second.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="s-rows">
+  <h2 id="s-rows">What that means in rows</h2>
+  <p>Rows kept per second are the entry's rate times <code>p</code>. Without the cap, a new entry keeps everything
+  at its full rate until it reaches <code>T</code>; with it, the start is flattened to <code>R</code> rows per
+  second. On the right, the rows kept since the start: a new entry keeps more in its first <code>τ</code>, then about
+  <code>T</code> per <code>τ</code>.</p>
+  <div class="two">
+    <div class="chart" id="c-rate"></div>
+    <div class="chart" id="c-cum"></div>
+  </div>
+</section>
+
+<section aria-labelledby="s-fleet">
+  <h2 id="s-fleet">The whole store: restarts, spikes and the budget</h2>
+  <p>Now 500 shapes with rates that follow a power law (a few very frequent, many rare), over three days. The
+  process starts at hour 0. The chart shows the rows the profile receives per second, in five-minute bins.</p>
+  <div class="controls">
+    <div class="control"><label for="flam">Executions per second, all shapes</label>
+      <select id="flam"><option value="1000">1,000</option><option value="10000" selected>10,000</option><option value="100000">100,000</option></select></div>
+    <div class="control"><label for="fb">Budget B, rows per second</label>
+      <select id="fb"><option>20</option><option selected>50</option><option>200</option><option>1000</option></select></div>
+  </div>
+  <div class="chart" id="c-fleet"></div>
+  <ul>
+    <li><strong>Counter restarted every day</strong> (blue): every shape is back at <code>p = 1</code> at the same
+      moment, so each midnight brings a burst orders of magnitude above the steady level, with the buffers filling
+      exactly then.</li>
+    <li><strong>Decayed count</strong> (orange): no daily burst; only the start of the process, when every count is
+      zero, still spikes.</li>
+    <li><strong>With the cap R</strong> (green): the start spike is lower, since no entry keeps more than
+      <code>R</code> rows per second.</li>
+    <li><strong>With the budget B</strong> (yellow): the factor <code>g</code> lowers every probability before the
+      draw whenever the expected demand passes <code>B</code>, so the start of the process stays within budget.</li>
+  </ul>
+  <p>The rule behind the last two: <strong>brake before the draw, never after</strong>. A limiter that throws away
+  rows already drawn depends on the order of arrival, so the real probability of a kept row becomes unknown. A
+  factor applied before the draw is known and stored with the row. Only the memory bound of the buffers may still
+  drop rows; if it does, the interval is marked degraded.</p>
+</section>
+
+<section aria-labelledby="s-weight">
+  <h2 id="s-weight">Why every row carries its probability</h2>
+  <p>A row kept with probability <code>p</code> stands for <code>1/p</code> executions: kept with <code>p = 1</code>
+  it stands for itself, with <code>p = 0.001</code> for a thousand. Since the probability varies (a new entry starts
+  high, a restart starts everything again, <code>g</code> brakes a spike), an unweighted sample over-represents the
+  moments when it was high.</p>
+  <p>Example from the design: a new shape whose first 1,000 executions take 50 ms (a cold cache) and whose next
+  999,000 take 1 ms, sampled with <code>T = 1,000</code>. The sample holds the 1,000 slow executions and about 6,900
+  fast ones.</p>
+  <div class="two">
+    <div class="chart" id="c-mean"></div>
+    <div class="chart" id="c-p95"></div>
+  </div>
+  <p>Weighted by <code>1/p</code>, the sample gives back the true mean and p95. The weights are then scaled so that
+  they add up to the exact execution count from the aggregates, which lowers the variance at no cost.</p>
+</section>
+
+<section aria-labelledby="s-hist">
+  <h2 id="s-hist">Where the duration histogram comes from</h2>
+  <p>The aggregates cannot store averages or percentiles, because those do not merge across threads, intervals and
+  days. They store a histogram instead, built from the executions themselves: each execution adds 1 to the bucket
+  its duration (or page count) falls in. The bucket limits are fixed in advance and identical everywhere, so two
+  histograms merge by adding their counters.</p>
+  <pre>octave = 63 - leading_zeros(x)            // the power of two that holds x
+sub    = (x >> (octave - k)) &amp; (2^k - 1)  // the k bits after the highest one
+bucket = octave * 2^k + sub</pre>
+  <p>Each power of two is cut into <code>2^k</code> equal buckets, with bit arithmetic only. A percentile is read at
+  its bucket's midpoint, so its error is at most half a bucket. The chart shows that worst error for every value:
+  a sawtooth that restarts at each power of two.</p>
+  <div class="chart" id="c-hist"></div>
+  <p>The design picks <code>k = 4</code>: at most 3.1 %, and about 560 possible buckets for durations between
+  100 ns and an hour, of which only the non-empty ones are stored.</p>
+</section>
+
+<section aria-labelledby="s-params">
+  <h2 id="s-params">The parameters</h2>
+  <div class="table-wrap">
+    <table class="params">
+      <thead><tr><th>Parameter</th><th>Start value</th><th>What it controls</th></tr></thead>
+      <tbody>
+        <tr><td>T</td><td>2,000</td><td>Rows a steady entry keeps per <code>τ</code>; the first rows of a new entry kept whole.</td></tr>
+        <tr><td>p_max</td><td>1</td><td>Probability of a new entry's first executions; 1 keeps rare shapes complete.</td></tr>
+        <tr><td>p_min</td><td>0.0001</td><td>Floor of the probability; gives the most frequent shapes more than <code>T</code> rows, at a cost linear in their executions.</td></tr>
+        <tr><td>τ</td><td>1 day</td><td>Memory of the decayed count: how far back "recent executions" reaches.</td></tr>
+        <tr><td>R</td><td>10 per second</td><td>Cap per entry: spreads a new entry's first rows over time.</td></tr>
+        <tr><td>B</td><td>to measure</td><td>Budget of the whole profile, enforced by <code>g</code> before the draw.</td></tr>
+        <tr><td>k</td><td>4</td><td>Sub-buckets per power of two in the histograms: 3.1 % worst error.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">All values are starting points to be fixed by measurement (document 15, product question 8).</p>
+</section>
+
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const NS = "http://www.w3.org/2000/svg";
+  const SUP = { "-": "⁻", "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹" };
+
+  function el(parent, name, attrs, text) {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    parent.appendChild(e);
+    return e;
+  }
+  function h(parent, tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    parent.appendChild(e);
+    return e;
+  }
+
+  const fmt = {
+    num(v) {
+      if (!isFinite(v)) return "–";
+      const a = Math.abs(v);
+      if (a === 0) return "0";
+      if (a >= 1e9) return String(Number((v / 1e9).toPrecision(3))) + " G";
+      if (a >= 1e6) return String(Number((v / 1e6).toPrecision(3))) + " M";
+      if (a >= 100) return Math.round(v).toLocaleString("en-US");
+      if (a >= 0.001) return String(Number(v.toPrecision(3)));
+      return v.toExponential(2);
+    },
+    pow(v) {
+      const e = Math.round(Math.log10(v));
+      if (e >= -3 && e <= 4) return Number(Math.pow(10, e).toPrecision(1)).toLocaleString("en-US");
+      return "10" + String(e).split("").map(c => SUP[c]).join("");
+    },
+    time(s) {
+      if (s < 1) return String(Number((s * 1000).toPrecision(2))) + " ms";
+      if (s < 60) return String(Number(s.toPrecision(2))) + " s";
+      if (s < 3600) return String(Number((s / 60).toPrecision(2))) + " min";
+      if (s < 86400) return String(Number((s / 3600).toPrecision(2))) + " h";
+      return String(Number((s / 86400).toPrecision(2))) + " d";
+    },
+    hours(x) { return "hour " + String(Math.round(x)); },
+    pct(v) { return v.toFixed(2) + " %"; }
+  };
+
+  // A line chart with optional log axes, a legend, end labels, a guide line set,
+  // a crosshair tooltip and a data table.
+  function lineChart(root, cfg) {
+    root.replaceChildren();
+    h(root, "div", "chart-title", cfg.title);
+    if (cfg.series.length > 1) {
+      const lg = h(root, "div", "legend");
+      cfg.series.forEach(s => {
+        const it = h(lg, "span");
+        const sw = document.createElementNS(NS, "svg");
+        sw.setAttribute("viewBox", "0 0 22 8");
+        el(sw, "line", { x1: 0, x2: 22, y1: 4, y2: 4, stroke: s.color, "stroke-width": 2.5, "stroke-dasharray": s.dash || "", "stroke-linecap": "round" });
+        it.appendChild(sw);
+        it.appendChild(document.createTextNode(s.name));
+      });
+    }
+    const W = cfg.width || 760, H = cfg.height || 340;
+    const M = { l: 62, r: cfg.endLabels === false ? 18 : 132, t: 14, b: 44 };
+    const svg = el(root, "svg", { class: "plot", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.aria || cfg.title });
+    root.appendChild(svg);
+
+    const tf = cfg.xLog ? Math.log10 : (v => v);
+    const gf = cfg.yLog ? Math.log10 : (v => v);
+    const all = cfg.series.flatMap(s => s.pts).filter(p => isFinite(p[1]) && (!cfg.yLog || p[1] > 0));
+    let y0, y1;
+    if (cfg.y) { y0 = gf(cfg.y[0]); y1 = gf(cfg.y[1]); }
+    else if (cfg.yLog) {
+      y0 = Math.floor(Math.log10(Math.min(...all.map(p => p[1]))));
+      y1 = Math.ceil(Math.log10(Math.max(...all.map(p => p[1]))));
+      if (y1 === y0) y1 = y0 + 1;
+    } else { y0 = 0; y1 = Math.max(...all.map(p => p[1])) * 1.08; }
+    const x0 = tf(cfg.x[0]), x1 = tf(cfg.x[1]);
+    const sx = v => M.l + (tf(v) - x0) / (x1 - x0) * (W - M.l - M.r);
+    const sy = v => M.t + (y1 - gf(v)) / (y1 - y0) * (H - M.t - M.b);
+
+    // Grid and ticks.
+    const xt = cfg.xTicks;
+    xt.forEach(t => {
+      const x = sx(t.v);
+      el(svg, "line", { x1: x, x2: x, y1: M.t, y2: H - M.b, stroke: "var(--grid)", "stroke-width": 1 });
+      el(svg, "text", { x, y: H - M.b + 16, "text-anchor": "middle" }, t.l);
+    });
+    let yt = [];
+    if (cfg.yTicks) yt = cfg.yTicks;
+    else if (cfg.yLog) {
+      const step = (y1 - y0) > 8 ? 2 : 1;
+      for (let k = y0; k <= y1; k += step) yt.push({ v: Math.pow(10, k), l: fmt.pow(Math.pow(10, k)) });
+    } else {
+      const span = y1 - y0, raw = span / 5, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= 6);
+      for (let v = 0; v <= y1 + 1e-12; v += step) yt.push({ v, l: (cfg.fyTick || fmt.num)(v) });
+    }
+    yt.forEach(t => {
+      const y = sy(t.v);
+      el(svg, "line", { x1: M.l, x2: W - M.r, y1: y, y2: y, stroke: "var(--grid)", "stroke-width": 1 });
+      el(svg, "text", { x: M.l - 8, y: y + 4, "text-anchor": "end" }, t.l);
+    });
+    el(svg, "line", { x1: M.l, x2: W - M.r, y1: H - M.b, y2: H - M.b, stroke: "var(--neutral)", "stroke-width": 1 });
+    el(svg, "text", { x: (M.l + W - M.r) / 2, y: H - 8, "text-anchor": "middle", class: "axis-title" }, cfg.xLabel);
+    const ym = (M.t + H - M.b) / 2;
+    el(svg, "text", { x: 14, y: ym, "text-anchor": "middle", class: "axis-title", transform: `rotate(-90 14 ${ym})` }, cfg.yLabel);
+
+    (cfg.guides || []).forEach(g => {
+      if (g.x < cfg.x[0] || g.x > cfg.x[1]) return;
+      const x = sx(g.x);
+      el(svg, "line", { x1: x, x2: x, y1: M.t, y2: H - M.b, stroke: "var(--neutral)", "stroke-width": 1, "stroke-dasharray": "4 4" });
+      el(svg, "text", { x: x + 5, y: H - M.b - 8 - (g.row || 0) * 14, class: "guide-label" }, g.label);
+    });
+
+    // Lines, clipped to the plot.
+    const clipId = "clip" + Math.random().toString(36).slice(2);
+    const cp = el(el(svg, "defs", {}), "clipPath", { id: clipId });
+    el(cp, "rect", { x: M.l, y: M.t - 2, width: W - M.l - M.r, height: H - M.t - M.b + 4 });
+    const lines = el(svg, "g", { "clip-path": `url(#${clipId})` });
+    // Series that coincide are drawn a few pixels apart, the first one highest, so none hides another.
+    const step = cfg.series.length > 1 ? (cfg.offset == null ? 3 : cfg.offset) : 0;
+    const off = i => -(i - (cfg.series.length - 1) / 2) * step;
+    cfg.series.forEach((s, si) => {
+      let d = "", pen = false;
+      s.pts.forEach(p => {
+        if (!isFinite(p[1]) || (cfg.yLog && p[1] <= 0)) { pen = false; return; }
+        d += (pen ? "L" : "M") + sx(p[0]).toFixed(2) + " " + sy(p[1]).toFixed(2);
+        pen = true;
+      });
+      el(lines, "path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-dasharray": s.dash || "", "stroke-linejoin": "round", "stroke-linecap": "round", transform: `translate(0 ${off(si)})` });
+    });
+
+    // End labels, pushed apart so they never overlap.
+    if (cfg.endLabels !== false) {
+      const labs = cfg.series.map(s => {
+        const last = [...s.pts].reverse().find(p => p[0] <= cfg.x[1] && isFinite(p[1]) && (!cfg.yLog || p[1] > 0));
+        return { s, y: last ? Math.min(H - M.b, Math.max(M.t, sy(last[1]))) : H - M.b };
+      }).sort((a, b) => a.y - b.y);
+      for (let i = 1; i < labs.length; i++) if (labs[i].y - labs[i - 1].y < 14) labs[i].y = labs[i - 1].y + 14;
+      const over = labs.length ? labs[labs.length - 1].y - (H - M.b) : 0;
+      if (over > 0) labs.forEach(l => { l.y -= over; });
+      for (let i = labs.length - 2; i >= 0; i--) if (labs[i + 1].y - labs[i].y < 14) labs[i].y = labs[i + 1].y - 14;
+      labs.forEach(l => el(svg, "text", { x: W - M.r + 8, y: l.y + 4, class: "end-label" }, l.s.short || l.s.name));
+    }
+
+    // Hover layer.
+    const tip = h(root, "div", "tip");
+    tip.hidden = true;
+    const cross = el(svg, "line", { y1: M.t, y2: H - M.b, stroke: "var(--fg-3)", "stroke-width": 1, visibility: "hidden" });
+    const dots = cfg.series.map(s => el(svg, "circle", { r: 4.5, fill: s.color, stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }));
+    const hit = el(svg, "rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "transparent" });
+    function nearest(pts, xv) {
+      let lo = 0, hi = pts.length - 1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (pts[mid][0] < xv) lo = mid; else hi = mid; }
+      return Math.abs(tf(pts[lo][0]) - tf(xv)) <= Math.abs(tf(pts[hi][0]) - tf(xv)) ? pts[lo] : pts[hi];
+    }
+    function move(ev) {
+      const r = svg.getBoundingClientRect();
+      const vx = (ev.clientX - r.left) / r.width * W;
+      const tx = x0 + (vx - M.l) / (W - M.l - M.r) * (x1 - x0);
+      const xv = cfg.xLog ? Math.pow(10, tx) : tx;
+      const xs = sx(xv);
+      cross.setAttribute("x1", xs); cross.setAttribute("x2", xs); cross.setAttribute("visibility", "visible");
+      tip.replaceChildren();
+      h(tip, "div", "tip-h", (cfg.fx || fmt.num)(xv));
+      cfg.series.forEach((s, i) => {
+        const p = nearest(s.pts, xv);
+        const ok = isFinite(p[1]) && (!cfg.yLog || p[1] > 0);
+        dots[i].setAttribute("visibility", ok ? "visible" : "hidden");
+        if (ok) { dots[i].setAttribute("cx", sx(p[0])); dots[i].setAttribute("cy", sy(p[1]) + off(i)); }
+        const row = h(tip, "div", "tip-r");
+        const sw = h(row, "span", "sw"); sw.style.background = s.color;
+        h(row, "span", null, s.short || s.name);
+        h(row, "span", "v", ok ? (cfg.fy || fmt.num)(p[1]) : "–");
+      });
+      tip.hidden = false;
+      const rr = root.getBoundingClientRect();
+      const px = xs / W * r.width + (r.left - rr.left);
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      tip.style.left = (px + 14 + tw > rr.width ? Math.max(4, px - tw - 14) : px + 14) + "px";
+      tip.style.top = Math.max(4, (ev.clientY - rr.top) - th / 2) + "px";
+    }
+    function leave() { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dots.forEach(d => d.setAttribute("visibility", "hidden")); }
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerdown", move);
+    hit.addEventListener("pointerleave", leave);
+
+    // Data table.
+    if (cfg.tableXs) {
+      const det = h(root, "details");
+      h(det, "summary", null, "Data table");
+      const wrap = h(det, "div", "table-wrap");
+      const tb = h(wrap, "table");
+      const hr = h(h(tb, "thead"), "tr");
+      h(hr, "th", null, cfg.xName || cfg.xLabel);
+      cfg.series.forEach(s => h(hr, "th", null, s.short || s.name));
+      const body = h(tb, "tbody");
+      cfg.tableXs.forEach(xv => {
+        const tr = h(body, "tr");
+        h(tr, "td", null, (cfg.fx || fmt.num)(xv));
+        cfg.series.forEach(s => { const p = nearest(s.pts, xv); h(tr, "td", null, isFinite(p[1]) ? (cfg.fy || fmt.num)(p[1]) : "–"); });
+      });
+    }
+  }
+
+  // A small vertical bar chart with values on the bars.
+  function barChart(root, cfg) {
+    root.replaceChildren();
+    h(root, "div", "chart-title", cfg.title);
+    const W = 360, H = 220, M = { l: 12, r: 12, t: 22, b: 40 };
+    const svg = el(root, "svg", { class: "plot", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.title });
+    root.appendChild(svg);
+    const max = Math.max(...cfg.bars.map(b => b.value)) * 1.12;
+    const n = cfg.bars.length, gap = 18, bw = (W - M.l - M.r - gap * (n - 1)) / n;
+    el(svg, "line", { x1: M.l, x2: W - M.r, y1: H - M.b, y2: H - M.b, stroke: "var(--neutral)", "stroke-width": 1 });
+    cfg.bars.forEach((b, i) => {
+      const x = M.l + i * (bw + gap), hgt = (H - M.t - M.b) * b.value / max, y = H - M.b - hgt;
+      const r = Math.min(4, hgt / 2);
+      el(svg, "path", { d: `M${x} ${H - M.b}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + bw - r}Q${x + bw} ${y} ${x + bw} ${y + r}V${H - M.b}Z`, fill: b.color }).appendChild(document.createElementNS(NS, "title")).textContent = b.label + ": " + fmt.num(b.value) + " " + cfg.unit;
+      el(svg, "text", { x: x + bw / 2, y: y - 6, "text-anchor": "middle", style: "fill: var(--fg); font-size: 12px" }, fmt.num(b.value) + " " + cfg.unit);
+      el(svg, "text", { x: x + bw / 2, y: H - M.b + 16, "text-anchor": "middle", class: "axis-title" }, b.label);
+    });
+  }
+
+  const C = { s1: "var(--s1)", s2: "var(--s2)", s3: "var(--s3)", s4: "var(--s4)", n: "var(--neutral)" };
+  const logGrid = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => Math.pow(10, Math.log10(a) + (Math.log10(b) - Math.log10(a)) * i / n));
+  const TIME_TICKS = [
+    { v: 0.01, l: "10 ms" }, { v: 0.1, l: "0.1 s" }, { v: 1, l: "1 s" }, { v: 10, l: "10 s" }, { v: 60, l: "1 min" },
+    { v: 600, l: "10 min" }, { v: 3600, l: "1 h" }, { v: 21600, l: "6 h" }, { v: 86400, l: "1 d" }, { v: 604800, l: "7 d" }, { v: 2592000, l: "30 d" }
+  ];
+  const TIME_TABLE = [0.1, 1, 10, 60, 600, 3600, 21600, 86400, 604800, 2592000];
+  const $ = id => document.getElementById(id);
+
+  // Sample size against population (Cochran with the finite population correction).
+  (function sizeChart() {
+    const z = 1.96, Ps = logGrid(10, 1e9, 400);
+    const mk = e => { const t0 = z * z * 0.25 / (e * e); return Ps.map(P => [P, t0 / (1 + (t0 - 1) / P)]); };
+    const xt = [10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9].map(v => ({ v, l: fmt.pow(v) }));
+    lineChart($("c-size"), {
+      title: "Sample size needed against the number of executions (95 % confidence)",
+      xLog: true, yLog: true, x: [10, 1e9], y: [1, 1e5], xTicks: xt,
+      xLabel: "Executions of the shape (population)", yLabel: "Rows needed", xName: "Executions",
+      fx: v => fmt.num(v) + " executions", fy: v => fmt.num(v) + " rows",
+      series: [
+        { name: "Keep everything (rows = executions)", short: "Everything", color: C.n, dash: "5 4", pts: Ps.map(P => [P, P]) },
+        { name: "±5 % on a proportion", short: "±5 %", color: C.s1, pts: mk(0.05) },
+        { name: "±2 % on a proportion", short: "±2 %", color: C.s2, pts: mk(0.02) },
+        { name: "±1 % on a proportion", short: "±1 %", color: C.s3, pts: mk(0.01) }
+      ],
+      tableXs: [100, 1e3, 1e4, 1e5, 1e6, 1e9]
+    });
+  })();
+
+  // One new entry over time.
+  function entryModel() {
+    const lam = +$("lam").value, T = +$("tt").value, R = +$("rr").value, pmin = +$("pmin").value, tau = +$("tau").value;
+    const pOf = n => n <= 0 ? 1 : Math.min(1, Math.max(pmin, T / n));
+    const nDecay = t => lam * tau * -Math.expm1(-t / tau);
+    const cOf = t => t < 1 ? Math.max(1, lam * t) : lam;
+    const pA = t => pOf(lam * t), pB = t => pOf(nDecay(t)), pC = t => Math.min(R / cOf(t), pB(t));
+    const ts = logGrid(0.01, 2592000, 700);
+    const series = [pA, pB, pC].map(f => ts.map(t => [t, f(t)]));
+    const rates = series.map(s => s.map(p => [p[0], lam * p[1]]));
+    const cums = rates.map(s => {
+      let acc = s[0][0] * s[0][1];
+      return s.map((p, i) => { if (i > 0) acc += (p[0] - s[i - 1][0]) * (p[1] + s[i - 1][1]) / 2; return [p[0], acc]; });
+    });
+    return { lam, T, R, pmin, tau, series, rates, cums };
+  }
+  const NAMES = [
+    { name: "Counter since the first execution", short: "Since first", color: C.s1 },
+    { name: "Decayed count", short: "Decayed", color: C.s2 },
+    { name: "Decayed count with the cap R", short: "Decayed + R", color: C.s3 }
+  ];
+  function drawEntry() {
+    const m = entryModel();
+    const yMin = Math.pow(10, Math.floor(Math.log10(m.pmin)) - 1);
+    lineChart($("c-p"), {
+      title: "Probability of keeping an execution, for one new entry",
+      xLog: true, yLog: true, x: [0.01, 2592000], y: [yMin, 1], xTicks: TIME_TICKS,
+      xLabel: "Time since the entry's first execution", yLabel: "p", xName: "Time",
+      fx: v => "after " + fmt.time(v), fy: v => fmt.num(v),
+      guides: [{ x: m.T / m.lam, label: "T executions reached" }, { x: m.tau, label: "τ", row: 1 }],
+      series: NAMES.map((n, i) => Object.assign({}, n, { pts: m.series[i] })),
+      tableXs: TIME_TABLE
+    });
+    lineChart($("c-rate"), {
+      title: "Rows kept per second", width: 520, height: 320,
+      xLog: true, yLog: true, x: [0.01, 2592000], xTicks: TIME_TICKS.filter((t, i) => i % 2 === 0),
+      xLabel: "Time since the first execution", yLabel: "Rows per second", xName: "Time",
+      fx: v => "after " + fmt.time(v), fy: v => fmt.num(v) + " /s",
+      series: NAMES.map((n, i) => Object.assign({}, n, { pts: m.rates[i] })),
+      tableXs: TIME_TABLE
+    });
+    lineChart($("c-cum"), {
+      title: "Rows kept since the start", width: 520, height: 320,
+      xLog: true, yLog: true, x: [0.01, 2592000], xTicks: TIME_TICKS.filter((t, i) => i % 2 === 0),
+      xLabel: "Time since the first execution", yLabel: "Rows", xName: "Time",
+      fx: v => "after " + fmt.time(v), fy: v => fmt.num(v) + " rows",
+      series: NAMES.map((n, i) => Object.assign({}, n, { pts: m.cums[i] })),
+      tableXs: TIME_TABLE
+    });
+  }
+  ["lam", "tt", "rr", "pmin", "tau"].forEach(id => $(id).addEventListener("change", () => { drawEntry(); drawFleet(); }));
+
+  // The whole store: 500 shapes with power-law rates, three days, five-minute bins.
+  function drawFleet() {
+    const T = +$("tt").value, R = +$("rr").value, pmin = +$("pmin").value, tau = +$("tau").value;
+    const total = +$("flam").value, B = +$("fb").value;
+    const S = 500, BIN = 300, NB = 864, DAY = 86400;
+    let hsum = 0; for (let i = 1; i <= S; i++) hsum += 1 / i;
+    const lams = Array.from({ length: S }, (_, i) => total / ((i + 1) * hsum));
+    const pOf = n => n <= 0 ? 1 : Math.min(1, Math.max(pmin, T / n));
+    // Rows kept since a restart with a counter since the restart (exact).
+    const cumSince = (lam, u) => {
+      if (u <= 0) return 0;
+      const u1 = T / lam, u2 = T / (lam * pmin);
+      if (u <= u1) return lam * u;
+      if (u <= u2) return T + T * Math.log(u / u1);
+      return T + T * Math.log(u2 / u1) + lam * pmin * (u - u2);
+    };
+    // Integral of a rate over [a, b]: log steps in the first bin, midpoints afterwards.
+    const integrate = (rate, a, b) => {
+      let s = 0;
+      if (a === 0) {
+        const ts = logGrid(1e-3, b, 90);
+        s = rate(1e-3) * 1e-3;
+        for (let i = 1; i < ts.length; i++) s += (ts[i] - ts[i - 1]) * (rate(ts[i]) + rate(ts[i - 1])) / 2;
+        return s;
+      }
+      const k = 4, dt = (b - a) / k;
+      for (let j = 0; j < k; j++) s += rate(a + (j + 0.5) * dt) * dt;
+      return s;
+    };
+    const s1 = new Float64Array(NB), s2 = new Float64Array(NB), s3 = new Float64Array(NB);
+    for (const lam of lams) {
+      const nDecay = t => lam * tau * -Math.expm1(-t / tau);
+      const rDecay = t => lam * pOf(nDecay(t));
+      const rCap = t => lam * Math.min(R / (t < 1 ? Math.max(1, lam * t) : lam), pOf(nDecay(t)));
+      for (let b = 0; b < NB; b++) {
+        const a = b * BIN, e = a + BIN, d0 = Math.floor(a / DAY) * DAY;
+        s1[b] += cumSince(lam, e - d0) - cumSince(lam, a - d0);
+        s2[b] += integrate(rDecay, a, e);
+        s3[b] += integrate(rCap, a, e);
+      }
+    }
+    const xs = Array.from({ length: NB }, (_, b) => (b * BIN + BIN / 2) / 3600);
+    const toPts = arr => xs.map((x, b) => [x, arr[b] / BIN]);
+    const p3 = toPts(s3);
+    const xt = [0, 12, 24, 36, 48, 60, 72].map(v => ({ v, l: v % 24 === 0 ? (v === 0 ? "start" : "day " + (v / 24 + 1)) : v % 24 + " h" }));
+    lineChart($("c-fleet"), {
+      title: "Rows the profile receives per second, all shapes",
+      xLog: false, yLog: true, x: [0, 72], xTicks: xt,
+      xLabel: "Hours since the process started (midnight)", yLabel: "Rows per second", xName: "Hour",
+      fx: v => "hour " + v.toFixed(1), fy: v => fmt.num(v) + " /s",
+      guides: [{ x: 24, label: "midnight" }, { x: 48, label: "midnight" }],
+      series: [
+        { name: "Counter restarted every day", short: "Daily restart", color: C.s1, pts: toPts(s1) },
+        { name: "Decayed count", short: "Decayed", color: C.s2, pts: toPts(s2) },
+        { name: "Decayed count with the cap R", short: "Decayed + R", color: C.s3, pts: p3 },
+        { name: "With the cap R and the budget B", short: "+ budget B", color: C.s4, dash: "6 3", pts: p3.map(p => [p[0], Math.min(p[1], B)]) }
+      ],
+      tableXs: [0.04, 0.5, 6, 23.9, 24.04, 24.5, 30, 48.04, 60]
+    });
+  }
+  ["flam", "fb"].forEach(id => $(id).addEventListener("change", drawFleet));
+
+  // Weighted against unweighted, the cold-cache example of the design.
+  (function weightCharts() {
+    const slow = 1000, fast = 999000, T = 1000;
+    const keptFast = T * (Math.log(1e6) - Math.log(1000));
+    const trueMean = (slow * 50 + fast * 1) / (slow + fast);
+    const rawMean = (slow * 50 + keptFast * 1) / (slow + keptFast);
+    const wMean = (slow * 50 + fast * 1) / (slow + fast);
+    const rawP95 = slow / (slow + keptFast) > 0.05 ? 50 : 1;
+    barChart($("c-mean"), { title: "Mean duration", unit: "ms", bars: [
+      { label: "True", value: trueMean, color: C.n }, { label: "Sample, unweighted", value: rawMean, color: C.s2 }, { label: "Sample, weighted", value: wMean, color: C.s1 }] });
+    barChart($("c-p95"), { title: "p95 duration", unit: "ms", bars: [
+      { label: "True", value: 1, color: C.n }, { label: "Sample, unweighted", value: rawP95, color: C.s2 }, { label: "Sample, weighted", value: 1, color: C.s1 }] });
+  })();
+
+  // Worst relative error of a log-linear histogram bucket.
+  (function histChart() {
+    const mk = k => {
+      const pts = [[1, 0], [Math.pow(2, k) - 0.001, 0]];
+      for (let o = k; o < 20; o++) {
+        const a = Math.pow(2, o), b = Math.pow(2, o + 1);
+        logGrid(a, b * 0.9999, 24).forEach(x => pts.push([x, 100 * Math.pow(2, o - k - 1) / x]));
+      }
+      return pts;
+    };
+    const xt = [1, 10, 100, 1e3, 1e4, 1e5, 1e6].map(v => ({ v, l: fmt.pow(v) }));
+    lineChart($("c-hist"), {
+      title: "Worst error of a percentile read from the histogram",
+      xLog: true, yLog: false, x: [1, 1e6], y: [0, 7], xTicks: xt,
+      yTicks: [0, 1, 2, 3, 4, 5, 6, 7].map(v => ({ v, l: v + " %" })),
+      xLabel: "Measured value x (nanoseconds or pages)", yLabel: "Worst relative error", xName: "x",
+      fx: v => "x = " + fmt.num(v), fy: fmt.pct,
+      series: [
+        { name: "k = 3 (8 buckets per power of two)", short: "k = 3", color: C.s1, pts: mk(3) },
+        { name: "k = 4 (16 buckets), the design's choice", short: "k = 4", color: C.s2, pts: mk(4) },
+        { name: "k = 5 (32 buckets)", short: "k = 5", color: C.s3, pts: mk(5) }
+      ],
+      tableXs: [10, 100, 1000, 1500, 10000]
+    });
+  })();
+
+  drawEntry();
+  drawFleet();
+})();
+</script>
+</body>
+</html>
