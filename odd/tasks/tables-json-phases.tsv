@@ -13,3 +13,31 @@
 2026-11-21T11:32:22+00:00	mark	review	T4
 2026-11-21T11:50:46+00:00	bg-end	acceptance	fuzz AC-JS11 (9) run 2
 2026-11-21T11:51:47+00:00	bg-start	acceptance	fuzz json_navigate
+2026-11-21T11:57:09+00:00	mark	review	codex-R1
+2026-11-21T11:57:20+00:00	bg-start	review	codex-R1
+2026-11-21T12:40:32+00:00	bg-end	review	codex-R1
+2026-11-21T12:41:17+00:00	bg-start	review	codex-R2
+2026-11-21T12:45:06+00:00	bg-end	review	codex-R2
+2026-11-21T12:53:44+00:00	bg-end	acceptance	fuzz json_navigate
+2026-11-21T12:56:56+00:00	mark	acceptance	T5
+2026-11-21T12:56:59+00:00	bg-start	acceptance	tj-build-windows
+2026-11-21T13:07:22+00:00	bg-end	acceptance	tj-build-windows
+2026-11-21T13:07:22+00:00	bg-start	acceptance	tj-windows
+2026-11-21T14:56:12+00:00	bg-end	acceptance	tj-windows
+2026-11-21T14:56:12+00:00	bg-start	acceptance	tj-linux
+2026-11-21T18:01:36+00:00	bg-end	acceptance	tj-linux
+2026-11-21T18:06:00+00:00	bg-start	acceptance	tj2-windows
+2026-11-21T18:06:02+00:00	bg-end	acceptance	tj2-windows
+2026-11-21T18:06:02+00:00	bg-start	acceptance	tj2-linux
+2026-11-21T21:52:09+00:00	bg-end	acceptance	tj2-linux
+2026-11-21T21:52:34+00:00	bg-start	acceptance	tj3-windows
+2026-11-21T23:13:20+00:00	bg-end	acceptance	tj3-windows
+2026-11-21T23:15:08+00:00	mark	close	closing report
+2026-11-21T23:15:35+00:00	mark	review	RDD last slice
+2026-11-21T23:16:41+00:00	bg-start	review	rdd-last-slice
+2026-11-21T23:17:36+00:00	bg-end	review	rdd-last-slice
+2026-11-21T23:18:12+00:00	mark	close	closing report
+2026-11-21T23:18:49+00:00	end		
+2026-11-21T23:19:11+00:00	mark	checks	final checks
+2026-11-21T23:28:46+00:00	mark	close	closing report
+2026-11-21T23:29:01+00:00	end		
