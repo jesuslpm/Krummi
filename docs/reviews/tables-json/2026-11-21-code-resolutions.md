@@ -19,7 +19,7 @@ Review record: [2026-11-21-code.md](2026-11-21-code.md), wrapper status `finding
   them. `git log --format='%h %s' cf73c36..HEAD -- docs/design/tables/15-query-profile-and-tuning.md
   docs/design/tables/15-query-profile-and-tuning.html` lists only that session's commits: `b9196a0`, `5d7d588`,
   `59190d5`, `5397965`, `47f2d02`, `c28784b`, `31c2f6a`. The run implements `docs/prd/krummi/tables/tables-json.prd.md`
-  (spec S1 of `odd/tasks/tables-json.md`), whose scope does not include document 15; the execution log records these
+  (spec S1 of `odd/done/tables/tables-json.md`), whose scope does not include document 15; the execution log records these
   commits as kept apart (L6). Editing the document here would also race the session that is writing it. The finding is
   passed on to the user for that design's owner, unchanged.
 - Status: claimed out of scope, unverified until a follow-up review.

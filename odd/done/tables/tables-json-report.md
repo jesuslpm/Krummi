@@ -1,7 +1,7 @@
 # Columnas JSON de las tablas (7.5): implementadas y verificadas, sin fusionar
 
 Informe de cierre de `tables-json` (2026-11-21). Enfoque de ejecución: ODD.
-Fuente de producto: [tables-json.prd.md](../../docs/prd/krummi/tables/tables-json.prd.md). Documento de ejecución:
+Fuente de producto: [tables-json.prd.md](../../../docs/prd/krummi/tables/tables-json.prd.md). Documento de ejecución:
 [tables-json.md](tables-json.md).
 
 Rama `feat/tables-json`, sin fusionar en `main` y sin publicar. En la rama hay también commits de otra sesión con el
@@ -391,8 +391,8 @@ de un índice, no tiene estadísticas, y el formato del almacén pasa a 14.
   sección de costes promete «never more than `R` rows per second per (shape, plan) nor `B` overall», aunque el
   mecanismo propuesto ajusta tasas esperadas con instantáneas retrasadas (con `R = 10` y 10.000 ejecuciones/s, la
   primera décima de segundo retiene unas 1.000). Lo descarté por alcance; Codex lo mantiene abierto porque el rango
-  revisado incluye esos commits ([informe](../../docs/reviews/tables-json/2026-11-21-code-02.md),
-  [resoluciones](../../docs/reviews/tables-json/2026-11-21-code-resolutions.md)). RDD dio el mismo aviso
+  revisado incluye esos commits ([informe](../../../docs/reviews/tables-json/2026-11-21-code-02.md),
+  [resoluciones](../../../docs/reviews/tables-json/2026-11-21-code-resolutions.md)). RDD dio el mismo aviso
   (R2-cost-bound-contradiction). Lo corrige quien lleva ese diseño.
 - **Posible defecto de Gentle AI:** el preflight de RDD sobre el rango entero se agota en 26 s con la máquina en
   reposo. Si quieres, se puede informar en `Gentleman-Programming/gentle-ai` (necesita tu consentimiento).
