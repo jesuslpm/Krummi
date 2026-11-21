@@ -34,6 +34,9 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
 - On the load at the start of a period: "Lo que me preocupa es el inicio del período donde la base de datos de perfil
   se somete a fuerte carga.", "¿Cual de las tres recomiendas?", "¿Cómo encajaría esto con rate limiters? en realidad
   estamos haciendo un rate limiter un poco esotérico" and, to adding it here, "Sí".
+- On new shapes: "Y qué pasa con una forma nueva?" and, to adding the counter per (shape, plan) and the trajectory,
+  "Sí, agrégalo y haz el commit. Yo lo que sigo pensando es en el tramo incial. ¿No sería conveniente limitar el
+  número de guardados por segundo?".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -140,6 +143,7 @@ Each gap names what it changes in the design.
 | H20 | Expensive shapes are usually expensive because they run often | Capturing every execution of exactly those shapes is the worst case for volume (about 2 MB/s at 10,000 executions per second of 200 bytes [I]) | A probability of keeping an execution that falls as its shape runs more often |
 | H21 | That probability varies: a new shape starts high, a restart starts every shape again, a spike lowers the global factor | An unweighted sample is biased towards the executions kept with a higher probability, which may be a cold cache | Each kept execution stores its probability; analysis weights it by 1/p and calibrates the weights to the exact count |
 | H22 | A counter that restarts every period restarts every shape at once | A synchronized burst of sampled rows at the start of each period, about 10⁶ rows (200 MB) with 1,000 shapes and `T = 1,000` [I], with drops exactly then | A decayed count that never restarts, and a global budget that lowers the probability before the draw |
+| H23 | A new plan of a frequent shape is not a new shape | With a counter per shape, a plan regression is sampled with the shape's low steady probability, exactly when detail is needed | The counter is kept per (shape, plan); shapes that re-plan on every call keep one per shape |
 
 ## The profile
 
@@ -172,7 +176,8 @@ The sink does two things with the record, both in memory and without waiting:
 
 The first time a shape or plan is seen, its canonical bytes are kept once, identified by hash with a full comparison
 after it (document 11), in a **shape registry** shared by all threads and read almost always. Each entry holds the
-shape's decayed counter of recent executions as an atomic value, read by the sampling decision.
+shape's plans, each with its decayed counter of recent executions as an atomic value, read by the sampling
+decision (*Sampled executions*, *The key is (shape, plan)*).
 
 ### Aggregates
 
@@ -230,7 +235,7 @@ factor `g` (below):
 
 $$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big) \qquad p_{draw} = g \cdot p(n)$$
 
-**The count decays and never restarts.** At each flush the profile thread multiplies every shape's counter by
+**The count decays and never restarts.** At each flush the profile thread multiplies every counter by
 `e^(−Δt/τ)`, with `τ` = 1 day as a start [I], one operation per shape and interval, so `n` approximates the shape's
 executions over the last `τ`. A new shape starts at `n = 0`, so with `p_max = 1` its first `T` executions are all kept
 (rare shapes are complete) and its probability falls as it runs more often. A steady shape reaches `n ≈ λτ` (`λ` its
@@ -247,6 +252,25 @@ evenly through the day. With `T = 2,000`, `p_min = 10⁻⁴` and 200 bytes per r
 
 In its first `τ` a new shape keeps more, about `T(1 + ln(N/T))` rows (the harmonic series of `T/n`), and new shapes
 appear at different moments, so this costs no burst.
+
+**A new shape's trajectory.** At a constant rate `λ` the decayed count follows `n(t) = λτ(1 − e^(−t/τ))`, so
+`p(t) = T / (λτ(1 − e^(−t/τ)))`. While `t ≪ τ`, `n ≈ λt` and `p ≈ T/(λt)`: the shape starts as a counter since its
+first execution would, keeping everything and then falling as `T/n`. When `t ≫ τ`, `n → λτ` and `p → T/(λτ)`,
+constant. Example with `λ` = 100 executions per second (8.64 million a day), `T = 2,000` and `τ` = 1 day [I]: its first
+2,000 executions, in 20 seconds, are all kept; after a minute `p ≈ 0.33`; after an hour `p ≈ 0.0057`; after a few
+days `p ≈ 2.3 × 10⁻⁴`. It keeps about `T(1 + ln(λτ/T))` ≈ 18,700 rows its first day and about 2,000 a day afterwards.
+The extra detail at the start is wanted: a new shape is usually a new deployment. The weights undo the bias, and `g`
+brakes when hundreds of new shapes arrive together.
+
+A shape that comes back after a long absence has a counter near zero and is treated as new: a monthly report gets
+full detail on the first day of the month with nothing special. Entries whose counter is near zero can be removed
+from the registry to bound its memory.
+
+**The key is (shape, plan)** (H23). A counter per shape would sample a new plan of a frequent shape, a plan
+regression, with the low steady probability of the shape, exactly when detail is needed. The counter is therefore
+kept per (shape, plan), the key the aggregates already use, so a new plan starts at `p_max` and gets detail at once,
+for the same cost: one counter per entry. Shapes marked "plan per call" by document 4, which re-plan often, keep one
+counter per shape, so that each re-planning does not count as a new plan.
 
 **Why not a counter that restarts every period** (H22). Restarting every shape's counter at the same moment puts
 every shape back at `p = 1` together: with 1,000 active shapes and `T = 1,000`, about 10⁶ rows (200 MB) in the first
