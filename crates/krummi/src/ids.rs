@@ -34,6 +34,7 @@ fn malformed() -> Error {
         column: None,
         sequence: None,
         rule: ValueRule::MalformedText,
+        json: None,
     }
 }
 
@@ -211,6 +212,7 @@ fn checked(millisecond: u64) -> Result<u64> {
             column: None,
             sequence: None,
             rule: ValueRule::MillisecondOutOfRange,
+            json: None,
         });
     }
     Ok(millisecond)

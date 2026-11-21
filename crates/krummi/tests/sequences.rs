@@ -75,6 +75,7 @@ fn exhausted(error: Error, folder: Option<&Path>) -> String {
             column: None,
             sequence: Some(sequence),
             rule: ValueRule::SequenceExhausted,
+            json: _,
         } => {
             assert_eq!(f, folder_of(folder));
             sequence

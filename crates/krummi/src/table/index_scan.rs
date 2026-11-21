@@ -369,6 +369,7 @@ impl Folder<'_> {
         let key = EntryLayout::key_columns(schema, index);
         let range = index_range(&key, prefix, lower, upper).map_err(|error| match error {
             KeyError::Value { column, rule } => Error::InvalidValue {
+                json: None,
                 folder: self.owned(),
                 table: Some(table.to_owned()),
                 column: column.map(|k| index.key[k].name.clone()),

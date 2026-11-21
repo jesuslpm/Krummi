@@ -238,6 +238,7 @@ impl Fault {
                 },
             ),
             Fault::Value(column, rule) => Error::InvalidValue {
+                json: None,
                 folder: folder.owned(),
                 table: Some(table.to_owned()),
                 column,

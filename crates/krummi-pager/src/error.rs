@@ -105,6 +105,34 @@ pub enum SizeSubject {
     IndexEntry,
 }
 
+/// Why a text is not a valid JSON document (JS8 of the JSON columns PRD). At the same position, a fault is reported
+/// in the order of these variants.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum JsonCause {
+    /// A byte sequence that is not valid UTF-8; the position is its first byte.
+    InvalidUtf8,
+    /// A fault of the RFC 8259 grammar; the position is the first character with which the text stops being the start
+    /// of a JSON text, or the text's length when it ends before completing one.
+    Syntax,
+    /// An escaped UTF-16 surrogate that does not form a pair; the position is the `\` of its escape.
+    LoneSurrogate,
+    /// An object with two properties of this name (decoded); the position is the opening quote of the later one.
+    RepeatedProperty(Box<str>),
+    /// More than 128 nested objects or arrays; the position is the `{` or `[` that opens level 129.
+    TooDeep,
+}
+
+/// Where and why a JSON text is not a valid document (JS8 of the JSON columns PRD).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct JsonFault {
+    pub cause: JsonCause,
+    /// The number of bytes of the given text before the fault.
+    pub position: u64,
+    /// The RFC 6901 pointer of the innermost object or array open at the fault, `""` for the root or none.
+    pub pointer: Box<str>,
+}
+
 /// The rule an [`Error::InvalidValue`] reports, in the order of E17 of the tables with schema PRD: when a row
 /// breaks several, the first one in that order is reported (with the column steps of E17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -120,6 +148,14 @@ pub enum ValueRule {
     WrongType,
     /// A malformed `ulid` or `uuid` text (E9).
     MalformedText,
+    /// A text that is not a valid JSON document (JS2 and JS8 of the JSON columns PRD); the error's `json` field says
+    /// why and where.
+    InvalidJson,
+    /// A malformed JSON pointer given to navigate a document (JS6 of the JSON columns PRD).
+    MalformedJsonPointer,
+    /// A `decimal(p, s)` read from a JSON value with `p` or `s` outside 1 ≤ p ≤ 38, 0 ≤ s ≤ p (JS7 of the JSON
+    /// columns PRD).
+    InvalidReadScale,
     /// A value outside its type's domain, also after rounding (E8).
     OutOfDomain,
     /// A `decimal` that does not fit its precision.
@@ -193,6 +229,9 @@ pub enum SchemaRule {
     /// A vector column named by an estimate, a read of statistics or analyze: vectors have no statistics (ST12 of the
     /// statistics PRD).
     VectorColumn,
+    /// A JSON column named by an estimate, a read of statistics or analyze: JSON columns have no statistics (JS10 of
+    /// the JSON columns PRD).
+    JsonColumn,
     /// A schema whose stored form, with its column names, default values and index definitions, passes 256 MiB
     /// (decided 2026-11-11; the index definitions count since the secondary indexes PRD).
     SchemaTooLarge,
@@ -303,13 +342,15 @@ pub enum Error {
         index: Option<Box<str>>,
     },
     /// See [`ErrorKind::InvalidValue`]. `table` and `column` name where the value is, when there is one;
-    /// `sequence` names the sequence when it is the subject (E17).
+    /// `sequence` names the sequence when it is the subject (E17). `json` says why and where a text is not a valid
+    /// JSON document, with the rule [`ValueRule::InvalidJson`] (JS8 of the JSON columns PRD), and is `None` otherwise.
     InvalidValue {
         folder: Option<PathBuf>,
         table: Option<String>,
         column: Option<String>,
         sequence: Option<String>,
         rule: ValueRule,
+        json: Option<Box<JsonFault>>,
     },
     /// See [`ErrorKind::DuplicateKey`]. `key` is the primary key's values in their text form. When a unique index
     /// repeats (IX10 of the secondary indexes PRD), `index` names it, `index_key` gives the values of its key columns
@@ -485,12 +526,14 @@ impl Error {
                 column,
                 sequence,
                 rule,
+                json,
             } => Error::InvalidValue {
                 folder: folder.clone(),
                 table: table.clone(),
                 column: column.clone(),
                 sequence: sequence.clone(),
                 rule: *rule,
+                json: json.clone(),
             },
             Error::DuplicateKey {
                 folder,
@@ -687,6 +730,7 @@ impl fmt::Display for Error {
                 column,
                 sequence,
                 rule,
+                json,
             } => {
                 f.write_str("invalid value in ")?;
                 match (table, column, sequence) {
@@ -698,7 +742,11 @@ impl fmt::Display for Error {
                     (None, None, Some(sequence)) => write!(f, "sequence {sequence:?} of ")?,
                     (None, None, None) => {}
                 }
-                write!(f, "{}: {}", store_name(folder), value_rule_text(*rule))
+                write!(f, "{}: {}", store_name(folder), value_rule_text(*rule))?;
+                if let Some(fault) = json {
+                    write!(f, ": {}", JsonFaultText(fault))?;
+                }
+                Ok(())
             }
             Error::DuplicateKey {
                 folder,
@@ -826,6 +874,9 @@ fn value_rule_text(rule: ValueRule) -> &'static str {
         ValueRule::NullNotAllowed => "null is not allowed",
         ValueRule::WrongType => "a value of another type than its column",
         ValueRule::MalformedText => "malformed text",
+        ValueRule::InvalidJson => "not a valid JSON document",
+        ValueRule::MalformedJsonPointer => "a malformed JSON pointer",
+        ValueRule::InvalidReadScale => "a decimal precision or scale outside its limits",
         ValueRule::OutOfDomain => "outside its domain",
         ValueRule::DecimalPrecision => "the decimal does not fit its precision",
         ValueRule::VectorDimension => "a vector of another dimension",
@@ -835,6 +886,23 @@ fn value_rule_text(rule: ValueRule) -> &'static str {
         ValueRule::SequenceExhausted => "the sequence is at its maximum",
         ValueRule::MillisecondOutOfRange => "the millisecond does not fit in 48 bits",
         ValueRule::EmptyProjection => "a projection without columns",
+    }
+}
+
+/// A [`JsonFault`] as a phrase: its cause, its position and its pointer.
+struct JsonFaultText<'a>(&'a JsonFault);
+
+impl fmt::Display for JsonFaultText<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let fault = self.0;
+        match &fault.cause {
+            JsonCause::InvalidUtf8 => f.write_str("invalid UTF-8")?,
+            JsonCause::Syntax => f.write_str("syntax error")?,
+            JsonCause::LoneSurrogate => f.write_str("a lone surrogate")?,
+            JsonCause::RepeatedProperty(name) => write!(f, "repeated property {name:?}")?,
+            JsonCause::TooDeep => f.write_str("more than 128 nested levels")?,
+        }
+        write!(f, " at byte {} in {:?}", fault.position, fault.pointer)
     }
 }
 
@@ -869,6 +937,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
         SchemaRule::SameIndexKey => "an index key equal to another index's",
         SchemaRule::TooManyIndexes => "more than 64 indexes",
         SchemaRule::VectorColumn => "a vector column, which has no statistics",
+        SchemaRule::JsonColumn => "a JSON column, which has no statistics",
         SchemaRule::SchemaTooLarge => "the schema with its names and defaults would pass 256 MiB",
     }
 }
@@ -947,6 +1016,7 @@ mod tests {
             column: column.map(str::to_owned),
             sequence: sequence.map(str::to_owned),
             rule: ValueRule::OutOfDomain,
+            json: None,
         }
         .to_string()
     }

@@ -74,8 +74,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 pub use krummi_pager::{
-    Error, ErrorKind, Info as StoreInfo, Result, SchemaDifference, SchemaRule, SizeSubject,
-    TreeKind, ValueRule,
+    Error, ErrorKind, Info as StoreInfo, JsonCause, JsonFault, Result, SchemaDifference,
+    SchemaRule, SizeSubject, TreeKind, ValueRule,
 };
 use krummi_tree::catalog::{self, Entry};
 use krummi_tree::fixed::{self, FixedRange};

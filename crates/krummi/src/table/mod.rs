@@ -13,6 +13,7 @@ mod index_key_tests;
 mod index_scan;
 #[cfg(test)]
 mod index_tests;
+pub mod json;
 pub mod key;
 mod maintain;
 #[cfg(test)]

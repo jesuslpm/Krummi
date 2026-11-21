@@ -329,6 +329,7 @@ fn check(
     condition: &Condition<'_>,
 ) -> Result<Checked> {
     let fail = |rule| Error::InvalidValue {
+        json: None,
         folder: folder.owned(),
         table: Some(table.to_owned()),
         column: Some(column.name.clone()),
@@ -841,6 +842,7 @@ fn estimate_columns(
     source: &Source<'_>,
 ) -> Result<Estimate> {
     let invalid = |column: Option<&str>, rule| Error::InvalidValue {
+        json: None,
         folder: folder.owned(),
         table: Some(table.to_owned()),
         column: column.map(str::to_owned),

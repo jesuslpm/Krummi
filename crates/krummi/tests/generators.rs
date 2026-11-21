@@ -100,6 +100,7 @@ fn assert_invalid_value(err: &Error, expected: ValueRule) {
         column,
         sequence,
         rule,
+        json: _,
     } = err
     else {
         unreachable!()

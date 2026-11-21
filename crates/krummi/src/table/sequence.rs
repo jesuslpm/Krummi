@@ -190,6 +190,7 @@ impl Folder<'_> {
             column: None,
             sequence: Some(name.to_owned()),
             rule: ValueRule::SequenceExhausted,
+            json: None,
         }
     }
 }

@@ -253,6 +253,7 @@ fn invalid_value(
             column,
             sequence: None,
             rule,
+            json: _,
         } => {
             assert_eq!(f, folder_of(folder));
             (table, column, rule)

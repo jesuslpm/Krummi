@@ -19,7 +19,8 @@ mod transfer;
 
 pub use checked::{CHECKED_SLOTS, set_remember_checked};
 pub use error::{
-    Error, ErrorKind, Result, SchemaDifference, SchemaRule, SizeSubject, TreeKind, ValueRule,
+    Error, ErrorKind, JsonCause, JsonFault, Result, SchemaDifference, SchemaRule, SizeSubject,
+    TreeKind, ValueRule,
 };
 pub use journal::{JOURNAL_PREFIX, RELEASE_FILE_LIMIT};
 pub use pager::{
