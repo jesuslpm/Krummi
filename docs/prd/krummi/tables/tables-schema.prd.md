@@ -126,6 +126,17 @@ cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
 - *E17: los errores y la precedencia de estimar, leer y analizar los fija ST12.*
 - *E20: la versión del formato pasa a 13 (ST13).*
 
+*Anotaciones del 2026-11-21 desde las columnas JSON ([tables-json.prd.md](tables-json.prd.md), 7.5):*
+
+- *E4 y E5: la regla de una columna de la clave que admite nulos, es un vector o tiene valor por defecto incluye la
+  columna JSON (JS1). E4: en una columna JSON, el documento `null` como valor por defecto no equivale a no tenerlo;
+  el nulo de la columna sí (JS9).*
+- *E6: dos valores por defecto JSON son el mismo cuando su texto normalizado es el mismo (JS9).*
+- *E17: la lista de reglas de valor no válido gana, después de texto mal formado, JSON no válido, puntero JSON mal
+  formado y escala de lectura no válida; JSON no válido lleva además la causa, la posición y el puntero (JS6, JS7,
+  JS8).*
+- *E20: la versión del formato pasa a 14 (JS12).*
+
 ### Estado de partida
 
 - No hay tablas ni secuencias en el código: el catálogo guarda árboles normales, multivalor y de tamaño fijo, cada

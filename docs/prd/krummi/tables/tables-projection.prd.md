@@ -46,6 +46,14 @@ filas W26 y W27 y K7 del banco; todos llevan su anotación (*Anotaciones a otros
 
 - *PY3: las filas de un recorrido de un índice se ligan a una proyección como las de un recorrido de la clave primaria; las entradas de un índice no (decisión IX8).*
 
+*Anotaciones del 2026-11-21 desde las columnas JSON ([tables-json.prd.md](tables-json.prd.md), 7.5):*
+
+- *PY2: hay columnas preparadas JSON; una columna JSON solo se prepara como JSON, y una de otro tipo no se prepara
+  como JSON (JS5).*
+- *PY3: el JSON se devuelve sin copia, como el texto, los bytes y los vectores, salvo de una fila copiada, donde se
+  devuelve en una copia que se navega igual (JS5).*
+- *Fuera de alcance: la columna preparada JSON la fija tables-json.prd.md (JS5).*
+
 ### Estado de partida
 
 - Una fila leída o recorrida se lee columna a columna, por el nombre o la posición de la columna entre las columnas

@@ -106,6 +106,17 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
   tiempo, no sería mejor hacer sólo las mediciones que más pudieran ser afectadas en función de lo que se
   implemente?»*
 
+*Anotaciones del 2026-11-21 desde las columnas JSON ([tables-json.prd.md](tables-json.prd.md), 7.5):*
+
+- *N3 y N5: «ninguna de tipo vector» y «Los vectores no se ordenan: no pueden ser clave primaria ni columnas de un
+  índice» valen también para las columnas JSON, que sí pueden ser columnas incluidas de un índice (JS1).*
+- *N4: gana el tipo `json` (JS1).*
+- *Reparto, anotación del 2026-11-12 de 7.5: lo que «Sigue fijando 7.5» queda fijado en tables-json.prd.md: la
+  columna se declara con el tipo `json` y un JSON en la clave primaria o en la clave de un índice falla con esquema
+  no válido (JS1); los datos y la precedencia de sus errores (JS8); el cambio es incompatible y la versión del
+  formato pasa a 14 (JS12); y no hay cargas nuevas del banco, sino una medición informativa en el informe de cierre
+  (JS13).*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

@@ -138,6 +138,17 @@ authoritative):*
 - *E17: ST12 fixes the errors and the precedence of estimate, read and analyze.*
 - *E20: the format version becomes 13 (ST13).*
 
+*Annotations of 2026-11-21 from the JSON columns ([tables-json.prd.md](tables-json.prd.md), 7.5, Spanish,
+authoritative):*
+
+- *E4 and E5: the rule of a key column that admits nulls, is a vector or has a default value includes the JSON column
+  (JS1). E4: in a JSON column, the document `null` as a default value is not equivalent to having none; the null of
+  the column is (JS9).*
+- *E6: two JSON default values are the same when their normalized text is the same (JS9).*
+- *E17: the list of invalid value rules gains, after malformed text, invalid JSON, malformed JSON pointer and invalid
+  read scale; invalid JSON also carries the cause, the position and the pointer (JS6, JS7, JS8).*
+- *E20: the format version becomes 14 (JS12).*
+
 ### Starting state
 
 - There are no tables or sequences in the code: the catalog stores normal, multi-value and fixed-size trees, each

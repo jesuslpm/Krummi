@@ -49,6 +49,15 @@ authoritative):*
 - *PY3: the rows of an index traversal are tied to a projection like those of a primary key traversal; the entries of an
   index are not (decision IX8).*
 
+*Annotations of 2026-11-21 from the JSON columns ([tables-json.prd.md](tables-json.prd.md), 7.5, Spanish,
+authoritative):*
+
+- *PY2: there are JSON prepared columns; a JSON column is prepared only as JSON, and a column of another type is not
+  prepared as JSON (JS5).*
+- *PY3: JSON is returned without a copy, like text, bytes and vectors, except from a copied row, where it is returned
+  in a copy that is navigated the same way (JS5).*
+- *Out of scope: tables-json.prd.md fixes the JSON prepared column (JS5).*
+
 ### Starting state
 
 - A row that is read or traversed is read column by column, by the name or the position of the column among the live

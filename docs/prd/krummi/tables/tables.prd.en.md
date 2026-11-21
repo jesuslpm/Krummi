@@ -110,6 +110,17 @@ authoritative):*
   7.3 keep what they fixed. User: «¿Siempre tenemos que hacer todas las mediciones? esto lleva mucho tiempo, no sería
   mejor hacer sólo las mediciones que más pudieran ser afectadas en función de lo que se implemente?»*
 
+*Annotations of 2026-11-21 from the JSON columns ([tables-json.prd.md](tables-json.prd.md), 7.5, Spanish,
+authoritative):*
+
+- *N3 and N5: "none of vector type" and "Vectors are not ordered: they cannot be a primary key or columns of an
+  index" also hold for JSON columns, which can be included columns of an index (JS1).*
+- *N4: gains the `json` type (JS1).*
+- *Split, 7.5 annotation of 2026-11-12: what "7.5 still fixes" is fixed in tables-json.prd.md: the column is declared
+  with the `json` type and a JSON in the primary key or in the key of an index fails with invalid schema (JS1); the
+  data and the precedence of its errors (JS8); the change is incompatible and the format version becomes 14 (JS12);
+  and there are no new benchmark loads, but an informative measurement in the closing report (JS13).*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:
