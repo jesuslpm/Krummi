@@ -448,7 +448,7 @@ fn in_domain(v: i128, min: i128, max: i128) -> Result<i128, ValueRule> {
 }
 
 /// Nanoseconds rounded to the nearest microsecond, ties toward the greater value (E8).
-fn round_micros(nanos: i128) -> i128 {
+pub(crate) fn round_micros(nanos: i128) -> i128 {
     // Every i128 the API takes is far from the ends of i128, but saturate rather than overflow.
     nanos
         .saturating_add(NANOS_PER_MICRO / 2)
