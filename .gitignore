@@ -20,3 +20,10 @@ __pycache__/
 /docs/methodology/slides.md
 /docs/methodology/slides.html
 /docs/methodology/audio/*.mp3
+
+# Fuzzing (fuzz/README.md): build output, corpora and crash artifacts stay local.
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/coverage/
+/fuzz/Cargo.lock

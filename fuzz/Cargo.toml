@@ -1,0 +1,31 @@
+[package]
+name = "krummi-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Fuzz targets of the JSON reader and navigation (AC-JS11 (9) of docs/prd/krummi/tables/tables-json.prd.md). They run
+# with `cargo fuzz` on Linux and nightly Rust, outside the workspace and the library's build: see README.md.
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+krummi = { path = "../crates/krummi" }
+
+[workspace]
+
+[[bin]]
+name = "json_normalize"
+path = "fuzz_targets/json_normalize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json_navigate"
+path = "fuzz_targets/json_navigate.rs"
+test = false
+doc = false
+bench = false

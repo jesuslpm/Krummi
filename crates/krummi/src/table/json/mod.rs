@@ -13,6 +13,13 @@ pub use nav::{Elements, JsonKind, JsonValue, Members};
 #[doc(hidden)]
 pub use normalize::normalize;
 
+/// The document whose normalized text is `text`, for the fuzz targets of the reader and the navigation (AC-JS11): the
+/// text is trusted as [`JsonValue`] trusts it, so it should come from [`normalize`].
+#[doc(hidden)]
+pub fn trusted_document(text: &str) -> JsonValue<'_> {
+    JsonValue::new(text)
+}
+
 /// The first byte of a stored JSON value in stored form v1 (document 13, *Stored form v1*): form 1, normalized text,
 /// with no navigation index (bit 4 clear) and the reserved bits zero. The normalized text follows it.
 pub(crate) const FORM_TEXT_V1: u8 = 0x01;
