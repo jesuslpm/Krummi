@@ -17,6 +17,10 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
 - "Busca huecos y alternativas. Analízalo todo con pros y contras y recomienda una estrategia que también sirva cuando
   no tenemos una máquina independiente de análisis."
 - To writing it down as document 15: "Sí".
+- Later the same day, on language models: "¿Podría ayudar un LLM? ¿Quizá un modelo pequeño en local?", "Sería para
+  aplicarlo en la máquina de análisis, que te ayude a optimizar y a explicar a la hora de decidir si aplicar las
+  directivas e índices recomendados.", "¿Se podría usar la CLI de codex o de Claude en este contexto?" and, to adding
+  it here, "Sí, agrégalo y haz el commit".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -48,6 +52,11 @@ Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source
    observed; pages touched can, and they compare across machines. Duration ranks only within one machine.
 6. **Indexes are never created automatically.** Building one holds the write turn for the whole build (IX2), so it is
    applied in a window chosen by the application. Directives, which are cheap and reversible, can apply on their own.
+7. **A language model helps on the analysis machine, outside Krummi.** An agent command-line tool (Codex or Claude
+   Code, with a cloud model or a local one) reads the profile and the recommendations through Krummi's tools, explains
+   them, answers questions by asking the tuner to measure, and proposes candidates the rules do not generate. It
+   proposes and explains; Krummi measures; a person decides. Every number in its report is checked against the
+   evidence by a deterministic check (*Language models on the analysis machine*).
 
 ## Starting state
 
@@ -254,6 +263,76 @@ one that counts, whatever the evaluation mode was.
 
 All three produce the same recommendation document, so applying and validating are the same everywhere.
 
+## Language models on the analysis machine
+
+### Where a model helps and where it does not
+
+A language model takes milliseconds to seconds per answer, is not deterministic and cannot justify a number it gives
+[I]. So it never estimates rows for the planner, which must cost microseconds, and it never decides an index on its
+own, because its output is a hypothesis and what fails is what is not measured. It helps offline, on the analysis
+machine, where a copy exists, everything can be measured and there is time:
+
+1. **Explaining.** It turns each recommendation, and each plan regression in the profile, into a decision report:
+   what is proposed and which shapes it improves, with pages before and after; what it costs (the measured build
+   time, which is the window IX2 needs, the size and the write overhead); what could go wrong and how to revert it.
+2. **Answering by measuring.** To a question such as "why not an index on (a, b)?" it does not give an opinion: it
+   asks the tuner to measure that candidate on the copy (T2) and answers with the result.
+3. **Proposing what the rules miss.** Patterns of the application visible in the profile: an N+1 (a burst of one
+   shape with different primary keys, answered by one `IN`), an expression index over JSON (document 14), a change of
+   schema. Each proposal enters the tuner as one more candidate (T1) and is measured like the others, so a weak
+   proposer only costs evaluation time.
+4. **Summarizing** the daily report and grouping shapes by feature of the application.
+
+### The safeguard
+
+A model can state a wrong number with full confidence, which is poison for a decision. Each number in a decision
+report cites the field of the recommendation document or of the measurement it comes from, and a deterministic check
+(not another model) compares every cited number with that evidence; a report that does not match is rejected. The
+model contributes the explanation; the numbers always come from Krummi.
+
+### What Krummi provides
+
+Krummi carries no model: an embedded engine loading gigabytes of weights goes against what it is. It exposes tools,
+through the command-line tool of module 12 and the capability layer and MCP server of document 10:
+
+- T1. The tuner accepts **external candidates** (indexes, directives, column-group statistics, plans) as input.
+- T2. **Evaluating one candidate on demand** on the copy, in measured mode, with the same evidence as a recommendation.
+- T3. A recommendation document whose evidence a machine can check: stable field identifiers and exact numbers.
+- T4. A **skill** that guides an agent through the workflow and the template of the decision report (document 10
+  already plans one).
+
+### Agent command-line tools
+
+Both agents installed here have what the workflow needs (read from their `--help`, 2026-11-21) [V]:
+
+| Need | Codex CLI 0.170.0 | Claude Code 2.1.328 |
+|---|---|---|
+| Non-interactive run, for the daily job | `codex exec` | `claude -p` (`--print`) |
+| MCP servers, for document 10's tools | `codex mcp` | `--mcp-config` |
+| Restricted tools | `codex sandbox` | `--allowedTools`, `--disallowedTools` |
+| A local model | `--oss` with `--local-provider lmstudio` or `ollama` | — |
+| The workflow as instructions | `AGENTS.md` [L] | Skills, `CLAUDE.md` [K] |
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| A cloud model (Codex or Claude) | The best reasoning about plans; mature tool use; nothing to host | Shapes and parameter values leave the machine; a cost per run; needs a network | Allowed without parameter values (question 9) |
+| A local model (Codex with `--oss`) | Data stays on the machine; no cost per run; the same command-line tool | Weaker reasoning; the model must be hosted | Chosen when parameter values are captured |
+| A model embedded in Krummi | — | Gigabytes of weights in an embedded engine; ties Krummi to one model | Rejected |
+
+Choosing or changing the agent, or moving from a cloud model to a local one, does not touch Krummi. A small local
+model is enough to explain and to call the tools; a larger one proposes better, and since everything is measured,
+the difference is only how many proposals turn out useful [I].
+
+### Two rules
+
+1. **The agent sees only the copy.** Its tools read the profile and evaluate on the copy; restricted tools or the
+   sandbox keep it away from production.
+2. **Applying stays a person's decision.** The agent leaves a checked decision report; a person decides what reaches
+   production and in which window.
+
+A natural flow: the daily job runs `codex exec` or `claude -p` with the skill and leaves the report; the discussion
+("why not (a, b)?") happens in an interactive session on the same copy.
+
 ## Alternatives considered
 
 **Where the profile lives**
@@ -336,6 +415,9 @@ practice.
 | Parameter values in the profile | Sensitive data at rest | Off by default, bounded, encrypted with the store (question 1) |
 | A profile from another store | Wrong feedback | Main store identity in `meta` (H16) |
 | An index build blocks writers | Write stalls during a build | Never automatic; build time in the recommendation (H2) |
+| A model invents a number | A decision taken on a wrong figure | Every number cites its evidence and a deterministic check rejects a report that does not match |
+| A cloud model receives profile data | Shapes and parameter values leave the analysis machine | A local model, or parameter values off (questions 1 and 9) |
+| An agent reaches production | An unreviewed change | The agent's tools reach only the copy; applying is a person's decision |
 
 ## Experiments to run when it is designed in detail
 
@@ -364,6 +446,9 @@ practice.
    batched index build exists, with revert.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
+9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
+   same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
+   evidence without values. Alternative: a local model only.
 
 ## Sources
 
