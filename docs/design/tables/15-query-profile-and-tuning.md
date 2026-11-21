@@ -41,7 +41,8 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
   complejo?", "Y si usamos un patrón de múltiples productores y un único consumidor en vez de calcular las cosas en
   el hilo que hace la consulta.", "Dices que el hilo de la consulta calcule la probabilidad p, ya de paso lo prodría
   sortear y enviar a la cola sólo si tiene la suerte." and, to adding it all here, "Sí, agrégalo todo y haz el
-  commit".
+  commit". Then "Bien ahora cual es tu evaluación?" and, to adding the snapshot read, the rings' life cycle and the
+  threads, "Sí".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -159,6 +160,8 @@ Each gap names what it changes in the design.
 | H24 | The global factor acts only on the total | One entry can still spend its first rows in a fraction of a second: a load on the profile at one moment, and a start portrayed by its first instant | A cap of `R` rows per second per (shape, plan), applied before the draw |
 | H25 | One consumer processes every execution | Past its throughput the rings fill and drop, and that interval's aggregates stop being exact | Measure its cost per record and size the rings; a dropping interval is marked degraded, with its drops counted |
 | H26 | Shared atomic counters on the query path | For the hottest shapes every core's addition bounces one cache line between cores | No shared writes in the query's thread: a ring per thread and one consumer |
+| H27 | Reading the published snapshot through a reference-counted pointer | Every execution adds to a shared counter, the bouncing of H26 again | A copy of the snapshot per thread, refreshed when a version number that is only read changes |
+| H28 | A ring per thread | Memory for threads that never query, rings of threads that ended, unbounded total with many threads | Rings created with a thread's first query, drained and freed when the thread ends, total memory bounded |
 
 ## The profile
 
@@ -201,6 +204,20 @@ that give the probability all need the exact count. Sending only the kept execut
 estimates with thin tails, leave no exact `N` to calibrate with, and feed the probability with counts estimated from
 a sample drawn with that same probability. The parameter values, the costly part of variable size, travel only with
 kept executions.
+
+**Reading the snapshot without shared writes** (H27). If each execution cloned a reference-counted pointer to read
+the published probability, it would add to a counter shared by every thread: the cache line bouncing of H26, moved
+to the snapshot. So each thread keeps its own copy of the snapshot and, per execution, only reads the snapshot's
+version number, a read and never a write; it reloads its copy, at most once per tick, only when the version changed.
+
+**The rings' life cycle** (H28). A thread's ring is created lazily with its first query, so threads that never query
+cost no memory; the consumer drains and frees the rings of threads that ended; the total memory, the ring size
+times the threads with a ring, is bounded, and a thread past the bound gets no ring and its executions count as
+drops.
+
+**Threads.** The profile adds two threads per store, the consumer and the writer, beside the statistics thread of
+7.3 (ST6). The consumer sleeps while the rings are empty, so profiling costs nothing at rest, and whether the writer
+can share the background thread that already exists is to measure [I].
 
 An entry that is not yet in the snapshot uses `p = 1` for at most one tick: at most its rate times the tick in rows,
 once, about 1,000 for a new shape at 10,000 executions per second with a 100 ms tick [I].
@@ -628,6 +645,23 @@ Stages, each one decided by a measurement:
 In short: effective; efficient once the shared atomics are gone; more complex than this stage needs as a whole,
 so it is built in stages.
 
+Asked again after the producers and one consumer ("Bien ahora cual es tu evaluación?"), the reassessment of the
+same day:
+
+| Aspect | Before | Now | Why |
+|---|---|---|---|
+| Effectiveness | High | High | Unchanged: exact aggregates and an unbiased sample |
+| Efficiency on the query's path | Medium (shared atomics) | High on paper | No shared write: a fixed record, its own ring, a draw, a snapshot read through a version number (H27) |
+| Complexity of what is built first | High | Medium | Stages 1 and 2: aggregates, rings, a single-threaded consumer and `p = g · min(R/c, T/n)` |
+| Complexity of the whole system | High | High, deferred | The tuner, directives and the agent wait for a measurement that asks for them |
+| Testability | Low | High | The consumer is a function of a stream of records and a clock |
+
+Remaining risks, in order: the consumer's throughput, unmeasured and the design's bet (H25); the value of directives
+in the first version, now conditioned on what the profile measures; and a design decided before module 17 exists,
+mitigated by the stages and by measurement deciding each one. Verdict: effective; efficient on paper, pending two
+measurements, the cost in the query's thread and the consumer's throughput (experiment 6); a complexity that fits
+what is built first.
+
 ## Alternatives considered
 
 **Where the profile lives**
@@ -731,6 +765,7 @@ practice.
 | Risk | Effect | Mitigation |
 |---|---|---|
 | Capture overhead on short queries | Slower point queries | Measure; one ring per thread; sink off by option |
+| Extra threads in an embedded engine | Threads the application did not ask for | The consumer sleeps while the rings are empty; the writer may share the existing background thread |
 | The consumer falls behind | Rings fill and drop; that interval's aggregates are inexact | Measure its cost per record; size the rings; mark the interval degraded (H25) |
 | A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
@@ -752,7 +787,8 @@ practice.
 4. Agreement between what-if and measured evaluation on the bench tables.
 5. Profile size per thousand shapes over 30 days of intervals, and the sampled executions' size per day.
 6. Cost per execution in the query's thread (record, ring write, snapshot read, draw), cost per record in the
-   consumer and its maximum throughput, and the ring size that a flush or a pause of the consumer needs.
+   consumer and its maximum throughput, and the ring size that a flush or a pause of the consumer needs; the cost
+   at rest with the consumer asleep, and whether the writer can share the statistics thread.
 7. Bias and variance of weighted, calibrated estimates against the exact aggregates, on a synthetic load whose
    behavior changes late in the period (a regression in the afternoon).
 8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load; the
