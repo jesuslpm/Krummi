@@ -21,6 +21,16 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
   aplicarlo en la máquina de análisis, que te ayude a optimizar y a explicar a la hora de decidir si aplicar las
   directivas e índices recomendados.", "¿Se podría usar la CLI de codex o de Claude en este contexto?" and, to adding
   it here, "Sí, agrégalo y haz el commit".
+- Then, on individual executions: "Por cierto, lo de no guardar las ejecuciones individuales y los parámetros limitan
+  bastante el análisis.", "Las formas caras precisamente ocupan muchísimo porque se ejecutan mucho.", "Yo estoy
+  pensando en guardar sólo una muestra de las ejecuciones individuales.", "No creo que sea necesario sortear por
+  transacción, más bien interesa por consulta. Apliquemos un poco de estadística matemática, ¿Cual es el tamaño T
+  aceptable de una muestra para una población P?", "Poner un tamaño fijo de muestra no tiene mucha gracia, a ver qi lo
+  suyo es fijar una probabilidad de guardado en función del número de ejecuciones hasta el momento. Con una
+  probabilidad mínima y una máxima, empezamos con la máxima y se va reduciendo a medida que aumenta el número de
+  ejecuciones", "aparte de las ejecuciones individuales hay que mantener los agregados. ¿Cómo hacemos esto?", "El
+  histograma de donde sale?", "No termino de entender el peso que añades a cada ejecución" and, to adding it here,
+  "Entendido, agrégalo todo al documento 15 y haz el commit".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -37,8 +47,10 @@ Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source
    planner applies. A **tuner** ranks the queries by total cost and recommends indexes, index removals, directives and
    plans for the few that matter.
 2. **The profile lives in a separate Krummi store**, written by a background thread in one deferred commit per
-   interval, fire and forget. A query only adds to counters in memory. The profile never takes the main store's write
-   turn, and a profile that fails to open, write or read turns profiling off without failing any query.
+   interval, fire and forget. A query adds to exact, mergeable aggregates in memory and, with a probability that
+   starts high and falls as its shape runs more often, is also kept as an individual execution with its parameter
+   values and the weight that undoes that probability. The profile never takes the main store's write turn, and a
+   profile that fails to open, write or read turns profiling off without failing any query.
 3. **Feedback corrects the source of an estimate, never the number.** No correction factors: a predicate whose
    estimate misses by more than 4× in the same direction, over several executions, gets a directive that estimates it
    from a sample of the table, which already holds the correlation between its columns. Directives are validated after
@@ -109,18 +121,21 @@ Each gap names what it changes in the design.
 | H4 | The data file is mapped | Physical reads per query cannot be observed | Logical pages touched and bytes spilled; the counter does not exist yet (M3) |
 | H5 | Duration depends on the machine | Times measured on the analysis machine do not compare with production | Rank and compare in pages; duration only within one machine |
 | H6 | `Limit` and `TopK` stop their inputs early | The actual rows of those inputs are not their cardinality | Only completed nodes produce feedback (M1) |
-| H7 | Replaying a query needs its parameter values | Without them the tuner can only estimate, which is what fails | A bounded, opt-in sample of parameter values per shape, encrypted with the store (question 1) |
+| H7 | Replaying a query needs its parameter values | Without them the tuner can only estimate, which is what fails | Sampled executions keep their parameter values, encrypted with the store, with masking per column (question 1) |
 | H8 | An index makes reads cheaper and writes dearer | A tuner that sees only queries recommends indexes that sink write loads | Writes per table and kind, and entries written per index, in the profile (M4) |
 | H9 | Candidates for several shapes overlap | Five similar indexes, past the limit of 64 per table (IX3) and the write budget | Merge candidates that share a prefix; a budget per table |
 | H10 | A daily window misses periodic loads | Month-end queries never rank | A rolling window of 7 to 30 days, weighted towards recent days (question 4) |
 | H11 | Ranking by total cost misses rare slow queries | A screen with a 30 s p99 never ranks | Two lists: total cost, and p95 and maximum |
 | H12 | A full profile | Query Store goes read-only when full [V] | Evict the cheapest shapes; never stop recording |
-| H13 | Many threads update one map | Contention on the query path | Sharded accumulators, swapped and merged at each flush |
+| H13 | Many threads update one map | Contention on the query path | Accumulators per thread, swapped and merged at each flush; only the shape registry is shared, and read almost always |
 | H14 | Direct table calls (read by key, scan an index) are not module 17 queries | They cost resources but have no plan to tune | Counted per table and index (M4); not tuned |
 | H15 | What survives the loss of the profile | If accepted directives and fixed plans live in the profile, a damaged profile changes production performance | Learned directives live in the profile and are disposable; accepted items live in the main store's catalog (M7) |
 | H16 | A profile copied next to another store | Feedback from one store applied to another | The profile records the main store's identity and is discarded when it differs |
 | H17 | Unique indexes are constraints | Dropping an unused unique index changes what the application can write | Never recommend dropping a unique index |
 | H18 | The feedback loop and the tuner act on the same shapes | A directive changes the plan, the profile sees another plan, the tuner adds an index, the directive no longer fits | Directives are bound to the catalog state tokens (P12) and the statistics they were learned on, and expire with them |
+| H19 | Aggregates alone hide the individual executions | Sensitivity to parameter values (a 2 ms mean of 0.1 ms and 800 ms executions), patterns in time (N+1, bursts), which values an estimate misses, and what happened at a given moment are invisible | A sample of individual executions with their parameter values (*Sampled executions*) |
+| H20 | Expensive shapes are usually expensive because they run often | Capturing every execution of exactly those shapes is the worst case for volume (about 2 MB/s at 10,000 executions per second of 200 bytes [I]) | A probability of keeping an execution that falls as its shape runs more often |
+| H21 | That probability is higher at the start of a period | An unweighted sample is biased towards the start, which may be a cold cache after a restart | Each kept execution stores its probability; analysis weights it by 1/p and calibrates the weights to the exact count |
 
 ## The profile
 
@@ -140,22 +155,152 @@ information (P12) says so. Opening the main store never fails because of the pro
 
 At the end of each execution (cursor finished, dropped or failed) the executor hands one record to the profile sink
 (M6): shape id, plan id, outcome (rows, an error class, cancelled), duration on a monotonic clock, rows returned,
-logical pages touched, peak memory, bytes spilled, replans, and per node the estimated and actual rows with the
-completed flag (M1). With no sink, nothing is built.
+logical pages touched, peak memory, bytes spilled, replans, per node the estimated and actual rows with the
+completed flag (M1), the wall-clock time, the transaction's identity and the execution's ordinal within it, and the
+parameter values. With no sink, nothing is built.
 
-The sink adds the record to sharded in-memory accumulators keyed by (shape, plan) for the current interval: a hash
-lookup and a few additions under a shard's lock. The first time a shape or plan is seen, its canonical bytes are
-kept once, identified by hash with a full comparison after it (document 11). Per shape it also keeps the few worst
-executions of the interval by pages, with their parameter values when capture of values is on (question 1).
+The sink does two things with the record, both in memory and without waiting:
+
+1. It adds the record to the **aggregates** of (shape, plan) for the current interval (*Aggregates*). Every
+   execution counts there, exactly.
+2. It decides whether the record is also kept as a **sampled execution** (*Sampled executions*), with the probability
+   given by the shape's count of executions so far in the period.
+
+The first time a shape or plan is seen, its canonical bytes are kept once, identified by hash with a full comparison
+after it (document 11), in a **shape registry** shared by all threads and read almost always. Each entry holds the
+shape's period counter as an atomic integer: the same count serves the aggregates and the sampling decision.
+
+### Aggregates
+
+Every field of an aggregate must merge exactly, so that the accumulators of several threads, of several intervals
+and of several days combine without loss. Averages and percentiles are never stored, because they do not merge (the
+mean of means is wrong); they are derived when read.
+
+| Field | Merges by |
+|---|---|
+| Executions; errors by class; cancelled | sum |
+| Sums of duration, rows, pages and bytes spilled | sum |
+| Sums of squares of duration and pages (for the variance) | sum |
+| Minimum and maximum of duration and pages | minimum, maximum |
+| A log-linear histogram of duration and one of pages | sum per bucket |
+| A log-linear histogram of the shape's executions per transaction | sum per bucket |
+| Per node: completed executions; executions over 4×, under and over; maximum q-error | sum, maximum |
+
+**The histogram comes from the executions themselves**, not from the table's data: each execution adds 1 to the
+bucket its value falls in. The bucket limits are fixed in advance, the same in every thread, interval, day and
+machine, so merging two histograms adds their counters bucket by bucket. The buckets are log-linear, as in
+HdrHistogram [L]: for an integer value `x` (nanoseconds or pages) and `2^k` sub-buckets per power of two,
+
+```text
+octave = 63 - leading_zeros(x)                 // the power of two that holds x
+sub    = (x >> (octave - k)) & (2^k - 1)       // the k bits after the highest one
+bucket = octave * 2^k + sub
+```
+
+with values below `2^k` in buckets of their own, without error. A bucket is at most `1/2^k` of its value wide, so a
+percentile read at a bucket's midpoint is off by at most half that: 6.25 % with `k = 3`, 3.1 % with `k = 4`, 1.6 % with
+`k = 5`. Recommended: `k = 4`, bit arithmetic only. Purely geometric buckets (DDSketch [L]) reach a smaller error for
+the same count but need a logarithm per value. Durations from 100 ns to 1 h span about 35 powers of two, about 560
+possible buckets with `k = 4`; only the non-empty ones are stored, and a real shape fills a few powers of two [I]. A
+percentile `q` accumulates the counters in order until it reaches `q·N` and returns that bucket's midpoint.
+
+These histograms are not 7.3's statistics, which describe the values of a column and are built from a sample of the
+table; those serve here only to place a masked parameter value (question 1).
+
+The executions per transaction need a small map of shape to count in each transaction that runs queries, added to
+the aggregates when the transaction ends; a shape that runs 500 times in one transaction with different keys is an
+N+1, visible without keeping any execution [I]; its cost is to measure (*Experiments*).
+
+The aggregates are kept per thread, keyed by (shape, plan), behind a mutex that only the flush thread competes for,
+so it is almost never contended. Per execution the cost is the shape counter's atomic addition, one lookup in the
+thread's map and a few additions [I].
+
+### Sampled executions
+
+**Why a falling probability.** Expensive shapes are usually expensive because they run often (H20), so a fixed rate
+spends most of its budget on them, and a fixed-size sample per shape (a reservoir, Vitter's Algorithm R [L]) replaces
+rows already kept, which needs the sample held in memory until the period ends or rewritten in the profile, against
+fire and forget. Instead, each execution is kept or not when it ends, and a kept one is written once and forgotten:
+append only. The probability depends on `n`, the shape's count of executions so far in the period:
+
+$$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big)$$
+
+With `p_max = 1` the first `T` executions of each shape are all kept, so rare shapes are complete; then the
+probability falls as `T/n` until it reaches `p_min`. The rows kept for a shape with `N` executions in the period are,
+in expectation,
+
+$$E[S] \approx T + T\ln\frac{\min(N,\ T/p_{min})}{T} + p_{min}\cdot\max\big(0,\ N - T/p_{min}\big)$$
+
+a logarithmic growth (the harmonic series) in the `T/n` zone and a linear one at `p_min`. With `T = 1,000`,
+`p_min = 10⁻⁴` and 200 bytes per row [I]:
+
+| Executions per day | Rows kept | Size |
+|---|---|---|
+| 10⁴ | about 3,300 | 0.7 MB |
+| 10⁷ | about 10,200 | 2 MB |
+| 10⁸ | about 19,200 | 4 MB |
+| 10⁹ | about 109,000 | 22 MB |
+
+**The counter restarts every period** (a day as a start, [I]). Counting since the beginning would give today's
+executions a tiny probability, and this afternoon's regression, which is what the analysis looks for, would barely
+appear.
+
+**`p_min` keeps the end of the period visible.** Without it, the afternoon of a shape with 10⁹ executions a day is
+thinly sampled; with it, every hour keeps at least `p_min` times its executions. Its cost is linear in `N`, so it is
+set from a target of rows per hour for the most frequent shapes, or from a byte budget [I].
+
+**The weight.** A kept execution represents `1/p` executions: with `T = 1,000`, execution 500 (`p = 1`) represents
+itself, execution 10,000 (`p = 0.1`) represents 10, and execution 1,000,000 (`p = 0.001`) represents 1,000. Because
+the start of the period is kept with a higher probability, an unweighted sample is biased towards it (H21). Example: a
+shape whose first 1,000 executions take 50 ms (a cold cache) and whose next 999,000 take 1 ms. The sample keeps the
+1,000 slow ones and about 6,900 fast ones (the sum of `1000/n` from 1,001 to 10⁶). The true mean is
+(1,000·50 + 999,000·1) / 1,000,000 ≈ 1.05 ms; the unweighted mean of the sample is (1,000·50 + 6,900·1) / 7,900 ≈
+7.2 ms; weighted, the slow rows add 1,000 of weight and the fast ones about 999,000, so the mean is again about
+1.05 ms. Unweighted, the p95 would be 50 ms, since 12.7 % of the rows are slow; the true p95 is 1 ms. When a shape
+behaves the same through the period, weighted and unweighted agree; the weight matters exactly when behavior
+changes, which is what is looked for.
+
+Only `p` is stored, one number per row; the weight is computed when read. Totals use the Horvitz-Thompson estimator
+[L], means and ratios the Hájek estimator [L], percentiles a weighted cumulative sum. Since the aggregates know the
+exact `N` of each (shape, period), the weights are **calibrated** so that they add up to `N` exactly, a ratio
+estimator that lowers the variance at no cost. Totals always come from the aggregates; the sample gives detail and
+relations.
+
+**Effective size.** With unequal weights the effective size is Kish's `n_eff = (Σw)² / Σw²` [L]. For `p = T/n`,
+`E[Σw²] = Σ 1/p_i ≈ N²/(2T)` and `E[Σw] = N`, so `n_eff ≈ 2T`: over the whole period, the `T(1 + ln(N/T))` rows kept
+estimate as well as about `2T` uniform ones, and the extra rows give detail on the start of the period. `p_min`
+raises `n_eff`, because it stops the weights from growing.
+
+**Sizing `T`.** For a proportion `p` with margin `e` at confidence `z`, Cochran's formula [L] gives
+`T₀ = z²·p(1-p)/e²` and, with the finite population correction, `T = T₀ / (1 + (T₀-1)/P)`; the size hardly depends on
+`P` once `P` is much larger than `T₀`. At 95 % (`z = 1.96`) and `p = 0.5`, the worst case: ±5 % needs 385, ±2 % 2,401
+and ±1 % 9,604. A percentile `q`, whatever the distribution, has a rank whose variance is `q(1-q)/T`, so the p95
+within ±1 percentile point needs 1,825 and the p99 within ±0.2 points 9,508. A mean with relative error `ε` needs
+`(z·CV/ε)²`, which depends on the spread (`CV = σ/μ`; 1,537 for `CV = 1` and ±5 %, 13,830 for `CV = 3`), so means come
+from the exact aggregates. These sizes apply to the effective size and **to each subgroup analyzed**: splitting a
+shape's sample into 20 buckets of a parameter leaves each bucket with about a twentieth of it.
+
+**Outliers** are always kept, apart, with `p = 1` and a cap of their own: errors, executions with a q-error over 4×,
+and executions beyond the p95 of their shape in the previous interval. Past the cap they are sampled like the rest,
+with their probability stored.
+
+**A sampled row** holds the record of the sink (above), its `p`, whether it was kept as an outlier, and the parameter
+values, masked per column when question 1 asks for it.
 
 ### Flush
 
 Every interval (15 minutes as a start [I]; Query Store aggregates per 60 minutes and writes every 15 by default [V])
-the profile's background thread swaps the accumulators, merges the
-shards and writes the interval in one write transaction of the profile store, committed in deferred mode (J10). A
-crash loses at most the interval in flight, which is acceptable for statistics that need be neither exact nor
-current. If the write fails or the profile is slow, the next interval merges in memory up to a memory bound; past
-it the cheapest shapes are dropped and counted. A query never waits for any of this.
+the profile's background thread swaps the threads' aggregates and sample buffers, merges the aggregates and writes,
+in **one** write transaction of the profile store committed in deferred mode (J10), the interval's aggregates and the
+executions sampled since the last flush. A crash loses at most the interval in flight, which is acceptable for
+statistics that need be neither exact nor current; because both go in the same transaction, they are lost together,
+and a sample never exists without its aggregates. If the write fails or the profile is slow, the next interval
+merges in memory up to a memory bound; past it the cheapest shapes are dropped and counted. A query never waits for
+any of this.
+
+Because the aggregates merge exactly, retention loses resolution, never precision: 15-minute intervals for 7 days,
+then merged into hours and later into days, for 30 to 90 days (question 4). The sampled executions follow a retention
+of their own.
 
 ### Contents
 
@@ -166,11 +311,11 @@ Krummi tables in the profile store, so the tuner and the application can query t
 | `meta` | — | Format version, the main store's identity (H16), dropped counts, first and last interval |
 | `shapes` | shape id | Canonical shape bytes, table, first and last seen |
 | `plans` | plan id | Shape, plan bytes, origin (planner, directive, accepted), first and last seen |
-| `runtime` | plan, interval start | Executions; errors by class; cancelled; duration sum, minimum, maximum and a logarithmic histogram (for p95); rows; pages sum and maximum; peak memory; bytes spilled; replans |
+| `runtime` | plan, interval start | The aggregates of *Aggregates*; peak memory; replans |
 | `node_estimates` | plan, node, interval | Completed executions; maximum q-error; executions over 4×, under and over |
 | `predicate_feedback` | predicate signature, interval | Observations; under and over counts; maximum q-error; estimate source (statistics, sample, stale statistics); the statistics' modification counter |
 | `table_writes` | table, interval | Inserts, updates, deletes and bulk rows; per index, entries written, seeks, scans and rows read (M4) |
-| `samples` | shape, interval, rank | The worst executions with their parameter values, when capture of values is on |
+| `executions` | shape, period, wall-clock time, sequence | The sampled executions of *Sampled executions*, each with its `p` and outlier mark |
 | `directives` | predicate signature | Learned directives with their state (*Estimate feedback*) |
 
 Interval starts use the wall clock in UTC; durations use the monotonic clock. Retention follows question 4: old
@@ -277,8 +422,9 @@ machine, where a copy exists, everything can be measured and there is time:
    time, which is the window IX2 needs, the size and the write overhead); what could go wrong and how to revert it.
 2. **Answering by measuring.** To a question such as "why not an index on (a, b)?" it does not give an opinion: it
    asks the tuner to measure that candidate on the copy (T2) and answers with the result.
-3. **Proposing what the rules miss.** Patterns of the application visible in the profile: an N+1 (a burst of one
-   shape with different primary keys, answered by one `IN`), an expression index over JSON (document 14), a change of
+3. **Proposing what the rules miss.** Patterns of the application visible in the profile: an N+1 (one shape run
+   many times in one transaction with different primary keys, seen in the executions-per-transaction histogram and
+   in sampled executions that share a transaction, answered by one `IN`), an expression index over JSON (document 14), a change of
    schema. Each proposal enters the tuner as one more candidate (T1) and is measured like the others, so a weak
    proposer only costs evaluation time.
 4. **Summarizing** the daily report and grouping shapes by feature of the application.
@@ -348,9 +494,14 @@ A natural flow: the daily job runs `codex exec` or `claude -p` with the skill an
 
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
-| Every execution | Full detail; replay | Volume and overhead | Rejected |
-| Aggregates per interval | Bounded and cheap | Loses outliers | Part of the choice |
-| **Aggregates plus a sample of the worst executions** | Cheap, keeps what replay needs | Slightly more logic | **Chosen** |
+| Every execution | Full detail; replay | Volume, worst on the frequent shapes that matter most (H20) | Rejected |
+| Aggregates only | Bounded and cheap | Hide parameter sensitivity, patterns in time and the values that miss (H19) | Part of the choice |
+| Aggregates plus the worst executions | Cheap; keeps the tail | A replay measured on the tail overestimates the gain for the typical execution | Rejected |
+| Full capture of chosen shapes for a window | Every detail where it matters | The chosen shapes are the frequent ones, so it is the most expensive capture (H20) | Only as short windows of minutes, on demand, if ever needed |
+| Fixed-size sample per shape (reservoir) | Exact size; uniform | Replaces kept rows: holds the sample in memory or rewrites it, against fire and forget | Rejected |
+| Sample drawn per transaction | Keeps sequences | The interest is per query; sequences come from the executions-per-transaction histogram | Rejected |
+| Fixed summaries (heavy hitters, values per bucket) | Constant size; see every execution | Answer only the questions fixed in advance; an abstraction without a need yet | Rejected |
+| **Exact aggregates plus executions kept with a probability that falls with the shape's count** | Append only; rare shapes complete; logarithmic growth; any question can be asked later | A weight per row, calibrated, in every estimate | **Chosen** |
 
 **Learning from estimate misses**
 
@@ -392,13 +543,19 @@ practice.
   not tell the kinds apart.
 - M5. Shape and plan bytes that are **portable** across copies of a store. Already decided: identities and state tokens
   are random and kept (document 11, P12).
-- M6. A **sink** at the end of each execution that receives its record; with no sink, nothing is built.
+- M6. A **sink** at the end of each execution that receives its record, with the transaction's identity, the
+  execution's ordinal within it and the parameter values; with no sink, nothing is built.
 - M7. A place in the **catalog** for accepted directives and accepted plans.
 
 ## Costs
 
-- Per execution: the counters of document 8 (already per batch), one record, a hash lookup and additions under a
-  shard's lock [I]. Very short queries through the query interface are where this shows; to measure.
+- Per execution: the counters of document 8 (already per batch), one record, the shape counter's atomic addition, one
+  random number, a lookup in the thread's map and additions, one histogram bucket per measure (bit arithmetic), and
+  the transaction's map of shapes [I]. Very short queries through the query interface are where this shows; to
+  measure.
+- Sampled executions: `T(1 + ln(N/T))` rows per shape and period plus `p_min` times the executions past `T/p_min`
+  (*Sampled executions*), about 2 to 22 MB per day for one shape between 10⁷ and 10⁹ executions with `T = 1,000` and
+  `p_min = 10⁻⁴` [I].
 - The page counter of M3: one increment per page access [I]; to measure.
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
@@ -409,10 +566,11 @@ practice.
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Capture overhead on short queries | Slower point queries | Measure; sharded accumulators; sink off by option |
+| Capture overhead on short queries | Slower point queries | Measure; accumulators per thread; sink off by option |
+| An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
 | Wrong what-if recommendations | An index that does not help, or hurts writes | Write overhead in the evaluation; validation after applying; revert |
-| Parameter values in the profile | Sensitive data at rest | Off by default, bounded, encrypted with the store (question 1) |
+| Parameter values in the profile | Sensitive data at rest | Encrypted with the store; masking per column (question 1) |
 | A profile from another store | Wrong feedback | Main store identity in `meta` (H16) |
 | An index build blocks writers | Write stalls during a build | Never automatic; build time in the recommendation (H2) |
 | A model invents a number | A decision taken on a wrong figure | Every number cites its evidence and a deterministic check rejects a report that does not match |
@@ -426,12 +584,18 @@ practice.
 2. Cost of the page counter on W1-W32.
 3. Gain of a sampling directive on synthetic correlated columns without a shared index.
 4. Agreement between what-if and measured evaluation on the bench tables.
-5. Profile size per thousand shapes over 30 days of intervals.
+5. Profile size per thousand shapes over 30 days of intervals, and the sampled executions' size per day.
+6. Cost per execution of the sampling decision, the histograms and the transaction's map of shapes.
+7. Bias and variance of weighted, calibrated estimates against the exact aggregates, on a synthetic load whose
+   behavior changes late in the period (a regression in the afternoon).
 
 ## Product questions
 
-1. **Parameter values.** Recommended: off by default; when on, a bounded sample of the worst executions per shape,
-   encrypted with the store. Alternative: never stored, which limits the tuner to what-if.
+1. **Parameter values.** Recommended: kept by default in the sampled executions, encrypted with the store, with
+   masking per column: a column marked sensitive keeps, instead of its value, the bucket of its 7.3 histogram where
+   the value falls, which still serves to analyze sensitivity and estimates but not to replay with the exact value.
+   Alternative: off by default, which limits the tuner to what-if (H7). Changed 2026-11-21 after the user: "lo de no
+   guardar las ejecuciones individuales y los parámetros limitan bastante el análisis".
 2. **Profiling by default.** Recommended: capture on once M3 and M6 are measured as cheap; the tuner and automatic
    directives off until the application turns them on. Alternative: everything off by default.
 3. **Where the profile lives.** Recommended: a reserved subfolder of the store's folder (like `krummi.sort`), so it
@@ -444,7 +608,8 @@ practice.
    the store's background thread.
 7. **Automatic indexes.** Recommended: never, while IX2 holds the write turn. Alternative: automatic once an online,
    batched index build exists, with revert.
-8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval). Recommended: fixed defaults,
+8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 1,000`,
+   `p_max = 1`, `p_min = 10⁻⁴`, a day as the period and `k = 4`). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
@@ -479,3 +644,7 @@ AQO: https://github.com/postgrespro/aqo
 From knowledge, not fetched (sites that refuse automated fetches): the release dates of Oracle's cardinality
 feedback and its rename; Aboulnaga and Chaudhuri, "Self-tuning histograms: building histograms without looking at
 data", SIGMOD 1999; candidate merging in the Database Engine Tuning Advisor.
+
+Statistics and data structures from knowledge, not fetched: Cochran's sample size formula with the finite population
+correction; the Horvitz-Thompson and Hájek estimators; Kish's effective sample size; Vitter's reservoir sampling
+(Algorithm R); HdrHistogram's log-linear buckets; DDSketch's geometric buckets.
