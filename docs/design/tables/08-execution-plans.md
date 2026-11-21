@@ -257,6 +257,9 @@ Limit 20                              est 20      act 20      0.1 ms
 Per node: estimated rows (from the planner, or filled by the validator for an external plan), actual rows out, batches, time, peak memory, bytes spilled. Counters are
 incremented once per batch, not per row. PostgreSQL's `EXPLAIN` shows `rows`, `width` and cost per node and `ANALYZE` adds actual rows and loops; SQL Server's actual plan carries the same pair. The text is output only (DD9), never parsed back. Estimates that miss by a wide factor are
 visible here, which is the only feedback the user asked of a planner on estimates.
+*Annotation of 2026-11-21: no longer the only feedback. [Document 15](15-query-profile-and-tuning.md) keeps these
+counters in a query profile, learns sampling directives from repeated misses and adds a completed flag per node
+(M1), because the actual rows of a node that `Limit` or `TopK` stopped early are not its cardinality.*
 
 ## Costs and risks
 
