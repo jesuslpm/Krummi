@@ -36,7 +36,7 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
   estamos haciendo un rate limiter un poco esotérico" and, to adding it here, "Sí".
 - On new shapes: "Y qué pasa con una forma nueva?" and, to adding the counter per (shape, plan) and the trajectory,
   "Sí, agrégalo y haz el commit. Yo lo que sigo pensando es en el tramo incial. ¿No sería conveniente limitar el
-  número de guardados por segundo?".
+  número de guardados por segundo?" and, to adding the cap per entry and second, "Sí, agrégalo y haz el commit".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -144,6 +144,7 @@ Each gap names what it changes in the design.
 | H21 | That probability varies: a new shape starts high, a restart starts every shape again, a spike lowers the global factor | An unweighted sample is biased towards the executions kept with a higher probability, which may be a cold cache | Each kept execution stores its probability; analysis weights it by 1/p and calibrates the weights to the exact count |
 | H22 | A counter that restarts every period restarts every shape at once | A synchronized burst of sampled rows at the start of each period, about 10⁶ rows (200 MB) with 1,000 shapes and `T = 1,000` [I], with drops exactly then | A decayed count that never restarts, and a global budget that lowers the probability before the draw |
 | H23 | A new plan of a frequent shape is not a new shape | With a counter per shape, a plan regression is sampled with the shape's low steady probability, exactly when detail is needed | The counter is kept per (shape, plan); shapes that re-plan on every call keep one per shape |
+| H24 | The global factor acts only on the total | One entry can still spend its first rows in a fraction of a second: a load on the profile at one moment, and a start portrayed by its first instant | A cap of `R` rows per second per (shape, plan), applied before the draw |
 
 ## The profile
 
@@ -230,10 +231,10 @@ thread's map and a few additions [I].
 spends most of its budget on them, and a fixed-size sample per shape (a reservoir, Vitter's Algorithm R [L]) replaces
 rows already kept, which needs the sample held in memory until the period ends or rewritten in the profile, against
 fire and forget. Instead, each execution is kept or not when it ends, and a kept one is written once and forgotten:
-append only. The probability depends on `n`, the shape's **decayed count** of recent executions, and on a global
-factor `g` (below):
+append only. The probability depends on `n`, the entry's **decayed count** of recent executions, on `c`, its
+executions per second (*A cap per entry and second*), and on a global factor `g` (below):
 
-$$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big) \qquad p_{draw} = g \cdot p(n)$$
+$$p(n) = \min\Big(p_{max},\ \max\big(p_{min},\ \tfrac{T}{n}\big)\Big) \qquad p_{draw} = g \cdot \min\Big(\frac{R}{c},\ p(n)\Big)$$
 
 **The count decays and never restarts.** At each flush the profile thread multiplies every counter by
 `e^(−Δt/τ)`, with `τ` = 1 day as a start [I], one operation per shape and interval, so `n` approximates the shape's
@@ -276,6 +277,24 @@ counter per shape, so that each re-planning does not count as a new plan.
 every shape back at `p = 1` together: with 1,000 active shapes and `T = 1,000`, about 10⁶ rows (200 MB) in the first
 seconds or minutes of each period [I], with the buffers filling and dropping exactly then. It is a fixed-window rate
 limiter, biased towards the start of each window; the decayed count is its sliding-window counterpart.
+
+**A cap per entry and second** (H24). `g` is global and acts only when the total demand passes the budget `B`, so it
+does not stop one entry from spending its first rows in a few seconds: at 100 executions per second the first
+2,000 rows take 20 s, at 10,000 per second 0.2 s, a load on the profile at one moment and a start portrayed by its
+first instant instead of its first minutes. A cap of `R` rows per second per (shape, plan) is one more factor before
+the draw: `c` is the larger of the entry's executions in the previous second and in the current second so far. The
+larger of the two covers an entry's first second, which has no previous one: within it `p` falls as `R/c`, so it
+keeps about `R(1 + ln(λ/R))` rows, about 79 with `λ` = 10,000 per second and `R = 10` [I]. It is unbiased, because it
+brakes before the draw and the resulting probability is stored. It bites only at starts and spikes: with `R = 10`
+an entry may keep up to 864,000 rows a day, far above `T`. With `λ` = 100 per second and `T = 2,000`:
+
+| | Without the cap | With `R = 10` |
+|---|---|---|
+| The first 2,000 rows | in 20 s | in about 200 s |
+| Rows in the first 200 s | about 6,600 | about 2,000 |
+
+Its cost is one counter of the current second per entry; once a second the profile thread moves it to the previous
+second and sets it to zero, a pass over the active entries that stays cheap with thousands of them [I].
 
 **`p_min` gives the most frequent shapes more rows than `T`**, which the analysis of subgroups needs (*Sizing `T`*);
 its cost is linear in `N`, so it is set from a target of rows for those shapes or from a byte budget [I].
@@ -610,7 +629,8 @@ practice.
   measure.
 - Sampled executions: about `max(T, p_min·N)` rows per steady shape and day, and `T(1 + ln(N/T))` in a new shape's
   first day (*Sampled executions*): 0.4 to 20 MB per day for one shape between 10⁴ and 10⁹ executions with
-  `T = 2,000` and `p_min = 10⁻⁴` [I], never more than `B` rows per second overall.
+  `T = 2,000` and `p_min = 10⁻⁴` [I], never more than `R` rows per second per (shape, plan) nor `B` overall; one
+  counter of the current second per entry, reset once a second by the profile thread.
 - The page counter of M3: one increment per page access [I]; to measure.
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
@@ -644,7 +664,8 @@ practice.
 6. Cost per execution of the sampling decision, the histograms and the transaction's map of shapes.
 7. Bias and variance of weighted, calibrated estimates against the exact aggregates, on a synthetic load whose
    behavior changes late in the period (a regression in the afternoon).
-8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load.
+8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load; the
+   spread of a new entry's first rows over time with the cap `R`.
 
 ## Product questions
 
@@ -666,7 +687,7 @@ practice.
 7. **Automatic indexes.** Recommended: never, while IX2 holds the write turn. Alternative: automatic once an online,
    batched index build exists, with revert.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
-   `p_max = 1`, `p_min = 10⁻⁴`, `τ` = 1 day, the budget `B` and `k = 4`). Recommended: fixed defaults,
+   `p_max = 1`, `p_min = 10⁻⁴`, `τ` = 1 day, the cap `R = 10` per entry and second, the budget `B` and `k = 4`). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
