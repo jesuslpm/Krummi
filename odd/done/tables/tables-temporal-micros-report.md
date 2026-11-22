@@ -1,7 +1,7 @@
 # Valores temporales en microsegundos: terminado y verificado, sin fusionar
 
 Informe de cierre de `tables-temporal-micros` (2026-11-22). Enfoque de ejecución: ODD.
-Fuente de producto: [tables-temporal-micros.prd.md](../../docs/prd/krummi/tables/tables-temporal-micros.prd.md).
+Fuente de producto: [tables-temporal-micros.prd.md](../../../docs/prd/krummi/tables/tables-temporal-micros.prd.md).
 Documento de ejecución: [tables-temporal-micros.md](tables-temporal-micros.md).
 
 Rama `feat/tables-json` (la del PRD), commits `c813083..fa081f6`, más el de este informe y el del archivado. No se
@@ -25,8 +25,8 @@ fusionó ni se publicó nada.
 - **Revisiones y verificación:**
   - RDD aprobó los tres tramos (*Revisiones RDD*).
   - Codex aprobó el código en la primera ronda, sin hallazgos:
-    [informe](../../docs/reviews/tables-temporal-micros/2026-11-22-code.md) y
-    [resoluciones](../../docs/reviews/tables-temporal-micros/2026-11-22-code-resolutions.md).
+    [informe](../../../docs/reviews/tables-temporal-micros/2026-11-22-code.md) y
+    [resoluciones](../../../docs/reviews/tables-temporal-micros/2026-11-22-code-resolutions.md).
   - No hubo verificador independiente: el cambio de API es el pedido, así que no es un ítem de alto riesgo (*Riesgo*).
 - **Hallazgos corregidos por el camino:**
   - Las cuatro sugerencias del primer RDD, atendidas en `3a5ed50`.
