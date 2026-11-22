@@ -123,6 +123,32 @@ mod writer_check_tests;
 #[cfg(test)]
 mod written_pages_tests;
 
+/// The usage guides in `docs/guides/`: every Rust example in them runs as a doctest of this crate.
+#[cfg(doctest)]
+mod guides {
+    macro_rules! guide {
+        ($name:ident, $file:literal) => {
+            #[doc = include_str!(concat!("../../../docs/guides/", $file))]
+            struct $name;
+        };
+    }
+
+    guide!(GettingStarted, "getting-started.md");
+    guide!(Stores, "stores.md");
+    guide!(Transactions, "transactions.md");
+    guide!(Errors, "errors.md");
+    guide!(Trees, "trees.md");
+    guide!(MultiValueTrees, "multi-value-trees.md");
+    guide!(FixedSizeTrees, "fixed-size-trees.md");
+    guide!(Tables, "tables.md");
+    guide!(Rows, "rows.md");
+    guide!(SequencesAndIds, "sequences-and-ids.md");
+    guide!(DataTypes, "data-types.md");
+    guide!(Json, "json.md");
+    guide!(Indexes, "indexes.md");
+    guide!(Statistics, "statistics.md");
+}
+
 /// Options for opening a store.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StoreOptions {
