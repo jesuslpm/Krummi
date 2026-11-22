@@ -77,9 +77,13 @@ the parent works inline.
   under the bench power plan. Windows ran from 2026-11-22T08:20:04Z to 08:42:53Z, Linux (WSL 2 Ubuntu, `~/tm`) from
   08:47:16Z to 09:47:30Z. Every load's data digests matched between base and head on both systems (K4: no «digests
   differ»), and both passes exited 0. The ratio is the base time over the head time, so above 1 means the head is
-  faster. With one round, ratios away from 1 are not confirmed. The ones beyond ±3 % move in both directions
-  among loads that never touch a temporal value (W12 1.322 and W19 0.925 on Linux, W9 1.348 on Windows). They are not
-  attributed to the change. The ten-round confirmation was dropped by the user (L10).
+  faster. Only W23–W32 touch temporal values: they are the table loads (`crates/krummi-bench/src/worker/tables.rs`),
+  and every row has the `timestamp` column `ts`. Beyond ±3 % among them: Windows W32 1.089; Linux W23 0.923, W25
+  1.070, W27 1.031 and W28 1.043. The same load does not move the same way on both systems (W23 1.024 on Windows,
+  0.923 on Linux), and loads that never touch a temporal value move as much or more (Windows W9 1.348, W12 1.132,
+  W17 1.179; Linux W12 1.322, W13 1.219, W16 1.164, W17 0.891, W19 0.925). With one round none of these ratios is
+  confirmed, and none is attributed to the change. The ten-round confirmation that N11 asks for was dropped by the
+  user (L10).
 
 | Load | Windows base (ns) | Windows head (ns) | Windows ratio | Linux base (ns) | Linux head (ns) | Linux ratio |
 |---|---:|---:|---:|---:|---:|---:|
@@ -115,3 +119,7 @@ the parent works inline.
 | W30 | 18,284.5 | 18,323.7 | 0.998 | 26,522.9 | 26,441.7 | 1.003 |
 | W31 | 3,410.2 | 3,386.7 | 1.007 | 3,224.0 | 3,273.6 | 0.985 |
 | W32 | 1,162.0 | 1,067.4 | 1.089 | 1,227.1 | 1,227.3 | 1.000 |
+
+- **L12** — RDD of `8d749f6..8d70b7f` (readability, docs only): approved, `review-b35b832d6dae30af`, one SUGGESTION,
+  acted on: R2-001 (L11 named only three of the ratios beyond ±3 % and did not say which loads touch temporal values;
+  L11 now names them).
