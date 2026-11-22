@@ -707,7 +707,8 @@ any other variant fails with `ValueRule::WrongType`. What it does do, when it wr
 
 | Done when writing | Example |
 |---|---|
-| `-0` as `+0`, every NaN as one NaN, in `f32`, `f64` and inside vectors | `Value::F64(-0.0)` reads back `0.0` |
+| `-0` as `+0` and every NaN as one NaN, in `f32` and `f64` | `Value::F64(-0.0)` reads back `0.0` |
+| `-0` as `+0` inside vectors, which never hold a NaN or an infinity (`VectorNotFinite`) | an `f32` element `-0.0` reads back `0.0` |
 | a `decimal` at the column's scale, ties away from zero | 1.235 in `decimal(10, 2)` reads back 1.24 |
 | a `time`, `timestamp` or `duration` to the microsecond, ties up ([why](#nanoseconds-in-your-code-microseconds-in-the-store)) | 500 ns reads back 1,000 ns |
 | a JSON document to its normalized text | `{ "a" : 1 }` reads back `{"a":1}` ([JSON columns](json.md)) |
