@@ -27,8 +27,8 @@ the conversions that Krummi does or refuses. Creating tables and storing rows ar
 | `vector(e, d)` | `Vector(VectorType)` | `Vector(Cow<[u8]>)` | none (`value`, `get`) | dimension 1 to 4,096; finite elements | not ordered: never in a key |
 | `json` | `Json` | `Json(Json)` | `json` | a valid JSON document | not ordered: never in a key |
 
-`time`, `timestamp` and `duration` are stored in microseconds; their `Value` carries nanoseconds so that a finer value
-is rounded when it is written, not before. Every type lives in `krummi::table::value`, except `Uuid` and `Ulid`
+For `time`, `timestamp` and `duration` you always give and read nanoseconds, but Krummi keeps them to the
+microsecond: see [Nanoseconds in your code, microseconds in the store](#nanoseconds-in-your-code-microseconds-in-the-store). Every type lives in `krummi::table::value`, except `Uuid` and `Ulid`
 (`krummi::ids`) and `Json` (`krummi::table::json`).
 
 ## Steps
@@ -336,8 +336,7 @@ The four temporal types have no time zone and no calendar library behind them: y
 | `duration` | `Duration(i128)` | nanoseconds, signed | microseconds | `-DURATION_MAX` to `DURATION_MAX` (922,337,203,685,477,580), in microseconds |
 
 - **Rounding**: a `time`, `timestamp` or `duration` with a fraction below the microsecond is rounded to the nearest
-  microsecond, with ties toward the greater value (−1.5 µs gives −1 µs). A value read back is always a whole number
-  of microseconds, in nanoseconds.
+  microsecond, with ties toward the greater value (−1.5 µs gives −1 µs). The next section explains why.
 - **Time zones**: a `timestamp` is an instant in UTC; Krummi stores no offset or zone. Convert local times to UTC
   before you give them. (A JSON document's instants with an offset are converted by `as_timestamp`, see
   [JSON columns](json.md).)
@@ -400,6 +399,79 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert_row(&t, &[("day", Value::Date(0)), ("opens", Value::Time(86_400 * SECOND))])
         .unwrap_err();
     assert!(matches!(error, Error::InvalidValue { rule: ValueRule::OutOfDomain, .. }));
+    Ok(())
+}
+```
+
+### Nanoseconds in your code, microseconds in the store
+
+`time`, `timestamp` and `duration` have two numbers that are easy to mix up: the **unit** of the value you handle
+and the **precision** Krummi keeps.
+
+| | Unit | Where you meet it |
+|---|---|---|
+| What you give and read | **nanoseconds** | `Value::Time`, `Value::Timestamp`, `Value::Duration`; `row.time`, `row.timestamp`, `row.duration`; range bounds |
+| What the store keeps | **microseconds** (6 digits after the second) | the rows and keys on disk; the constants `TIME_MAX`, `TIMESTAMP_MIN`, `TIMESTAMP_MAX`, `DURATION_MAX` |
+
+The unit you handle never changes: you write nanoseconds and you read nanoseconds. What changes is the precision:
+Krummi rounds every value to the nearest microsecond when it writes it, so a value read back is always a multiple of
+1,000 ns. The precision kept is that of a `datetime2(6)` in SQL Server or a `timestamp` in PostgreSQL.
+
+**Why the value carries nanoseconds.** Rust's clocks and durations count in nanoseconds
+(`std::time::Duration::as_nanos`, `SystemTime::duration_since`), and .NET's ticks are 100 ns. With nanoseconds in the
+value you pass those numbers as they are, and Krummi rounds them once, with one rule (nearest microsecond, ties
+toward the greater value), before it checks the domain. If the value carried microseconds, each application would
+have to divide first, and truncating, flooring and rounding would store different values for the same instant.
+
+**What it means for your code:**
+
+1. Convert to nanoseconds, never to microseconds, before you build a `Value`.
+2. Expect the value read back to differ from the one given when it had a fraction of a microsecond: compare stored
+   values with each other, or round your own value to the microsecond before comparing.
+3. The domain constants are in microseconds, the unit of what is kept: multiply them by 1,000 to compare them with a
+   `Value` (`i128::from(TIMESTAMP_MAX) * 1_000` is the last instant, in nanoseconds).
+
+```rust
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use krummi::table::value::{ColumnType, TIME_MAX, TIMESTAMP_MAX, Value};
+use krummi::{Column, Schema, Store, StoreOptions, TableMode};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let store = Store::open_temporary(&StoreOptions::default())?;
+    let mut write = store.write()?;
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::U64).not_null(),
+            Column::new("at", ColumnType::Timestamp),
+            Column::new("took", ColumnType::Duration),
+        ],
+        &["id"],
+    );
+    let t = write.open_table_with("runs", TableMode::CreateNew(&schema))?;
+
+    // Rust's clock and durations already give nanoseconds: pass them unchanged.
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as i128;
+    let took = Duration::from_nanos(1_234_567).as_nanos() as i128; // 1.234567 ms
+    write.insert_row(
+        &t,
+        &[("id", Value::U64(1)), ("at", Value::Timestamp(now)), ("took", Value::Duration(took))],
+    )?;
+
+    {
+        let row = write.get_row(&t, &[Value::U64(1)])?.expect("inserted");
+        // Read back in nanoseconds, rounded to the microsecond: always a multiple of 1,000.
+        let at = row.timestamp(1).expect("not null");
+        assert_eq!(at % 1_000, 0);
+        assert!((at - now).abs() <= 500);
+        assert_eq!(row.duration(2), Some(1_235_000)); // 1,234,567 ns rounds to 1,235 µs
+    }
+
+    // The constants are microseconds: multiply by 1,000 to get the nanoseconds of a value.
+    let last_time = Value::Time(TIME_MAX * 1_000); // 23:59:59.999999
+    assert_eq!(last_time.to_string(), "23:59:59.999999");
+    let last_instant = i128::from(TIMESTAMP_MAX) * 1_000;
+    assert_eq!(Value::Timestamp(last_instant).to_string(), "9999-12-31T23:59:59.999999Z");
     Ok(())
 }
 ```
@@ -637,7 +709,7 @@ any other variant fails with `ValueRule::WrongType`. What it does do, when it wr
 |---|---|
 | `-0` as `+0`, every NaN as one NaN, in `f32`, `f64` and inside vectors | `Value::F64(-0.0)` reads back `0.0` |
 | a `decimal` at the column's scale, ties away from zero | 1.235 in `decimal(10, 2)` reads back 1.24 |
-| a `time`, `timestamp` or `duration` to the microsecond, ties up | 500 ns reads back 1,000 ns |
+| a `time`, `timestamp` or `duration` to the microsecond, ties up ([why](#nanoseconds-in-your-code-microseconds-in-the-store)) | 500 ns reads back 1,000 ns |
 | a JSON document to its normalized text | `{ "a" : 1 }` reads back `{"a":1}` ([JSON columns](json.md)) |
 
 What it refuses:

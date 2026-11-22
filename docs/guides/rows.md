@@ -272,6 +272,9 @@ type (a fault of the program); `value` reads any column.
 | `bytes` | `bytes` | `Cow<[u8]>` |
 | `json` | `json` | `krummi::table::json::Json` (see [JSON](json.md)) |
 
+The three temporal accessors return nanoseconds rounded to the microsecond, always a multiple of 1,000: see
+[Nanoseconds in your code, microseconds in the store](data-types.md#nanoseconds-in-your-code-microseconds-in-the-store).
+
 A `decimal` or vector column is read with `value`/`get`, or with a [projection](#projections).
 
 Reads do not check a row's content: a row that is malformed in a page whose checksum is valid can read a value other
