@@ -76,6 +76,10 @@ de Krummi, para que los dos motores devuelvan las mismas filas en el mismo orden
 W31 y W32 empiezan en el almacén que deja W30, cada una en su copia (K4). El tamaño del almacén (K9) se mide también tras
 W30. W31 y W32 calculan en los dos motores la suma de comprobación de W26 y W27 y la comparan con la esperada.
 
+*Anotaciones del 2026-11-22 desde los valores temporales en microsegundos ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md)):*
+
+- *IX9: un valor temporal de un límite de un intervalo ya está en microsegundos y no se redondea (TU3).*
+
 ### Estado de partida
 
 Verificado el 2026-11-16 en el código y en los documentos de diseño:

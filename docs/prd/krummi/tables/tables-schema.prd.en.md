@@ -149,6 +149,14 @@ authoritative):*
   read scale; invalid JSON also carries the cause, the position and the pointer (JS6, JS7, JS8).*
 - *E20: the format version becomes 14 (JS12).*
 
+*Annotations of 2026-11-22 from the temporal values in microseconds ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md), Spanish, authoritative):*
+
+- *E8: a temporal value given is already in microseconds and is stored without rounding (TU3); the sentence on
+  rounding an instant, a time or a duration with a fraction below the microsecond remains only for the instant read
+  from a JSON text (TU4), and the 2026-11-11 annotation on the time of −500 ns no longer applies. AC6: its temporal
+  values below the microsecond (0001-01-01T00:00:00.0000005Z and 9999-12-31T23:59:59.9999995Z) can no longer be
+  given; the `decimal` part does not change.*
+
 ### Starting state
 
 - There are no tables or sequences in the code: the catalog stores normal, multi-value and fixed-size trees, each

@@ -121,6 +121,11 @@ authoritative):*
   data and the precedence of its errors (JS8); the change is incompatible and the format version becomes 14 (JS12);
   and there are no new benchmark loads, but an informative measurement in the closing report (JS13).*
 
+*Annotations of 2026-11-22 from the temporal values in microseconds ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md), Spanish, authoritative):*
+
+- *N4: the values of `time`, `timestamp` and `duration` that the application gives and reads are in microseconds,
+  the resolution they are stored with, in signed 64-bit integers (TU1, TU2).*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

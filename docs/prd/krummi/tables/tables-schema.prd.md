@@ -137,6 +137,14 @@ cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
   JS8).*
 - *E20: la versión del formato pasa a 14 (JS12).*
 
+*Anotaciones del 2026-11-22 desde los valores temporales en microsegundos ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md)):*
+
+- *E8: un valor temporal dado ya está en microsegundos y se guarda sin redondear (TU3); la frase del redondeo de un
+  instante, una hora o una duración con fracción por debajo del microsegundo queda solo para el instante leído de un
+  texto JSON (TU4), y la anotación del 2026-11-11 de la hora de −500 ns deja de aplicarse. AC6: sus valores temporales
+  por debajo del microsegundo (0001-01-01T00:00:00.0000005Z y 9999-12-31T23:59:59.9999995Z) ya no se pueden dar; la
+  parte de `decimal` no cambia.*
+
 ### Estado de partida
 
 - No hay tablas ni secuencias en el código: el catálogo guarda árboles normales, multivalor y de tamaño fijo, cada

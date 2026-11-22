@@ -81,6 +81,10 @@ their bytes is that of Krummi, so that both engines return the same rows in the 
 W31 and W32 start in the store that W30 leaves, each one in its own copy (K4). The size of the store (K9) is also
 measured after W30. W31 and W32 compute in both engines the checksum of W26 and W27 and compare it with the expected one.
 
+*Annotations of 2026-11-22 from the temporal values in microseconds ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md), Spanish, authoritative):*
+
+- *IX9: a temporal value of a bound of an interval is already in microseconds and is not rounded (TU3).*
+
 ### Starting state
 
 Verified on 2026-11-16 in the code and in the design documents:

@@ -74,6 +74,11 @@ desde que se creó (ST4).
   la regla columna vector (JS10).*
 - *ST18: «las columnas que no son vector» excluye también las columnas JSON (JS10).*
 
+*Anotaciones del 2026-11-22 desde los valores temporales en microsegundos ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md)):*
+
+- *ST2: un valor temporal de una condición ya está en microsegundos y no se redondea; los valores temporales de las
+  estadísticas se devuelven en microsegundos (TU1, TU3).*
+
 ### Estado de partida
 
 Verificado el 2026-11-19 en el código y en los documentos de diseño:

@@ -78,6 +78,11 @@ authoritative):*
   place of the rule vector column (JS10).*
 - *ST18: "the columns that are not vector" also excludes JSON columns (JS10).*
 
+*Annotations of 2026-11-22 from the temporal values in microseconds ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md), Spanish, authoritative):*
+
+- *ST2: a temporal value of a condition is already in microseconds and is not rounded; the temporal values of the
+  statistics are returned in microseconds (TU1, TU3).*
+
 ### Starting state
 
 Verified on 2026-11-19 in the code and in the design documents:

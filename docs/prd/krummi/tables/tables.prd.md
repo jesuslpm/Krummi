@@ -117,6 +117,11 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
   formato pasa a 14 (JS12); y no hay cargas nuevas del banco, sino una medición informativa en el informe de cierre
   (JS13).*
 
+*Anotaciones del 2026-11-22 desde los valores temporales en microsegundos ([tables-temporal-micros.prd.md](tables-temporal-micros.prd.md)):*
+
+- *N4: los valores de `time`, `timestamp` y `duration` que la aplicación da y lee están en microsegundos, la
+  resolución con que se guardan, en enteros de 64 bits con signo (TU1, TU2).*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:
