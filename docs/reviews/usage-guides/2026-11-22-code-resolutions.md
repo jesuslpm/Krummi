@@ -41,3 +41,10 @@ on top of the reviewed head `62e544d`.
 Review record: [2026-11-22-code.md](2026-11-22-code.md), wrapper status `findings` (R1, R2), threadId
 `01a201e3-ccc8-7863-9695-5d99a53ffbd2`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
 `gpt-6.1-sol` / `high`.
+
+## 2026-11-22 (verification)
+
+Follow-up report: [2026-11-22-code-02.md](2026-11-22-code-02.md), wrapper status `approved`, threadId
+`01a201fc-4812-71c0-8561-1875ad8379b6`; telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `gpt-6.1-sol` /
+`high`. Verdict, quoted: «Approved: R1 and R2 verified resolved; no open findings or regressions in the requested
+follow-up scope.»
