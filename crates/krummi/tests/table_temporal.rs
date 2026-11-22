@@ -3,10 +3,18 @@
 //! bytes that rows and primary keys store are the ones Krummi stored before the change (AC-TU4). The expected bytes were
 //! captured from the code before the change, when values were given in nanoseconds.
 
+use std::ops::Bound::{Excluded, Included, Unbounded};
+
+use krummi::table::json::Json;
 use krummi::table::key::encode_key;
+use krummi::table::projection::{Duration as ProjectedDuration, Time, Timestamp};
 use krummi::table::row::{RowColumn, RowLayout};
 use krummi::table::value::{
     ColumnType, DURATION_MAX, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN, Value,
+};
+use krummi::{
+    Column, Condition, Error, ErrorKind, IndexDefinition, IndexKey, IndexMode, Schema, SchemaRule,
+    Store, StoreOptions, TableMode, ValueRule,
 };
 
 /// The value of a `time` of `micros` microseconds since midnight.
@@ -118,15 +126,6 @@ fn rows_store_the_bytes_stored_before_the_change() {
 
 // ---------------------------------------------------------------------------------------------------------------
 // AC-TU1–AC-TU3, AC-TU5 and AC-TU6: the public API in microseconds.
-
-use std::ops::Bound::{Excluded, Included, Unbounded};
-
-use krummi::table::json::Json;
-use krummi::table::projection::{Duration as ProjectedDuration, Time, Timestamp};
-use krummi::{
-    Column, Condition, Error, ErrorKind, IndexDefinition, IndexKey, IndexMode, Schema, SchemaRule,
-    Store, StoreOptions, TableMode, ValueRule,
-};
 
 /// The table of the acceptance tests: a `u64` key and one column of each temporal type, each with its index.
 fn temporal_table(store: &Store) -> Result<(), Error> {
@@ -457,4 +456,23 @@ fn text_forms_and_duplicate_keys_keep_their_text() {
             other => panic!("{other:?}"),
         }
     }
+}
+
+/// A key whose integer does not fit in an `i64`, such as one written for `u64::MAX`, is not a temporal key Krummi
+/// writes: decoding it as a `time`, `timestamp` or `duration` refuses it.
+#[test]
+fn keys_whose_integer_does_not_fit_in_an_i64_are_not_temporal_keys() {
+    let key = encode_key(&[ColumnType::U64], &[Value::U64(u64::MAX)]).unwrap();
+    for ty in [
+        ColumnType::Time,
+        ColumnType::Timestamp,
+        ColumnType::Duration,
+    ] {
+        assert_eq!(krummi::table::key::decode_key(&[ty], &key), None, "{ty:?}");
+    }
+    let fits = encode_key(&[ColumnType::I64], &[Value::I64(TIMESTAMP_MAX)]).unwrap();
+    assert_eq!(
+        krummi::table::key::decode_key(&[ColumnType::Timestamp], &fits),
+        Some(vec![Value::Timestamp(TIMESTAMP_MAX)])
+    );
 }

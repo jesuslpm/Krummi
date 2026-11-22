@@ -373,10 +373,9 @@ impl Value<'_> {
 }
 
 /// Validates `value` for a column of type `ty` that allows nulls when `nullable` and returns it normalized, or the
-/// first rule it breaks in the order of E17: null not allowed, wrong type, out of domain (of a `decimal`, also after
-/// rounding),
-/// decimal precision, vector dimension, NaN or infinity in a vector, zero vector with the cosine metric; and, in a
-/// JSON column, a text that is not a JSON document (JS8 of the JSON columns PRD).
+/// first rule it breaks in the order of E17: null not allowed, wrong type, out of domain, decimal precision (after
+/// rounding to the column's scale), vector dimension, NaN or infinity in a vector, zero vector with the cosine metric;
+/// and, in a JSON column, a text that is not a JSON document (JS8 of the JSON columns PRD).
 ///
 /// Normalization (N4, E7, E8): `-0` becomes `+0` and every NaN the one canonical NaN in `f32` and `f64`, and `-0`
 /// becomes `+0` inside `f32` and `f16` vectors and in an `i8` vector's scale; a `decimal` is rounded to the column's

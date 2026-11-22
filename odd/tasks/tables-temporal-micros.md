@@ -55,3 +55,8 @@ the parent works inline.
   reads identical to it.
 - **L6** — Checks: fmt and clippy pass; `cargo test --workspace` 63 binaries, 1,221 passed, 0 failed, 35 ignored
   (before removing two needless `drop` calls that clippy flagged in the new test file; that test passes after).
+- **L7** — RDD of `c813083..41043c7` (reliability, readability): approved, `review-3cad7342c5da613f`, four
+  SUGGESTIONs, all acted on in the next commit: R2-rounded-table-misnamed (the AC6 test of 7.1 and its table renamed),
+  R2-normalize-doc-wrap (the doc of `normalize` rewrapped), R2-midfile-imports (the imports of `table_temporal.rs`
+  moved to the top), R3-001 (a test that a key whose integer does not fit in an `i64` does not decode as a temporal
+  value).

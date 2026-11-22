@@ -1494,7 +1494,7 @@ fn ac_n2_values_at_the_limits_of_their_types() {
 /// `decimal(4, 2)` fails with an invalid value. Temporal values are given in microseconds and kept as given (the
 /// 2026-11-22 annotation of AC6, TU3 of the temporal values in microseconds PRD).
 #[test]
-fn ac6_domains_and_rounding_through_a_table() {
+fn ac6_domains_and_decimal_rounding_through_a_table() {
     stores(|store, folder| {
         let schema = Schema::new(
             vec![
@@ -1580,8 +1580,8 @@ fn ac6_domains_and_rounding_through_a_table() {
             invalid_value(error, folder),
             (some("t"), some("dec"), ValueRule::DecimalPrecision)
         );
-        // Rounding: decimals with ties away from zero; temporal values are kept as given.
-        let rounded: [(&str, Value<'_>, Value<'_>); 5] = [
+        // Decimals rounded with ties away from zero, and a timestamp kept as given (TU3).
+        let given_and_read: [(&str, Value<'_>, Value<'_>); 5] = [
             (
                 "dec",
                 Value::Decimal(Decimal {
@@ -1632,7 +1632,7 @@ fn ac6_domains_and_rounding_through_a_table() {
                 Value::Timestamp(TIMESTAMP_MIN + 1),
             ),
         ];
-        for (i, (column, given, read)) in rounded.iter().enumerate() {
+        for (i, (column, given, read)) in given_and_read.iter().enumerate() {
             let id = Value::I64(200 + i as i64);
             write
                 .insert_row(&table, &[("id", id.clone()), (column, given.clone())])
