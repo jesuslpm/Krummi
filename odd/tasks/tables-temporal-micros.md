@@ -60,3 +60,6 @@ the parent works inline.
   R2-normalize-doc-wrap (the doc of `normalize` rewrapped), R2-midfile-imports (the imports of `table_temporal.rs`
   moved to the top), R3-001 (a test that a key whose integer does not fit in an `i64` does not decode as a temporal
   value).
+- **L8** — Codex code review of `c813083..3a5ed50` ([report](../../docs/reviews/tables-temporal-micros/2026-11-22-code.md),
+  [resolutions](../../docs/reviews/tables-temporal-micros/2026-11-22-code-resolutions.md)): approved on round 1, no
+  findings.
