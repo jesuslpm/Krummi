@@ -26,7 +26,7 @@ Real start: 2026-11-22 07:08:13 +00:00.
 | T1 | S1 (AC-TU4) | pin the stored bytes of temporal rows, keys and index entries with the base code | inline | done | `f36b0eb` |
 | T2 | S1 (TU1–TU6, AC-TU1–AC-TU6) | values in microseconds as `i64` everywhere, no rounding of given values, JSON instant in µs, tests | inline | done | T2+T3 commit |
 | T3 | S1 (TU8, AC-TU8) | guides and API docs with one unit | inline | done | T2+T3 commit |
-| T4 | S2 | measurements, Windows and Linux | inline, background runs | pending | |
+| T4 | S2 | measurements, Windows and Linux (one round, L10) | inline, background runs | done | no code; results in L11 |
 | T5 | S3 | checks, RDD, Codex review, closing report | inline | pending | |
 
 Route evidence: one behavior (the unit of temporal values) with its tests; no parallel units and no writer reason, so
@@ -70,3 +70,48 @@ the parent works inline.
   `decimal(4, 2)`), which is what the doc now says. R3-temporal-key-test-attribution (SUGGESTION): `u64::MAX` is
   refused both because it does not fit in an `i64` and because it is outside every temporal domain; the test pins the
   refusal, not its cause.
+- **L10** (2026-11-22, user): «No hagas las diez rondas». T4 keeps only the one-round pass of W1–W32 on each system.
+  The Windows ten-round run had already ended at once without measuring (`pick.py` chose W13, which runs only inside
+  W12: «1 carga no válida: W13»); the Linux one was cancelled by making its picker select no load.
+- **L11** — T4: one round of W1–W32 (W13 measured inside W12), base `c813083` against head `275f840`, release builds
+  under the bench power plan. Windows ran from 2026-11-22T08:20:04Z to 08:42:53Z, Linux (WSL 2 Ubuntu, `~/tm`) from
+  08:47:16Z to 09:47:30Z. Every load's data digests matched between base and head on both systems (K4: no «digests
+  differ»), and both passes exited 0. The ratio is the base time over the head time, so above 1 means the head is
+  faster. With one round, ratios away from 1 are not confirmed. The ones beyond ±3 % move in both directions
+  among loads that never touch a temporal value (W12 1.322 and W19 0.925 on Linux, W9 1.348 on Windows). They are not
+  attributed to the change. The ten-round confirmation was dropped by the user (L10).
+
+| Load | Windows base (ns) | Windows head (ns) | Windows ratio | Linux base (ns) | Linux head (ns) | Linux ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| W1 | 738.5 | 717.7 | 1.029 | 9,940.2 | 9,958.3 | 0.998 |
+| W2 | 8,469.7 | 8,455.1 | 1.002 | 19,348.7 | 19,517.7 | 0.991 |
+| W3 | 2,416.0 | 2,494.0 | 0.969 | 2,940.2 | 2,897.7 | 1.015 |
+| W4 | 119,365.9 | 119,253.2 | 1.001 | 8,943,755.0 | 9,014,510.4 | 0.992 |
+| W5 | 50,586.9 | 50,930.4 | 0.993 | 4,484,814.0 | 4,429,566.1 | 1.012 |
+| W6 | 43,179.1 | 43,137.5 | 1.001 | 1,054,695.0 | 1,074,408.7 | 0.982 |
+| W7 | 928.1 | 936.5 | 0.991 | 1,175.4 | 1,170.3 | 1.004 |
+| W8 | 229.8 | 232.9 | 0.987 | 323.3 | 299.9 | 1.078 |
+| W9 | 254.4 | 188.8 | 1.348 | 459.3 | 446.4 | 1.029 |
+| W10 | 30.7 | 31.0 | 0.991 | 37.3 | 38.3 | 0.974 |
+| W11 | 46.7 | 46.5 | 1.004 | 50.0 | 53.5 | 0.935 |
+| W12 | 560.0 | 494.8 | 1.132 | 500.9 | 378.9 | 1.322 |
+| W13 | 16,589.0 | 14,705.5 | 1.128 | 97,477.2 | 79,985.0 | 1.219 |
+| W14 | 8,188.4 | 8,205.9 | 0.998 | 14,898.7 | 14,406.0 | 1.034 |
+| W15 | 8,717.6 | 8,787.0 | 0.992 | 14,864.8 | 15,029.2 | 0.989 |
+| W16 | 15,279,532.0 | 15,279,800.0 | 1.000 | 5,269,852.5 | 4,528,355.6 | 1.164 |
+| W17 | 140,563.9 | 119,193.8 | 1.179 | 280,369.0 | 314,605.5 | 0.891 |
+| W18 | 6,076.9 | 6,010.0 | 1.011 | 7,231.5 | 6,562.7 | 1.102 |
+| W19 | 7,555.9 | 7,503.9 | 1.007 | 14,962.4 | 16,171.1 | 0.925 |
+| W20 | 121.7 | 115.6 | 1.053 | 117.2 | 120.3 | 0.974 |
+| W21 | 6,397.1 | 6,384.5 | 1.002 | 18,562.0 | 18,624.1 | 0.997 |
+| W22 | 459.9 | 463.1 | 0.993 | 546.0 | 561.1 | 0.973 |
+| W23 | 2,110.9 | 2,062.1 | 1.024 | 8,567.6 | 9,282.7 | 0.923 |
+| W24 | 10,033.1 | 10,075.9 | 0.996 | 17,272.6 | 17,756.3 | 0.973 |
+| W25 | 2,132.0 | 2,106.5 | 1.012 | 2,144.3 | 2,004.4 | 1.070 |
+| W26 | 1,300.1 | 1,318.6 | 0.986 | 1,451.6 | 1,429.2 | 1.016 |
+| W27 | 81.8 | 81.1 | 1.009 | 81.7 | 79.3 | 1.031 |
+| W28 | 8,037.9 | 8,048.4 | 0.999 | 13,923.4 | 13,345.0 | 1.043 |
+| W29 | 8,345.9 | 8,370.4 | 0.997 | 14,197.5 | 14,216.2 | 0.999 |
+| W30 | 18,284.5 | 18,323.7 | 0.998 | 26,522.9 | 26,441.7 | 1.003 |
+| W31 | 3,410.2 | 3,386.7 | 1.007 | 3,224.0 | 3,273.6 | 0.985 |
+| W32 | 1,162.0 | 1,067.4 | 1.089 | 1,227.1 | 1,227.3 | 1.000 |
