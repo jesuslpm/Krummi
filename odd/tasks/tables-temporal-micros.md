@@ -63,3 +63,10 @@ the parent works inline.
 - **L8** — Codex code review of `c813083..3a5ed50` ([report](../../docs/reviews/tables-temporal-micros/2026-11-22-code.md),
   [resolutions](../../docs/reviews/tables-temporal-micros/2026-11-22-code-resolutions.md)): approved on round 1, no
   findings.
+- **L9** — RDD of `41043c7..8d749f6` (reliability): approved, `review-218b53af7edd6bf9`, two advisories, not acted on.
+  R3-normalize-doc-semantics (WARNING): the earlier wording it compares with ("out of domain (of a `decimal`, also
+  after rounding)") was this run's own intermediate text; a decimal that rounding takes past its precision fails with
+  `DecimalPrecision`, not `OutOfDomain` (`ac6_domains_and_decimal_rounding_through_a_table`, 99.995 in a
+  `decimal(4, 2)`), which is what the doc now says. R3-temporal-key-test-attribution (SUGGESTION): `u64::MAX` is
+  refused both because it does not fit in an `i64` and because it is outside every temporal domain; the test pins the
+  refusal, not its cause.
