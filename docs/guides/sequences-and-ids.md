@@ -231,8 +231,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `Ulid` | 26 characters of Crockford's Base32 in uppercase, the first at most `7` | Only that form. |
 | `Uuid` | RFC 9562 text in lowercase with hyphens (`8-4-4-4-12`), the bytes in their order | Only that form: no uppercase, braces or missing hyphens. |
 
-Any other text fails with `Error::InvalidValue`, rule `ValueRule::MalformedText`. The same rule applies to a
-`Value::String` written to a `ulid` or `uuid` column (see [Data types](data-types.md)).
+Any other text fails with `Error::InvalidValue`, rule `ValueRule::MalformedText`. Parsing is the only way from text
+to an identifier: a `ulid` or `uuid` column takes only `Value::Ulid` or `Value::Uuid`, and a `Value::String` written
+to it fails with `ValueRule::WrongType`, even when its text is a valid identifier (see [Data types](data-types.md)).
 
 ```rust
 use krummi::ids::{Ulid, Uuid};
