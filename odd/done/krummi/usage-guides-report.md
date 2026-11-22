@@ -10,7 +10,7 @@ archivado. No se fusionó ni se publicó nada.
 ## Resultado
 
 - **Especificación:** S1–S4 de [usage-guides.md](usage-guides.md). Catorce guías en `docs/guides/` y su índice
-  ([docs/guides/README.md](../../docs/guides/README.md)), enlazados desde el `README.md` en una sección *Usage
+  ([docs/guides/README.md](../../../docs/guides/README.md)), enlazados desde el `README.md` en una sección *Usage
   guides*:
   - lo básico: primeros pasos, almacenes, transacciones y errores;
   - los árboles normales, de varios valores y de tamaño fijo;
@@ -29,15 +29,15 @@ archivado. No se fusionó ni se publicó nada.
 - **Revisiones y verificación:**
   - RDD aprobó los dos tramos con código (*Revisiones RDD*).
   - Codex pidió cambios en la primera ronda, con dos hallazgos menores, y aprobó la segunda
-    ([informe](../../docs/reviews/usage-guides/2026-11-22-code.md),
-    [seguimiento](../../docs/reviews/usage-guides/2026-11-22-code-02.md),
-    [resoluciones](../../docs/reviews/usage-guides/2026-11-22-code-resolutions.md)).
+    ([informe](../../../docs/reviews/usage-guides/2026-11-22-code.md),
+    [seguimiento](../../../docs/reviews/usage-guides/2026-11-22-code-02.md),
+    [resoluciones](../../../docs/reviews/usage-guides/2026-11-22-code-resolutions.md)).
   - Los enlaces y las anclas de las guías y del README resuelven todos (comprobación propia en Python; Codex: 256
     enlaces y 26 anclas).
 - **Hallazgos corregidos en el camino:**
   - El usuario señaló que la guía de tipos no explicaba por qué el valor temporal va en nanosegundos y lo guardado en
     microsegundos. Se añadió la sección *Nanoseconds in your code, microseconds in the store* (`49d18d3`). El usuario
-    pidió después cambiar la unidad: es el PRD [tables-temporal-micros.prd.md](../../docs/prd/krummi/tables/tables-temporal-micros.prd.md),
+    pidió después cambiar la unidad: es el PRD [tables-temporal-micros.prd.md](../../../docs/prd/krummi/tables/tables-temporal-micros.prd.md),
     fuera de esta ejecución.
   - Codex R1: escribir el texto de un identificador en una columna `uuid` o `ulid` falla con `WrongType`, no con
     `MalformedText` (`3cdd6db`).
@@ -150,7 +150,7 @@ sus reglas, límites y errores, y un ejemplo que corre como test, de modo que un
 ## Pendiente (no bloqueante)
 
 - **Unidades temporales:** las guías explican hoy los nanosegundos del valor y los microsegundos guardados. El PRD
-  [tables-temporal-micros.prd.md](../../docs/prd/krummi/tables/tables-temporal-micros.prd.md) los unifica en
+  [tables-temporal-micros.prd.md](../../../docs/prd/krummi/tables/tables-temporal-micros.prd.md) los unifica en
   microsegundos; su implementación reescribirá esas secciones (su TU8). No bloquea: las guías describen el código de
   hoy.
 - **Rarezas del API que encontraron los redactores** (no se tocó código):

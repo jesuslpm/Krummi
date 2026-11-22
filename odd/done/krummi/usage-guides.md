@@ -51,8 +51,8 @@ hundreds of lines of writing (Writer trigger (a), parallelism). The parent owns 
   (reliability) approved, `review-641192694d67d165`, one SUGGESTION R3-guide-registry-drift, fixed by the registry
   test `62e544d` (RED with a guide unregistered, then GREEN). `7f405ae..49d18d3` passive. `49d18d3..62e544d`
   (reliability) approved, `review-1da10a831654401e`, five informational advisories not acted on.
-- **L8** — Codex R1 ([report](../../docs/reviews/usage-guides/2026-11-22-code.md)): findings R1, R2 (minor) and one
+- **L8** — Codex R1 ([report](../../../docs/reviews/usage-guides/2026-11-22-code.md)): findings R1, R2 (minor) and one
   pre-existing advisory, all fixed (`3cdd6db`, `0bb936e`, `a172447`); R2 follow-up
-  ([report](../../docs/reviews/usage-guides/2026-11-22-code-02.md)) approved
-  ([resolutions](../../docs/reviews/usage-guides/2026-11-22-code-resolutions.md)).
+  ([report](../../../docs/reviews/usage-guides/2026-11-22-code-02.md)) approved
+  ([resolutions](../../../docs/reviews/usage-guides/2026-11-22-code-resolutions.md)).
 - **L9** — Closing report: [usage-guides-report.md](usage-guides-report.md).
