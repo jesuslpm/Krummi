@@ -33,6 +33,22 @@ The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/<module>/` (see `CLAUDE.md`).
 
+## Usage guides
+
+Step-by-step guides with every operation and data type, and examples that run as tests
+([index](docs/guides/README.md)):
+
+- **Basics:** [Getting started](docs/guides/getting-started.md) · [Stores](docs/guides/stores.md) ·
+  [Transactions](docs/guides/transactions.md) · [Errors](docs/guides/errors.md)
+- **Trees:** [Trees](docs/guides/trees.md) · [Multi-value trees](docs/guides/multi-value-trees.md) ·
+  [Fixed-size trees](docs/guides/fixed-size-trees.md)
+- **Tables:** [Tables and schemas](docs/guides/tables.md) · [Rows](docs/guides/rows.md) ·
+  [Data types](docs/guides/data-types.md) · [JSON columns](docs/guides/json.md) ·
+  [Secondary indexes](docs/guides/indexes.md) · [Sequences and identifiers](docs/guides/sequences-and-ids.md) ·
+  [Statistics and estimates](docs/guides/statistics.md)
+
+## A quick tour
+
 ```rust
 use std::time::Duration;
 use krummi::table::value::{ColumnType, Value};
@@ -78,6 +94,8 @@ write.commit()?;
 drop(read);
 store.close()?; // moves everything into krummi.data and removes the journal
 ```
+
+## How it works
 
 A store is a folder with one file, `krummi.data`, made of 8 KiB pages. While it is open, the folder may also hold
 the journal files `krummi.journal.<number>`, the `krummi.temp` subfolder and, while an index is created, the
