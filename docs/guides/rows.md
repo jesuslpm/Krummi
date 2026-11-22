@@ -495,8 +495,9 @@ primary key order is faster. The table may already have rows and indexes.
 | A panic in the source or in the load | The load is aborted and the panic continues. |
 
 `bulk_load` waits for the write turn without limit; `bulk_load_with_timeout(table, rows, limit)` waits at most
-`limit` and fails with `ErrorKind::Timeout` before looking at the table or the source. After an aborted load, the
-table, its row count and the sequences are as they were, and the write turn passes to the next writer.
+`limit` and fails with `ErrorKind::Timeout` before looking at the table or the source. After a load aborted before its
+commit, the table, its row count and the sequences are as they were, and the write turn passes to the next writer. A
+failure of the commit's write to the disk has an unknown outcome, never partial ([Errors](errors.md)).
 
 ```rust
 use std::convert::Infallible;

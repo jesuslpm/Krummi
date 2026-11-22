@@ -366,7 +366,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `BulkLoadError::Store(Error)` | The engine failed: a misuse or a timeout getting the write turn, the table (not found, another class), the first row that breaks the rules of insert, or a failure of a write or of the commit. |
 | `BulkLoadError::Source(E)` | Your source returned this error. Returning an error is also how you cancel a load. |
 
-Either way the whole load is aborted: the table, its row count and its sequences are as before. `BulkLoadError`
+A failure before the commit aborts the whole load: the table, its row count and its sequences are as before. A
+failure of the commit's own write to the disk (`ErrorKind::Io`) has an unknown outcome, as any commit
+([Transactions](transactions.md)): the store refuses writes, and the whole load may be there after the next opening,
+never part of it. `BulkLoadError`
 converts from `Error`, implements `Display` (the engine's text, or `the source of the bulk load failed: ` followed
 by yours) and implements `std::error::Error` when `E` does. See [Rows](rows.md).
 
