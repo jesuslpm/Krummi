@@ -27,7 +27,7 @@ Real start: 2026-11-22 07:08:13 +00:00.
 | T2 | S1 (TU1–TU6, AC-TU1–AC-TU6) | values in microseconds as `i64` everywhere, no rounding of given values, JSON instant in µs, tests | inline | done | T2+T3 commit |
 | T3 | S1 (TU8, AC-TU8) | guides and API docs with one unit | inline | done | T2+T3 commit |
 | T4 | S2 | measurements, Windows and Linux (one round, L10) | inline, background runs | done | no code; results in L11 |
-| T5 | S3 | checks, RDD, Codex review, closing report | inline | pending | |
+| T5 | S3 | checks, RDD, Codex review, closing report | inline | done | closing report commit |
 
 Route evidence: one behavior (the unit of temporal values) with its tests; no parallel units and no writer reason, so
 the parent works inline.
@@ -123,3 +123,5 @@ the parent works inline.
 - **L12** — RDD of `8d749f6..8d70b7f` (readability, docs only): approved, `review-b35b832d6dae30af`, one SUGGESTION,
   acted on: R2-001 (L11 named only three of the ratios beyond ±3 % and did not say which loads touch temporal values;
   L11 now names them).
+- **L13** — T5: final checks on `fa081f6`: fmt and clippy pass; `cargo test --workspace` 63 binaries, 1,222 passed,
+  0 failed, 35 ignored. Closing report: [tables-temporal-micros-report.md](tables-temporal-micros-report.md).
