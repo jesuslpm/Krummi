@@ -1282,3 +1282,60 @@ fn malformed_entries_do_not_decode_and_their_earlier_values_do() {
         Some(Value::I64(7))
     );
 }
+
+/// AC-TU4 of the temporal values in microseconds PRD: the entries of an index over a `time`, `timestamp` or `duration`
+/// column, in every direction and null order, store the bytes stored before the change, captured from the code before
+/// it, when values were given in nanoseconds.
+#[test]
+fn temporal_entries_store_the_bytes_stored_before_the_change() {
+    let time = |micros: i64| Value::Time(micros * 1_000);
+    let timestamp = |micros: i64| Value::Timestamp(i128::from(micros) * 1_000);
+    let duration = |micros: i64| Value::Duration(i128::from(micros) * 1_000);
+    let samples = [
+        (ColumnType::Time, time(32_400_500_000)),
+        (ColumnType::Time, Value::Null),
+        (ColumnType::Timestamp, timestamp(TIMESTAMP_MIN)),
+        (ColumnType::Timestamp, timestamp(1_794_392_580_123_457)),
+        (ColumnType::Duration, duration(-1_500_000)),
+        (ColumnType::Duration, duration(DURATION_MAX)),
+    ];
+    let mut actual = Vec::new();
+    for (ty, value) in &samples {
+        for (direction, nulls) in SHAPES {
+            let entry = encode_entry(
+                &[col(*ty, direction, nulls, true)],
+                std::slice::from_ref(value),
+                &[0x01],
+            )
+            .unwrap();
+            actual.push(entry.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
+    }
+    let expected = [
+        "19078b38652001",
+        "19078b38652001",
+        "e6f874c79adf01",
+        "e6f874c79adf01",
+        "0001",
+        "4f01",
+        "b001",
+        "feffff01",
+        "0d23400100d43fff01",
+        "0d23400100d43fff01",
+        "f2dcbffeff2bc00001",
+        "f2dcbffeff2bc00001",
+        "1b065ffd94536b4101",
+        "1b065ffd94536b4101",
+        "e4f9a0026bac94be01",
+        "e4f9a0026bac94be01",
+        "11e91c9f01",
+        "11e91c9f01",
+        "ee16e36001",
+        "ee16e36001",
+        "1c0ccccccccccccccc01",
+        "1c0ccccccccccccccc01",
+        "e3f33333333333333301",
+        "e3f33333333333333301",
+    ];
+    assert_eq!(actual, expected);
+}
