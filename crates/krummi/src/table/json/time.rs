@@ -1,8 +1,9 @@
 //! The typed reads of a JSON string as a date or an instant (JS7).
 
-use crate::table::value::{ColumnType, NANOS_PER_MICRO, round_micros, stored_in_domain};
+use crate::table::value::{ColumnType, stored_in_domain};
 
 const NANOS_PER_SECOND: i128 = 1_000_000_000;
+const NANOS_PER_MICRO: i128 = 1_000;
 
 /// A string `YYYY-MM-DD` (JS7) as days since 1970-01-01, or `None` when it is not one or is outside E8's domain.
 pub(super) fn date(text: &str) -> Option<i32> {
@@ -11,9 +12,10 @@ pub(super) fn date(text: &str) -> Option<i32> {
 }
 
 /// A string `YYYY-MM-DDTHH:MM:SS[.f]` followed by `Z`, `+HH:MM` or `-HH:MM` (JS7), converted to UTC and rounded to
-/// the microsecond as E8 rounds instants, as nanoseconds since the Unix epoch; `None` when it is not one or is
-/// outside E8's domain after the conversion and the rounding.
-pub(super) fn timestamp(text: &str) -> Option<i128> {
+/// the microsecond with ties toward the greater value (TU4 of the temporal values in microseconds PRD), as
+/// microseconds since the Unix epoch; `None` when it is not one or is outside E8's domain after the conversion and
+/// the rounding.
+pub(super) fn timestamp(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
     let (date, rest) = bytes.split_at_checked(10)?;
     let days = civil_days(date)?;
@@ -48,8 +50,13 @@ pub(super) fn timestamp(text: &str) -> Option<i128> {
     };
     let local = days * 86_400 + i64::from(hour) * 3600 + i64::from(minute) * 60 + i64::from(second);
     let nanos = i128::from(local - offset) * NANOS_PER_SECOND + fraction_nanos;
-    let micros = round_micros(nanos);
-    stored_in_domain(&ColumnType::Timestamp, micros).then_some(micros * NANOS_PER_MICRO)
+    // To the nearest microsecond, ties toward the greater value; every value here is far from the ends of i128.
+    let micros = (nanos + NANOS_PER_MICRO / 2).div_euclid(NANOS_PER_MICRO);
+    if stored_in_domain(&ColumnType::Timestamp, micros) {
+        i64::try_from(micros).ok()
+    } else {
+        None
+    }
 }
 
 /// The days since 1970-01-01 of exactly `YYYY-MM-DD`, with a year from 0001 and a day that exists in its month.
@@ -107,10 +114,9 @@ mod tests {
 
     fn instant(text: &str) -> Option<String> {
         let json = format!("\"{text}\"");
-        JsonValue::new(&json).as_timestamp().map(|nanos| {
-            assert_eq!(nanos % 1000, 0, "a whole number of microseconds");
-            Value::Timestamp(nanos).to_string()
-        })
+        JsonValue::new(&json)
+            .as_timestamp()
+            .map(|micros| Value::Timestamp(micros).to_string())
     }
 
     #[test]
@@ -175,7 +181,7 @@ mod tests {
         );
         assert_eq!(
             JsonValue::new(r#""1970-01-01T00:00:01Z""#).as_timestamp(),
-            Some(1_000_000_000)
+            Some(1_000_000)
         );
         for text in [
             "2019-07-26T00:00:00",
@@ -280,8 +286,8 @@ mod tests {
     #[test]
     fn ac_js6_instants_at_the_ends_of_the_domain() {
         let at = |text: &str| JsonValue::new(&format!("\"{text}\"")).as_timestamp();
-        let min = Some(i128::from(TIMESTAMP_MIN) * 1000);
-        let max = Some(i128::from(TIMESTAMP_MAX) * 1000);
+        let min = Some(TIMESTAMP_MIN);
+        let max = Some(TIMESTAMP_MAX);
         assert_eq!(at("0001-01-01T00:00:00Z"), min);
         assert_eq!(at("0001-01-01T01:00:00+01:00"), min);
         assert_eq!(at("0001-01-01T00:00:00.0000004Z"), min);

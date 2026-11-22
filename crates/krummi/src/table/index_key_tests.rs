@@ -324,19 +324,18 @@ fn random_value(rng: &mut Rng, ty: &ColumnType) -> Value<'static> {
             DATE_MIN + (r1 % (DATE_MAX - DATE_MIN) as u64) as i32,
         ])),
         ColumnType::Time => {
-            let max = TIME_MAX * 1000;
-            Value::Time(rng.pick(&[0, max, -500, max + 499, (r1 % max as u64) as i64]))
+            let max = TIME_MAX;
+            Value::Time(rng.pick(&[0, max, 1, max - 1, (r1 % max as u64) as i64]))
         }
         ColumnType::Timestamp => {
-            let (min, max) = (
-                i128::from(TIMESTAMP_MIN) * 1000,
-                i128::from(TIMESTAMP_MAX) * 1000,
-            );
-            Value::Timestamp(rng.pick(&[min, max, 0, -1, -500, i128::from(r1 as i64)]))
+            let (min, max) = (TIMESTAMP_MIN, TIMESTAMP_MAX);
+            let random = min + (r1 % (max - min) as u64) as i64;
+            Value::Timestamp(rng.pick(&[min, max, 0, -1, 1, random]))
         }
         ColumnType::Duration => {
-            let max = i128::from(DURATION_MAX) * 1000;
-            Value::Duration(rng.pick(&[-max, max, 0, -1_000, i128::from(r1 as i64)]))
+            let max = DURATION_MAX;
+            let random = (r1 % (2 * max as u64)) as i64 - max;
+            Value::Duration(rng.pick(&[-max, max, 0, -1_000, random]))
         }
         ColumnType::Uuid(_) | ColumnType::Ulid => {
             // Each group of bytes that SQL Server compares as a unit is all 00, all FF or random, so that many values
@@ -1288,9 +1287,9 @@ fn malformed_entries_do_not_decode_and_their_earlier_values_do() {
 /// it, when values were given in nanoseconds.
 #[test]
 fn temporal_entries_store_the_bytes_stored_before_the_change() {
-    let time = |micros: i64| Value::Time(micros * 1_000);
-    let timestamp = |micros: i64| Value::Timestamp(i128::from(micros) * 1_000);
-    let duration = |micros: i64| Value::Duration(i128::from(micros) * 1_000);
+    let time = Value::Time;
+    let timestamp = Value::Timestamp;
+    let duration = Value::Duration;
     let samples = [
         (ColumnType::Time, time(32_400_500_000)),
         (ColumnType::Time, Value::Null),

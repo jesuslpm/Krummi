@@ -1252,8 +1252,8 @@ typed_accessors! {
     f64, "f64", f64, f64;
     date, "date", Date, i32;
     time, "time", Time, i64;
-    timestamp, "timestamp", Timestamp, i128;
-    duration, "duration", Duration, i128;
+    timestamp, "timestamp", Timestamp, i64;
+    duration, "duration", Duration, i64;
     uuid, "uuid", Uuid, Uuid;
     text, "string", Text, Cow<'t, str>;
     bytes, "bytes", Bytes, Cow<'t, [u8]>;

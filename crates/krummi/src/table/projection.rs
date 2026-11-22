@@ -70,7 +70,7 @@ use super::key::key_value;
 use super::row::{FixedSlot, RowLayout, Slot, json_text, slot_array};
 use super::rows::{Fault, OldVersion, Reader, SchemaId, Stored, TableRow, needs_stored};
 use super::schema::Different;
-use super::value::{ColumnType, Decimal, NANOS_PER_MICRO, Value};
+use super::value::{ColumnType, Decimal, Value};
 use crate::ids::{Ulid, Uuid};
 use crate::{Folder, ReadTransaction, Store, WriteTransaction};
 
@@ -625,11 +625,11 @@ pub struct TextBytes;
 pub struct Bytes;
 /// A `date` column, read as days since 1970-01-01.
 pub struct Date;
-/// A `time` column, read as nanoseconds since midnight.
+/// A `time` column, read as microseconds since midnight.
 pub struct Time;
-/// A `timestamp` column, read as nanoseconds since the Unix epoch, UTC.
+/// A `timestamp` column, read as microseconds since the Unix epoch, UTC.
 pub struct Timestamp;
-/// A `duration` column, read as nanoseconds.
+/// A `duration` column, read as microseconds.
 pub struct Duration;
 /// A vector column, read as its elements and, for `i8`, its scale, as [`Value::Vector`] holds them.
 pub struct Vector;
@@ -710,13 +710,13 @@ read_as! {
         i32::from_le_bytes(slot_array(b))
     };
     Time, "time", ColumnType::Time, i64, Time, |v| v, |_: &ColumnType, b: &[u8]| {
-        i64::from_le_bytes(slot_array(b)) * i64::try_from(NANOS_PER_MICRO).expect("1,000")
+        i64::from_le_bytes(slot_array(b))
     };
-    Timestamp, "timestamp", ColumnType::Timestamp, i128, Timestamp, |v| v, |_: &ColumnType, b: &[u8]| {
-        i128::from(i64::from_le_bytes(slot_array(b))) * NANOS_PER_MICRO
+    Timestamp, "timestamp", ColumnType::Timestamp, i64, Timestamp, |v| v, |_: &ColumnType, b: &[u8]| {
+        i64::from_le_bytes(slot_array(b))
     };
-    Duration, "duration", ColumnType::Duration, i128, Duration, |v| v, |_: &ColumnType, b: &[u8]| {
-        i128::from(i64::from_le_bytes(slot_array(b))) * NANOS_PER_MICRO
+    Duration, "duration", ColumnType::Duration, i64, Duration, |v| v, |_: &ColumnType, b: &[u8]| {
+        i64::from_le_bytes(slot_array(b))
     };
     Uuid, "uuid", ColumnType::Uuid(_), Uuid, Uuid, |v| v, |_: &ColumnType, b: &[u8]| Uuid(slot_array(b));
     Text, "string", ColumnType::String, Cow<'t, str>, String, |v| v, |_: &ColumnType, b: &'t [u8]| {

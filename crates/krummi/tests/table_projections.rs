@@ -88,13 +88,13 @@ fn every_type() -> (Schema, Vec<(&'static str, Value<'static>)>) {
             Value::Bytes(vec![1, 0, 2].into()),
         ),
         ("date", ColumnType::Date, Value::Date(20_000)),
-        ("time", ColumnType::Time, Value::Time(3_600_000_000_000)),
+        ("time", ColumnType::Time, Value::Time(3_600_000_000)),
         (
             "ts",
             ColumnType::Timestamp,
-            Value::Timestamp(1_700_000_000_000_000_000),
+            Value::Timestamp(1_700_000_000_000_000),
         ),
-        ("dur", ColumnType::Duration, Value::Duration(-5_000)),
+        ("dur", ColumnType::Duration, Value::Duration(-5)),
         (
             "uuid_rfc",
             ColumnType::Uuid(UuidOrder::Rfc9562),

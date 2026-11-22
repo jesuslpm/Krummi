@@ -263,17 +263,17 @@ type (a fault of the program); `value` reads any column.
 |---|---|---|
 | `bool`, `i8` … `i64`, `u8` … `u64`, `f32`, `f64` | the same | the number |
 | `date` | `date` | `i32`, days since 1970-01-01 |
-| `time` | `time` | `i64`, nanoseconds since midnight |
-| `timestamp` | `timestamp` | `i128`, nanoseconds since the Unix epoch, UTC |
-| `duration` | `duration` | `i128`, nanoseconds |
+| `time` | `time` | `i64`, microseconds since midnight |
+| `timestamp` | `timestamp` | `i64`, microseconds since the Unix epoch, UTC |
+| `duration` | `duration` | `i64`, microseconds |
 | `uuid`, `ulid` | `uuid`, `ulid` | `krummi::ids::Uuid`, `krummi::ids::Ulid` |
 | `text` | `string` | `Cow<str>` |
 | `text_bytes` | `string` | `Cow<[u8]>`, the UTF-8 without checking it |
 | `bytes` | `bytes` | `Cow<[u8]>` |
 | `json` | `json` | `krummi::table::json::Json` (see [JSON](json.md)) |
 
-The three temporal accessors return nanoseconds rounded to the microsecond, always a multiple of 1,000: see
-[Nanoseconds in your code, microseconds in the store](data-types.md#nanoseconds-in-your-code-microseconds-in-the-store).
+The three temporal accessors return microseconds, the unit Krummi stores and the one you give: see
+[Dates, times, instants and durations](data-types.md#dates-times-instants-and-durations).
 
 A `decimal` or vector column is read with `value`/`get`, or with a [projection](#projections).
 
@@ -558,7 +558,7 @@ The values are the same as reading the column by position.
 | `Decimal` (`krummi::table::value::Decimal`) | `decimal(p, s)` of any precision and scale | `Decimal` |
 | `Text`, `TextBytes` | `string` | `Cow<str>`, or its unchecked bytes `Cow<[u8]>` |
 | `Bytes` | `bytes` | `Cow<[u8]>` |
-| `Date`, `Time`, `Timestamp`, `Duration` | the same | `i32` days, or `i64`/`i128` nanoseconds, as the typed accessors |
+| `Date`, `Time`, `Timestamp`, `Duration` | the same | `i32` days, or `i64` microseconds, as the typed accessors |
 | `Uuid`, `Ulid` (`krummi::ids::...`) | `uuid` of either order, `ulid` | the value |
 | `Vector` | any vector | `Cow<[u8]>`, its elements as `Value::Vector` holds them |
 | `JsonDocument` | `json` | `Json` |

@@ -10,8 +10,8 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use krummi_pager::ValueRule;
 
 use super::value::{
-    CANONICAL_NAN_F32, CANONICAL_NAN_F64, ColumnType, Decimal, NANOS_PER_MICRO, UuidOrder, Value,
-    fits_precision, is_of_type, normalize, stored_in_domain,
+    CANONICAL_NAN_F32, CANONICAL_NAN_F64, ColumnType, Decimal, UuidOrder, Value, fits_precision,
+    is_of_type, normalize, stored_in_domain,
 };
 use crate::ids::{Ulid, Uuid};
 
@@ -497,8 +497,7 @@ fn integer(value: &Value<'_>) -> Option<i128> {
         Value::U32(v) => v.into(),
         Value::U64(v) => v.into(),
         Value::Date(v) => v.into(),
-        Value::Time(nanos) => i128::from(nanos) / NANOS_PER_MICRO,
-        Value::Timestamp(nanos) | Value::Duration(nanos) => nanos / NANOS_PER_MICRO,
+        Value::Time(v) | Value::Timestamp(v) | Value::Duration(v) => v.into(),
         _ => return None,
     })
 }
@@ -782,9 +781,9 @@ fn decode_integer(ty: &ColumnType, code: u8, rest: &mut &[u8]) -> Option<Value<'
         ColumnType::U32 => Value::U32(v.try_into().ok()?),
         ColumnType::U64 => Value::U64(v.try_into().ok()?),
         ColumnType::Date => Value::Date(v.try_into().ok()?),
-        ColumnType::Time => Value::Time((v * NANOS_PER_MICRO).try_into().ok()?),
-        ColumnType::Timestamp => Value::Timestamp(v * NANOS_PER_MICRO),
-        ColumnType::Duration => Value::Duration(v * NANOS_PER_MICRO),
+        ColumnType::Time => Value::Time(v.try_into().ok()?),
+        ColumnType::Timestamp => Value::Timestamp(v.try_into().ok()?),
+        ColumnType::Duration => Value::Duration(v.try_into().ok()?),
         _ => return None,
     })
 }

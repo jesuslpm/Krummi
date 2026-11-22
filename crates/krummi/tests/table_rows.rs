@@ -1490,9 +1490,9 @@ fn ac_n2_values_at_the_limits_of_their_types() {
 }
 
 /// AC6 (E8): values at the ends of each domain are read equal and one beyond each end fails with an invalid value;
-/// a `decimal` with more decimals than its scale rounds ties away from zero on both signs; an instant with a fraction
-/// of 100 ns rounds to the microsecond, `0001-01-01T00:00:00.0000005Z` reads `0001-01-01T00:00:00.000001Z`; 99.995
-/// in a `decimal(4, 2)` and `9999-12-31T23:59:59.9999995Z` fail with an invalid value.
+/// a `decimal` with more decimals than its scale rounds ties away from zero on both signs, and 99.995 in a
+/// `decimal(4, 2)` fails with an invalid value. Temporal values are given in microseconds and kept as given (the
+/// 2026-11-22 annotation of AC6, TU3 of the temporal values in microseconds PRD).
 #[test]
 fn ac6_domains_and_rounding_through_a_table() {
     stores(|store, folder| {
@@ -1513,18 +1513,17 @@ fn ac6_domains_and_rounding_through_a_table() {
             ],
             &["id"],
         );
-        let micros = |m: i64| i128::from(m) * 1000;
         let mut write = store.write().unwrap();
         let table = create(&mut write, "t", &schema);
         let inside: [(&str, Value<'_>); 8] = [
             ("date", Value::Date(DATE_MIN)),
             ("date", Value::Date(DATE_MAX)),
             ("time", Value::Time(0)),
-            ("time", Value::Time(TIME_MAX * 1000)),
-            ("ts", Value::Timestamp(micros(TIMESTAMP_MIN))),
-            ("ts", Value::Timestamp(micros(TIMESTAMP_MAX))),
-            ("dur", Value::Duration(-micros(DURATION_MAX))),
-            ("dur", Value::Duration(micros(DURATION_MAX))),
+            ("time", Value::Time(TIME_MAX)),
+            ("ts", Value::Timestamp(TIMESTAMP_MIN)),
+            ("ts", Value::Timestamp(TIMESTAMP_MAX)),
+            ("dur", Value::Duration(-DURATION_MAX)),
+            ("dur", Value::Duration(DURATION_MAX)),
         ];
         for (i, (column, value)) in inside.iter().enumerate() {
             let id = Value::I64(i as i64);
@@ -1540,17 +1539,17 @@ fn ac6_domains_and_rounding_through_a_table() {
                 value.clone().into_owned()
             );
         }
-        let outside: [(&str, Value<'_>); 9] = [
+        // One unit past each end of each domain, in microseconds for the temporal types, which are not rounded
+        // (TU3 of the temporal values in microseconds PRD).
+        let outside: [(&str, Value<'_>); 8] = [
             ("date", Value::Date(DATE_MIN - 1)),
             ("date", Value::Date(DATE_MAX + 1)),
-            ("time", Value::Time(-1000)),
-            ("time", Value::Time((TIME_MAX + 1) * 1000)),
-            ("ts", Value::Timestamp(micros(TIMESTAMP_MIN) - 1000)),
-            ("ts", Value::Timestamp(micros(TIMESTAMP_MAX) + 1000)),
-            ("dur", Value::Duration(-micros(DURATION_MAX) - 1000)),
-            ("dur", Value::Duration(micros(DURATION_MAX) + 1000)),
-            // 9999-12-31T23:59:59.9999995Z rounds past the last instant.
-            ("ts", Value::Timestamp(micros(TIMESTAMP_MAX) + 500)),
+            ("time", Value::Time(-1)),
+            ("time", Value::Time(TIME_MAX + 1)),
+            ("ts", Value::Timestamp(TIMESTAMP_MIN - 1)),
+            ("ts", Value::Timestamp(TIMESTAMP_MAX + 1)),
+            ("dur", Value::Duration(-DURATION_MAX - 1)),
+            ("dur", Value::Duration(DURATION_MAX + 1)),
         ];
         for (column, value) in outside {
             let error = write
@@ -1581,8 +1580,8 @@ fn ac6_domains_and_rounding_through_a_table() {
             invalid_value(error, folder),
             (some("t"), some("dec"), ValueRule::DecimalPrecision)
         );
-        // Rounding: decimals with ties away from zero, instants to the nearest microsecond with ties up.
-        let rounded: [(&str, Value<'_>, Value<'_>); 6] = [
+        // Rounding: decimals with ties away from zero; temporal values are kept as given.
+        let rounded: [(&str, Value<'_>, Value<'_>); 5] = [
             (
                 "dec",
                 Value::Decimal(Decimal {
@@ -1629,14 +1628,8 @@ fn ac6_domains_and_rounding_through_a_table() {
             ),
             (
                 "ts",
-                Value::Timestamp(micros(1_000) + 100),
-                Value::Timestamp(micros(1_000)),
-            ),
-            // 0001-01-01T00:00:00.0000005Z reads 0001-01-01T00:00:00.000001Z.
-            (
-                "ts",
-                Value::Timestamp(micros(TIMESTAMP_MIN) + 500),
-                Value::Timestamp(micros(TIMESTAMP_MIN) + 1000),
+                Value::Timestamp(TIMESTAMP_MIN + 1),
+                Value::Timestamp(TIMESTAMP_MIN + 1),
             ),
         ];
         for (i, (column, given, read)) in rounded.iter().enumerate() {
@@ -1652,7 +1645,7 @@ fn ac6_domains_and_rounding_through_a_table() {
             );
         }
         assert_eq!(
-            Value::Timestamp(micros(TIMESTAMP_MIN) + 1000).to_string(),
+            Value::Timestamp(TIMESTAMP_MIN + 1).to_string(),
             "0001-01-01T00:00:00.000001Z"
         );
         write.commit().unwrap();
@@ -2402,13 +2395,13 @@ fn typed_reads_give_the_values_of_their_columns() {
             ("f32", ColumnType::F32, Value::F32(3.5)),
             ("f64", ColumnType::F64, Value::F64(-6.25)),
             ("date", ColumnType::Date, Value::Date(20_000)),
-            ("time", ColumnType::Time, Value::Time(3_600_000_000_000)),
+            ("time", ColumnType::Time, Value::Time(3_600_000_000)),
             (
                 "timestamp",
                 ColumnType::Timestamp,
-                Value::Timestamp(1_700_000_000_000_000_000),
+                Value::Timestamp(1_700_000_000_000_000),
             ),
-            ("duration", ColumnType::Duration, Value::Duration(-5_000)),
+            ("duration", ColumnType::Duration, Value::Duration(-5)),
             (
                 "uuid",
                 ColumnType::Uuid(UuidOrder::SqlServer),

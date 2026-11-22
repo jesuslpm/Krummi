@@ -56,8 +56,6 @@ fn same(a: &[Value<'_>], b: &[Value<'_>]) -> bool {
     format!("{a:?}") == format!("{b:?}")
 }
 
-const NANOS: i128 = 1000;
-
 /// SplitMix64: a small, deterministic generator.
 struct Rng(u64);
 
@@ -106,90 +104,66 @@ fn date_domain_is_0001_to_9999() {
 }
 
 #[test]
-fn time_domain_and_rounding() {
-    let max = i64::try_from(i128::from(TIME_MAX) * NANOS).unwrap();
-    assert_eq!(norm(ColumnType::Time, Value::Time(0)), Ok(Value::Time(0)));
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(max)),
-        Ok(Value::Time(max))
-    );
-    assert_eq!(Value::Time(max).to_string(), "23:59:59.999999");
-    // One microsecond past each end.
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(-1000)),
-        Err(ValueRule::OutOfDomain)
-    );
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(max + 1000)),
-        Err(ValueRule::OutOfDomain)
-    );
-    // Rounding to the microsecond with ties up: -500 ns is 0, -501 ns is before midnight, 23:59:59.9999995 is 24:00.
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(-500)),
-        Ok(Value::Time(0))
-    );
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(-501)),
-        Err(ValueRule::OutOfDomain)
-    );
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(max + 499)),
-        Ok(Value::Time(max))
-    );
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(max + 500)),
-        Err(ValueRule::OutOfDomain)
-    );
-    assert_eq!(
-        norm(ColumnType::Time, Value::Time(1_100)),
-        Ok(Value::Time(1_000))
-    );
+fn time_domain() {
+    // Microseconds since midnight, kept as given (TU3 of the temporal values in microseconds PRD).
+    let t = |micros| norm(ColumnType::Time, Value::Time(micros));
+    assert_eq!(t(0), Ok(Value::Time(0)));
+    assert_eq!(t(1), Ok(Value::Time(1)));
+    assert_eq!(t(TIME_MAX), Ok(Value::Time(TIME_MAX)));
+    assert_eq!(Value::Time(TIME_MAX).to_string(), "23:59:59.999999");
+    // One microsecond past each end, and the ends of i64.
+    for outside in [-1, TIME_MAX + 1, i64::MIN, i64::MAX] {
+        assert_eq!(t(outside), Err(ValueRule::OutOfDomain), "{outside}");
+    }
 }
 
 #[test]
-fn timestamp_domain_and_rounding() {
-    let min = i128::from(TIMESTAMP_MIN) * NANOS;
-    let max = i128::from(TIMESTAMP_MAX) * NANOS;
-    let ts = |nanos| norm(ColumnType::Timestamp, Value::Timestamp(nanos));
-    assert_eq!(ts(min), Ok(Value::Timestamp(min)));
-    assert_eq!(ts(max), Ok(Value::Timestamp(max)));
-    assert_eq!(ts(min - NANOS), Err(ValueRule::OutOfDomain));
-    assert_eq!(ts(max + NANOS), Err(ValueRule::OutOfDomain));
-    assert_eq!(Value::Timestamp(min).to_string(), "0001-01-01T00:00:00Z");
+fn timestamp_domain() {
+    let ts = |micros| norm(ColumnType::Timestamp, Value::Timestamp(micros));
+    assert_eq!(ts(TIMESTAMP_MIN), Ok(Value::Timestamp(TIMESTAMP_MIN)));
+    assert_eq!(ts(TIMESTAMP_MAX), Ok(Value::Timestamp(TIMESTAMP_MAX)));
+    assert_eq!(ts(-1), Ok(Value::Timestamp(-1)));
     assert_eq!(
-        Value::Timestamp(max).to_string(),
+        ts(1_762_810_359_123_456),
+        Ok(Value::Timestamp(1_762_810_359_123_456))
+    );
+    for outside in [TIMESTAMP_MIN - 1, TIMESTAMP_MAX + 1, i64::MIN, i64::MAX] {
+        assert_eq!(ts(outside), Err(ValueRule::OutOfDomain), "{outside}");
+    }
+    assert_eq!(
+        Value::Timestamp(TIMESTAMP_MIN).to_string(),
+        "0001-01-01T00:00:00Z"
+    );
+    assert_eq!(
+        Value::Timestamp(TIMESTAMP_MIN + 1).to_string(),
+        "0001-01-01T00:00:00.000001Z"
+    );
+    assert_eq!(
+        Value::Timestamp(TIMESTAMP_MAX).to_string(),
         "9999-12-31T23:59:59.999999Z"
     );
-    // An instant with a fraction of 100 ns reads rounded to the microsecond below; 500 ns is a tie, which goes up.
-    let instant = 1_762_810_359_123_456 * NANOS;
-    assert_eq!(ts(instant + 100), Ok(Value::Timestamp(instant)));
-    assert_eq!(ts(instant + 499), Ok(Value::Timestamp(instant)));
-    assert_eq!(ts(instant + 500), Ok(Value::Timestamp(instant + NANOS)));
-    assert_eq!(ts(-100), Ok(Value::Timestamp(0)));
-    assert_eq!(ts(-500), Ok(Value::Timestamp(0)));
-    assert_eq!(ts(-501), Ok(Value::Timestamp(-NANOS)));
-    // 0001-01-01T00:00:00.0000005Z reads 0001-01-01T00:00:00.000001Z; 9999-12-31T23:59:59.9999995Z is past the end.
-    let rounded = ts(min + 500).unwrap();
-    assert_eq!(rounded.to_string(), "0001-01-01T00:00:00.000001Z");
-    assert_eq!(ts(min - 500), Ok(Value::Timestamp(min)));
-    assert_eq!(ts(max + 500), Err(ValueRule::OutOfDomain));
-    assert_eq!(ts(max + 499), Ok(Value::Timestamp(max)));
+    assert_eq!(
+        Value::Timestamp(-1).to_string(),
+        "1969-12-31T23:59:59.999999Z"
+    );
 }
 
 #[test]
-fn duration_domain_and_rounding() {
-    let max = i128::from(DURATION_MAX) * NANOS;
-    let d = |nanos| norm(ColumnType::Duration, Value::Duration(nanos));
-    assert_eq!(d(max), Ok(Value::Duration(max)));
-    assert_eq!(d(-max), Ok(Value::Duration(-max)));
-    assert_eq!(d(max + NANOS), Err(ValueRule::OutOfDomain));
-    assert_eq!(d(-max - NANOS), Err(ValueRule::OutOfDomain));
-    assert_eq!(d(-max - 500), Ok(Value::Duration(-max)));
-    assert_eq!(d(-max - 501), Err(ValueRule::OutOfDomain));
-    assert_eq!(d(max + 500), Err(ValueRule::OutOfDomain));
-    assert_eq!(d(-1_500), Ok(Value::Duration(-1_000)));
-    assert_eq!(Value::Duration(-1_500_000_000).to_string(), "-1.5s");
+fn duration_domain() {
+    let d = |micros| norm(ColumnType::Duration, Value::Duration(micros));
+    assert_eq!(d(DURATION_MAX), Ok(Value::Duration(DURATION_MAX)));
+    assert_eq!(d(-DURATION_MAX), Ok(Value::Duration(-DURATION_MAX)));
+    assert_eq!(d(-1_500), Ok(Value::Duration(-1_500)));
+    for outside in [DURATION_MAX + 1, -DURATION_MAX - 1, i64::MIN, i64::MAX] {
+        assert_eq!(d(outside), Err(ValueRule::OutOfDomain), "{outside}");
+    }
+    assert_eq!(Value::Duration(-1_500_000).to_string(), "-1.5s");
     assert_eq!(Value::Duration(0).to_string(), "0s");
+    assert_eq!(Value::Duration(1).to_string(), "0.000001s");
+    assert_eq!(
+        Value::Duration(i64::MIN).to_string(),
+        "-9223372036854.775808s"
+    );
 }
 
 #[test]
@@ -614,10 +588,7 @@ fn text_forms_for_error_data() {
     assert_eq!(Value::F64(1.0).to_string(), "1.0");
     assert_eq!(Value::F32(f32::NAN).to_string(), "NaN");
     assert_eq!(Value::Null.to_string(), "null");
-    assert_eq!(
-        Value::Time(3_723_000_001_000).to_string(),
-        "01:02:03.000001"
-    );
+    assert_eq!(Value::Time(3_723_000_001).to_string(), "01:02:03.000001");
     assert_eq!(key_text(&[Value::I32(-5), s("x")]), r#"(-5, "x")"#);
 }
 
@@ -718,15 +689,12 @@ fn key_examples_of_document_3() {
     );
     // Temporal types are integers: days and microseconds.
     assert_eq!(key1(ColumnType::Date, Value::Date(-1)), [0x13, 0xFE]);
-    assert_eq!(key1(ColumnType::Time, Value::Time(1000)), [0x15, 0x01]);
+    assert_eq!(key1(ColumnType::Time, Value::Time(1)), [0x15, 0x01]);
     assert_eq!(
-        key1(ColumnType::Timestamp, Value::Timestamp(-256_000)),
+        key1(ColumnType::Timestamp, Value::Timestamp(-256)),
         [0x12, 0xFE, 0xFF]
     );
-    assert_eq!(
-        key1(ColumnType::Duration, Value::Duration(5_000)),
-        [0x15, 0x05]
-    );
+    assert_eq!(key1(ColumnType::Duration, Value::Duration(5)), [0x15, 0x05]);
     // decimal: 40 and the scaled i128 with its top bit flipped, big-endian.
     let ty = ColumnType::Decimal {
         precision: 10,
@@ -1225,21 +1193,19 @@ fn random_value(rng: &mut Rng, ty: &ColumnType) -> Value<'static> {
             Value::Date(rng.pick(&[DATE_MIN, DATE_MAX, 0, -1, random]))
         }
         ColumnType::Time => {
-            let max = TIME_MAX * 1000;
-            Value::Time(rng.pick(&[0, max, -500, max + 499, 1_000, (r1 % max as u64) as i64]))
+            let max = TIME_MAX;
+            Value::Time(rng.pick(&[0, max, 1, max - 1, 1_000, (r1 % max as u64) as i64]))
         }
         ColumnType::Timestamp => {
-            let (min, max) = (
-                i128::from(TIMESTAMP_MIN) * NANOS,
-                i128::from(TIMESTAMP_MAX) * NANOS,
-            );
+            let (min, max) = (TIMESTAMP_MIN, TIMESTAMP_MAX);
             let span = (max - min) as u128;
-            let random = min + (u128::from(r1) * u128::from(r2) % span) as i128;
-            Value::Timestamp(rng.pick(&[min, max, 0, -1, -500, min + 500, random]))
+            let random = min + (u128::from(r1) * u128::from(r2) % span) as i64;
+            Value::Timestamp(rng.pick(&[min, max, 0, -1, 1, min + 1, random]))
         }
         ColumnType::Duration => {
-            let max = i128::from(DURATION_MAX) * NANOS;
-            Value::Duration(rng.pick(&[-max, max, 0, -1_000, 1_000, i128::from(r1 as i64)]))
+            let max = DURATION_MAX;
+            let random = (r1 % (2 * max as u64)) as i64 - max;
+            Value::Duration(rng.pick(&[-max, max, 0, -1_000, 1_000, random]))
         }
         ColumnType::Uuid(_) | ColumnType::Ulid => {
             // Each group of bytes that SQL Server compares as a unit is all 00, all FF, all 01 or random, so that
@@ -1556,15 +1522,9 @@ fn row_round_trip_of_every_type() {
         (ColumnType::String, s("héllo\0")),
         (ColumnType::Bytes, b(&[0, 1, 0xFF])),
         (ColumnType::Date, Value::Date(DATE_MIN)),
-        (ColumnType::Time, Value::Time(TIME_MAX * 1000)),
-        (
-            ColumnType::Timestamp,
-            Value::Timestamp(i128::from(TIMESTAMP_MAX) * NANOS),
-        ),
-        (
-            ColumnType::Duration,
-            Value::Duration(-i128::from(DURATION_MAX) * NANOS),
-        ),
+        (ColumnType::Time, Value::Time(TIME_MAX)),
+        (ColumnType::Timestamp, Value::Timestamp(TIMESTAMP_MAX)),
+        (ColumnType::Duration, Value::Duration(-DURATION_MAX)),
         (
             ColumnType::Uuid(UuidOrder::SqlServer),
             Value::Uuid(Uuid(std::array::from_fn(|i| i as u8))),
@@ -1920,7 +1880,7 @@ fn rows_with_values_outside_their_domains_are_damaged() {
     }
     // The ends of each domain still read.
     let layout = RowLayout::new(1, vec![column(1, ColumnType::Duration, false)]);
-    let row = layout.encode(&[Value::Duration(-i128::from(DURATION_MAX) * NANOS)]);
+    let row = layout.encode(&[Value::Duration(-DURATION_MAX)]);
     assert!(layout.row(&row).unwrap().value(0).is_ok());
 }
 

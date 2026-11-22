@@ -296,7 +296,7 @@ fn indexes() -> [IndexDefinition; 2] {
     ]
 }
 
-/// Every column of `row`, with its key of `kind`; `ts` goes from microseconds to the nanoseconds of [`Value`].
+/// Every column of `row`, with its key of `kind`; `ts` in microseconds, the unit of [`Value::Timestamp`].
 fn values(row: &Row, kind: KeyKind) -> [(&'static str, Value<'_>); COLUMNS] {
     let id = match kind {
         KeyKind::Ulid => Value::Ulid(Ulid(row.id)),
@@ -306,7 +306,7 @@ fn values(row: &Row, kind: KeyKind) -> [(&'static str, Value<'_>); COLUMNS] {
         ("id", id),
         ("n", Value::I64(row.n)),
         ("x", Value::F64(row.x)),
-        ("ts", Value::Timestamp(i128::from(row.ts) * 1_000)),
+        ("ts", Value::Timestamp(row.ts)),
         ("flag", Value::Bool(row.flag)),
         ("name", Value::String(Cow::Borrowed(row.name_str()))),
     ]
@@ -415,9 +415,8 @@ fn read_index_ranges(
     let columns = Columns::prepare(&tx, &table, projected)?;
     let (mut count, mut sum) = (0u64, 0u64);
     for &start in starts {
-        let nanos = i128::from(start) * 1_000;
         let mut range = tx
-            .index_rows(&table, IX_TS, &[], Value::Timestamp(nanos)..)
+            .index_rows(&table, IX_TS, &[], Value::Timestamp(start)..)
             .map_err(cause)?;
         let mut read = 0u64;
         while read < range_len {
@@ -425,7 +424,7 @@ fn read_index_ranges(
                 break;
             };
             // An interval starts at an existing value: its first row has that `ts`.
-            if read == 0 && row.timestamp(3) != Some(nanos) {
+            if read == 0 && row.timestamp(3) != Some(start) {
                 return Err(missing_ts(start));
             }
             sum = sum.wrapping_add(checksum(row, columns.as_ref())?);
@@ -515,11 +514,6 @@ fn checksum(row: &TableRow<'_>, columns: Option<&Columns<'_>>) -> Result<u64> {
     };
     let (Some(id), Some(n), Some(x), Some(ts), Some(flag), Some(name)) = read else {
         return Err(unexpected());
-    };
-    // A 64-bit division when the nanoseconds fit, as they do in the loads' data; the 128-bit one costs several times more.
-    let ts = match i64::try_from(ts) {
-        Ok(ts) => ts / 1_000,
-        Err(_) => i64::try_from(ts / 1_000).map_err(|_| unexpected())?,
     };
     Ok(table_data::checksum(&id, n, x, ts, flag, &name))
 }

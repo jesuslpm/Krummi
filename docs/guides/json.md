@@ -361,7 +361,7 @@ class, `null`, or a value outside the type all give `None`.
 | `as_decimal(p, s)` → `Result<Option<Decimal>>` | a number rounded to scale `s` with ties away from zero (`1.235` gives 1.24 at scale 2) | more than `p` digits once rounded (`99.995` at `(4, 2)`) |
 | `as_f64()` | a number rounded to the nearest `f64`, `-0` as `+0`; `1e-400` gives `+0` | outside the finite range (`1e400`) |
 | `as_date()` → `i32` | a string exactly `YYYY-MM-DD` that exists, in the `date` domain, as days since 1970-01-01 | `"2026-02-30"`, a year that is not four digits or is `0000` |
-| `as_timestamp()` → `i128` | a string `YYYY-MM-DDTHH:MM:SS[.fraction]` with an offset `Z`, `+HH:MM` or `-HH:MM`, converted to UTC and rounded to the microsecond, in the `timestamp` domain, as nanoseconds since the Unix epoch | no offset, lowercase `t` or `z`, a space for `T`, a leap second `:60`, a point without digits, outside the domain |
+| `as_timestamp()` → `i64` | a string `YYYY-MM-DDTHH:MM:SS[.fraction]` with an offset `Z`, `+HH:MM` or `-HH:MM`, converted to UTC and rounded to the nearest microsecond (ties toward the greater value), in the `timestamp` domain, as microseconds since the Unix epoch, the unit of a `timestamp` column | no offset, lowercase `t` or `z`, a space for `T`, a leap second `:60`, a point without digits, outside the domain |
 
 `as_decimal` checks `p` and `s` first: outside 1 ≤ p ≤ 38 and 0 ≤ s ≤ p it fails with `Error::InvalidValue` and
 `ValueRule::InvalidReadScale`, with no table or column. A number is read without expanding its exponent, so the cost
@@ -419,6 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(Value::Timestamp(instant).to_string(), "2026-11-10T23:30:00Z");
     let fine = at("/fine").as_timestamp().expect("an instant");
     assert_eq!(Value::Timestamp(fine).to_string(), "2026-11-11T10:23:00.123457Z");
+    assert_eq!(fine, 1_794_392_580_123_457); // microseconds since the Unix epoch
     assert_eq!(at("/local").as_timestamp(), None); // no offset
     Ok(())
 }

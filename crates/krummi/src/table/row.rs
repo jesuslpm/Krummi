@@ -23,8 +23,7 @@ use std::convert::Infallible;
 
 use super::json::{FORM_TEXT_V1, Json};
 use super::value::{
-    ColumnType, Decimal, NANOS_PER_MICRO, Value, fits_precision, is_of_type, stored_in_domain,
-    vector_norm,
+    ColumnType, Decimal, Value, fits_precision, is_of_type, stored_in_domain, vector_norm,
 };
 use crate::ids::{Ulid, Uuid};
 
@@ -476,9 +475,6 @@ const FIXED_BYTES: usize = 16;
 /// a `decimal` as its scaled 128-bit integer, `uuid` and `ulid` as their 16 bytes.
 fn fixed_bytes(value: &Value<'_>) -> [u8; FIXED_BYTES] {
     let mut out = [0u8; FIXED_BYTES];
-    let micros = |nanos: i128| {
-        i64::try_from(nanos / NANOS_PER_MICRO).expect("a temporal value within its domain")
-    };
     let bytes: &[u8] = match value {
         Value::Bool(v) => &[u8::from(*v)],
         Value::I8(v) => &v.to_le_bytes(),
@@ -493,8 +489,9 @@ fn fixed_bytes(value: &Value<'_>) -> [u8; FIXED_BYTES] {
         Value::F64(v) => &v.to_le_bytes(),
         Value::Decimal(d) => &d.mantissa.to_le_bytes(),
         Value::Date(days) => &days.to_le_bytes(),
-        Value::Time(nanos) => &micros(i128::from(*nanos)).to_le_bytes(),
-        Value::Timestamp(nanos) | Value::Duration(nanos) => &micros(*nanos).to_le_bytes(),
+        Value::Time(micros) | Value::Timestamp(micros) | Value::Duration(micros) => {
+            &micros.to_le_bytes()
+        }
         Value::Uuid(uuid) => &uuid.0,
         Value::Ulid(ulid) => &ulid.0,
         Value::Null | Value::String(_) | Value::Bytes(_) | Value::Vector(_) | Value::Json(_) => {
@@ -743,7 +740,6 @@ fn decode_with<'r, E>(
     if stored.is_some_and(|stored| !stored_in_domain(ty, stored)) {
         return Err(damaged());
     }
-    let nanos = |micros: [u8; 8]| i128::from(i64::from_le_bytes(micros)) * NANOS_PER_MICRO;
     Ok(match ty {
         ColumnType::Bool => match bytes {
             [0] => Value::Bool(false),
@@ -771,11 +767,9 @@ fn decode_with<'r, E>(
             })
         }
         ColumnType::Date => Value::Date(i32::from_le_bytes(slot_array(bytes))),
-        ColumnType::Time => {
-            Value::Time(i64::try_from(nanos(slot_array(bytes))).map_err(|_| damaged())?)
-        }
-        ColumnType::Timestamp => Value::Timestamp(nanos(slot_array(bytes))),
-        ColumnType::Duration => Value::Duration(nanos(slot_array(bytes))),
+        ColumnType::Time => Value::Time(i64::from_le_bytes(slot_array(bytes))),
+        ColumnType::Timestamp => Value::Timestamp(i64::from_le_bytes(slot_array(bytes))),
+        ColumnType::Duration => Value::Duration(i64::from_le_bytes(slot_array(bytes))),
         ColumnType::Uuid(_) => Value::Uuid(Uuid(slot_array(bytes))),
         ColumnType::Ulid => Value::Ulid(Ulid(slot_array(bytes))),
         ColumnType::String => Value::String(Cow::Borrowed(

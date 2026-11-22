@@ -23,9 +23,9 @@ Real start: 2026-11-22 07:08:13 +00:00.
 
 | ID | Specs | Task | Route | Status | Commit |
 |---|---|---|---|---|---|
-| T1 | S1 (AC-TU4) | pin the stored bytes of temporal rows, keys and index entries with the base code | inline | in progress | |
-| T2 | S1 (TU1–TU6, AC-TU1–AC-TU6) | values in microseconds as `i64` everywhere, no rounding of given values, JSON instant in µs, tests | inline | pending | |
-| T3 | S1 (TU8, AC-TU8) | guides and API docs with one unit | inline | pending | |
+| T1 | S1 (AC-TU4) | pin the stored bytes of temporal rows, keys and index entries with the base code | inline | done | `f36b0eb` |
+| T2 | S1 (TU1–TU6, AC-TU1–AC-TU6) | values in microseconds as `i64` everywhere, no rounding of given values, JSON instant in µs, tests | inline | done | T2+T3 commit |
+| T3 | S1 (TU8, AC-TU8) | guides and API docs with one unit | inline | done | T2+T3 commit |
 | T4 | S2 | measurements, Windows and Linux | inline, background runs | pending | |
 | T5 | S3 | checks, RDD, Codex review, closing report | inline | pending | |
 
@@ -42,3 +42,16 @@ the parent works inline.
   `crates/krummi/src/table/index_key_tests.rs` (index entries, four shapes). Their inputs are given through helpers
   that are the only lines T2 changes. A store written by the base (rows, a temporal default, an index over
   `ts DESC, d`, analyzed statistics) and its readout are kept in the scratchpad for the AC-TU4 execution check.
+- **L4** — T2: RED observed: `crates/krummi/tests/table_temporal.rs` with AC-TU1–AC-TU3, AC-TU5 and AC-TU6 against the
+  new API failed to compile (19 errors: `i128` against `i64`). GREEN after `Value::{Time, Timestamp, Duration}(i64)` in
+  microseconds, no rounding in `normalize`, the text form in microseconds, the conversions removed from the row, key
+  and projection codecs, `as_timestamp` returning `i64` microseconds (its text rounding kept, TU4) and the bench worker
+  passing `ts` as it is. Existing tests moved to microseconds; the rounding cases of temporal values (E8, AC6 of 7.1)
+  became domain cases. The golden bytes of T1 pass unchanged with microsecond inputs (AC-TU4). T3 in the same commit,
+  so the guides' doctests stay green: one unit in `data-types.md`, `rows.md` and `json.md`.
+- **L5** — AC-TU4 execution check: a store written by the base (`c813083`) with temporal rows, a temporal default, an
+  index `ts DESC, d` and analyzed statistics, opened by the head, reads every value, default, index row, column
+  statistic and prefix statistic equal to the base's readout divided by 1,000; the same store written by the head
+  reads identical to it.
+- **L6** — Checks: fmt and clippy pass; `cargo test --workspace` 63 binaries, 1,221 passed, 0 failed, 35 ignored
+  (before removing two needless `drop` calls that clippy flagged in the new test file; that test passes after).

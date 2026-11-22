@@ -845,8 +845,6 @@ impl Rng {
     }
 }
 
-const NANOS: i128 = 1000;
-
 /// The extreme and special values of `ty` before normalization: the ends of each domain, negative integers, `-0` and
 /// `+0`, NaNs with different bits and infinities, empty `bytes` and `string`, `00` and U+0000 at the start, in the
 /// middle and at the end, and `uuid`s and `ulid`s whose groups SQL Server compares separately.
@@ -953,22 +951,15 @@ fn special_values(ty: &ColumnType) -> Vec<Value<'static>> {
         .map(owned_b)
         .to_vec(),
         ColumnType::Date => [DATE_MIN, -1, 0, 1, DATE_MAX].map(Value::Date).to_vec(),
-        ColumnType::Time => [0, 1_000, 1_499, 60_000_000_000, TIME_MAX * 1000]
+        ColumnType::Time => [0, 1, 1_499, 60_000_000, TIME_MAX]
             .map(Value::Time)
             .to_vec(),
-        ColumnType::Timestamp => [
-            i128::from(TIMESTAMP_MIN) * NANOS,
-            -NANOS,
-            -500,
-            0,
-            NANOS,
-            i128::from(TIMESTAMP_MAX) * NANOS,
-        ]
-        .map(Value::Timestamp)
-        .to_vec(),
+        ColumnType::Timestamp => [TIMESTAMP_MIN, -1_000, -1, 0, 1, TIMESTAMP_MAX]
+            .map(Value::Timestamp)
+            .to_vec(),
         ColumnType::Duration => {
-            let max = i128::from(DURATION_MAX) * NANOS;
-            [-max, -NANOS, 0, NANOS, max].map(Value::Duration).to_vec()
+            let max = DURATION_MAX;
+            [-max, -1, 0, 1, max].map(Value::Duration).to_vec()
         }
         ColumnType::Uuid(_) | ColumnType::Ulid => {
             let mut values = Vec::new();
@@ -1031,15 +1022,14 @@ fn random_value(rng: &mut Rng, ty: &ColumnType) -> Value<'static> {
             ))
         }
         ColumnType::Date => Value::Date(DATE_MIN + (r1 % (DATE_MAX - DATE_MIN) as u64) as i32),
-        ColumnType::Time => Value::Time((r1 % (TIME_MAX * 1000) as u64) as i64),
+        ColumnType::Time => Value::Time((r1 % TIME_MAX as u64) as i64),
         ColumnType::Timestamp => {
-            let (min, max) = (
-                i128::from(TIMESTAMP_MIN) * NANOS,
-                i128::from(TIMESTAMP_MAX) * NANOS,
-            );
-            Value::Timestamp(min + (u128::from(r1) * u128::from(r2) % (max - min) as u128) as i128)
+            let (min, max) = (TIMESTAMP_MIN, TIMESTAMP_MAX);
+            Value::Timestamp(min + (u128::from(r1) * u128::from(r2) % (max - min) as u128) as i64)
         }
-        ColumnType::Duration => Value::Duration(i128::from(r1 as i64)),
+        ColumnType::Duration => {
+            Value::Duration((r1 % (2 * DURATION_MAX as u64)) as i64 - DURATION_MAX)
+        }
         ColumnType::Uuid(_) | ColumnType::Ulid => {
             // Each group of bytes that SQL Server compares as a unit is all 00, all FF, all 01 or random, so that
             // many values tie on the groups compared first and the later groups decide.

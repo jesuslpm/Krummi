@@ -198,8 +198,8 @@ impl<'a> JsonValue<'a> {
     }
 
     /// An RFC 3339 instant with an offset, converted to UTC and rounded to the microsecond, in the domain of E8, as
-    /// nanoseconds since the Unix epoch (JS7).
-    pub fn as_timestamp(&self) -> Option<i128> {
+    /// microseconds since the Unix epoch (JS7; TU4 of the temporal values in microseconds PRD).
+    pub fn as_timestamp(&self) -> Option<i64> {
         time::timestamp(&self.as_text()?)
     }
 

@@ -33,8 +33,6 @@ pub const DURATION_MAX: i64 = 922_337_203_685_477_580;
 pub(crate) const CANONICAL_NAN_F32: u32 = 0x7FC0_0000;
 /// The one NaN a `f64` column stores (N4): the positive quiet NaN.
 pub(crate) const CANONICAL_NAN_F64: u64 = 0x7FF8_0000_0000_0000;
-/// Nanoseconds per microsecond: temporal [`Value`]s hold nanoseconds, rows and keys store microseconds.
-pub(crate) const NANOS_PER_MICRO: i128 = 1000;
 
 /// The type of a column (N4; document 1 of the table design, *Column types*).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -285,8 +283,8 @@ pub struct Decimal {
 /// A value of a column, as given to Krummi and as read back (N4). Text, bytes, vectors and JSON borrow when they can:
 /// a value read from a row borrows the page (D11), a default value is owned by its schema.
 ///
-/// Temporal values carry nanoseconds, so that a value given with a fraction below the microsecond is rounded by the
-/// validation of its column (E8) and not before; a value read from a row is always a whole number of microseconds.
+/// Temporal values are given and read in the unit Krummi stores them in (the temporal values in microseconds PRD,
+/// TU1): days for a `date`, microseconds for a `time`, a `timestamp` and a `duration`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value<'a> {
     Null,
@@ -306,12 +304,12 @@ pub enum Value<'a> {
     Bytes(Cow<'a, [u8]>),
     /// Days since 1970-01-01.
     Date(i32),
-    /// Nanoseconds since midnight.
+    /// Microseconds since midnight.
     Time(i64),
-    /// Nanoseconds since the Unix epoch, UTC.
-    Timestamp(i128),
-    /// Nanoseconds.
-    Duration(i128),
+    /// Microseconds since the Unix epoch, UTC.
+    Timestamp(i64),
+    /// Microseconds.
+    Duration(i64),
     Uuid(Uuid),
     Ulid(Ulid),
     /// The elements of a vector and, for `i8`, its scale: [`VectorType::value_len`] bytes in the layout of
@@ -375,14 +373,15 @@ impl Value<'_> {
 }
 
 /// Validates `value` for a column of type `ty` that allows nulls when `nullable` and returns it normalized, or the
-/// first rule it breaks in the order of E17: null not allowed, wrong type, out of domain (also after rounding),
+/// first rule it breaks in the order of E17: null not allowed, wrong type, out of domain (of a `decimal`, also after
+/// rounding),
 /// decimal precision, vector dimension, NaN or infinity in a vector, zero vector with the cosine metric; and, in a
 /// JSON column, a text that is not a JSON document (JS8 of the JSON columns PRD).
 ///
 /// Normalization (N4, E7, E8): `-0` becomes `+0` and every NaN the one canonical NaN in `f32` and `f64`, and `-0`
 /// becomes `+0` inside `f32` and `f16` vectors and in an `i8` vector's scale; a `decimal` is rounded to the column's
-/// scale with ties away from zero; a `time`, `timestamp` or `duration` is rounded to the nearest microsecond with
-/// ties up; a JSON document given by the application becomes its normalized text (JS4), and one read back, already
+/// scale with ties away from zero; a `time`, `timestamp` or `duration` is kept as it is, already in microseconds
+/// (TU3); a JSON document given by the application becomes its normalized text (JS4), and one read back, already
 /// normalized, is kept as it is. `ty` must pass [`check_type`].
 pub fn normalize<'a>(
     ty: &ColumnType,
@@ -415,19 +414,17 @@ pub fn normalize<'a>(
             in_domain(i128::from(days), DATE_MIN.into(), DATE_MAX.into())?;
             Value::Date(days)
         }
-        (ColumnType::Time, Value::Time(nanos)) => {
-            let micros = in_domain(round_micros(nanos.into()), 0, TIME_MAX.into())?;
-            Value::Time(i64::try_from(micros * NANOS_PER_MICRO).expect("within a day"))
+        (ColumnType::Time, Value::Time(micros)) => {
+            in_domain(micros.into(), 0, TIME_MAX.into())?;
+            Value::Time(micros)
         }
-        (ColumnType::Timestamp, Value::Timestamp(nanos)) => {
-            let micros = round_micros(nanos);
-            let micros = in_domain(micros, TIMESTAMP_MIN.into(), TIMESTAMP_MAX.into())?;
-            Value::Timestamp(micros * NANOS_PER_MICRO)
+        (ColumnType::Timestamp, Value::Timestamp(micros)) => {
+            in_domain(micros.into(), TIMESTAMP_MIN.into(), TIMESTAMP_MAX.into())?;
+            Value::Timestamp(micros)
         }
-        (ColumnType::Duration, Value::Duration(nanos)) => {
-            let micros = round_micros(nanos);
-            let micros = in_domain(micros, (-DURATION_MAX).into(), DURATION_MAX.into())?;
-            Value::Duration(micros * NANOS_PER_MICRO)
+        (ColumnType::Duration, Value::Duration(micros)) => {
+            in_domain(micros.into(), (-DURATION_MAX).into(), DURATION_MAX.into())?;
+            Value::Duration(micros)
         }
         (ColumnType::Vector(vector), Value::Vector(bytes)) => {
             Value::Vector(normalize_vector(vector, bytes)?)
@@ -467,14 +464,6 @@ fn in_domain(v: i128, min: i128, max: i128) -> Result<i128, ValueRule> {
     } else {
         Err(ValueRule::OutOfDomain)
     }
-}
-
-/// Nanoseconds rounded to the nearest microsecond, ties toward the greater value (E8).
-pub(crate) fn round_micros(nanos: i128) -> i128 {
-    // Every i128 the API takes is far from the ends of i128, but saturate rather than overflow.
-    nanos
-        .saturating_add(NANOS_PER_MICRO / 2)
-        .div_euclid(NANOS_PER_MICRO)
 }
 
 /// `d` at the column's `scale`, rounded with ties away from zero, as SQL Server does (E8), and checked against
@@ -663,19 +652,20 @@ impl fmt::Display for Value<'_> {
                 bytes.iter().try_for_each(|b| write!(f, "{b:02x}"))
             }
             Value::Date(days) => write_date(f, i128::from(*days)),
-            Value::Time(nanos) => write_clock(f, i128::from(*nanos)),
-            Value::Timestamp(nanos) => {
-                let day = 86_400 * 1_000_000_000;
-                write_date(f, nanos.div_euclid(day))?;
+            Value::Time(micros) => write_clock(f, i128::from(*micros)),
+            Value::Timestamp(micros) => {
+                let micros = i128::from(*micros);
+                let day = 86_400 * MICROS_PER_SECOND;
+                write_date(f, micros.div_euclid(day))?;
                 f.write_str("T")?;
-                write_clock(f, nanos.rem_euclid(day))?;
+                write_clock(f, micros.rem_euclid(day))?;
                 f.write_str("Z")
             }
-            Value::Duration(nanos) => {
-                let sign = if *nanos < 0 { "-" } else { "" };
-                let magnitude = nanos.unsigned_abs();
-                write!(f, "{sign}{}", magnitude / 1_000_000_000)?;
-                write_fraction(f, magnitude % 1_000_000_000)?;
+            Value::Duration(micros) => {
+                let sign = if *micros < 0 { "-" } else { "" };
+                let magnitude = micros.unsigned_abs();
+                write!(f, "{sign}{}", magnitude / MICROS_PER_SECOND as u64)?;
+                write_fraction(f, magnitude % MICROS_PER_SECOND as u64)?;
                 f.write_str("s")
             }
             Value::Uuid(uuid) => write!(f, "{uuid}"),
@@ -718,19 +708,23 @@ fn write_date(f: &mut fmt::Formatter<'_>, days: i128) -> fmt::Result {
     write!(f, "{year:04}-{month:02}-{day:02}")
 }
 
-/// `HH:MM:SS[.f]` of `nanos` since midnight.
-fn write_clock(f: &mut fmt::Formatter<'_>, nanos: i128) -> fmt::Result {
-    let seconds = nanos.div_euclid(1_000_000_000);
+/// Microseconds per second, the unit of `time`, `timestamp` and `duration` values (TU1).
+const MICROS_PER_SECOND: i128 = 1_000_000;
+
+/// `HH:MM:SS[.f]` of `micros` since midnight.
+fn write_clock(f: &mut fmt::Formatter<'_>, micros: i128) -> fmt::Result {
+    let seconds = micros.div_euclid(MICROS_PER_SECOND);
     let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
     write!(f, "{h:02}:{m:02}:{s:02}")?;
-    write_fraction(f, nanos.rem_euclid(1_000_000_000).unsigned_abs())
+    let fraction = u64::try_from(micros.rem_euclid(MICROS_PER_SECOND)).expect("below a second");
+    write_fraction(f, fraction)
 }
 
-/// `.f`, the fraction of a second without trailing zeros, or nothing when it is zero.
-fn write_fraction(f: &mut fmt::Formatter<'_>, nanos: u128) -> fmt::Result {
-    if nanos == 0 {
+/// `.f`, the fraction of a second of `micros` microseconds without trailing zeros, or nothing when it is zero.
+fn write_fraction(f: &mut fmt::Formatter<'_>, micros: u64) -> fmt::Result {
+    if micros == 0 {
         return Ok(());
     }
-    let digits = format!("{nanos:09}");
+    let digits = format!("{micros:06}");
     write!(f, ".{}", digits.trim_end_matches('0'))
 }

@@ -397,7 +397,6 @@ fn all_types() -> Schema {
 /// The values a row of [`all_types`] may have in the column `name`: nulls, repeated values and the extremes of each
 /// domain of E8, `-0` and NaNs of other bits than the stored one.
 fn pool(name: &str) -> Vec<Value<'static>> {
-    const NANOS: i128 = 1000;
     let dec = |mantissa| Value::Decimal(Decimal { mantissa, scale: 2 });
     let bytes = |b: &[u8]| Value::Bytes(Cow::Owned(b.to_vec()));
     let mut values = match name {
@@ -459,27 +458,13 @@ fn pool(name: &str) -> Vec<Value<'static>> {
             bytes(&[0xFF]),
         ],
         "da" => [DATE_MIN, -1, 0, DATE_MAX].map(Value::Date).to_vec(),
-        "ti" => vec![
-            Value::Time(0),
-            Value::Time(1000),
-            Value::Time(i64::try_from(i128::from(TIME_MAX) * NANOS).unwrap()),
-        ],
-        "ts" => [
-            i128::from(TIMESTAMP_MIN) * NANOS,
-            -NANOS,
-            0,
-            i128::from(TIMESTAMP_MAX) * NANOS,
-        ]
-        .map(Value::Timestamp)
-        .to_vec(),
-        "du" => [
-            -i128::from(DURATION_MAX) * NANOS,
-            -NANOS,
-            0,
-            i128::from(DURATION_MAX) * NANOS,
-        ]
-        .map(Value::Duration)
-        .to_vec(),
+        "ti" => vec![Value::Time(0), Value::Time(1), Value::Time(TIME_MAX)],
+        "ts" => [TIMESTAMP_MIN, -1, 0, TIMESTAMP_MAX]
+            .map(Value::Timestamp)
+            .to_vec(),
+        "du" => [-DURATION_MAX, -1, 0, DURATION_MAX]
+            .map(Value::Duration)
+            .to_vec(),
         other => panic!("no pool for {other}"),
     };
     values.push(Value::Null);
