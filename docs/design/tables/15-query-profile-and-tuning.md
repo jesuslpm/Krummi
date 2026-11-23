@@ -478,24 +478,44 @@ is only the reason to run a trial, never the evidence to force a plan.
 **Trial.** A suspect shape runs both plans side by side. The consumer publishes a **trial directive** that gives each
 of the shape's executions the last good plan with probability ½ and the candidate otherwise, and the query's thread
 draws, as it already draws for sampling (*Capture*). Assigned at random, the two plans see the same mix of parameter
-values in expectation, at the same moments. A finite trial does not see it exactly: one dear parameter value that
-falls on one side moves that side's mean. So the consumer keeps for each side of the trial its own count, sum and sum
-of squares of pages per execution, and decides only with a confidence bound. With `m` the means, `s²` the variances,
-`n` the counts and `f` the factor (2× as a start [I]), it computes
+values in expectation, at the same moments; a finite trial does not see it exactly, so the decision rests on three
+rules.
 
-$$z = \frac{m_{cand} - f \cdot m_{good}}{\sqrt{s_{cand}^2 / n_{cand} + f^2 \cdot s_{good}^2 / n_{good}}}$$
+1. **One evaluation of a size fixed in advance.** The trial ends when each side has `n` executions (100 as a start
+   [I]) and is evaluated once, then. A trial that has not reached its size within a bound on time is
+   **inconclusive**. Evaluating again and again with the same threshold until it is crossed raises the error: the
+   review of 2026-11-23 measured about 15 % with ten looks at a 5 % bound.
+2. **Strata.** Each execution of the trial carries its **stratum**: the power of two of the rows the planner
+   estimates for the shape's whole filter with the execution's parameters. That estimate is computed before the plan
+   is drawn, so it is the same for both plans and cannot bias them. The consumer keeps, for each side and stratum, a
+   count, a sum and a sum of squares of pages per execution. Each side's mean is `m = Σ w_s · m_s` and its variance
+   `Σ w_s² · s_s² / n_s`, where `w_s` is the share of stratum `s` among all the trial's executions, both sides
+   together. A dear parameter value that falls on one side then weighs as much as it does in the whole workload, as
+   long as the estimate puts it in a stratum of its own. A stratum where one side has fewer than 5 executions [I] is
+   left out, with the weights renormalized; if the strata left out hold more than 5 % of the executions [I], the
+   trial is inconclusive.
+3. **A one-sided bound.** With `f` the factor (2× as a start [I]),
 
-once each side has a minimum of executions (30 as a start [I]). The candidate **regressed** when `z > 1.645`: with
-about 95 % confidence it costs more than `f` times the last good plan [I]. It is **cleared** when `z < −1.645`, and
-becomes the shape's last good plan. Otherwise the trial goes on, within a bound on time. A trial that reaches the bound
-is **inconclusive**: no plan is forced, the planner keeps its choice, and the shape is not tried again for a while. A
-trial runs about half the shape's executions on the worse plan while it lasts.
+   $$z = \frac{m_{cand} - f \cdot m_{good}}{\sqrt{v_{cand} + f^2 \cdot v_{good}}}$$
 
-**The limits of the guarantee.** A conclusive trial is wrong with a probability of about 5 % on each side when the
-means behave as normal. Heavy tails are handled by the variance, not avoided. When a rare parameter value costs a
-thousand times the common one, a single execution with it widens the bound, and the trial goes on or ends
-inconclusive instead of forcing. With 29 executions of 1 page and one of 1,000 against 30 executions of 10 pages, `z`
-is about 0.4. A wrong decision is temporary: the plan directive expires, and a later trial decides again.
+   where `v` is each side's variance of the mean from rule 2. The candidate **regressed** when `z > 1.645`. Otherwise
+   it is not forced: it stays the planner's choice, and the shape is not tried again for a while.
+
+A trial runs about half the shape's executions on the worse plan while it lasts, and one estimate of the shape's
+filter per execution.
+
+**The limits of the guarantee**, accepted by the user on 2026-11-23 ("Automático, límites explícitos"):
+
+- When pages per execution behave as normal within each stratum, the one evaluation forces a candidate that is not
+  worse by `f` with a probability of about 5 %.
+- Strata remove the imbalance of dear parameter values only when the estimate separates them from the cheap ones.
+  When it does not, and a wrong estimate is often why a plan regressed, a few dear executions that fall on one side
+  can still decide, and this rule does not bound the error. The review's example: the last good plan costs 10 pages
+  on value A and 1,000,000 on value B, and the candidate costs 1 and 100,000, so it is better for both. If three B
+  executions among 200 all fall on the candidate's side (probability 1/8) and their estimate does not separate B
+  from A, the candidate's mean passes twice the other's and the worse plan is forced.
+- A wrong forcing lasts at most the directive's time to live (one day as a start [I]). Then the planner chooses
+  again and a new trial decides. Every forcing is visible in the profile and in `explain`.
 
 **Forcing.** A regressed candidate gets a **plan directive** in the profile's `directives` table: the shape, the last
 good plan's bytes from `plans` and the catalog state tokens it was planned on. The planner receives directives as an
@@ -509,14 +529,15 @@ cache entry, even when revalidation would keep it; a cursor already running keep
 reach the cache the same way.
 
 **Expiry.** The plan directive expires when the catalog state tokens it was planned on change (for example, an index
-it uses was dropped, P12), after a time to live, or when a plan of the shape is accepted into the catalog (M7). Then
+it uses was dropped, P12), after a time to live (one day as a start [I]), or when a plan of the shape is accepted
+into the catalog (M7). Then
 the planner chooses again; a plan it chooses is a candidate again, and a new trial decides, since the data may have
 changed. A shape whose plan is forced again after an expiry is a tuner recommendation to accept a plan, which a
 person decides.
 
 **What it never does.** It never overrides an accepted plan (SQL Server's lesson in *What others do*), never forces a
 plan the catalog no longer supports, never forces a plan from separate windows without a trial, and never
-forces on an inconclusive trial.
+forces a plan without the trial's one evaluation.
 
 ## Estimate feedback
 
@@ -749,7 +770,9 @@ Reviewed on 2026-11-23 ("¿Qué te parece el diseño del perfilado? ¿Qué mejor
   while estimate directives wait for a measurement (finding 1);
 - each execution records its thread's CPU time (H29, M3);
 - stage 3 states its dependency on modules 10 and 12;
-- masking parameter values by default was proposed and declined, because it loses the exact values (question 1).
+- masking parameter values by default was proposed and declined, because it loses the exact values (question 1);
+- after the Codex review of the same day, forcing stays automatic with its limits stated (*The limits of the
+  guarantee*): the user chose "Automático, límites explícitos" over a recommendation only.
 
 ## Alternatives considered
 
@@ -851,7 +874,7 @@ practice.
 - The page counter of M3: one increment per page access, and two reads of the thread's CPU clock per execution [I];
   to measure.
 - Plan regressions: at each flush, one comparison per pending candidate; during a trial, one draw per execution of
-  the shape and about half its executions on the worse plan [I].
+  the shape, one estimate of its filter per execution, and about half its executions on the worse plan [I].
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
 - Directives: one sample per directive at planning, kept with the plan.
@@ -867,7 +890,7 @@ practice.
 | A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
-| A forced plan is worse for some parameter values | The shape is slower for those values | The trial runs both plans at random and forces only when a confidence bound on their means says so; an inconclusive trial forces nothing; expiry starts a new trial |
+| A forced plan is worse for some parameter values | The shape is slower for those values | One evaluation of a fixed size, strata by estimated rows and a one-sided bound; an inconclusive trial forces nothing; a one-day time to live; the limits are stated (*Plan regressions*) |
 | Wrong what-if recommendations | An index that does not help, or hurts writes | Write overhead in the evaluation; validation after applying; revert |
 | Parameter values in the profile | Sensitive data at rest | Encrypted with the store; masking per column (question 1) |
 | A profile from another store | Wrong feedback | Main store identity in `meta` (H16) |
@@ -893,8 +916,8 @@ practice.
    spread of a new entry's first rows over time with the cap `R`.
 9. Forcing the last good plan on a synthetic regression (statistics rebuilt on a skewed column that move a shape
    from an index to a full scan); and a candidate better for every parameter value, suspected because its first
-   window held dearer values, which its trial must clear or leave inconclusive, never force, also when one rare dear
-   value falls on its side of the trial.
+   window held dearer values, which its trial must not force when the estimate separates the dear values; and how
+   often it is forced when the estimate does not separate them.
 
 ## Product questions
 
@@ -918,7 +941,8 @@ practice.
    batched index build exists, with revert.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
    `p_max = 1` fixed, `p_min` deferred (10⁻⁴ when it comes), `τ` = 1 day, the cap `R = 10` per entry and second, the
-   budget `B`, a 100 ms tick and `k = 4`; for plan regressions 30 executions, 2× and a one-sided 95 % bound). Recommended: fixed defaults,
+   budget `B`, a 100 ms tick and `k = 4`; for plan regressions 30 executions to suspect, 100 per side for a trial, 2×, a one-sided 95 % bound, 5
+   executions and 5 % for the strata, and a one-day time to live). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
