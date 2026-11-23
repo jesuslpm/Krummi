@@ -15,7 +15,7 @@ use super::catalog::{ReadTable, WriteTable};
 use super::key::KeyColumn;
 use super::schema::{SchemaColumn, TableSchema, TableStats};
 use super::statistics::{Built, stats_column, stored, stored_prefix};
-use super::stats::{ColumnStats, element_column, is_large};
+use super::stats::{ColumnStats, element_column, is_large_folded};
 use super::value::{Value, normalize};
 use super::worker::Job;
 #[cfg(test)]
@@ -353,7 +353,7 @@ fn check(
         } => Ok(Checked::Null),
         Condition::Equal { value, .. } => {
             let (value, element) = encode(value)?;
-            let large = is_large(&key, &value);
+            let large = is_large_folded(&key, &value);
             Ok(Checked::Equal { large, element })
         }
         Condition::Range { lower, upper, .. } => {

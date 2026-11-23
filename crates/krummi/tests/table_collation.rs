@@ -13,6 +13,8 @@ mod indexes;
 mod keys;
 #[path = "table_collation/model.rs"]
 mod model;
+#[path = "table_collation/review.rs"]
+mod review;
 #[path = "table_collation/statistics.rs"]
 mod statistics;
 

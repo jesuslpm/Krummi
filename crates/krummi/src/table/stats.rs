@@ -104,12 +104,25 @@ pub(crate) fn has_stats(ty: &ColumnType) -> bool {
 /// Whether `value`, of the column `column` encodes, is large (ST1): a text or bytes of more than [`LARGE`] bytes, or a
 /// text whose folded form has more (IC8 of the collation PRD).
 pub(crate) fn is_large(column: &KeyColumn, value: &Value<'_>) -> bool {
-    let len = |value: &Value<'_>| match value {
+    text_len(value) > LARGE || is_large_folded(column, value)
+}
+
+/// Whether the folded form of `value`, of the column `column` encodes, is large: what decides it for a value an
+/// estimate is given (IC7 of the collation PRD).
+pub(crate) fn is_large_folded(column: &KeyColumn, value: &Value<'_>) -> bool {
+    match folded(column.collation, value) {
+        Some(folded) => text_len(&folded) > LARGE,
+        None => text_len(value) > LARGE,
+    }
+}
+
+/// The bytes of a text or bytes value; 0 for any other.
+fn text_len(value: &Value<'_>) -> usize {
+    match value {
         Value::String(text) => text.len(),
         Value::Bytes(bytes) => bytes.len(),
         _ => 0,
-    };
-    len(value) > LARGE || folded(column.collation, value).is_some_and(|f| len(&f) > LARGE)
+    }
 }
 
 /// What a build gathers for one column while it reads rows.
