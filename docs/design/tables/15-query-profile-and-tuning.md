@@ -85,8 +85,8 @@ Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source
    records its thread's CPU time, which ranks within one machine, as duration does.
 6. **Indexes are never created automatically.** Building one holds the write turn for the whole build (IX2), so it is
    applied in a window chosen by the application. Directives, which are cheap and reversible, can apply on their own,
-   and so can forcing the last good plan of a shape whose new plan regressed, measured from the aggregates alone
-   (*Plan regressions*).
+   and so can forcing the last good plan of a shape whose new plan regressed, suspected from the aggregates and
+   confirmed by a trial that runs both plans at random (*Plan regressions*).
 7. **A language model helps on the analysis machine, outside Krummi.** An agent command-line tool (Codex or Claude
    Code, with a cloud model or a local one) reads the profile and the recommendations through Krummi's tools, explains
    them, answers questions by asking the tuner to measure, and proposes candidates the rules do not generate. It
@@ -171,7 +171,7 @@ Each gap names what it changes in the design.
 | H27 | Reading the published snapshot through a reference-counted pointer | Every execution adds to a shared counter, the bouncing of H26 again | A copy of the snapshot per thread, refreshed when a version number that is only read changes |
 | H28 | A ring per thread | Memory for threads that never query, rings of threads that ended, unbounded total with many threads | Rings created with a thread's first query, drained and freed when the thread ends, total memory bounded |
 | H29 | Pages miss work that touches few pages | A shape that spends its time navigating JSON documents (a walk over the bytes before the value, document 13), decompressing or sorting in memory never ranks | The CPU time of the execution's thread (M3), aggregated like duration |
-| H30 | A shape's new plan can cost more than the one it replaced | After revalidation replans a shape or the catalog changes, a frequent shape costs more until someone notices | The consumer compares the new plan with the last good one at each flush and forces the last good plan (*Plan regressions*) |
+| H30 | A shape's new plan can cost more than the one it replaced | After revalidation replans a shape or the catalog changes, a frequent shape costs more until someone notices | The consumer suspects a new plan from the aggregates, confirms the regression with a trial that runs both plans at random, and forces the last good plan (*Plan regressions*) |
 
 ## The profile
 
@@ -464,30 +464,44 @@ intervals are removed by the flush, and when the profile passes its size bound t
 
 The plan cache replans a shape when revalidation sees its rows move by more than a factor or when the catalog changes
 (document 4), and the new plan can cost more than the one it replaced (H30). The aggregates per (shape, plan) already
-measure that, so catching it needs neither estimates nor a copy. It is the counterpart of Azure's *force last good
-plan*, on by default there [V], and the first automatic action to build.
+measure each plan's cost, so catching it needs neither estimates nor a copy. It is the counterpart of Azure's *force
+last good plan*, on by default there [V], and the first automatic action to build.
 
-**Detection.** At each flush, for each shape that ran a plan new since the last flush beside an earlier plan, the
-consumer compares the new plan's pages per execution in the interval with the earlier plan's over its last window.
-The new plan **regressed** when both have enough executions (30 as a start [I]) and the new one's mean, or its p95,
-exceeds the earlier one's by a factor (2× as a start [I]). The earlier plan is the shape's **last good plan**. Pages
-compare; duration, which depends on the moment, does not decide.
+**Suspicion.** Each shape has a **last good plan**: the plan it ran before, while that plan has enough executions in
+the window (30 as a start [I]). When the shape runs another plan, that plan is a **candidate**, and it stays pending
+from one flush to the next until it has enough executions too, until the shape stops running it, or until the
+catalog no longer supports the last good plan. With enough executions, the candidate is **suspect** when its mean or
+its p95 of pages per execution exceeds the last good plan's over its window by a factor (2× as a start [I]). The two
+windows may hold different parameter values, a cheap mix for one plan and a dear one for the other, so a suspicion
+is only the reason to run a trial, never the evidence to force a plan.
 
-**Forcing.** The consumer records a **plan directive** in the profile's `directives` table: the shape, the last good
-plan's bytes from `plans` and the catalog state tokens it was planned on. The planner receives directives as an input
-(M2), so the shape's next planning takes that plan instead of choosing one. Like an estimate directive it is learned,
-disposable and kept in the profile (H15), and `explain` names it.
+**Trial.** A suspect shape runs both plans side by side. The consumer publishes a **trial directive** that gives each
+of the shape's executions the last good plan with probability ½ and the candidate otherwise, and the query's thread
+draws, as it already draws for sampling (*Capture*). Assigned at random, the two plans run the same mix of parameter
+values at the same moments, so their means in the trial compare without bias. The trial ends when each plan has
+enough executions (30 as a start [I]), within a bound on time. The candidate **regressed** when its mean pages per
+execution in the trial exceed the last good plan's by the factor; otherwise it is **cleared** and becomes the shape's
+last good plan. A trial runs at most about half the shape's executions on the worse plan, for as long as it lasts.
 
-**Trial and expiry.** The forced plan is on trial: if over the next windows its pages per execution are not below the
-regressed plan's, the directive is dropped and the shape is marked so that no plan is forced on it again for a while.
-The trial compares the shape's mean over all its executions, so a forced plan that only moves cost from some parameter
-values to others does not stay. The directive expires when the catalog state tokens it was planned on change (for
-example, an index it uses was dropped, P12), after a time to live, or when a plan of the shape is accepted into the
-catalog (M7). After it expires the planner chooses again and detection starts over; a shape that regresses again is a
-tuner recommendation to accept a plan, which a person decides.
+**Forcing.** A regressed candidate gets a **plan directive** in the profile's `directives` table: the shape, the last
+good plan's bytes from `plans` and the catalog state tokens it was planned on. The planner receives directives as an
+input (M2), so the shape's next planning takes that plan instead of choosing one. Like an estimate directive it is
+learned, disposable and kept in the profile (H15), and `explain` names it.
 
-**What it never does.** It never overrides an accepted plan (SQL Server's lesson in *What others do*), and never
-forces a plan the catalog no longer supports.
+**Directives and the plan cache.** The consumer publishes the directives with a version per shape, read like the
+snapshot of H27, and each cached plan records the version it was planned with. Installing, changing, dropping or
+expiring a directive increments its shape's version, so the shape's next lookup plans again instead of reusing its
+cache entry, even when revalidation would keep it; a cursor already running keeps its plan. Estimate directives
+reach the cache the same way.
+
+**Expiry.** The plan directive expires when the catalog state tokens it was planned on change (for example, an index
+it uses was dropped, P12), after a time to live, or when a plan of the shape is accepted into the catalog (M7). Then
+the planner chooses again; a plan it chooses is a candidate again, and a new trial decides, since the data may have
+changed. A shape whose plan is forced again after an expiry is a tuner recommendation to accept a plan, which a
+person decides.
+
+**What it never does.** It never overrides an accepted plan (SQL Server's lesson in *What others do*), never forces a
+plan the catalog no longer supports, and never forces a plan from separate windows without a trial.
 
 ## Estimate feedback
 
@@ -656,7 +670,7 @@ Asked "Cómo calificarías/evaluarías todo esto? es eficaz? es eficiente? es co
 |---|---|---|---|---|
 | Requirements for module 17 (M1-M7) | High | High | Low | The most valuable part: cheap now, expensive later |
 | Mergeable aggregates | High | High | Low | The model of Query Store and `pg_stat_statements` |
-| Forcing the last good plan (added 2026-11-23) | High | High | Low | Measured from the aggregates alone; reversible; its trial validates it |
+| Forcing the last good plan (added 2026-11-23) | High | High | Low | Suspected from the aggregates; confirmed by a randomized trial; reversible |
 | Sampled executions | High | High with producers and one consumer | High | Statistically sound, but five parameters, a controller, calibration, outliers and the degraded mark add up |
 | Estimate directives | Uncertain | High | Medium | See the first finding |
 | What-if tuner | Medium | High | Medium | Rests on estimates, which are what fails |
@@ -791,7 +805,8 @@ practice.
 - M1. Actual rows per node with a **completed** flag, false when a parent stopped the node early (`Limit`, `TopK`).
 - M2. The planner takes the **index set, the directives (of estimates and of plans) and the accepted plans as
   inputs**, without reading the catalog directly, so it can plan against hypothetical indexes and apply directives
-  without a redesign.
+  without a redesign. Each cached plan records the version of its shape's directives, so a change of directive
+  replans the shape (*Plan regressions*).
 - M3. A **logical pages** counter per execution (pages touched by its read transaction or cursor) and its **CPU
   time**, read from its thread's CPU clock and summed over the calls of a cursor (H29), with their cost measured
   before they are assumed free.
@@ -820,7 +835,8 @@ practice.
   the demand one second late (*Sampled executions*). The only hard limit is the memory bound of the buffers.
 - The page counter of M3: one increment per page access, and two reads of the thread's CPU clock per execution [I];
   to measure.
-- Plan regressions: at each flush, one comparison per shape that ran a new plan [I].
+- Plan regressions: at each flush, one comparison per pending candidate; during a trial, one draw per execution of
+  the shape and about half its executions on the worse plan [I].
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
 - Directives: one sample per directive at planning, kept with the plan.
@@ -836,7 +852,7 @@ practice.
 | A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
-| A forced plan is worse for some parameter values | The shape is slower for those values | The trial keeps it only when it lowers the shape's mean over all its executions; expiry lets the planner choose again |
+| A forced plan is worse for some parameter values | The shape is slower for those values | The trial runs both plans at random over the same executions' mix and forces only a plan that is better on average; expiry starts a new trial |
 | Wrong what-if recommendations | An index that does not help, or hurts writes | Write overhead in the evaluation; validation after applying; revert |
 | Parameter values in the profile | Sensitive data at rest | Encrypted with the store; masking per column (question 1) |
 | A profile from another store | Wrong feedback | Main store identity in `meta` (H16) |
@@ -861,7 +877,8 @@ practice.
 8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load; the
    spread of a new entry's first rows over time with the cap `R`.
 9. Forcing the last good plan on a synthetic regression (statistics rebuilt on a skewed column that move a shape
-   from an index to a full scan), and the trial's removal of a forced plan that does not help.
+   from an index to a full scan); and a candidate better for every parameter value, suspected because its first
+   window held dearer values, which its trial must clear.
 
 ## Product questions
 
