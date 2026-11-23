@@ -128,3 +128,42 @@ fn r2_analyze_never_folds_a_large_default_through_an_index_prefix() {
         "the default was not read: {pair:?}"
     );
 }
+
+/// The table of R5: `n` is 1 in every row, `t` is a large original (folding to `a`) in one and `s01`.. in `others`.
+fn joint_store(others: usize) -> Store {
+    let store = store_with_prefix_index();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let huge = format!("a{}", "\u{301}".repeat(100_000));
+    let mut rows = vec![huge];
+    rows.extend((1..=others).map(|i| format!("s{i:02}")));
+    for (id, t) in rows.iter().enumerate() {
+        let row = [
+            ("id", Value::I64(id as i64)),
+            ("t", s(t)),
+            ("n", Value::I64(1)),
+        ];
+        write.insert_row(&table, &row).unwrap();
+    }
+    write.analyze(&table, None).unwrap();
+    write.commit().unwrap();
+    store
+}
+
+#[test]
+fn r5_joint_estimates_keep_the_large_fraction_apart() {
+    let joint = |store: &Store, t: &str| {
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let condition = Condition::EqualColumns(vec![("t", s(t)), ("n", Value::I64(1))]);
+        read.estimate(&table, &condition).unwrap()
+    };
+    // A short combination that does not exist gets nothing of the large fraction.
+    let estimate = joint(&joint_store(1), "z");
+    assert!(estimate.joint);
+    assert_eq!(estimate.rows, 0.0);
+    // A large value estimates the large fraction: one row of thirteen.
+    let estimate = joint(&joint_store(12), &"z".repeat(2_049));
+    assert!(estimate.joint);
+    assert!((estimate.rows - 1.0).abs() < 1e-9, "{estimate:?}");
+}

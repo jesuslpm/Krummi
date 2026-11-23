@@ -971,11 +971,17 @@ fn estimate_columns(
                     key.encode(&value, &mut element)
                         .map_err(|rule| invalid(Some(&column.name), rule))?;
                 }
+                // A group with a large value is the prefix's large fraction, and the other combinations share what
+                // the frequent ones and the large values leave, as an equality of ST2 (ST18, IC7 of the collation
+                // PRD).
+                let large = (at.iter())
+                    .any(|a| matches!(columns[*a].1, Checked::Equal { large: true, .. }));
                 match found.frequent.iter().find(|(e, _)| *e == element) {
+                    _ if large => found.large,
                     Some((_, f)) => *f,
                     None => {
                         let frequent: f64 = found.frequent.iter().map(|(_, f)| f).sum();
-                        (1.0 - frequent).max(0.0)
+                        (1.0 - found.large - frequent).max(0.0)
                             / (found.distinct - found.frequent.len() as f64).max(1.0)
                     }
                 }
