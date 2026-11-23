@@ -87,12 +87,12 @@ pub mod ids;
 pub mod table;
 
 pub use table::{
-    BulkLoadError, Column, ColumnStatistics, Condition, Direction, Estimate, HistogramBucket,
-    IndexDefinition, IndexEntry, IndexKey, IndexMode, Nulls, PrefixStatistics, ProjectedColumn,
-    ProjectedRow, Projection, ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable,
-    Schema, SchemaColumn, SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SequenceMode, TableMode,
-    TableRow, TableSchema, Upserted, WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence,
-    WriteTable,
+    BulkLoadError, Collation, Column, ColumnStatistics, Condition, Direction, Estimate,
+    HistogramBucket, IndexDefinition, IndexEntry, IndexKey, IndexMode, Nulls, PrefixStatistics,
+    ProjectedColumn, ProjectedRow, Projection, ReadIndexEntries, ReadIndexRows, ReadRows,
+    ReadSequence, ReadTable, Schema, SchemaColumn, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
+    SequenceMode, TableMode, TableRow, TableSchema, Upserted, WriteIndexEntries, WriteIndexRows,
+    WriteRows, WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).

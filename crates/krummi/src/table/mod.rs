@@ -4,6 +4,8 @@
 
 mod bulk;
 pub mod catalog;
+pub mod collation;
+mod collation_tables;
 mod estimate;
 mod identity;
 mod index;
@@ -40,6 +42,7 @@ mod worker;
 
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
+pub use collation::Collation;
 pub use estimate::{Condition, Estimate};
 pub(crate) use estimate::{PrivateStatistics, Retired, StatsMemory};
 pub use index::{
