@@ -122,6 +122,17 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
 - *N4: los valores de `time`, `timestamp` y `duration` que la aplicación da y lee están en microsegundos, la
   resolución con que se guardan, en enteros de 64 bits con signo (TU1, TU2).*
 
+*Anotaciones del 2026-11-23 desde la intercalación de las columnas de texto ([tables-collation.prd.md](tables-collation.prd.md), 7.7):*
+
+- *N2: el módulo 7 se cierra cuando lo están 7.1, 7.2, 7.3, 7.5, 7.6 y 7.7 (IC13).*
+- *N4: una columna `string` declara su intercalación, `binary` (por defecto), `ci` o `ci_ai` (IC1).*
+- *N5: «`string` y `bytes` byte a byte, sin intercalación» vale para `bytes` y para las columnas `string` `binary`; las
+  `ci` y `ci_ai` se comparan y se ordenan por los bytes de su forma plegada, y la clave primaria y los índices únicos
+  comparan las formas plegadas (IC2, IC3).*
+- *Reparto: se añade el PRD hijo 7.7, Intercalación de las columnas de texto, que se construye después de 7.5 y antes
+  del módulo 17 (IC13).*
+- *Fuera de alcance: «la comparación de texto sin distinguir mayúsculas» deja de estar fuera.*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

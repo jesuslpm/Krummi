@@ -66,6 +66,11 @@ a value inside an object; the **normalized text** is the form in which Krummi st
 - *JS7: the instant read is returned in microseconds, in a signed 64-bit integer; a time or a duration that the
   application converts from the nearest type is given to Krummi in microseconds (TU4).*
 
+*Annotations of 2026-11-23 from the collation of text columns ([tables-collation.prd.md](tables-collation.prd.md), 7.7, Spanish,
+authoritative):*
+
+- *AC-JS12: a new store has the format IC10 sets, not 14.*
+
 ### Starting state
 
 Verified on 2026-11-21 in the code, in the PRDs of the ancestors and siblings and in the design documents:

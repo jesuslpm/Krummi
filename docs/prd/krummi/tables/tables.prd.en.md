@@ -126,6 +126,17 @@ authoritative):*
 - *N4: the values of `time`, `timestamp` and `duration` that the application gives and reads are in microseconds,
   the resolution they are stored with, in signed 64-bit integers (TU1, TU2).*
 
+*Annotations of 2026-11-23 from the collation of text columns ([tables-collation.prd.md](tables-collation.prd.md), 7.7, Spanish,
+authoritative):*
+
+- *N2: module 7 is closed when 7.1, 7.2, 7.3, 7.5, 7.6 and 7.7 are (IC13).*
+- *N4: a `string` column declares its collation, `binary` (the default), `ci` or `ci_ai` (IC1).*
+- *N5: "`string` and `bytes` byte by byte, without collation" holds for `bytes` and for `binary` `string` columns;
+  `ci` and `ci_ai` columns compare and sort by the bytes of their folded form, and the primary key and unique indexes
+  compare folded forms (IC2, IC3).*
+- *Split: child PRD 7.7, Collation of text columns, is added, built after 7.5 and before module 17 (IC13).*
+- *Out of scope: "comparing text without distinguishing case" is no longer out.*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

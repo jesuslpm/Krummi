@@ -63,6 +63,10 @@ un valor `null`.
 - *JS7: el instante leído se devuelve en microsegundos, en un entero de 64 bits con signo; una hora o una duración que
   la aplicación convierte desde el tipo más cercano se dan a Krummi en microsegundos (TU4).*
 
+*Anotaciones del 2026-11-23 desde la intercalación de las columnas de texto ([tables-collation.prd.md](tables-collation.prd.md), 7.7):*
+
+- *AC-JS12: un almacén nuevo es del formato que fija IC10, no del 14.*
+
 ### Estado de partida
 
 Verificado el 2026-11-21 en el código, en los PRD de los ascendientes y hermanos y en los documentos de diseño:

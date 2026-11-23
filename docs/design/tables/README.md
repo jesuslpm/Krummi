@@ -52,7 +52,9 @@ Decisions taken with the user after the first drafts:
   `duration`; `uuid` (RFC or SQL Server order per column); `ulid`; `vector(element, dimension)` with `f32`, `f16`, `i8`
   or `bit` elements and a fixed dimension per column. Every column is nullable unless declared `NOT NULL`; primary
   key columns never are. Out of the first version: arrays, enums, JSON, stored time zones, scalar `f16` and
-  case-insensitive collation. User: "Sí".
+  case-insensitive collation. User: "Sí". *Annotation of 2026-11-23:* a `string` column declares the `binary` (default),
+  `ci` or `ci_ai` collation from the collation PRD (7.7,
+  [tables-collation.prd.md](../../prd/krummi/tables/tables-collation.prd.md)).
 - Vectors: at most 4,096 dimensions; L2, cosine, dot product and Hamming (for `bit`) distances; distances bit-identical
   on every platform, so that a distance filter returns the same rows under any plan; the norm stored beside a vector
   of a cosine column; NaN and infinities rejected on write and in queries, and zero vectors in cosine columns; the

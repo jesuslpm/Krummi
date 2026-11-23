@@ -248,6 +248,13 @@ Strings and collation:
 - Case-insensitive lookups are an expression index later (index the lower-cased or case-folded value; document 4's
   AST supplies the expression). No normalisation (NFC) is applied by the engine.
 
+*Annotation of 2026-11-23 from the collation PRD ([tables-collation.prd.md](../../prd/krummi/tables/tables-collation.prd.md),
+7.7), by the user's decision:* binary UTF-8 order holds only for `binary` `string` columns, the default. A `string`
+column may declare the `ci` or `ci_ai` collation; its keys, unique checks, ranges and statistics then use a folded form
+pinned to Unicode 17.0 (full case folding, canonical normalisation, and for `ci_ai` the removal of the marks of Latin,
+Greek and Cyrillic letters, keeping `ñ`), ordered by its bytes. Case-insensitive search is no longer an expression
+index (IC1–IC3).
+
 UUID and ULID:
 
 - Both are 16 bytes. The row stores them in RFC 9562 byte order; the key encoding is where order is chosen.
@@ -544,7 +551,8 @@ The statistics need be neither exact nor current. A stale histogram gives a wors
    anything changes (README).
 5. **String collation.** *Decided 2026-11-09:* binary UTF-8 order only, no collation; case-insensitive search is an
    expression index later (README: "`string` (UTF-8, binary order, no collation)"; case-insensitive collation is out
-   of the first version).
+   of the first version). *Annotation of 2026-11-23:* superseded for `ci` and `ci_ai` columns by the collation PRD
+   (7.7, [tables-collation.prd.md](../../prd/krummi/tables/tables-collation.prd.md)); binary order stays the default.
 6. **Float canonicalisation.** *Decided 2026-11-09:* rows and keys both store `-0` as `+0` and one canonical NaN
    sorting after `+∞` (README).
 7. **Exact range counts in O(log n)?** *Decided 2026-11-09:* no; estimates for the planner and a scan for an exact

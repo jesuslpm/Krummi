@@ -54,6 +54,10 @@ filas W26 y W27 y K7 del banco; todos llevan su anotación (*Anotaciones a otros
   devuelve en una copia que se navega igual (JS5).*
 - *Fuera de alcance: la columna preparada JSON la fija tables-json.prd.md (JS5).*
 
+*Anotaciones del 2026-11-23 desde la intercalación de las columnas de texto ([tables-collation.prd.md](tables-collation.prd.md), 7.7):*
+
+- *PY2: una columna `string` se prepara con el tipo `string`, sea cual sea su intercalación (IC1).*
+
 ### Estado de partida
 
 - Una fila leída o recorrida se lee columna a columna, por el nombre o la posición de la columna entre las columnas

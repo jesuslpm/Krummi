@@ -80,6 +80,18 @@ W30. W31 y W32 calculan en los dos motores la suma de comprobación de W26 y W27
 
 - *IX9: un valor temporal de un límite de un intervalo ya está en microsegundos y no se redondea (TU3).*
 
+*Anotaciones del 2026-11-23 desde la intercalación de las columnas de texto ([tables-collation.prd.md](tables-collation.prd.md), 7.7):*
+
+- *IX7 e IX11: en un índice único, dos filas chocan cuando sus columnas son equivalentes según su intercalación
+  (IC6).*
+- *IX8: las entradas devuelven en sus columnas `ci` y `ci_ai` el texto guardado en la fila, no la forma plegada, y se
+  ordenan por las formas plegadas (IC3, IC5).*
+- *IX9: los valores del prefijo y los límites se pliegan antes de comparar (IC3).*
+- *IX10: la entrada, el prefijo y los límites se miden con la forma plegada; clave duplicada lleva los textos de la fila
+  tal como quedarían guardados o, al crear un índice, tal como están guardados (IC6, IC7).*
+- *Fuera de alcance: «Intercalaciones y comparación de texto sin distinguir mayúsculas» deja de estar fuera, salvo lo
+  que excluye tables-collation.prd.md.*
+
 ### Estado de partida
 
 Verificado el 2026-11-16 en el código y en los documentos de diseño:

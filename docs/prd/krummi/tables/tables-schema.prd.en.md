@@ -157,6 +157,21 @@ authoritative):*
   values below the microsecond (0001-01-01T00:00:00.0000005Z and 9999-12-31T23:59:59.9999995Z) can no longer be
   given; the `decimal` part does not change.*
 
+*Annotations of 2026-11-23 from the collation of text columns ([tables-collation.prd.md](tables-collation.prd.md), 7.7, Spanish,
+authoritative):*
+
+- *E2: Describe shows the collation of every `string` column (IC1).*
+- *E4: a `string` column declares its collation when it is created or added, and renaming or modifying it keeps it;
+  modifying it with another one, or without declaring it when it is not `binary`, fails with invalid schema, rule of a
+  change N3 does not allow (IC1).*
+- *E5: new rule, collation on a column that is not text, after the cosine metric on `bit` (IC9).*
+- *E6: the collation is part of compatibility, with the collation difference after the type difference; two default
+  values compare byte by byte (IC9).*
+- *E10 to E13 and E17: in a `ci` or `ci_ai` key column, two equivalent keys are the same row; ranges are folded;
+  duplicate key carries the row's texts as they would be stored (IC3, IC4, IC6).*
+- *E18: the primary key is measured with the folded form of its `ci` and `ci_ai` columns (IC7).*
+- *E20: the format goes up by one (IC10).*
+
 ### Starting state
 
 - There are no tables or sequences in the code: the catalog stores normal, multi-value and fixed-size trees, each

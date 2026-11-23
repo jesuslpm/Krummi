@@ -79,6 +79,12 @@ desde que se creó (ST4).
 - *ST2: un valor temporal de una condición ya está en microsegundos y no se redondea; los valores temporales de las
   estadísticas se devuelven en microsegundos (TU1, TU3).*
 
+*Anotaciones del 2026-11-23 desde la intercalación de las columnas de texto ([tables-collation.prd.md](tables-collation.prd.md), 7.7):*
+
+- *ST1, ST2, ST16, ST17 y ST18: las estadísticas y las estimaciones de una columna `ci` o `ci_ai` usan formas
+  plegadas; un texto cuya forma plegada pasa de 2.048 bytes también es grande, y un límite se acorta en un límite de
+  valor escalar de la forma plegada (IC7, IC8).*
+
 ### Estado de partida
 
 Verificado el 2026-11-19 en el código y en los documentos de diseño:

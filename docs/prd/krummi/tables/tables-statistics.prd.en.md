@@ -83,6 +83,13 @@ authoritative):*
 - *ST2: a temporal value of a condition is already in microseconds and is not rounded; the temporal values of the
   statistics are returned in microseconds (TU1, TU3).*
 
+*Annotations of 2026-11-23 from the collation of text columns ([tables-collation.prd.md](tables-collation.prd.md), 7.7, Spanish,
+authoritative):*
+
+- *ST1, ST2, ST16, ST17 and ST18: the statistics and estimates of a `ci` or `ci_ai` column use folded forms; a text
+  whose folded form exceeds 2,048 bytes is also large, and a bound is shortened at a scalar value boundary of the
+  folded form (IC7, IC8).*
+
 ### Starting state
 
 Verified on 2026-11-19 in the code and in the design documents:

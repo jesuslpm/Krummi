@@ -58,6 +58,11 @@ authoritative):*
   in a copy that is navigated the same way (JS5).*
 - *Out of scope: tables-json.prd.md fixes the JSON prepared column (JS5).*
 
+*Annotations of 2026-11-23 from the collation of text columns ([tables-collation.prd.md](tables-collation.prd.md), 7.7, Spanish,
+authoritative):*
+
+- *PY2: a `string` column is prepared with the `string` type, whatever its collation (IC1).*
+
 ### Starting state
 
 - A row that is read or traversed is read column by column, by the name or the position of the column among the live

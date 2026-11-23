@@ -85,6 +85,19 @@ measured after W30. W31 and W32 compute in both engines the checksum of W26 and 
 
 - *IX9: a temporal value of a bound of an interval is already in microseconds and is not rounded (TU3).*
 
+*Annotations of 2026-11-23 from the collation of text columns ([tables-collation.prd.md](tables-collation.prd.md), 7.7, Spanish,
+authoritative):*
+
+- *IX7 and IX11: in a unique index, two rows collide when their columns are equivalent under their collation
+  (IC6).*
+- *IX8: entries return, in their `ci` and `ci_ai` columns, the text stored in the row, not the folded form, and are
+  ordered by the folded forms (IC3, IC5).*
+- *IX9: prefix values and bounds are folded before comparing (IC3).*
+- *IX10: the entry, the prefix and the bounds are measured with the folded form; duplicate key carries the row's texts
+  as they would be stored or, when creating an index, as they are stored (IC6, IC7).*
+- *Out of scope: "Collations and comparing text without distinguishing case" is no longer out, except what
+  tables-collation.prd.md excludes.*
+
 ### Starting state
 
 Verified on 2026-11-16 in the code and in the design documents:

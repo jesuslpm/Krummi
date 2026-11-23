@@ -145,6 +145,20 @@ cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
   por debajo del microsegundo (0001-01-01T00:00:00.0000005Z y 9999-12-31T23:59:59.9999995Z) ya no se pueden dar; la
   parte de `decimal` no cambia.*
 
+*Anotaciones del 2026-11-23 desde la intercalación de las columnas de texto ([tables-collation.prd.md](tables-collation.prd.md), 7.7):*
+
+- *E2: Describir muestra la intercalación de cada columna `string` (IC1).*
+- *E4: una columna `string` declara su intercalación al crearla o añadirla, y renombrarla o modificarla la conserva;
+  modificarla con otra, o sin declararla cuando no es `binary`, falla con esquema no válido, regla de un cambio que N3
+  no admite (IC1).*
+- *E5: regla nueva, intercalación en una columna que no es de texto, después de la métrica coseno sobre `bit` (IC9).*
+- *E6: la intercalación es parte de la compatibilidad, con la diferencia intercalación después de la de tipo; dos
+  valores por defecto se comparan byte a byte (IC9).*
+- *E10 a E13 y E17: en una columna `ci` o `ci_ai` de la clave, dos claves equivalentes son la misma fila; los
+  intervalos se pliegan; clave duplicada lleva los textos de la fila tal como quedarían guardados (IC3, IC4, IC6).*
+- *E18: la clave primaria se mide con la forma plegada de sus columnas `ci` y `ci_ai` (IC7).*
+- *E20: el formato sube en uno (IC10).*
+
 ### Estado de partida
 
 - No hay tablas ni secuencias en el código: el catálogo guarda árboles normales, multivalor y de tamaño fijo, cada
