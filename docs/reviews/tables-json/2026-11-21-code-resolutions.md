@@ -35,3 +35,31 @@ correction-induced regressions; no functional JSON defect in either round.
 
 The dismissal is not repeated. R1 stays open and goes to the user as a decision in the closing report: it concerns
 the query-profile design of the other session (document 15), not the JSON columns.
+
+## 2026-11-23
+
+Artifact version: fix commit `1f38591` (`docs(design): describe the sampling rate limits as expected-rate targets`),
+on branch `docs/query-profile-rates` from `main` at `1399d32`. The commits between the last reviewed head (`ba15c45`)
+and `1399d32` are two other runs, each with its own Codex code review (`docs/reviews/usage-guides/` and
+`docs/reviews/tables-temporal-micros/`); none touches document 15, so the fix range of this follow-up is
+`1399d32..1f38591` plus the commit that adds this entry.
+
+### R1 — minor: Sampling rate targets are described as hard limits
+
+- Disposition: fixed (the user decided to correct the text, 2026-11-23; the earlier out-of-scope dismissal is
+  withdrawn).
+- Fix: `docs/design/tables/15-query-profile-and-tuning.md`:
+  - *Costs* no longer says "never more than `R` … nor `B`". It now calls them targets of the expected rate, not hard
+    quotas, and names the two overshoots: up to one tick of rows with `p = 1` for an entry not yet in the snapshot
+    (about 1,000 at 10,000 executions per second), and `g` following the demand one second late. The memory bound of
+    the buffers is the only hard limit.
+  - *A cap per entry and second* says that the cap bounds the expected rate, not the count, and that one tick passes
+    before it acts.
+  - *The global factor `g`* says that it brakes a spike one second late, so within that second the expected demand
+    may pass `B`.
+  - The companion `15-query-profile-and-tuning.html` names the clipped series "(idealized)". Its legend says that
+    `Math.min(p[1], B)` is an idealization and that `g` lets the first second of a spike pass `B`. The cap-R bullet
+    says "on average".
+- Checks: documentation only; no code changed, so the cargo checks do not apply. `git diff --stat 1399d32..1f38591`:
+  2 files, 15 insertions, 7 deletions.
+- Status: claimed, unverified until a follow-up review.
