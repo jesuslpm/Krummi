@@ -46,6 +46,16 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
 - On 2026-11-23, on the design itself: "¿Qué te parece el diseño del perfilado? ¿Qué mejorarías?" and, to forcing the
   last good plan, recording CPU time and stating the dependency of the tuner's stage, "Haz el 1, 3 y 4, no quiero
   perder exactitud", which also kept parameter values exact by default instead of masked (question 1).
+- On keeping the analysis copy, the same day: "Una cuestión que me ronda la cabeza es el tema de mantener la copia
+  de la base de datos para análisis en la otra máquina. Una copia de seguridad completa no va a ser adecuado cuando la
+  base de datos es grande. Estaba pensando en aplicar copias de seguridad incrementales del journal, pero el propio
+  análisis modifica la base de datos, entonces habría que hacer un snapshot de la base de datos o del disco antes del
+  análisis, y después del análisis restaurar el snaphot y aplicar la copia incremental", "No me convence lo de
+  modificar krummi para el análisis. Si el sistema de archivos ya soporta esto y es eficiente para restaurar me parece
+  que es la mejor opción. Se trata de no reinventar la rueda.", "Qué sistema de archivos es el más indicado para la
+  máquina de análisis?", "Se pueden crear volúmenes con XFS en AKS? y en un contenedor linux con Docker Desktop en mi
+  portátil Windows?", "Genial!! así podré hacer pruebas de análisis cuando llegue el momento." and, to adding it here,
+  "Sí".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -56,7 +66,8 @@ An illustrated companion, [15-query-profile-and-tuning.html](15-query-profile-an
 interactive charts how the sampling of executions and the aggregates work (open it in a browser).
 
 Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source (fetched 2026-11-21, with the URL in
-*Sources*); **[K]** Krummi's own documents; **[I]** inference or estimate; **[L]** from knowledge, not fetched.
+*Sources*; those of *Keeping the analysis copy* were checked on 2026-11-23); **[K]** Krummi's own documents; **[M]**
+measured on the user's laptop; **[I]** inference or estimate; **[L]** from knowledge, not fetched.
 
 ## Summary
 
@@ -172,6 +183,8 @@ Each gap names what it changes in the design.
 | H28 | A ring per thread | Memory for threads that never query, rings of threads that ended, unbounded total with many threads | Rings created with a thread's first query, drained and freed when the thread ends, total memory bounded |
 | H29 | Pages miss work that touches few pages | A shape that spends its time navigating JSON documents (a walk over the bytes before the value, document 13), decompressing or sorting in memory never ranks | The CPU time of the execution's thread (M3), aggregated like duration |
 | H30 | A shape's new plan can cost more than the one it replaced | After revalidation replans a shape or the catalog changes, a frequent shape costs more until someone notices | The consumer suspects a new plan from the aggregates, confirms the regression with a trial that runs both plans at random, and forces the last good plan (*Plan regressions*) |
+| H31 | A full copy of a large store every day | Too slow and too large to keep the analysis copy current | Incremental backups applied to a replica (module 10, B1, B2) |
+| H32 | The analysis writes: candidate indexes and replayed writes | Analyzing the replica itself breaks the chain of incrementals applied to it | Each analysis runs on a copy-on-write clone of the replica, deleted afterwards (*Keeping the analysis copy*) |
 
 ## The profile
 
@@ -625,9 +638,57 @@ one that counts, whatever the evaluation mode was.
 |---|---|---|---|
 | No other machine | In the application's process, at low priority, when the application calls it (question 6) | What-if | Short read transactions (H3); a CPU budget; never builds an index |
 | No other machine, a spare disk | A restored backup in a scratch folder on the same machine, through the command-line tool (module 12), at quiet hours | Measured | Competes for CPU and disk with production, but never takes the main store's write turn |
-| An analysis machine | Online backups of the main store and the profile (module 10), restored there; the command-line tool runs the tuner | Measured | Parameter values in the profile (question 1); the recommendations file travels back |
+| An analysis machine | A replica kept current with incremental backups (module 10), and a copy-on-write clone of it for each analysis (*Keeping the analysis copy*); the profile copied whole; the command-line tool runs the tuner | Measured | Parameter values in the profile (question 1); the recommendations file travels back |
 
 All three produce the same recommendation document, so applying and validating are the same everywhere.
+
+### Keeping the analysis copy
+
+A full backup copied every day does not scale with a large store (H31), and the analysis writes: it builds
+candidate indexes and replays writes, so analyzing the replica itself would break the chain of incremental backups
+applied to it (H32). The replica is therefore never analyzed; each analysis runs on a copy-on-write clone of it, made
+by the file system. The daily cycle:
+
+1. Apply the day's incremental backup to the replica (module 10, B1).
+2. Close the replica, so that the clone is consistent.
+3. Clone the replica's folder with the file system (`cp --reflink` on XFS, block cloning on ReFS).
+4. Run the tuner on the clone, which is a store of its own with its own lock (D6, B3).
+5. Delete the clone.
+
+Since the clone is another folder, the next incremental can be applied to the replica while an analysis still runs.
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| A full copy every day | Simple | Not viable with a large store (H31) | Rejected |
+| A snapshot of the disk, analysis, restore, then the incremental | Works with any analysis | Depends on the volume or file system; a restore per analysis; the replica is busy during the analysis | Rejected for the clone |
+| The analysis in one write transaction that is always aborted | Uses only what Krummi guarantees (IX2 builds an index inside a write, T10 discards an aborted one); no dependency on the file system | The temporary area holds the candidate indexes; the file grows and does not shrink; the chain of incrementals must be defined on the logical state | Rejected by the user: "No me convence lo de modificar krummi para el análisis. Si el sistema de archivos ya soporta esto y es eficiente para restaurar me parece que es la mejor opción. Se trata de no reinventar la rueda." |
+| **A copy-on-write clone of the replica per analysis** | The replica is never written by the analysis; cloning is almost instant; only the blocks the analysis writes are copied | Needs a file system with clones | **Chosen** |
+
+**The file system of the analysis machine.** Krummi maps its data file and writes 8 KiB pages in place, at random,
+with `fsync` of the journal, which rules out the file systems whose copy-on-write applies to every write:
+
+| File system | Clone | Fit with Krummi | Verdict |
+|---|---|---|---|
+| **XFS** (Linux) | reflink, on by default since `mkfs.xfs` 5.1.0 (kernel 4.9 or later; needs `crc=1`, the default) [V] | Copy-on-write only on shared blocks; unshared blocks are overwritten in place [V]. After a clone each page is copied once, the first time the analysis writes it; the replica, with no live clone, writes in place | **Chosen on Linux** |
+| **ReFS** (Windows) | Block cloning, native in Windows copy operations from KB5034848 or 24H2 (the two Microsoft pages disagree on the start) [V]; copy-on-write on by default for Dev Drive in 24H2 [V] | Good; the limit of 8,176 clones per data block [V] does not matter with one clone a day that is deleted. Whether `CopyFile` itself clones was not confirmed [L] | **Chosen on Windows** |
+| btrfs | reflink | Copy-on-write on every overwrite fragments large database files [V]; `nodatacow`, the usual fix, turns off checksums and does not mix with reflink [V] | Avoid |
+| ZFS | Snapshot clones | With `mmap` the data is cached twice, in the ARC and in the page cache, with reports of slow `fsync` [V] (FreeBSD sources of 2016; current Linux behavior not verified) | Avoid, or measure first |
+| NTFS | None | Only VSS snapshots, with a heavy restore | Rejected |
+
+**Where it runs.**
+
+- **AKS:** an Azure Disk volume through the CSI driver accepts `fsType: xfs` in its StorageClass (ext4 is the Linux
+  default) [V], and the clone is made inside the volume with `cp --reflink` from the analysis pod. Azure Files, SMB or
+  NFS, has neither XFS nor reflink. Not confirmed: the options the driver formats with. A test volume must show
+  `reflink=1` in `xfs_info` from a pod, and the `nrext64` mismatch below can recur if the driver's `xfsprogs` is newer
+  than the node's kernel (Ubuntu 22.04 runs 5.15) [I].
+- **Docker Desktop on Windows**, measured on the user's laptop on 2026-11-23 [M]. Docker volumes live in ext4 inside
+  Docker Desktop's virtual disk, so the test used a privileged container with an XFS file mounted as a loop device.
+  With Docker Desktop 26.1.4 on the WSL kernel 5.15.133.1, the kernel had XFS, but `mkfs.xfs` 6.8 enables `nrext64`
+  by default and the kernel refused to mount it ("Superblock has unknown incompatible features (0x20) enabled");
+  `mkfs.xfs -i nrext64=0` mounted. After updating to WSL 3.0.5 (kernel 6.18.58.1) and Docker Desktop 29.9.3, the
+  default options mount. In both cases a 200 MiB file cloned with `cp --reflink=always` took about 0 s and 0 MiB more,
+  identical to the original; writing 800 KiB into the clone used about 1 MiB more and left the original untouched.
 
 ## Language models on the analysis machine
 
@@ -740,7 +801,8 @@ Stages, each one decided by a measurement:
 2. **Minimal sampling:** `p = g · min(R/c, T/n)`. `p_min`, the outliers, the executions per transaction and the
    seeding of counters at opening come only when a measurement asks for them.
 3. **The tuner:** measured on a copy, the reliable mode, and what-if; the language model agent with it. A copy of a
-   store in use needs the online backup of module 10, and the command-line runs need module 12; both come after
+   store in use needs the online backup of module 10, keeping it current needs incremental backups applied to a
+   replica (B1, B2), and the command-line runs need module 12; both come after
    modules 17 to 19 in the root PRD. Until they exist the tuner starts with what-if in the process, and measures only
    on a copy of the store taken while it is closed (D6).
 4. **Directives:** only if the profile shows that misestimates change plans often.
@@ -859,6 +921,19 @@ practice.
   execution's ordinal within it and the parameter values; with no sink, nothing is built.
 - M7. A place in the **catalog** for accepted directives and accepted plans.
 
+## Requirements for module 10
+
+Its PRD is not written yet, and the root PRD leaves open "cómo se encadenan los incrementales" (`krummi.prd.md:269`).
+The analysis copy (*Keeping the analysis copy*) asks of it:
+
+- B1. **Incremental backups applied continuously to a replica**, in the manner of SQL Server's log shipping, without a
+  full copy each time.
+- B2. **The main store keeps what an incremental needs until it is taken**: its journals, or a record of the pages
+  changed since the last incremental. Without it the transfer of the journal (J5) removes exactly what has to be
+  shipped.
+- B3. **A closed store's folder copied file by file, as a file system clone does, opens as a store of its own**, with
+  its own lock (D6), so that a clone can be analyzed while the replica receives the next incremental.
+
 ## Costs
 
 - Per execution, in the query's thread: the counters of document 8 (already per batch), a fixed record of about 64
@@ -975,6 +1050,17 @@ https://research.ibm.com/publications/isomer-consistent-histogram-construction-u
 what-if: https://www.microsoft.com/en-us/research/publication/autoadmin-what-if-index-analysis-utility/ ; HypoPG:
 https://github.com/HypoPG/hypopg ; `pg_stat_statements`: https://www.postgresql.org/docs/current/pgstatstatements.html ;
 AQO: https://github.com/postgrespro/aqo
+
+External, checked through web search of the vendor pages on 2026-11-23 (*Keeping the analysis copy*): XFS reflink:
+https://blogs.oracle.com/linux/post/xfs-data-block-sharing-reflink , https://wiki.archlinux.org/title/XFS and
+https://docs.oracle.com/en/operating-systems/oracle-linux/8/xfs/xfs-CreatinganXFSFileSystemWiththeReflinkFeature.html ;
+ReFS block cloning: https://learn.microsoft.com/en-us/windows-server/storage/refs/block-cloning ,
+https://learn.microsoft.com/en-us/windows/win32/FileIO/block-cloning and
+https://devblogs.microsoft.com/engineering-at-microsoft/copy-on-write-performance-and-debugging/ ; btrfs and
+databases: https://wiki.archlinux.org/index.php/Btrfs_-_Tips_and_tricks and https://man.archlinux.org/man/btrfs.5.en ;
+ZFS and `mmap`: https://lists.freebsd.org/pipermail/freebsd-hackers/2016-July/049660.html ; AKS Azure Disk `fsType`:
+https://learn.microsoft.com/en-us/Azure/aks/azure-disks-dynamic-pv ; WSL disks and Docker Desktop's WSL 2 backend:
+https://learn.microsoft.com/en-us/windows/wsl/wsl2-mount-disk and https://docs.docker.com/desktop/features/wsl/
 
 From knowledge, not fetched (sites that refuse automated fetches): the release dates of Oracle's cardinality
 feedback and its rename; Aboulnaga and Chaudhuri, "Self-tuning histograms: building histograms without looking at
