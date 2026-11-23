@@ -124,3 +124,41 @@ fn ac_ic8_statistics_and_estimates_count_folded_forms() {
         write.abort();
     });
 }
+
+/// AC-IC8: a shortened histogram bound of a `ci` column is a prefix of a folded form, cut at a scalar boundary, and
+/// folds to itself (ST16, IC8).
+#[test]
+fn ac_ic8_shortened_bounds_are_folded_prefixes() {
+    stores(|store, _| {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                text("c").with_collation(Collation::Ci),
+            ],
+            &["id"],
+        );
+        let mut write = store.write().unwrap();
+        let table = create(&mut write, "t", &schema);
+        // Distinct texts of about 100 bytes, two-byte letters with capitals, so that bounds pass 64 bytes.
+        let folded: Vec<String> = (0..300)
+            .map(|i: i64| {
+                let text = format!("{}{i:05}", "ÉÑÁ".repeat(17));
+                let row = [("id", Value::I64(i)), ("c", s(&text))];
+                write.insert_row(&table, &row).unwrap();
+                fold(Collation::Ci, &text).into_owned()
+            })
+            .collect();
+        write.analyze(&table, Some("c")).unwrap();
+        let stats = write.column_statistics(&table, "c").unwrap().unwrap();
+        let shortened: Vec<String> = (stats.histogram.iter())
+            .filter(|bucket| bucket.shortened)
+            .map(|bucket| owned(&bucket.upper))
+            .collect();
+        assert!(!shortened.is_empty(), "{stats:?}");
+        for bound in shortened {
+            assert_eq!(fold(Collation::Ci, &bound), bound.as_str());
+            assert!(folded.iter().any(|f| f.starts_with(&bound)), "{bound}");
+        }
+        write.abort();
+    });
+}
