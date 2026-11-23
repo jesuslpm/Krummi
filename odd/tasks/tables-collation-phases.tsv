@@ -1,0 +1,27 @@
+2026-11-23T08:16:50+00:00	mark	explore	
+2026-11-23T08:19:49+00:00	mark	wait	questions before start
+2026-11-23T08:26:25+00:00	start	plan	
+2026-11-23T08:28:17+00:00	mark	implement	T2
+2026-11-23T08:54:13+00:00	mark	review	T1-T2
+2026-11-23T09:07:56+00:00	mark	implement	T3
+2026-11-23T09:41:37+00:00	mark	docs	T7
+2026-11-23T09:46:34+00:00	mark	verify	verifier
+2026-11-23T09:59:08+00:00	mark	review	codex-R1
+2026-11-23T10:00:20+00:00	bg-start	review	codex-R1
+2026-11-23T10:16:22+00:00	bg-end	review	codex-R1
+2026-11-23T10:34:31+00:00	mark	fix	codex-R1 fixes
+2026-11-23T10:34:32+00:00	bg-start	review	codex-R2
+2026-11-23T10:48:00+00:00	bg-end	review	codex-R2
+2026-11-23T11:02:53+00:00	bg-start	review	codex-R3
+2026-11-23T11:08:12+00:00	bg-end	review	codex-R3
+2026-11-23T11:09:15+00:00	mark	acceptance	T7 measurements
+2026-11-23T11:09:16+00:00	bg-start	acceptance	tc-build-windows
+2026-11-23T11:20:00+00:00	bg-end	acceptance	tc-build-windows
+2026-11-23T11:20:00+00:00	bg-start	acceptance	tc-windows
+2026-11-23T11:49:42+00:00	bg-end	acceptance	tc-windows
+2026-11-23T11:49:43+00:00	bg-start	acceptance	tc-linux
+2026-11-23T11:49:44+00:00	bg-end	acceptance	tc-linux
+2026-11-23T11:50:02+00:00	mark	implement	T7 key fast path
+2026-11-23T11:54:39+00:00	mark	checks	final checks
+2026-11-23T12:08:17+00:00	mark	review	RDD last slice
+2026-11-23T12:11:49+00:00	end		
