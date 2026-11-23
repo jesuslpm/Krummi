@@ -477,11 +477,25 @@ is only the reason to run a trial, never the evidence to force a plan.
 
 **Trial.** A suspect shape runs both plans side by side. The consumer publishes a **trial directive** that gives each
 of the shape's executions the last good plan with probability ½ and the candidate otherwise, and the query's thread
-draws, as it already draws for sampling (*Capture*). Assigned at random, the two plans run the same mix of parameter
-values at the same moments, so their means in the trial compare without bias. The trial ends when each plan has
-enough executions (30 as a start [I]), within a bound on time. The candidate **regressed** when its mean pages per
-execution in the trial exceed the last good plan's by the factor; otherwise it is **cleared** and becomes the shape's
-last good plan. A trial runs at most about half the shape's executions on the worse plan, for as long as it lasts.
+draws, as it already draws for sampling (*Capture*). Assigned at random, the two plans see the same mix of parameter
+values in expectation, at the same moments. A finite trial does not see it exactly: one dear parameter value that
+falls on one side moves that side's mean. So the consumer keeps for each side of the trial its own count, sum and sum
+of squares of pages per execution, and decides only with a confidence bound. With `m` the means, `s²` the variances,
+`n` the counts and `f` the factor (2× as a start [I]), it computes
+
+$$z = \frac{m_{cand} - f \cdot m_{good}}{\sqrt{s_{cand}^2 / n_{cand} + f^2 \cdot s_{good}^2 / n_{good}}}$$
+
+once each side has a minimum of executions (30 as a start [I]). The candidate **regressed** when `z > 1.645`: with
+about 95 % confidence it costs more than `f` times the last good plan [I]. It is **cleared** when `z < −1.645`, and
+becomes the shape's last good plan. Otherwise the trial goes on, within a bound on time. A trial that reaches the bound
+is **inconclusive**: no plan is forced, the planner keeps its choice, and the shape is not tried again for a while. A
+trial runs about half the shape's executions on the worse plan while it lasts.
+
+**The limits of the guarantee.** A conclusive trial is wrong with a probability of about 5 % on each side when the
+means behave as normal. Heavy tails are handled by the variance, not avoided. When a rare parameter value costs a
+thousand times the common one, a single execution with it widens the bound, and the trial goes on or ends
+inconclusive instead of forcing. With 29 executions of 1 page and one of 1,000 against 30 executions of 10 pages, `z`
+is about 0.4. A wrong decision is temporary: the plan directive expires, and a later trial decides again.
 
 **Forcing.** A regressed candidate gets a **plan directive** in the profile's `directives` table: the shape, the last
 good plan's bytes from `plans` and the catalog state tokens it was planned on. The planner receives directives as an
@@ -501,7 +515,8 @@ changed. A shape whose plan is forced again after an expiry is a tuner recommend
 person decides.
 
 **What it never does.** It never overrides an accepted plan (SQL Server's lesson in *What others do*), never forces a
-plan the catalog no longer supports, and never forces a plan from separate windows without a trial.
+plan the catalog no longer supports, never forces a plan from separate windows without a trial, and never
+forces on an inconclusive trial.
 
 ## Estimate feedback
 
@@ -852,7 +867,7 @@ practice.
 | A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
-| A forced plan is worse for some parameter values | The shape is slower for those values | The trial runs both plans at random over the same executions' mix and forces only a plan that is better on average; expiry starts a new trial |
+| A forced plan is worse for some parameter values | The shape is slower for those values | The trial runs both plans at random and forces only when a confidence bound on their means says so; an inconclusive trial forces nothing; expiry starts a new trial |
 | Wrong what-if recommendations | An index that does not help, or hurts writes | Write overhead in the evaluation; validation after applying; revert |
 | Parameter values in the profile | Sensitive data at rest | Encrypted with the store; masking per column (question 1) |
 | A profile from another store | Wrong feedback | Main store identity in `meta` (H16) |
@@ -878,7 +893,8 @@ practice.
    spread of a new entry's first rows over time with the cap `R`.
 9. Forcing the last good plan on a synthetic regression (statistics rebuilt on a skewed column that move a shape
    from an index to a full scan); and a candidate better for every parameter value, suspected because its first
-   window held dearer values, which its trial must clear.
+   window held dearer values, which its trial must clear or leave inconclusive, never force, also when one rare dear
+   value falls on its side of the trial.
 
 ## Product questions
 
@@ -902,7 +918,7 @@ practice.
    batched index build exists, with revert.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
    `p_max = 1` fixed, `p_min` deferred (10⁻⁴ when it comes), `τ` = 1 day, the cap `R = 10` per entry and second, the
-   budget `B`, a 100 ms tick and `k = 4`; for plan regressions 30 executions and 2×). Recommended: fixed defaults,
+   budget `B`, a 100 ms tick and `k = 4`; for plan regressions 30 executions, 2× and a one-sided 95 % bound). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
