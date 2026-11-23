@@ -93,3 +93,38 @@ fn r4_an_entry_returns_a_collated_key_text_in_its_own_copy() {
         .unwrap();
     assert!(matches!(entry.get("t"), Some(Value::String(Cow::Owned(text))) if text == "Ana"));
 }
+
+#[test]
+fn r2_analyze_never_folds_a_large_default_through_an_index_prefix() {
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("n", ColumnType::I64),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = create(&mut write, "t", &schema);
+    write
+        .insert_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(1))])
+        .unwrap();
+    // A column added after the row, whose default is a `ci_ai` text over the maximum that folds to `a`.
+    let huge = format!("a{}", "\u{301}".repeat(100_000));
+    let added = text("t")
+        .not_null()
+        .with_collation(Collation::CiAi)
+        .with_default(Value::String(Cow::Owned(huge)));
+    write.add_column(&table, &added).unwrap();
+    let index = IndexDefinition::new("ix", vec![IndexKey::new("t"), IndexKey::new("n")]);
+    (write.create_index(&table, &index, IndexMode::CreateNew)).unwrap();
+    write.analyze(&table, None).unwrap();
+    let column = write.column_statistics(&table, "t").unwrap().unwrap();
+    assert_eq!(column.large_fraction, 1.0);
+    let prefixes = write.index_statistics(&table, "ix").unwrap().unwrap();
+    let pair = prefixes.iter().find(|p| p.columns == 2).unwrap();
+    assert!(
+        pair.frequent.is_empty(),
+        "the default was not read: {pair:?}"
+    );
+}

@@ -241,7 +241,12 @@ pub(crate) fn build<'r>(
                     match row.stored_len(*position) {
                         StoredLen::Invalid => true,
                         StoredLen::Len(len) => text && len > stats::LARGE,
-                        _ => false,
+                        // A column added after the row reads its default, borrowed from the catalog: measured before
+                        // it is folded, as the column gathering does.
+                        StoredLen::NotStored => {
+                            let value = row.value(*position).unwrap_or(Value::Null);
+                            text && stats::is_large(column, &value)
+                        }
                     }
                 };
                 key.iter().position(large).unwrap_or(key.len())
