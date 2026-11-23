@@ -196,3 +196,15 @@ Linux in WSL 2 Ubuntu). Estimate: 12 h – 18 h. Real start: 2026-11-23 08:26:24
   links of the report and of this log kept the depth of `odd/done/tables`. Cause: `move_docs.py reopen` stages its
   renames, and `3373bc7` took them with the code, while the link rewrites stayed in the working tree. Fixed by
   committing the documents as reopened.
+- **L23** (2026-11-23): Codex follow-up round 2 approved (R1 verified; records `c943882`). Final checks on `c943882`:
+  fmt; clippy no warning; 65 test binaries, 1,258 passed, 0 failed, 35 ignored. RDD of `cb1c412..c943882` (14 paths,
+  846 lines, medium/`under_budget`, the last slice): lenses risk, readability, reliability, consent granted per
+  `CLAUDE.md`, lineage `review-a4508c4b3c288fcb`: **approved**, non-blocking advisories: R2-001 WARNING (the prefix
+  loop reuses `combinations` and `read` for different values), pending; R2-002 WARNING (the closing report still
+  described the state before the follow-up), fixed by the updated report; R2-003 SUGGESTION (an enum instead of
+  `Option<Option<Value>>` for `EntryLayout::original`), pending; R3-default-large-unpinned WARNING, dismissed with
+  evidence: the branch only gathers index prefixes, a column without an index goes through `Gather::add`, which keeps
+  `is_large` (original or folded form), and a folded form over the maximum never reaches an index key (IC7).
+- **L24** (2026-11-23): closing report updated with the follow-up (measurements, RDD, Codex follow-up, time); phase
+  log ended at 13:42:50. Pending: Linux and the 10 rounds (user's decisions), lineages `review-5fc999f939b056fe` and
+  `review-ed0f0e4daf403899` left as they were, the advisories R2-001 and R2-003 of the follow-up slice.
