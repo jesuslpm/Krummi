@@ -9,6 +9,8 @@ use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
 use krummi_pager::ValueRule;
 
+use super::collation::{Collation, fold};
+
 use super::value::{
     CANONICAL_NAN_F32, CANONICAL_NAN_F64, ColumnType, Decimal, UuidOrder, Value, fits_precision,
     is_of_type, normalize, stored_in_domain,
@@ -70,24 +72,39 @@ impl std::fmt::Display for Nulls {
     }
 }
 
-/// A column of a key as its elements are encoded: its type, direction and null order, and whether its values may be
-/// null. A primary key column is [`KeyColumn::primary`].
+/// A column of a key as its elements are encoded: its type, direction and null order, whether its values may be
+/// null, and the collation whose folded form a text element holds (IC2, IC3 of the collation PRD). A primary key
+/// column is [`KeyColumn::primary`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct KeyColumn {
     pub ty: ColumnType,
     pub direction: Direction,
     pub nulls: Nulls,
     pub nullable: bool,
+    pub collation: Collation,
+}
+
+/// `value` as a key holds it under `collation`: `Some` folded text when folding changes a text, `None` otherwise (IC2
+/// of the collation PRD), so that keys, bounds and sizes all follow the folded form (IC3, IC7).
+pub(crate) fn folded(collation: Collation, value: &Value<'_>) -> Option<Value<'static>> {
+    match value {
+        Value::String(text) => match fold(collation, text) {
+            Cow::Owned(text) => Some(Value::String(Cow::Owned(text))),
+            Cow::Borrowed(_) => None,
+        },
+        _ => None,
+    }
 }
 
 impl KeyColumn {
-    /// A primary key column: ascending, never null.
+    /// A primary key column: ascending, never null, `binary`.
     pub(crate) fn primary(ty: ColumnType) -> KeyColumn {
         KeyColumn {
             ty,
             direction: Direction::Ascending,
             nulls: Nulls::First,
             nullable: false,
+            collation: Collation::Binary,
         }
     }
 
@@ -113,9 +130,10 @@ impl KeyColumn {
 
     /// The encoded length of the element of `value` in this column, without encoding it.
     pub(crate) fn element_len(&self, value: &Value<'_>) -> usize {
-        match value {
+        let folded = folded(self.collation, value);
+        match folded.as_ref().unwrap_or(value) {
             Value::Null => self.null().len(),
-            _ => element_len(value) + usize::from(self.descending() && self.escaped()),
+            value => element_len(value) + usize::from(self.descending() && self.escaped()),
         }
     }
 
@@ -131,7 +149,8 @@ impl KeyColumn {
             };
         }
         let start = key.len();
-        if !encode_element(&self.ty, value, key) {
+        let folded = folded(self.collation, value);
+        if !encode_element(&self.ty, folded.as_ref().unwrap_or(value), key) {
             return Err(ValueRule::WrongType);
         }
         if self.descending() {

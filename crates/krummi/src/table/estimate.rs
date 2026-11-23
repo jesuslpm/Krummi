@@ -339,7 +339,7 @@ fn check(
     let encode = |value: &Value<'_>| -> Result<(Value<'static>, Vec<u8>)> {
         let value = normalize(&column.ty, false, value.clone().into_owned()).map_err(fail)?;
         let mut element = Vec::new();
-        element_column(column.ty)
+        element_column(column)
             .encode(&value, &mut element)
             .map_err(fail)?;
         Ok((value, element))
@@ -962,6 +962,7 @@ fn estimate_columns(
                         direction: index.key[position].direction,
                         nulls: index.key[position].nulls,
                         nullable: true,
+                        collation: column.collation.unwrap_or_default(),
                     };
                     key.encode(&value, &mut element)
                         .map_err(|rule| invalid(Some(&column.name), rule))?;

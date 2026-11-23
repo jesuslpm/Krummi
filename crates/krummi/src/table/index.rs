@@ -479,6 +479,7 @@ impl EntryLayout {
                     direction: key.direction,
                     nulls: key.nulls,
                     nullable: column.nullable,
+                    collation: column.collation.unwrap_or_default(),
                 }
             })
             .collect()

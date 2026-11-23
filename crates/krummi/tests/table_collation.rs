@@ -5,6 +5,9 @@
 
 mod support;
 
+#[path = "table_collation/applied.rs"]
+mod applied;
+
 use krummi::table::value::{ColumnType, Value, VectorElement, VectorType};
 use krummi::{
     Collation, Column, Error, Schema, SchemaDifference, SchemaRule, Store, TableMode, WriteTable,

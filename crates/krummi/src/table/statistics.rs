@@ -150,7 +150,7 @@ pub(crate) fn build<'r>(
     let wanted: Vec<(usize, &SchemaColumn)> = (schema.columns().iter().enumerate())
         .filter(|(_, c)| has_stats(&c.ty) && only.is_none_or(|id| id == c.id))
         .collect();
-    let mut gathers: Vec<Gather> = wanted.iter().map(|(_, c)| Gather::new(c.ty)).collect();
+    let mut gathers: Vec<Gather> = wanted.iter().map(|(_, c)| Gather::new(c)).collect();
     // The prefixes of 2 or more key columns of every index, unless one column is asked for (ST17).
     let prefixes: Vec<(u64, Vec<(usize, KeyColumn)>)> = if only.is_some() {
         Vec::new()
@@ -163,14 +163,15 @@ pub(crate) fn build<'r>(
                         let at = (schema.columns().iter())
                             .position(|c| c.id == k.id)
                             .expect("an index names live columns");
-                        let ty = schema.columns()[at].ty;
+                        let column = &schema.columns()[at];
                         (
                             at,
                             KeyColumn {
-                                ty,
+                                ty: column.ty,
                                 direction: k.direction,
                                 nulls: k.nulls,
                                 nullable: true,
+                                collation: column.collation.unwrap_or_default(),
                             },
                         )
                     })
@@ -182,7 +183,7 @@ pub(crate) fn build<'r>(
     let mut combinations: Vec<Vec<Gather>> = (prefixes.iter())
         .map(|(_, key)| {
             (2..=key.len())
-                .map(|_| Gather::new(schema.columns()[key[0].0].ty))
+                .map(|_| Gather::new(&schema.columns()[key[0].0]))
                 .collect()
         })
         .collect();
@@ -348,7 +349,7 @@ pub(crate) fn statistics(
     found: &ColumnStats,
     seen: u64,
 ) -> ColumnStatistics {
-    let key = element_column(column.ty);
+    let key = element_column(column);
     let value = |element: &[u8]| key.decode(&mut &element[..]).unwrap_or(Value::Null);
     ColumnStatistics {
         origin_rows: found.rows,
@@ -423,14 +424,17 @@ fn index_statistics<S: krummi_tree::PageSource + ?Sized>(
         };
         if let Some(stats) = newest {
             let keys: Vec<KeyColumn> = (found.key[..k].iter())
-                .map(|key| KeyColumn {
-                    ty: (table_schema.columns().iter())
+                .map(|key| {
+                    let column = (table_schema.columns().iter())
                         .find(|c| c.id == key.id)
-                        .expect("an index names live columns")
-                        .ty,
-                    direction: key.direction,
-                    nulls: key.nulls,
-                    nullable: true,
+                        .expect("an index names live columns");
+                    KeyColumn {
+                        ty: column.ty,
+                        direction: key.direction,
+                        nulls: key.nulls,
+                        nullable: true,
+                        collation: column.collation.unwrap_or_default(),
+                    }
                 })
                 .collect();
             prefixes.push(PrefixStatistics {

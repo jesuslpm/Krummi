@@ -10,6 +10,7 @@
 use std::borrow::Cow;
 
 use super::key::KeyColumn;
+use super::schema::SchemaColumn;
 use super::value::{ColumnType, Value};
 
 /// Tables of up to this many rows are read whole; larger ones give about this many rows by whole leaves (ST1).
@@ -86,9 +87,12 @@ pub(crate) fn is_stale(rows: u64, origin: u64, seen: u64) -> bool {
     seen.saturating_sub(origin) as f64 > threshold(rows)
 }
 
-/// The key column that encodes the values of a column of type `ty`.
-pub(crate) fn element_column(ty: ColumnType) -> KeyColumn {
-    KeyColumn::primary(ty)
+/// The key column that encodes the values of `column`, folded by its collation (IC8 of the collation PRD).
+pub(crate) fn element_column(column: &SchemaColumn) -> KeyColumn {
+    KeyColumn {
+        collation: column.collation.unwrap_or_default(),
+        ..KeyColumn::primary(column.ty)
+    }
 }
 
 /// Whether a column of type `ty` has statistics: every type but vectors (ST1) and JSON (JS10 of the JSON columns
@@ -115,9 +119,9 @@ pub(crate) struct Gather {
 }
 
 impl Gather {
-    pub(crate) fn new(ty: ColumnType) -> Gather {
+    pub(crate) fn new(column: &SchemaColumn) -> Gather {
         Gather {
-            column: element_column(ty),
+            column: element_column(column),
             nulls: 0,
             large: 0,
             values: Vec::new(),

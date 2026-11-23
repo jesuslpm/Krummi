@@ -479,6 +479,7 @@ fn n_entry(n: i32, id: i64) -> Vec<u8> {
         direction: Direction::Ascending,
         nulls: Nulls::First,
         nullable: true,
+        collation: crate::table::collation::Collation::Binary,
     };
     encode_entry(&[column], &[Value::I32(n)], &id_key(id)).unwrap()
 }

@@ -62,6 +62,7 @@ fn col(ty: ColumnType, direction: Direction, nulls: Nulls, nullable: bool) -> Ke
         direction,
         nulls,
         nullable,
+        collation: crate::table::collation::Collation::Binary,
     }
 }
 

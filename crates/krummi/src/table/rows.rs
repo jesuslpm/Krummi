@@ -140,9 +140,10 @@ use krummi_pager::{Error, JsonFault, Result, SchemaDifference, SizeSubject, Valu
 use krummi_tree::PageSource;
 
 use super::catalog::{ReadTable, WriteTable};
+use super::collation::Collation;
 use super::json::{self, Json};
 use super::key::{
-    KeyError, KeyRange, MAX_KEY, encode_key, is_key, key_range, key_starts, key_value,
+    KeyError, KeyRange, MAX_KEY, encode_key, folded, is_key, key_range, key_starts, key_value,
 };
 use super::projection::{
     Bytes, Date, Duration, JsonDocument, ReadAs, Text, TextBytes, Time, Timestamp,
@@ -207,6 +208,8 @@ pub(crate) struct Reader {
     key_columns: Vec<usize>,
     /// The types of the primary key columns, in key order.
     key_types: Vec<ColumnType>,
+    /// The collations of the primary key columns, in key order, whose folded forms the keys hold (IC3).
+    key_collations: Vec<Collation>,
     /// The layout of the rows of the current version, whose columns are `columns`, in the same order.
     pub(super) layout: RowLayout,
     /// Each live column as the typed reads need it in rows of the current version.
@@ -334,6 +337,9 @@ impl Reader {
             })
             .collect();
         let key_types = key_columns.iter().map(|&i| columns[i].ty).collect();
+        let key_collations = (key_columns.iter())
+            .map(|&i| schema.columns()[i].collation.unwrap_or_default())
+            .collect();
         let layout = schema.layout();
         let slots: Vec<Slot> = (0..columns.len())
             .map(|i| layout.slot(i).expect("a column of the current version"))
@@ -367,6 +373,7 @@ impl Reader {
             names,
             key_columns,
             key_types,
+            key_collations,
             layout,
             fast,
             checks,
@@ -439,16 +446,16 @@ impl Reader {
 
     /// The encoded primary key of `values`, which give every key column.
     fn encode_key_of(&self, values: &[Option<Value<'_>>]) -> std::result::Result<Vec<u8>, Fault> {
-        if let [i] = self.key_columns[..] {
-            let value = values[i].as_ref().expect("a key column").reborrow();
-            return Ok(encode_key(&self.key_types, std::slice::from_ref(&value))?);
-        }
-        let key: Vec<Value<'_>> = self
-            .key_columns
-            .iter()
-            .map(|&i| values[i].as_ref().expect("a key column").reborrow())
+        let key: Vec<Value<'_>> = (self.key_columns.iter().enumerate())
+            .map(|(k, &i)| self.fold_key(k, values[i].as_ref().expect("a key column").reborrow()))
             .collect();
         Ok(encode_key(&self.key_types, &key)?)
+    }
+
+    /// `value` of the primary key column `k` as the key holds it: folded for a `ci` or `ci_ai` text (IC3).
+    fn fold_key<'v>(&self, k: usize, value: Value<'v>) -> Value<'v> {
+        let collation = self.key_collations.get(k).copied().unwrap_or_default();
+        folded(collation, &value).unwrap_or(value)
     }
 
     /// The text of the primary key of `values`, one per live column, for the data of a duplicate key (E17).
@@ -495,12 +502,11 @@ impl Reader {
         if let Some(&i) = self.key_columns.get(key.len()) {
             return Err(self.columns[i].fault(ValueRule::MissingKeyColumn));
         }
-        let values = key
-            .iter()
-            .zip(&self.key_columns)
-            .map(|(value, &i)| {
+        let values = (key.iter().zip(&self.key_columns).enumerate())
+            .map(|(k, (value, &i))| {
                 let column = &self.columns[i];
-                normalize(&column.ty, false, value.reborrow()).map_err(|rule| column.fault(rule))
+                let value = normalize(&column.ty, false, value.reborrow());
+                Ok::<_, Fault>(self.fold_key(k, value.map_err(|rule| column.fault(rule))?))
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(encode_key(&self.key_types, &values)?)
@@ -517,7 +523,14 @@ impl Reader {
         lower: Bound<&Value<'v>>,
         upper: Bound<&Value<'v>>,
     ) -> Result<KeyRange> {
-        key_range(&self.key_types, prefix, lower, upper).map_err(|error| {
+        // The values fold before they are checked and measured, so ranges and sizes follow the keys (IC3, IC7).
+        let prefix: Vec<Value<'v>> = (prefix.iter().enumerate())
+            .map(|(k, value)| self.fold_key(k, value.clone()))
+            .collect();
+        let bound =
+            |bound: Bound<&Value<'v>>| bound.map(|v| self.fold_key(prefix.len(), v.clone()));
+        let (lower, upper) = (bound(lower), bound(upper));
+        key_range(&self.key_types, &prefix, lower.as_ref(), upper.as_ref()).map_err(|error| {
             let fault = match error {
                 KeyError::Value {
                     column: Some(k),
@@ -1472,7 +1485,7 @@ impl WriteTransaction<'_> {
         let (rows_root, reader) = self.live_rows(table)?;
         let indexes = self.maintained(table);
         let fail = |tx: &Self, fault: Fault| fault.error(tx.folder, &tx.table_name(table));
-        let Checked { values, key } = reader
+        let Checked { mut values, key } = reader
             .check(row, op == Op::Insert)
             .map_err(|fault| fail(self, fault))?;
         let stored = match op {
@@ -1526,6 +1539,10 @@ impl WriteTransaction<'_> {
             bytes,
             true,
         )?;
+        // The key of a row never changes (E10): an equivalent key the update gives keeps the stored one (IC4).
+        for &i in &reader.key_columns {
+            values[i] = None;
+        }
         let old_value = |i: usize| old.value(i).expect("a live column");
         let (encoded, steps) = match reader.patch(&old, &values) {
             Some(Patch::Identical) => return Ok(Written::Updated),
