@@ -141,3 +141,13 @@ Artifact version: fix commit `c39d55b`.
   workload seen during the trial, and that a shape whose rare values fall in strata too sparse for the trial is never
   forced, which costs coverage, not correctness. Question 8's thresholds follow.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-23 (verification 4)
+
+Review record: [2026-11-23-code-05.md](2026-11-23-code-05.md), wrapper status `approved`, `threadId`
+`01a20723-2db0-77e0-b587-7062cd3498e5`, telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`.
+
+- R3: "verified resolved — Sparse strata prevent a forcing decision". The three-B example where the estimate does
+  not separate B from A "belongs to the user-accepted risk budget recorded in the resolutions; it is not reopened".
+- R1 and R2: "previously verified resolved; no correction regression identified".
