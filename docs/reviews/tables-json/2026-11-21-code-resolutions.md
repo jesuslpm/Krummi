@@ -93,3 +93,33 @@ Artifact version: fix commit `834fb9e`.
   under" finds none left.
 - Checks: documentation only; no code changed.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-23 (verification 2)
+
+Review record: [2026-11-23-code-02.md](2026-11-23-code-02.md), wrapper status `violation` (`unexpectedChanges`:
+`.atl/skill-registry.md`), `threadId` `01a206f5-6cd6-75e3-b74d-d24a2d35f8ef`, telemetry: coordinator
+`gpt-6.1-sol` / `high`, reviewer `krummi-review` `gpt-6.1-sol` / `high`. The user confirmed that the registry change
+came from their upgrade of Gentle AI to 5.0.0 during the review (binary installed 05:51:24Z, registry rewritten
+05:53:31Z), not from Codex; nothing was reverted.
+
+- R1: "partially fixed; still open because the correction introduces a documentation regression": the new HTML
+  statements (more than `R` rows in the first second, `R(1 + ln(rate/R))`, about `R` rows per second after it)
+  do not hold for an entry slower than `R`; with a rate of 1 per second and `R = 10` the formula gives −13 rows and
+  the chart model keeps 1 row per second.
+
+## 2026-11-23 (third fix)
+
+Artifact version: fix commit `a935565`.
+
+### R1 — minor: Sampling rate targets are described as hard limits
+
+- Disposition: fixed (the startup statements limited to entries that the cap brakes).
+- Fix: `docs/design/tables/15-query-profile-and-tuning.html`: the `R / c` bullet says the cap brakes only an
+  entry that runs more than `R` times per second, and an entry at `R` or fewer has `R / c ≥ 1`. The green-curve
+  bullet gives `min(R, rate·p)` rows per second after the first second and "at most about `R(1 + ln(rate/R))`"
+  within it, for those entries only, and says a slower entry follows the orange curve. *What that means in rows* and
+  the fleet bullet say the same. In `15-query-profile-and-tuning.md`, *A cap per entry and second* limits its formula
+  the same way. The bound follows from the chart model, where the rate is `λ·min(R/c, p(n))` and `c = max(1, λt)`
+  within the first second: `∫₀¹ min(λ, R/t) dt = R(1 + ln(λ/R))` for `λ > R`, and `R/c ≥ 1` for `λ ≤ R`.
+- Checks: documentation only; no code changed.
+- Status: claimed, unverified until a follow-up review.
