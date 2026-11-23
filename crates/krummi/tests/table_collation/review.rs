@@ -53,3 +53,25 @@ fn r1_a_long_spelling_of_a_short_folded_form_estimates_as_it() {
     assert_eq!((estimate(s("ana")), estimate(s(&long))), (1.0, 1.0));
 }
 
+#[test]
+fn r2_analyze_never_reads_a_large_original_through_an_index_prefix() {
+    let store = store_with_prefix_index();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let huge = format!("a{}", "\u{301}".repeat(100_000));
+    let row = [("id", Value::I64(1)), ("t", s(&huge)), ("n", Value::I64(1))];
+    write.insert_row(&table, &row).unwrap();
+    write.commit().unwrap();
+    let pages = |column: Option<&str>| {
+        let before = store.statistics_pages_read();
+        store.analyze("t", column).unwrap();
+        store.statistics_pages_read() - before
+    };
+    let column_only = pages(Some("t"));
+    assert_eq!(
+        pages(None),
+        column_only,
+        "the prefix reads no more than the column"
+    );
+}
+

@@ -231,8 +231,24 @@ pub(crate) fn build<'r>(
                 }
             }
         }
-        for (_, key) in &prefixes {
-            for (position, _) in key {
+        // A prefix reads its key columns up to the first one whose stored text or bytes are large (ST1), which is not
+        // read: a `ci_ai` text over the maximum can fold into an index key (IC8 of the collation PRD). The prefixes
+        // that hold that column count the row as large.
+        let readable: Vec<usize> = (prefixes.iter())
+            .map(|(_, key)| {
+                let large = |(position, column): &(usize, KeyColumn)| {
+                    let text = matches!(column.ty, ColumnType::String | ColumnType::Bytes);
+                    match row.stored_len(*position) {
+                        StoredLen::Invalid => true,
+                        StoredLen::Len(len) => text && len > stats::LARGE,
+                        _ => false,
+                    }
+                };
+                key.iter().position(large).unwrap_or(key.len())
+            })
+            .collect();
+        for ((_, key), &readable) in prefixes.iter().zip(&readable) {
+            for (position, _) in &key[..readable] {
                 touch(*position);
             }
         }
@@ -243,12 +259,12 @@ pub(crate) fn build<'r>(
             pages.dedup();
             pages_read += pages.len() as u64;
         }
-        let elements: Vec<Option<Vec<Vec<u8>>>> = (prefixes.iter())
-            .map(|(_, key)| {
+        let elements: Vec<Option<Vec<Vec<u8>>>> = (prefixes.iter().zip(&readable))
+            .map(|((_, key), &readable)| {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut element = Vec::new();
                     let mut prefixes = Vec::with_capacity(key.len());
-                    for (at, (position, column)) in key.iter().enumerate() {
+                    for (at, (position, column)) in key[..readable].iter().enumerate() {
                         // A stored value always encodes in its column's key encoding.
                         let _ = column
                             .encode(&row.value(*position).unwrap_or(Value::Null), &mut element);
@@ -261,13 +277,19 @@ pub(crate) fn build<'r>(
                 .ok()
             })
             .collect();
-        let elements: Vec<Vec<Vec<u8>>> = elements
-            .into_iter()
-            .map(Option::unwrap_or_default)
-            .collect();
-        for (elements, gathers) in elements.into_iter().zip(&mut combinations) {
+        for (((elements, gathers), &readable), (_, key)) in
+            (elements.into_iter().zip(&mut combinations).zip(&readable)).zip(&prefixes)
+        {
+            let read = elements.is_some();
+            let elements = elements.unwrap_or_default();
+            let produced = elements.len();
             for (element, gather) in elements.into_iter().zip(gathers.iter_mut()) {
                 gather.add_element(element);
+            }
+            if read && readable < key.len() {
+                for gather in gathers.iter_mut().skip(produced) {
+                    gather.add_large();
+                }
             }
         }
     }
