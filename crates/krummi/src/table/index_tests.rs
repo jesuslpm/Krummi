@@ -593,3 +593,33 @@ fn ac_ix13_an_entry_whose_row_is_missing_fails_a_row_scan_with_damage() {
         );
     }
 }
+
+/// R3 of the code review of the collation run: a `ci` primary key column that is also the key of an index keeps its
+/// original text once in the entry, though it is two elements of the entry's key (IC5, IC7 of the collation PRD).
+#[test]
+fn a_collated_column_keeps_its_original_text_once() {
+    use super::collation::Collation;
+    use super::index::EntryLayout;
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    let mut write = store.write().unwrap();
+    let schema = crate::Schema::new(
+        vec![
+            Column::new("id", ColumnType::String)
+                .not_null()
+                .with_collation(Collation::CiAi),
+            Column::new("n", ColumnType::I64),
+        ],
+        &["id"],
+    );
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    let down = IndexDefinition::new("down", vec![IndexKey::new("id").descending()]);
+    write
+        .create_index(&table, &down, IndexMode::CreateNew)
+        .unwrap();
+    let described = write.describe_table("t").unwrap();
+    let layout = EntryLayout::new(&described, &described.indexes()[0]);
+    assert_eq!(layout.original_places, [0], "one slot for the column");
+    write.abort();
+}

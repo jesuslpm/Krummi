@@ -435,10 +435,13 @@ pub(super) struct EntryLayout {
     key_places: Vec<usize>,
     included_places: Vec<usize>,
     /// The `ci` and `ci_ai` columns among the elements of an entry's key (the index's key columns, then the primary
-    /// key's), whose key holds their folded form: each element's position and its column's place in schema order. An
-    /// entry's value keeps their texts as the row holds them, after the included columns, so that an entry returns
+    /// key's), whose key holds their folded form: each element's position and the slot of its original text. An
+    /// entry's value keeps those texts as the row holds them, after the included columns, so that an entry returns
     /// them and a duplicate key reports them (IC5, IC6 of the collation PRD).
     originals: Vec<(usize, usize)>,
+    /// The place in schema order of the column of each slot of original text: one slot per column, also when it is
+    /// both in the index's key and in the primary key, so that its text is kept once.
+    pub(super) original_places: Vec<usize>,
     /// The row format of an entry's value: the included columns, then the original texts of `originals`, every one
     /// allowing nulls, so that allowing nulls in a column later (N3) keeps the layout of the entries written before;
     /// `None` without either, whose entries have an empty value.
@@ -457,13 +460,22 @@ impl EntryLayout {
                 .expect("a live column of the index")
         };
         let elements = (index.key.iter().map(|key| key.id)).chain(schema.key_ids().iter().copied());
-        let originals: Vec<(usize, usize)> = (elements.enumerate())
-            .filter(|(_, id)| {
-                let collation = column(*id).collation;
-                matches!(collation, Some(Collation::Ci | Collation::CiAi))
-            })
-            .map(|(at, id)| (at, place(id)))
-            .collect();
+        let mut originals = Vec::new();
+        let mut original_places: Vec<usize> = Vec::new();
+        for (at, id) in elements.enumerate() {
+            if !matches!(column(id).collation, Some(Collation::Ci | Collation::CiAi)) {
+                continue;
+            }
+            let place = place(id);
+            let slot = match original_places.iter().position(|&p| p == place) {
+                Some(slot) => slot,
+                None => {
+                    original_places.push(place);
+                    original_places.len() - 1
+                }
+            };
+            originals.push((at, slot));
+        }
         let row_column = |id: u64, ty: ColumnType| RowColumn {
             id,
             ty,
@@ -472,13 +484,18 @@ impl EntryLayout {
         };
         let included: Vec<RowColumn> = (index.included.iter())
             .map(|c| row_column(c.id, column(c.id).ty))
-            .chain(originals.iter().map(|_| row_column(0, ColumnType::String)))
+            .chain(
+                original_places
+                    .iter()
+                    .map(|_| row_column(0, ColumnType::String)),
+            )
             .collect();
         EntryLayout {
             key: EntryLayout::key_columns(schema, index),
             key_places: index.key.iter().map(|key| place(key.id)).collect(),
             included_places: index.included.iter().map(|c| place(c.id)).collect(),
             originals,
+            original_places,
             included: (!included.is_empty()).then(|| RowLayout::new(0, included)),
             primary: (schema.key_ids().iter()).map(|id| column(*id).ty).collect(),
         }
@@ -487,12 +504,9 @@ impl EntryLayout {
     /// The original text of the element at `at` of an entry's key whose value is `value`, as the row holds it, when
     /// that element is a `ci` or `ci_ai` column's (IC5 of the collation PRD); `None` for any other element.
     pub(super) fn original<'t>(&self, at: usize, value: &'t [u8]) -> Option<Value<'t>> {
-        let j = self
-            .originals
-            .iter()
-            .position(|(element, _)| *element == at)?;
+        let &(_, slot) = self.originals.iter().find(|(element, _)| *element == at)?;
         let row = self.included.as_ref()?.row(value).ok()?;
-        row.value(self.included_places.len() + j).ok().flatten()
+        row.value(self.included_places.len() + slot).ok().flatten()
     }
 
     /// The key columns of `index`, an index of `schema`, as their elements are encoded, in key order.
@@ -563,7 +577,7 @@ impl EntryLayout {
             None => None,
             Some(included) => {
                 let places = self.included_places.iter().copied();
-                let originals = self.originals.iter().map(|&(_, place)| place);
+                let originals = self.original_places.iter().copied();
                 let values: Vec<Value<'v>> = places.chain(originals).map(&value).collect();
                 let len = included.encoded_len(&values);
                 if len > MAX_ROW {
