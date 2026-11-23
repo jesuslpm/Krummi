@@ -43,3 +43,33 @@ the plan cache, expiry.
 - Status: claimed, unverified until a follow-up review.
 
 Checks: documentation only; no code changed.
+
+## 2026-11-23 (verification)
+
+Review record: [2026-11-23-code-02.md](2026-11-23-code-02.md), wrapper status `findings` (R3), `threadId`
+`01a20712-406c-7550-9e58-490d11b40dbd`, telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`.
+
+- R1: "verified resolved — Directive changes reach cached plans".
+- R2: "verified resolved — Insufficient first-interval evidence remains pending".
+- R3: "still open; partially corrected": a finite randomized trial can still split a rare dear parameter value
+  unevenly. With P costing 10 / 10,000 and Q 1 / 1,000 on A / B, and one B execution falling on Q's side, Q's mean is
+  34.3 against P's 10 and the fixed-count rule forces P (about 5.13 % of assignments for that input stream).
+
+## 2026-11-23 (second fix)
+
+Artifact version: fix commit `385be4a`.
+
+### R3 — major: A short randomized trial can still validate a uniformly worse plan
+
+- Disposition: fixed.
+- Fix: *Trial* keeps a count, sum and sum of squares of pages per execution for each side, and decides only with a
+  one-sided confidence bound: `z = (m_cand − f·m_good) / √(s²_cand/n_cand + f²·s²_good/n_good)`, computed once each
+  side has 30 executions. The trial forces at `z > 1.645` and clears at `z < −1.645`; otherwise it goes on within a
+  bound on time, and a trial that reaches the bound is **inconclusive** and forces nothing. A new paragraph, *The
+  limits of the guarantee*, gives about 5 % error on each side for means that behave as normal, heavy tails handled
+  by the variance, and wrong decisions undone by expiry. Codex's counterexample gives `z = 0.43` (Q: 29 × 1 and
+  1 × 1,000, sample variance 33,267; P: 30 × 10), so it continues or ends inconclusive and never forces P. *What it
+  never does*, the risk row, experiment 9 and the thresholds of question 8 follow. The factor is named `f`, so it is
+  not confused with the histogram's `k`.
+- Status: claimed, unverified until a follow-up review.
