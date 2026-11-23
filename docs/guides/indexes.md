@@ -538,7 +538,10 @@ scan (see [rows](rows.md)). A row's text and bytes borrow the transaction's page
 
 `index_entries` reads only the index. Each `IndexEntry` has, in this order, the index's key columns, its included
 columns, and the primary key columns that are not in its key, each column once. When an index includes every column a
-query needs, the query never reads the table's rows: a covering read.
+query needs, the query never reads the table's rows: a covering read. A `string` column with the `ci` or `ci_ai`
+collation sorts by its folded form, but an entry returns its text as the row stores it, never the folded form; a
+unique index over such a column rejects equivalent texts (`Ana` and `ANA`) with `ErrorKind::DuplicateKey`, whose
+texts are the row's.
 
 | Method | Gives |
 |---|---|
@@ -606,7 +609,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Vector | No: `SchemaRule::VectorIndexKey` | Yes |
 | JSON | No: `SchemaRule::VectorIndexKey` | Yes |
 
-A `uuid` column declared with SQL Server's order sorts in that order in the index, and its values come back from an
+A `string` column sorts in the index by its collation (see [collations](data-types.md#collations)), and its key is
+measured with its folded form. A `uuid` column declared with SQL Server's order sorts in that order in the index, and its values come back from an
 entry in the byte order of RFC 9562, as from a row.
 
 ## Read and write scans and references

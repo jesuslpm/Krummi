@@ -402,7 +402,8 @@ schema history, as the current schema says.
 | `add_column(&table, &column)` | The new column at the end, with its default or null. |
 | `drop_column(&table, name)` | The column no longer appears. |
 | `rename_column(&table, from, to)` | The same values under the new name; the column keeps its identity. |
-| `modify_column(&table, name, ty, nullable)` | Only `nullable = true` on a column outside the key is supported: the column now allows nulls. |
+| `modify_column(&table, name, ty, nullable)` | Only `nullable = true` on a column outside the key is supported: the column now allows nulls. It expects a `string` column to be `binary`. |
+| `modify_column_with_collation(&table, name, ty, collation, nullable)` | The same, giving the column's collation, which never changes: another one is `SchemaRule::UnsupportedChange`. |
 
 Each change that changes something adds 1 to the schema version, also when there are several in one write. A change
 that changes nothing gives no new version: renaming a column to its own name, or modifying a column with its own type

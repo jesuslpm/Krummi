@@ -56,6 +56,10 @@ Every column of every table, with an index or not, can have statistics, except v
 with two or more key columns also has statistics of the prefixes of its key. There are no other statistics of several
 columns together.
 
+The statistics and estimates of a `string` column with the `ci` or `ci_ai` collation work on folded forms: `Ana` and
+`ANA` are one distinct value, the frequent values and histogram bounds you read are folded forms, an estimate gives
+the same for any spelling, and a text is large when it or its folded form passes 2,048 bytes.
+
 A table of up to 30,000 rows is read whole; a larger one through a sample. Statistics are built from one snapshot, the
 **source snapshot**, and carry the table's row count and modification counter in it.
 

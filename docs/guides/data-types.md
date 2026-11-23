@@ -15,7 +15,7 @@ the conversions that Krummi does or refuses. Creating tables and storing rows ar
 | `u8` … `u64` | `U8`, `U16`, `U32`, `U64` | `U8(u8)` … `U64(u64)` | `u8` … `u64` | the Rust type's | numeric |
 | `f32`, `f64` | `F32`, `F64` | `F32(f32)`, `F64(f64)` | `f32`, `f64` | every value; `-0` stored as `+0`, one NaN | numeric, `-inf` first, NaN after `+inf` |
 | `decimal(p, s)` | `Decimal { precision, scale }` | `Decimal(Decimal)` | none (`value`, `get`) | up to `p` digits, 1 ≤ p ≤ 38, 0 ≤ s ≤ p | numeric |
-| `string` | `String` | `String(Cow<str>)` | `text`, `text_bytes` | any UTF-8, U+0000 and `""` included | byte by byte, no collation |
+| `string` | `String` | `String(Cow<str>)` | `text`, `text_bytes` | any UTF-8, U+0000 and `""` included | byte by byte (`binary`), or by its folded form with the `ci` and `ci_ai` collations |
 | `bytes` | `Bytes` | `Bytes(Cow<[u8]>)` | `bytes` | any bytes, empty included | byte by byte |
 | `date` | `Date` | `Date(i32)`, days since 1970-01-01 | `date` | 0001-01-01 to 9999-12-31 | chronological |
 | `time` | `Time` | `Time(i64)`, microseconds since midnight | `time` | 00:00:00 to 23:59:59.999999 | chronological |
@@ -285,9 +285,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - **Reading**: `row.text(position)` returns the text as `Cow<str>`, borrowed from the page; `row.text_bytes`
   returns its bytes without checking that they are UTF-8; `row.bytes(position)` returns `Cow<[u8]>`.
-- **Order**: byte by byte, with no collation: `"B"` sorts before `"a"`, a text before any longer text that starts
-  with it, and `"é"` after `"z"`. Krummi has no collations; to sort without case, store a folded copy of the text in
-  another column and key on it.
+- **Order**: by default (the `binary` collation) byte by byte: `"B"` sorts before `"a"`, a text before any longer
+  text that starts with it, and `"é"` after `"z"`. A column with another collation compares its folded form instead
+  (see [Collations](#collations)).
 - **Limits**: no limit of its own beyond the row, at most 256 MiB stored, and the primary key, at most 2,048 bytes
   stored (`krummi::table::key::MAX_KEY`). In a key, a text or bytes value takes its bytes, one more for each zero
   byte, and two bytes of framing. Going past either fails with `Error::InvalidSize`.
@@ -320,6 +320,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let long = "x".repeat(3000);
     let error = write.insert_row(&t, &[("name", Value::String(long.into()))]).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidSize);
+    Ok(())
+}
+```
+
+### Collations
+
+A `string` column declares its collation with `Column::with_collation`: `Collation::Binary` (the default),
+`Collation::Ci` (equal texts regardless of case) or `Collation::CiAi` (regardless of case and of the accents of
+Latin, Greek and Cyrillic letters, `ñ` kept as a letter of its own). The collation decides the column's **folded
+form**, pinned to Unicode 17.0, which its primary key, indexes, unique checks, ranges, statistics and estimates
+compare byte by byte; the row keeps the text as you wrote it, and reads return that text.
+
+- **`ci`**: full Unicode case folding with canonical normalization: `José`, `JOSÉ` and `Jose` with a combining
+  accent are one value, and so are `Straße` and `STRASSE`.
+- **`ci_ai`**: the `ci` form without the accents of Latin, Greek and Cyrillic letters: `José` equals `jose` and
+  `Ångström` equals `angstrom`, but `año` differs from `ano`; the marks of other scripts (Devanagari, Japanese, Thai,
+  Hebrew, Arabic) are kept. `æ`, `ø` and `ł` are letters, not accented ones.
+- **Equivalent keys**: inserting `ANA` where `Ana` is the key fails with `ErrorKind::DuplicateKey`; reading, deleting
+  or updating with `ana` finds the row `Ana`, and an update never changes the key's spelling: delete and insert to
+  change it.
+- **Order and ranges**: by the bytes of the folded form, not alphabetical: bounds are folded too, so a range from
+  `"JOS"` covers every text whose folded form starts with `jos` and comes after it.
+- **Sizes**: a key is measured with its folded form, which can be longer (`ŉ`, 2 bytes, folds to `ʼn`, 3) or shorter.
+- **Rules**: only `string` columns have a collation, even `binary` given to another type is `SchemaRule::CollationOnNonText`;
+  a column's collation never changes; `describe_table` shows it as `SchemaColumn::collation`.
+
+```rust
+use krummi::table::value::{ColumnType, Value};
+use krummi::{Collation, Column, ErrorKind, Schema, Store, StoreOptions, TableMode};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let store = Store::open_temporary(&StoreOptions::default())?;
+    let mut write = store.write()?;
+    let schema = Schema::new(
+        vec![
+            Column::new("name", ColumnType::String).not_null().with_collation(Collation::CiAi),
+            Column::new("n", ColumnType::I64),
+        ],
+        &["name"],
+    );
+    let t = write.open_table_with("people", TableMode::CreateNew(&schema))?;
+    write.insert_row(&t, &[("name", Value::String("José".into())), ("n", Value::I64(1))])?;
+
+    // Any spelling finds the row, which keeps the text as written.
+    let row = write.get_row(&t, &[Value::String("JOSE".into())])?.expect("found");
+    assert_eq!(row.text(0).as_deref(), Some("José"));
+    let error = write.insert_row(&t, &[("name", Value::String("jose".into()))]).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::DuplicateKey);
+    // `ñ` is a letter of its own.
+    write.insert_row(&t, &[("name", Value::String("Año".into()))])?;
+    write.insert_row(&t, &[("name", Value::String("ano".into()))])?;
+
+    let described = write.describe_table("people")?;
+    assert_eq!(described.column("name").unwrap().collation, Some(Collation::CiAi));
+    assert_eq!(described.column("n").unwrap().collation, None);
     Ok(())
 }
 ```

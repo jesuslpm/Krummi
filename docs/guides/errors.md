@@ -267,9 +267,10 @@ reported, and within it the first column in schema order.
 | `VectorOutOfLimits` | A vector type outside its limits. |
 | `DecimalOutOfLimits` | A `decimal(p, s)` outside 1 ≤ p ≤ 38 and 0 ≤ s ≤ p. |
 | `CosineOnBit` | The cosine metric on `bit` elements. |
+| `CollationOnNonText` | A collation, even `binary`, declared on a column that is not `string`. |
 | `InvalidDefault` | A default value that breaks the rules of its column. |
 | `NotNullWithoutDefault` | An added column that does not allow nulls and has no default value. |
-| `UnsupportedChange` | A change that is not allowed: changing a type, changing the primary key, forbidding nulls. |
+| `UnsupportedChange` | A change that is not allowed: changing a type or a collation, changing the primary key, forbidding nulls. |
 | `ColumnNotFound` | Dropping, renaming or modifying a column that does not exist, or an index naming one. |
 | `DropKeyColumn` | Dropping a primary key column, or a column of an index (`index` names it). |
 | `VersionExhausted` | A schema change past version 65,535. |
@@ -290,6 +291,7 @@ with `expected` (what you gave) and `found` (what the table has) as text.
 | `SchemaDifference` | What differs |
 |---|---|
 | `Type` | A column's type. |
+| `Collation` | A `string` column's collation (`binary`, `ci` or `ci_ai`); a column given without one expects `binary`. |
 | `Nullability` | Whether a column allows nulls. |
 | `Default` | A column's default value. |
 | `MissingColumn` | A column named by the schema or by a row that the table does not have. |
