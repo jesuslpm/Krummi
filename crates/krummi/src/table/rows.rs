@@ -446,6 +446,11 @@ impl Reader {
 
     /// The encoded primary key of `values`, which give every key column.
     fn encode_key_of(&self, values: &[Option<Value<'_>>]) -> std::result::Result<Vec<u8>, Fault> {
+        // A key of one column, the usual one, is encoded without collecting its values.
+        if let [i] = self.key_columns[..] {
+            let value = self.fold_key(0, values[i].as_ref().expect("a key column").reborrow());
+            return Ok(encode_key(&self.key_types, std::slice::from_ref(&value))?);
+        }
         let key: Vec<Value<'_>> = (self.key_columns.iter().enumerate())
             .map(|(k, &i)| self.fold_key(k, values[i].as_ref().expect("a key column").reborrow()))
             .collect();
