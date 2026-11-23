@@ -194,6 +194,7 @@ impl WriteTransaction<'_> {
                     &index.name,
                     &index.layout,
                     &entry.key,
+                    &entry.value,
                 ));
             }
         }

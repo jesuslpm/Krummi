@@ -100,6 +100,7 @@ use krummi_tree::catalog::MAX_EXTRA;
 use krummi_tree::{Interval, LastLeaf, PageSource};
 
 use super::catalog::{ReadTable, WriteTable};
+use super::collation::Collation;
 use super::index_key::{decode_entry, entry_len, index_key_len, uniqueness_range, write_entry};
 use super::key::{Direction, KeyColumn, KeyRange, MAX_KEY, Nulls};
 use super::row::{MAX_ROW, RowColumn, RowLayout};
@@ -433,9 +434,14 @@ pub(super) struct EntryLayout {
     /// The place in schema order of each key column, in key order, and of each included column, in their order.
     key_places: Vec<usize>,
     included_places: Vec<usize>,
-    /// The row format of an entry's value: the included columns, every one allowing nulls, so that allowing nulls in
-    /// a column later (N3) keeps the layout of the entries written before; `None` without included columns, whose
-    /// entries have an empty value.
+    /// The `ci` and `ci_ai` columns among the elements of an entry's key (the index's key columns, then the primary
+    /// key's), whose key holds their folded form: each element's position and its column's place in schema order. An
+    /// entry's value keeps their texts as the row holds them, after the included columns, so that an entry returns
+    /// them and a duplicate key reports them (IC5, IC6 of the collation PRD).
+    originals: Vec<(usize, usize)>,
+    /// The row format of an entry's value: the included columns, then the original texts of `originals`, every one
+    /// allowing nulls, so that allowing nulls in a column later (N3) keeps the layout of the entries written before;
+    /// `None` without either, whose entries have an empty value.
     pub(super) included: Option<RowLayout>,
     /// The types of the primary key columns, in key order, which end every entry's key.
     pub(super) primary: Vec<ColumnType>,
@@ -450,21 +456,43 @@ impl EntryLayout {
                 .column_position(id)
                 .expect("a live column of the index")
         };
-        let included: Vec<RowColumn> = (index.included.iter())
-            .map(|c| RowColumn {
-                id: c.id,
-                ty: column(c.id).ty,
-                nullable: true,
-                key: false,
+        let elements = (index.key.iter().map(|key| key.id)).chain(schema.key_ids().iter().copied());
+        let originals: Vec<(usize, usize)> = (elements.enumerate())
+            .filter(|(_, id)| {
+                let collation = column(*id).collation;
+                matches!(collation, Some(Collation::Ci | Collation::CiAi))
             })
+            .map(|(at, id)| (at, place(id)))
+            .collect();
+        let row_column = |id: u64, ty: ColumnType| RowColumn {
+            id,
+            ty,
+            nullable: true,
+            key: false,
+        };
+        let included: Vec<RowColumn> = (index.included.iter())
+            .map(|c| row_column(c.id, column(c.id).ty))
+            .chain(originals.iter().map(|_| row_column(0, ColumnType::String)))
             .collect();
         EntryLayout {
             key: EntryLayout::key_columns(schema, index),
             key_places: index.key.iter().map(|key| place(key.id)).collect(),
             included_places: index.included.iter().map(|c| place(c.id)).collect(),
+            originals,
             included: (!included.is_empty()).then(|| RowLayout::new(0, included)),
             primary: (schema.key_ids().iter()).map(|id| column(*id).ty).collect(),
         }
+    }
+
+    /// The original text of the element at `at` of an entry's key whose value is `value`, as the row holds it, when
+    /// that element is a `ci` or `ci_ai` column's (IC5 of the collation PRD); `None` for any other element.
+    pub(super) fn original<'t>(&self, at: usize, value: &'t [u8]) -> Option<Value<'t>> {
+        let j = self
+            .originals
+            .iter()
+            .position(|(element, _)| *element == at)?;
+        let row = self.included.as_ref()?.row(value).ok()?;
+        row.value(self.included_places.len() + j).ok().flatten()
     }
 
     /// The key columns of `index`, an index of `schema`, as their elements are encoded, in key order.
@@ -487,11 +515,22 @@ impl EntryLayout {
 
     /// The text of the values of the key columns of the entry `key`, and that of its primary key, for the data of a
     /// duplicate key; `(?)` for bytes that do not decode, which only a malformed row gives (IX12).
-    fn key_texts(&self, key: &[u8]) -> (String, String) {
-        match decode_entry(&self.key, &self.primary, key) {
-            Some((index, primary)) => (key_text(&index), key_text(&primary)),
-            None => ("(?)".to_owned(), "(?)".to_owned()),
+    fn key_texts(&self, key: &[u8], value: &[u8]) -> (String, String) {
+        let Some((mut index, mut primary)) = decode_entry(&self.key, &self.primary, key) else {
+            return ("(?)".to_owned(), "(?)".to_owned());
+        };
+        // A `ci` or `ci_ai` text as the row holds it, never its folded form (IC6 of the collation PRD).
+        for &(at, _) in &self.originals {
+            if let Some(original) = self.original(at, value) {
+                let element = if at < index.len() {
+                    &mut index[at]
+                } else {
+                    &mut primary[at - index.len()]
+                };
+                *element = original.into_owned();
+            }
         }
+        (key_text(&index), key_text(&primary))
     }
 
     /// The values of the key columns of a row whose live column at place `i`, in schema order, has `value(i)`.
@@ -523,8 +562,9 @@ impl EntryLayout {
         let included = match &self.included {
             None => None,
             Some(included) => {
-                let values: Vec<Value<'v>> =
-                    self.included_places.iter().map(|&i| value(i)).collect();
+                let places = self.included_places.iter().copied();
+                let originals = self.originals.iter().map(|&(_, place)| place);
+                let values: Vec<Value<'v>> = places.chain(originals).map(&value).collect();
                 let len = included.encoded_len(&values);
                 if len > MAX_ROW {
                     return Ok(Err(TooLarge::Included(len)));
@@ -664,8 +704,9 @@ impl Folder<'_> {
         index: &str,
         layout: &EntryLayout,
         key: &[u8],
+        value: &[u8],
     ) -> Error {
-        let (index_key, primary) = layout.key_texts(key);
+        let (index_key, primary) = layout.key_texts(key, value);
         Error::DuplicateKey {
             folder: self.owned(),
             table: table.to_owned(),
@@ -892,6 +933,7 @@ impl<'s> WriteTransaction<'s> {
                     &build.index.name,
                     &build.layout,
                     &entry.key,
+                    &entry.value,
                 ));
             }
             previous.clear();

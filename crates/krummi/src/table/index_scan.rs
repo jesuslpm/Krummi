@@ -230,8 +230,12 @@ impl<'t> IndexEntry<'t> {
         })
     }
 
-    /// The value of the element at `at` of its key, decoded into a copy.
+    /// The value of the element at `at` of its key, decoded into a copy; a `ci` or `ci_ai` text as the row holds
+    /// it, from the entry's value, never its folded form (IC5 of the collation PRD).
     fn element(&self, at: usize) -> Value<'t> {
+        if let Some(original) = self.columns.layout.original(at, self.included) {
+            return original;
+        }
         decode_entry_value(&self.columns.elements, self.key, at)
             .unwrap_or_else(|| panic!("{MALFORMED}"))
     }

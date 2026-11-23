@@ -7,6 +7,8 @@ mod support;
 
 #[path = "table_collation/applied.rs"]
 mod applied;
+#[path = "table_collation/indexes.rs"]
+mod indexes;
 #[path = "table_collation/keys.rs"]
 mod keys;
 
