@@ -73,3 +73,47 @@ Artifact version: fix commit `385be4a`.
   never does*, the risk row, experiment 9 and the thresholds of question 8 follow. The factor is named `f`, so it is
   not confused with the histogram's `k`.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-23 (verification 2)
+
+Review record: [2026-11-23-code-03.md](2026-11-23-code-03.md), wrapper status `findings` (R3), `threadId`
+`01a20716-934e-7ce3-8a41-a42a7589ed19`, telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`. R1 and R2: "previously verified resolved; no regression identified".
+
+- R3: "still open; partially corrected". Two points:
+  - With P costing 10 / 1,000,000 and Q 1 / 100,000, three B executions among 200 that all fall on Q's side
+    (probability 1/8) give `z ≥ 1.72` and force P.
+  - Repeated evaluation at a fixed ±1.645 inflates the error: 14.80 % false clearance with ten flushes and 18.64 %
+    with twenty, against 5.20 % at one evaluation.
+
+  Codex notes that "Choosing an inference mechanism or a risk budget belongs to product design".
+
+## 2026-11-23 (third fix)
+
+Product decision, asked after the round: the user chose "Automático, límites explícitos (Recomendado)" over "Solo
+recomendación" for forcing the last good plan.
+
+Artifact version: fix commit `ce88517`.
+
+### R3 — major: The trial's confidence rule remains miscalibrated
+
+- Disposition: fixed, within the risk budget the user accepted.
+- Fix: *Trial* now has three rules:
+  1. one evaluation, at a size fixed in advance (100 executions per side), with an unreached size inconclusive, so the
+     sequential problem disappears;
+  2. strata by the power of two of the rows estimated for the shape's whole filter, computed before the draw and the
+     same for both plans, with post-stratified means and variances weighted by the pooled share of each stratum,
+     sparse strata left out, and the trial inconclusive past 5 % of them;
+  3. the one-sided bound on the stratified means.
+
+  A trial that is not conclusive forces nothing, and the candidate is no longer promoted to last good on a negative
+  `z`, which removes the false-clearance path.
+
+  *The limits of the guarantee* states:
+  - about 5 % for means that behave as normal within strata;
+  - an error this rule does not bound when the estimate does not separate the dear values from the cheap ones,
+    with Codex's 1/8 example;
+  - a wrong forcing lasting at most the one-day time to live, visible in the profile and `explain`.
+
+  Experiment 9, the risk row, the costs, the thresholds of question 8 and the 2026-11-23 review note follow.
+- Status: claimed, unverified until a follow-up review.
