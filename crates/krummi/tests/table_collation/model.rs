@@ -28,7 +28,7 @@ fn random_text(rng: &mut Lcg) -> String {
 }
 
 fn maybe_text(rng: &mut Lcg) -> Option<String> {
-    (rng.next() % 5 != 0).then(|| random_text(rng))
+    (!rng.next().is_multiple_of(5)).then(|| random_text(rng))
 }
 
 /// A row of the model: the key, the `ci_ai` column `k` and the `ci` column `d`, as stored.
@@ -163,7 +163,7 @@ fn ac_ic5_scans_ranges_and_duplicates_follow_the_folded_forms() {
                 Err(other) => panic!("{other}"),
             }
         }
-        model.sort_by(|a, b| key(Collation::Ci, &a.id).cmp(&key(Collation::Ci, &b.id)));
+        model.sort_by_key(|row| key(Collation::Ci, &row.id));
 
         // The table forward and backward, with the texts as stored.
         let ids = |rows: &[Row]| rows.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
