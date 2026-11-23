@@ -58,6 +58,10 @@ Linux in WSL 2 Ubuntu). Estimate: 12 h – 18 h. Real start: 2026-11-23 08:26:24
 | T6 | S1: IC8; AC-IC8 (statistics and estimates) | inline | done (RED: large fraction without the change) | `10c1740`, `65211fb` |
 | T7 | S1: docs (guides), S2: IC12, AC-IC11 (bench hook and measurements) | inline | done (docs, example; Windows only without the 10 rounds, by the user, L12–L14; key fast path) | `cdb4df2`, `9d75c3b`, `cb1c412` |
 | T8 | S4 (reviews, closing report, archive) | inline | done (verifier, Codex approved in round 3, RDD last slice approved; report) | `f6f0d88`, `22da401`, `61ee7bf`, `e5d9b8f`, `aca3dd3`, `1faea20`, `a6a8679`, `9974d0a`, `b33cc40`, report commit |
+| T9 | S5 follow-up (L17): abandon the RDD lineage `review-b00b0f72ef61e47d` (false positive) | inline | done (L18) | — |
+| T10 | S5 follow-up (L17): the seven advisories of the RDD last slice (fix or dismiss with evidence) | inline | done (L19) | `3373bc7`, `7056968` |
+| T11 | S1: IC2, IC12 (L17): optimize the folding (stable runs copied, only unstable segments normalized) | inline | done (L20) | `154dfec` |
+| T12 | S2 (L17): measure `cb1c412` (one-column key shortcut) and the folding optimization, Windows only | inline | done (L21) | — (`work/tc2`) |
 
 ## Log
 
@@ -103,8 +107,8 @@ Linux in WSL 2 Ubuntu). Estimate: 12 h – 18 h. Real start: 2026-11-23 08:26:24
   `binary` columns gave the same 166 output lines on the baseline and on HEAD. Advisory: no committed assertion of the
   shortened bounds of AC-IC8; pinned in `f6f0d88`. Clippy then caught two lints in the model test of `90ce084`,
   which ran before clippy covered it: fixed in `22da401`. Scratch removed.
-- **L10** (2026-11-23): Codex code review of `6b583a2..22da401` ([report](../../../docs/reviews/tables-collation/2026-11-23-code.md),
-  [resolutions](../../../docs/reviews/tables-collation/2026-11-23-code-resolutions.md)). Round 1: R1 (estimates decide a
+- **L10** (2026-11-23): Codex code review of `6b583a2..22da401` ([report](../../docs/reviews/tables-collation/2026-11-23-code.md),
+  [resolutions](../../docs/reviews/tables-collation/2026-11-23-code-resolutions.md)). Round 1: R1 (estimates decide a
   large value by the original), R2 (prefix statistics read large originals), R3 (an original kept twice), R4 (a
   borrowed key text): all fixed (`61ee7bf`, `e5d9b8f`, `aca3dd3`, `1faea20`), regressions red before the fixes.
   Round 2: R1, R3, R4 verified; R2 still open for defaults of added columns; R5 new (joint estimates ignored the large
@@ -149,3 +153,46 @@ Linux in WSL 2 Ubuntu). Estimate: 12 h – 18 h. Real start: 2026-11-23 08:26:24
 - **L16** (2026-11-23): closing report [tables-collation-report.md](tables-collation-report.md); phase log ended at
   12:11:49. Pending: the RDD lineage `review-b00b0f72ef61e47d` (Needs your decision), the measurements left out by
   the user, the RDD advisories of the last slice.
+- **L17** (2026-11-23, user, after the closing report): «Mide El arreglo que restauré después de medir (cb1c412, el
+  atajo para claves de una sola columna) no está medido. Implementa optimización del plegado. Revisa los siete
+  avisos, abandona la revisión de falso positivo.» Estimate 2 h – 4 h sent; the user answered «Sí»; resumed at
+  12:36:15 (execution reopened with `move_docs.py reopen`). Defaults taken without asking (L1, L13): measurements on
+  Windows only, 5 rounds of the loads the shortcut touches (W23, W24 and W28: insert and update through
+  `encode_key_of`) A/B `b33cc40` against `cb1c412`, and `collation_measure` before and after the folding
+  optimization.
+- **L18** (2026-11-23, T9): `gentle-ai review abandon` of `review-b00b0f72ef61e47d` (reason `operator_disposition`,
+  actor the user, binding from `gentle-ai review status` entries: revision `sha256:921ac8ae…`, snapshot
+  `sha256:d2ea5281…`, captured lens results risk, readability, reliability, findings present): `committed` at
+  12:37:00, moved to the audited quarantine, nothing deleted. Its predecessor `review-5fc999f939b056fe` (the valid
+  finding, fixed in `10c1740`) and `review-ed0f0e4daf403899` (not of this run) stay `correction_required`: not asked.
+- **L19** (2026-11-23, T10, the advisories of lineage `review-b2a93e2d2f57646d`): R1-001 fixed, the usage of
+  `collation_measure` warns that it deletes its `binary` and `ci` subfolders (`7056968`). R2-001 fixed,
+  `EntryLayout::original` returns `Some(None)` for a value that does not decode, so that `IndexEntry` panics with the
+  message of a malformed entry and a duplicate key reports `(?)` (IX12), instead of falling back to the folded key;
+  internal test extended (`3373bc7`). R2-002 fixed, a comment on identity 0 of the slots of original text
+  (`3373bc7`). R2-003 fixed, a default is measured by its original length, as a stored value is, with the reason a
+  folded form over the maximum never reaches an index key (IC7) (`7056968`). R2-004 fixed, `if`/`else` instead of the
+  guarded wildcard arm (`7056968`). R2-005 fixed, one loop per prefix instead of a four-way `zip` (`7056968`).
+  R3-invalid-len-counted-large dismissed with evidence: the column gathering already counts a malformed length as
+  large and does not read it ("a large value or a malformed one counts as large and is not read",
+  `crates/krummi/src/table/statistics.rs:212`, the ST1 rule of the damaged-run reads); the prefixes now follow
+  the same rule, which keeps the fractions of the column and its prefixes consistent. Checks: clippy clean;
+  `table_collation` 21, `table_statistics` 31, `table_indexes` 48 tests pass.
+- **L20** (2026-11-23, T11): `fold` now copies the stable scalars (lowering ASCII capitals) and runs `fold_slowly` only
+  over each run of unstable scalars, from the simple scalar before it (a base its marks may compose with or follow)
+  to the next simple one (`154dfec`). Correctness: a stable scalar is a starter, no second of a composition, and
+  folds to itself, so it blocks reordering and composition across it. New unit test: 20,000 random mixes give the
+  same result by segments and whole (killed a mutant that started a segment at the unstable scalar; a mutant that
+  started it at the first unwritten scalar survived because it is equivalent, only slower). AC-IC2 (every scalar,
+  `NormalizationTest.txt`, random sequences against the reference) passes through the new path. Quick check, scale 20,
+  3 rounds: `ci` 1.56–1.59 times `binary`, from 2.6–3.4 before.
+- **L21** (2026-11-23, T12, Windows, bench power plan, `work/tc2/all.sh`, 12:52:27–13:09:15): 5 rounds of W23, W24 and
+  W28, base `b33cc40` (before the shortcut) against head `154dfec` (base/head speed ratio): W23 1.016, W24 1.002, W28
+  1.004, all within noise; the 0.744 of W24 in the single round of L14 was noise. `collation_measure` on `154dfec`,
+  10 rounds, 100,000 rows: insert `binary` 8,906 ns, `ci` 13,598 ns (1.527, was 2.62); by key 1,576 / 2,382 ns (1.511,
+  was 2.82); by index 3,798 / 5,544 ns (1.460, was 2.59).
+- **L22** (2026-11-23): Codex review of the follow-up, `9974d0a..154dfec`
+  ([report](../../docs/reviews/tables-collation-followup/2026-11-23-code.md)): no functional defect; R1 minor, the
+  links of the report and of this log kept the depth of `odd/done/tables`. Cause: `move_docs.py reopen` stages its
+  renames, and `3373bc7` took them with the code, while the link rewrites stayed in the working tree. Fixed by
+  committing the documents as reopened.

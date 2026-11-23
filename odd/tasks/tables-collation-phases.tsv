@@ -25,3 +25,15 @@
 2026-11-23T11:54:39+00:00	mark	checks	final checks
 2026-11-23T12:08:17+00:00	mark	review	RDD last slice
 2026-11-23T12:11:49+00:00	end		
+2026-11-23T12:36:15+00:00	mark	plan	follow-up T9-T12
+2026-11-23T12:36:39+00:00	mark	review	T9
+2026-11-23T12:37:10+00:00	mark	fix	T10
+2026-11-23T12:41:46+00:00	mark	implement	T11
+2026-11-23T12:45:17+00:00	mark	acceptance	T12
+2026-11-23T12:45:17+00:00	bg-start	acceptance	tc2-build-windows
+2026-11-23T12:52:26+00:00	bg-end	acceptance	tc2-build-windows
+2026-11-23T12:52:26+00:00	bg-start	acceptance	tc2-windows
+2026-11-23T13:09:16+00:00	bg-end	acceptance	tc2-windows
+2026-11-23T13:09:54+00:00	mark	review	codex follow-up
+2026-11-23T13:09:54+00:00	bg-start	review	codex-F1
+2026-11-23T13:25:42+00:00	bg-end	review	codex-F1
