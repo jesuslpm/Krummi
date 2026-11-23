@@ -14,6 +14,7 @@ fn valid() -> TableSchema {
                 ty: ColumnType::I64,
                 nullable: false,
                 default: None,
+                collation: None,
             },
             SchemaColumn {
                 id: 11,
@@ -21,6 +22,7 @@ fn valid() -> TableSchema {
                 ty: ColumnType::String,
                 nullable: true,
                 default: None,
+                collation: Some(Collation::Binary),
             },
             SchemaColumn {
                 id: 12,
@@ -28,6 +30,7 @@ fn valid() -> TableSchema {
                 ty: ColumnType::I32,
                 nullable: false,
                 default: Some(Value::I32(7)),
+                collation: None,
             },
         ],
         key: vec![10],
@@ -55,6 +58,31 @@ fn a_valid_schema_decodes_as_it_was_encoded() {
         TableSchema::decode(1, &schema.encode(5, &[], stats)),
         Some((schema, 5, vec![], stats))
     );
+}
+
+/// IC10 of the collation PRD: a `ci` or `ci_ai` collation comes back from the catalog, and a collation byte Krummi
+/// never writes is damage (G6).
+#[test]
+fn a_collation_decodes_as_it_was_encoded() {
+    for collation in [Collation::Ci, Collation::CiAi] {
+        let mut schema = valid();
+        schema.columns[1].collation = Some(collation);
+        let bytes = schema.encode(5, &[], TableStats::default());
+        assert_eq!(
+            TableSchema::decode(1, &bytes),
+            Some((schema.clone(), 5, vec![], TableStats::default()))
+        );
+        assert_eq!(bytes.len(), schema.stored_len(), "{collation}");
+        // The byte after the flags of `name`: its name, its one-byte type code, its flags.
+        let name_end = bytes.windows(4).position(|w| w == b"name").unwrap() + 4;
+        let at = name_end + 2;
+        assert_eq!(bytes[at - 1] & COLLATION, COLLATION);
+        for wrong in [0, 3, 255] {
+            let mut damaged = bytes.clone();
+            damaged[at] = wrong;
+            assert_eq!(TableSchema::decode(1, &damaged), None, "byte {wrong}");
+        }
+    }
 }
 
 /// G6 (E5): a schema that E5 would refuse is never in a catalog Krummi wrote, so decoding one is damage.

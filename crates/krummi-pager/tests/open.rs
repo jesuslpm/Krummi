@@ -19,7 +19,7 @@ fn ac_p1_a_missing_folder_is_created_with_a_new_store() {
     let pager = open(&folder);
     let info = pager.info();
     assert_eq!(info.format_version, FORMAT_VERSION);
-    assert_eq!(info.format_version, 14);
+    assert_eq!(info.format_version, 15);
     assert_eq!(info.page_size, 8192);
     assert!(
         info.size_bytes <= 1_048_576 && info.size_bytes.is_multiple_of(8192),
@@ -224,12 +224,12 @@ fn ac_p8_one_damaged_header_copy_opens_and_two_are_damage() {
 }
 
 /// AC-F17 (F11 of the free-space PRD; earlier AC-E14): format `4`, the one before the free-space map, is a
-/// previous format; a new store has the current format, `14` since the JSON columns (JS12 of their PRD).
+/// previous format; a new store has the current format, `15` since the collation of text columns (IC10 of its PRD).
 #[test]
 fn ac_f17_format_4_is_a_previous_format_and_new_stores_have_the_current_format() {
     let tmp = tempfile::tempdir().unwrap();
     let pager = open(tmp.path());
-    assert_eq!(pager.info().format_version, 14);
+    assert_eq!(pager.info().format_version, 15);
     pager.close().unwrap();
     let data = tmp.path().join(DATA_FILE);
     common::rewrite_format_version(&data, 4);
@@ -237,7 +237,7 @@ fn ac_f17_format_4_is_a_previous_format_and_new_stores_have_the_current_format()
     match open_err(tmp.path()) {
         krummi_pager::Error::DifferentFormat {
             found, expected, ..
-        } => assert_eq!((found, expected), (4, 14)),
+        } => assert_eq!((found, expected), (4, 15)),
         other => panic!("expected a different format, got {other:?}"),
     }
     assert_eq!(file_bytes(&data), before);
@@ -255,7 +255,7 @@ fn ac_y7_format_9_is_a_previous_format() {
     match open_err(tmp.path()) {
         krummi_pager::Error::DifferentFormat {
             found, expected, ..
-        } => assert_eq!((found, expected), (9, 14)),
+        } => assert_eq!((found, expected), (9, 15)),
         other => panic!("expected a different format, got {other:?}"),
     }
     assert_eq!(file_bytes(&data), before);
@@ -280,7 +280,7 @@ fn ac_a18_format_5_is_a_previous_format_even_when_empty() {
         match open_err(tmp.path()) {
             krummi_pager::Error::DifferentFormat {
                 found, expected, ..
-            } => assert_eq!((found, expected), (5, 14), "written {written}"),
+            } => assert_eq!((found, expected), (5, 15), "written {written}"),
             other => panic!("written {written}: expected a different format, got {other:?}"),
         }
         assert_eq!(file_bytes(&data), before, "written {written}");

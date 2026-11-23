@@ -1271,7 +1271,7 @@ fn make_muninndb_store(folder: &Path) {
 fn ac_r1_a_new_store_uses_the_krummi_names_and_mark_and_the_current_format() {
     let tmp = tempfile::tempdir().unwrap();
     let engine = open(tmp.path());
-    assert_eq!(engine.info().format_version, 14);
+    assert_eq!(engine.info().format_version, 15);
     assert_eq!(names(tmp.path()), vec!["krummi.data"]);
     let pages = reserve(&engine, 1, "c0");
     let hold = engine.read().unwrap();

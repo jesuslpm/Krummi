@@ -95,11 +95,12 @@ fn commits_keep_the_bytes_of_the_journal_and_the_data_file() {
     assert_eq!(sizes, [20480, 4096, 12288]);
     // The pages after the header and the meta page are those of format 9: the journal page diffs changed the journal
     // and the format version in the header, not what commits leave in `krummi.data` (Y1 of their PRD). Formats 11
-    // (E20 of the tables with schema PRD), 12 (IX14 of the secondary indexes PRD), 13 (ST13 of the statistics PRD)
-    // and 14 (JS12 of the JSON columns PRD) changed only the header page, so only `data` changed.
+    // (E20 of the tables with schema PRD), 12 (IX14 of the secondary indexes PRD), 13 (ST13 of the statistics PRD),
+    // 14 (JS12 of the JSON columns PRD) and 15 (IC10 of the collation PRD) changed only the header page, so only `data`
+    // changed.
     assert_eq!(fnv(FNV_START, &file[3 * page..]), 0xef70_dc69_e134_e0ee);
     assert_eq!(
         (journal, data),
-        (0x426c_c654_e287_875f, 0xc93d_ede4_204f_53f8)
+        (0x426c_c654_e287_875f, 0x4367_7aaf_fd50_afb1)
     );
 }

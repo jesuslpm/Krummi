@@ -16,6 +16,7 @@ use std::fmt;
 use krummi_pager::{SchemaDifference, SchemaRule};
 use krummi_tree::catalog::MAX_EXTRA;
 
+use super::collation::Collation;
 use super::index::{
     MAX_INDEX_KEY, MAX_INDEX_NAME, MAX_INDEXES, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
 };
@@ -34,13 +35,15 @@ pub const MAX_COLUMNS: usize = 1024;
 pub const MAX_COLUMN_NAME: usize = 1024;
 
 /// A column as the application declares it, to create a table or to add a column (E4). It allows nulls unless it
-/// says otherwise (N3); a null default is no default.
+/// says otherwise (N3); a null default is no default. A `string` column may declare its collation, `binary` when it
+/// declares none; a column of another type may declare none (IC1 of the collation PRD).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     pub name: String,
     pub ty: ColumnType,
     pub nullable: bool,
     pub default: Option<Value<'static>>,
+    pub collation: Option<Collation>,
 }
 
 impl Column {
@@ -51,6 +54,7 @@ impl Column {
             ty,
             nullable: true,
             default: None,
+            collation: None,
         }
     }
 
@@ -68,6 +72,30 @@ impl Column {
             default: Some(value),
             ..self
         }
+    }
+
+    /// The column with the collation `collation`, which only a `string` column may declare (IC1 of the collation
+    /// PRD).
+    pub fn with_collation(self, collation: Collation) -> Column {
+        Column {
+            collation: Some(collation),
+            ..self
+        }
+    }
+}
+
+/// The collation a column of type `ty` has when it declares `declared`: a `string` column's, `binary` by default;
+/// `None` for the other types (IC1 of the collation PRD).
+fn effective_collation(ty: ColumnType, declared: Option<Collation>) -> Option<Collation> {
+    (ty == ColumnType::String).then(|| declared.unwrap_or_default())
+}
+
+/// The rule of E5 that a collation `declared` on a column of type `ty` breaks: any collation on a column that is not
+/// `string` (IC9 of the collation PRD).
+fn check_collation(ty: ColumnType, declared: Option<Collation>) -> Result<(), SchemaRule> {
+    match declared {
+        Some(_) if ty != ColumnType::String => Err(SchemaRule::CollationOnNonText),
+        _ => Ok(()),
     }
 }
 
@@ -98,6 +126,9 @@ pub struct SchemaColumn {
     pub nullable: bool,
     /// The default value, normalized for the column (E8).
     pub default: Option<Value<'static>>,
+    /// The collation of a `string` column, `binary` when it declared none; `None` for the other types (IC1 of the
+    /// collation PRD).
+    pub collation: Option<Collation>,
 }
 
 /// The current schema of a table, as Describe returns it (E2): an owned copy. Its columns are the live ones in schema
@@ -154,6 +185,8 @@ pub(crate) enum Change<'a> {
         name: &'a str,
         ty: ColumnType,
         nullable: bool,
+        /// The collation given; none expects `binary` on a `string` column (IC1 of the collation PRD).
+        collation: Option<Collation>,
     },
 }
 
@@ -206,6 +239,8 @@ struct Draft<'a> {
     nullable: bool,
     /// Not null: a null default is no default (E4).
     default: Option<&'a Value<'static>>,
+    /// The collation declared, or the table's (IC1 of the collation PRD).
+    collation: Option<Collation>,
 }
 
 impl<'a> Draft<'a> {
@@ -218,6 +253,7 @@ impl<'a> Draft<'a> {
                 .default
                 .as_ref()
                 .filter(|v| !matches!(v, Value::Null)),
+            collation: column.collation,
         }
     }
 
@@ -227,6 +263,7 @@ impl<'a> Draft<'a> {
             ty: column.ty,
             nullable: column.nullable,
             default: column.default.as_ref(),
+            collation: column.collation,
         }
     }
 }
@@ -271,7 +308,10 @@ fn check_general(
     }
     let broken_type = columns
         .iter()
-        .filter_map(|c| check_type(&c.ty).err().map(|rule| (rule, c.name)))
+        .filter_map(|c| {
+            let rule = check_type(&c.ty).and_then(|()| check_collation(c.ty, c.collation));
+            rule.err().map(|rule| (rule, c.name))
+        })
         .min_by_key(|(rule, _)| *rule);
     if let Some((rule, name)) = broken_type {
         return invalid(rule, Some(name));
@@ -296,13 +336,20 @@ fn check_general(
 /// creation of an index the index. `indexes_len` is the bytes of the index definitions as they are stored (IX3 of the
 /// secondary indexes PRD).
 fn check_fits<'a>(
-    columns: impl IntoIterator<Item = (&'a str, ColumnType, Option<&'a Value<'a>>)>,
+    columns: impl IntoIterator<
+        Item = (
+            &'a str,
+            ColumnType,
+            Option<Collation>,
+            Option<&'a Value<'a>>,
+        ),
+    >,
     key_len: usize,
     indexes_len: usize,
 ) -> Result<(), Invalid> {
     let mut len = FIXED_LEN + 8 * key_len + indexes_len;
-    for (name, ty, default) in columns {
-        len += encoded_column_len(name, ty, default);
+    for (name, ty, collation, default) in columns {
+        len += encoded_column_len(name, ty, collation, default);
         if len > MAX_EXTRA {
             return invalid(SchemaRule::SchemaTooLarge, Some(name));
         }
@@ -317,7 +364,10 @@ pub(crate) fn check_new(schema: &Schema) -> Result<Vec<Option<Value<'static>>>, 
     let defaults = check_general(&drafts, &key)?;
     let stored = drafts.iter().zip(&defaults);
     check_fits(
-        stored.map(|(c, d)| (c.name, c.ty, d.as_ref())),
+        stored.map(|(c, d)| {
+            let collation = effective_collation(c.ty, c.collation);
+            (c.name, c.ty, collation, d.as_ref())
+        }),
         key.len(),
         0,
     )?;
@@ -357,6 +407,7 @@ impl TableSchema {
                 ty: column.ty,
                 nullable: column.nullable,
                 default,
+                collation: effective_collation(column.ty, column.collation),
             })
             .collect();
         let key = schema
@@ -486,7 +537,7 @@ impl TableSchema {
     /// The bytes of the columns as the catalog entry stores them.
     fn columns_len(&self) -> usize {
         (self.columns.iter())
-            .map(|c| encoded_column_len(&c.name, c.ty, c.default.as_ref()))
+            .map(|c| encoded_column_len(&c.name, c.ty, c.collation, c.default.as_ref()))
             .sum()
     }
 
@@ -508,7 +559,7 @@ impl TableSchema {
     pub(crate) fn check_fits(&self) -> Result<(), Invalid> {
         let columns = self.columns.iter();
         check_fits(
-            columns.map(|c| (c.name.as_str(), c.ty, c.default.as_ref())),
+            columns.map(|c| (c.name.as_str(), c.ty, c.collation, c.default.as_ref())),
             self.key.len(),
             self.indexes_len(),
         )
@@ -559,6 +610,7 @@ impl TableSchema {
                     ty: column.ty,
                     nullable: column.nullable,
                     default: defaults.into_iter().last().flatten(),
+                    collation: effective_collation(column.ty, column.collation),
                 });
                 added = true;
                 &column.name
@@ -600,24 +652,32 @@ impl TableSchema {
                 }
                 from
             }
-            Change::Modify { name, ty, nullable } => {
+            Change::Modify {
+                name,
+                ty,
+                nullable,
+                collation,
+            } => {
                 let at = self.position(name);
                 let key = at.is_some_and(|at| self.key.contains(&self.columns[at].id));
                 if key && (nullable || !ty.is_orderable()) {
                     return invalid(SchemaRule::InvalidKeyColumn, Some(name));
                 }
-                if let Err(rule) = check_type(&ty) {
+                if let Err(rule) = check_type(&ty).and_then(|()| check_collation(ty, collation)) {
                     return invalid(rule, Some(name));
                 }
                 let Some(at) = at else {
                     return invalid(SchemaRule::ColumnNotFound, Some(name));
                 };
                 let current = &self.columns[at];
-                if current.ty == ty && current.nullable == nullable {
+                let same_type =
+                    current.ty == ty && current.collation == effective_collation(ty, collation);
+                if same_type && current.nullable == nullable {
                     return Ok(None);
                 }
-                // Only allowing nulls in a column outside the key is supported (N3).
-                if current.ty != ty || !nullable || key {
+                // Only allowing nulls in a column outside the key is supported (N3); a collation never changes (IC1
+                // of the collation PRD).
+                if !same_type || !nullable || key {
                     return invalid(SchemaRule::UnsupportedChange, Some(name));
                 }
                 next.columns[at].nullable = true;
@@ -674,6 +734,15 @@ impl TableSchema {
                     SchemaDifference::Type,
                     column.ty.to_string(),
                     found.ty.to_string(),
+                );
+            }
+            let given = effective_collation(column.ty, column.collation);
+            if found.collation != given {
+                let text = |c: Option<Collation>| c.map_or_else(String::new, |c| c.to_string());
+                return different(
+                    SchemaDifference::Collation,
+                    text(given),
+                    text(found.collation),
                 );
             }
             if found.nullable != column.nullable {
@@ -733,6 +802,10 @@ fn same_default(a: Option<&Value<'_>>, b: Option<&Value<'_>>) -> bool {
 impl fmt::Display for SchemaColumn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?} {}", self.name, self.ty)?;
+        // A binary column shows as it did before the collation PRD.
+        if let Some(collation @ (Collation::Ci | Collation::CiAi)) = self.collation {
+            write!(f, " {collation}")?;
+        }
         if !self.nullable {
             f.write_str(" not null")?;
         }
@@ -926,9 +999,19 @@ impl<'b> Reader<'b> {
         let name = self.bytes()?;
         let ty = self.ty()?;
         let flags = self.u8()?;
-        if flags & !(NULLABLE | DEFAULT) != 0 {
+        if flags & !(NULLABLE | DEFAULT | COLLATION) != 0 {
             return None;
         }
+        // The collation of a `string` column that is not `binary` (IC10 of the collation PRD).
+        let collation = if flags & COLLATION != 0 {
+            match self.u8()? {
+                1 if ty == ColumnType::String => Some(Collation::Ci),
+                2 if ty == ColumnType::String => Some(Collation::CiAi),
+                _ => return None,
+            }
+        } else {
+            None
+        };
         let default = if flags & DEFAULT != 0 {
             Some(self.bytes()?)
         } else {
@@ -940,6 +1023,7 @@ impl<'b> Reader<'b> {
             ty,
             flags,
             default,
+            collation: effective_collation(ty, collation),
         })
     }
 
@@ -961,6 +1045,7 @@ impl<'b> Reader<'b> {
             ty: raw.ty,
             nullable: raw.flags & NULLABLE != 0,
             default,
+            collation: raw.collation,
         })
     }
 
@@ -1080,6 +1165,8 @@ struct RawColumn<'b> {
     ty: ColumnType,
     flags: u8,
     default: Option<&'b [u8]>,
+    /// The collation, as [`SchemaColumn::collation`] gives it.
+    collation: Option<Collation>,
 }
 
 /// The bytes of an index in a table's catalog entry (see [`Reader::raw_index`]): its key columns and its included
@@ -1101,6 +1188,7 @@ struct StoredColumn<'b> {
     ty: ColumnType,
     nullable: bool,
     default: Option<Value<'b>>,
+    collation: Option<Collation>,
 }
 
 /// The identity and the default of each live column, in schema order, of a schema in a table's catalog entry
@@ -1147,6 +1235,9 @@ const NULLABLE: u8 = 1;
 const KEY: u8 = 2;
 /// The flag of a column with a default value, in the catalog.
 const DEFAULT: u8 = 4;
+/// The flag of a `string` column whose collation is not `binary`, in the catalog: a byte follows the flags, 1 for
+/// `ci` and 2 for `ci_ai` (IC10 of the collation PRD).
+const COLLATION: u8 = 8;
 
 /// The bytes of a schema in its catalog entry ([`TableSchema::encode`]) besides its columns, its primary key
 /// columns' identities and its indexes: the history tree's root, the version, the schema state, the two counts, the
@@ -1188,14 +1279,30 @@ impl SchemaIndex {
     }
 }
 
-/// The bytes that [`TableSchema::encode`] writes for a column named `name` of type `ty` with `default`.
-fn encoded_column_len(name: &str, ty: ColumnType, default: Option<&Value<'_>>) -> usize {
+/// The bytes that [`TableSchema::encode`] writes for a column named `name` of type `ty` with `collation` and
+/// `default`.
+fn encoded_column_len(
+    name: &str,
+    ty: ColumnType,
+    collation: Option<Collation>,
+    default: Option<&Value<'_>>,
+) -> usize {
     let mut w = Writer(Vec::new());
     w.ty(&ty);
     let default = default.map_or(0, |default| {
         4 + default_layout(ty).encoded_len(std::slice::from_ref(default))
     });
-    8 + 4 + name.len() + w.0.len() + 1 + default
+    let collation = usize::from(collation_byte(collation).is_some());
+    8 + 4 + name.len() + w.0.len() + 1 + collation + default
+}
+
+/// The byte that follows the flags of a column with `collation`; `None` for `binary` and the other types.
+fn collation_byte(collation: Option<Collation>) -> Option<u8> {
+    match collation {
+        Some(Collation::Ci) => Some(1),
+        Some(Collation::CiAi) => Some(2),
+        Some(Collation::Binary) | None => None,
+    }
 }
 
 /// The single-column layout that stores a default value of type `ty`: the row format of document 1, so that a
@@ -1235,9 +1342,14 @@ impl TableSchema {
             w.u64(column.id);
             w.bytes(column.name.as_bytes());
             w.ty(&column.ty);
+            let collation = collation_byte(column.collation);
             let flags = if column.nullable { NULLABLE } else { 0 }
-                | if column.default.is_some() { DEFAULT } else { 0 };
+                | if column.default.is_some() { DEFAULT } else { 0 }
+                | if collation.is_some() { COLLATION } else { 0 };
             w.u8(flags);
+            if let Some(byte) = collation {
+                w.u8(byte);
+            }
             if let Some(default) = &column.default {
                 w.bytes(&default_layout(column.ty).encode(std::slice::from_ref(default)));
             }
@@ -1297,6 +1409,7 @@ impl TableSchema {
                 ty: column.ty,
                 nullable: column.nullable,
                 default: column.default.map(Value::into_owned),
+                collation: column.collation,
             });
         }
         let key_count = usize::from(r.u16()?);

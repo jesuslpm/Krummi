@@ -21,6 +21,7 @@ use krummi_pager::{Error, Result, SizeSubject, TreeKind};
 use krummi_tree::PageSource;
 use krummi_tree::catalog::{self, Entry};
 
+use super::collation::Collation;
 use super::identity;
 use super::maintain::Maintained;
 use super::rows::{At, Reader};
@@ -575,7 +576,40 @@ impl<'s> WriteTransaction<'s> {
         ty: ColumnType,
         nullable: bool,
     ) -> Result<()> {
-        self.change_schema(table, Change::Modify { name, ty, nullable })
+        let collation = None;
+        self.change_schema(
+            table,
+            Change::Modify {
+                name,
+                ty,
+                nullable,
+                collation,
+            },
+        )
+    }
+
+    /// [`modify_column`](Self::modify_column) giving also the column's collation, which never changes: it must be
+    /// the column's, and giving none, as `modify_column` does, expects `binary` (IC1 of the collation PRD). Fails
+    /// besides with [`Error::InvalidSchema`] for a collation on a column that is not `string`, and for another
+    /// collation as a change that is not supported.
+    pub fn modify_column_with_collation(
+        &mut self,
+        table: &WriteTable<'_>,
+        name: &str,
+        ty: ColumnType,
+        collation: Collation,
+        nullable: bool,
+    ) -> Result<()> {
+        let collation = Some(collation);
+        self.change_schema(
+            table,
+            Change::Modify {
+                name,
+                ty,
+                nullable,
+                collation,
+            },
+        )
     }
 
     /// A handle of the table of `found`, now named `name`; the table's state joins the transaction on its first

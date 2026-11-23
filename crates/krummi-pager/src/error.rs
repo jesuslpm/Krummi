@@ -198,6 +198,8 @@ pub enum SchemaRule {
     DecimalOutOfLimits,
     /// The cosine metric on `bit` elements.
     CosineOnBit,
+    /// A collation declared on a column that is not `string`, `binary` included (IC1, IC9 of the collation PRD).
+    CollationOnNonText,
     /// A default value that breaks the rules of its column.
     InvalidDefault,
     /// An added column that does not allow nulls and has no default value.
@@ -245,6 +247,9 @@ pub enum SchemaRule {
 pub enum SchemaDifference {
     /// The column's type.
     Type,
+    /// The collation of a `string` column (IC9 of the collation PRD): `binary`, `ci` or `ci_ai`; a given column that
+    /// declares none expects `binary`.
+    Collation,
     /// Whether the column allows nulls.
     Nullability,
     /// The column's default value.
@@ -922,6 +927,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
         SchemaRule::VectorOutOfLimits => "a vector outside its limits",
         SchemaRule::DecimalOutOfLimits => "a decimal outside its limits",
         SchemaRule::CosineOnBit => "the cosine metric on bit elements",
+        SchemaRule::CollationOnNonText => "a collation on a column that is not text",
         SchemaRule::InvalidDefault => "a default value that breaks the rules of its column",
         SchemaRule::NotNullWithoutDefault => "a new column without nulls needs a default value",
         SchemaRule::UnsupportedChange => "a change that is not supported",
@@ -947,6 +953,7 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
 fn difference_text(difference: SchemaDifference) -> &'static str {
     match difference {
         SchemaDifference::Type => "type",
+        SchemaDifference::Collation => "collation",
         SchemaDifference::Nullability => "nullability",
         SchemaDifference::Default => "default value",
         SchemaDifference::MissingColumn => "column",

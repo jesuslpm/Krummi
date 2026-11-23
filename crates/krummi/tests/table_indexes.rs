@@ -2528,7 +2528,7 @@ fn ac_ix15_a_store_of_format_11_is_of_a_previous_format() {
         temporary,
         free_pages: _,
     } = store.info();
-    assert_eq!((format_version, page_size, temporary), (14, 8192, false));
+    assert_eq!((format_version, page_size, temporary), (15, 8192, false));
     assert!(in_use(&store) > without, "the index's pages count");
     assert!(page_count >= in_use(&store));
     store.close().unwrap();
@@ -2546,7 +2546,7 @@ fn ac_ix15_a_store_of_format_11_is_of_a_previous_format() {
         let [Some(a), Some(b)] = header_copies(&bytes[..2 * PAGE_SIZE]) else {
             panic!("both header copies")
         };
-        assert_eq!((a.format_version, b.format_version), (14, 14));
+        assert_eq!((a.format_version, b.format_version), (15, 15));
         let current = if a.revision >= b.revision { a } else { b };
         write_header_pages(
             &mut bytes[..2 * PAGE_SIZE],
@@ -2559,13 +2559,13 @@ fn ac_ix15_a_store_of_format_11_is_of_a_previous_format() {
         match Store::open(folder, &krummi::StoreOptions::default()).err() {
             Some(Error::DifferentFormat {
                 found, expected, ..
-            }) => assert_eq!((found, expected), (11, 14)),
+            }) => assert_eq!((found, expected), (11, 15)),
             other => panic!("expected a different format, got {other:?}"),
         }
         assert_eq!(std::fs::read(&data).unwrap(), bytes, "left as it was");
     }
     let new = Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
-    assert_eq!(new.info().format_version, 14);
+    assert_eq!(new.info().format_version, 15);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
