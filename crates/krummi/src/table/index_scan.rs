@@ -233,11 +233,12 @@ impl<'t> IndexEntry<'t> {
     /// The value of the element at `at` of its key, decoded into a copy; a `ci` or `ci_ai` text as the row holds
     /// it, from the entry's value, never its folded form, also in a copy (IC5 of the collation PRD, IX8).
     fn element(&self, at: usize) -> Value<'t> {
-        if let Some(original) = self.columns.layout.original(at, self.included) {
-            return original.into_owned();
+        match self.columns.layout.original(at, self.included) {
+            Some(Some(original)) => original.into_owned(),
+            Some(None) => panic!("{MALFORMED}"),
+            None => decode_entry_value(&self.columns.elements, self.key, at)
+                .unwrap_or_else(|| panic!("{MALFORMED}")),
         }
-        decode_entry_value(&self.columns.elements, self.key, at)
-            .unwrap_or_else(|| panic!("{MALFORMED}"))
     }
 
     /// The value of its column `name`, with the panics of [`IndexEntry::value`].

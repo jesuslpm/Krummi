@@ -482,6 +482,8 @@ impl EntryLayout {
             nullable: true,
             key: false,
         };
+        // A slot of original text is no column of the table: identity 0, which nothing reads, since an entry's value
+        // is encoded and read by position only (IC5 of the collation PRD).
         let included: Vec<RowColumn> = (index.included.iter())
             .map(|c| row_column(c.id, column(c.id).ty))
             .chain(
@@ -502,11 +504,16 @@ impl EntryLayout {
     }
 
     /// The original text of the element at `at` of an entry's key whose value is `value`, as the row holds it, when
-    /// that element is a `ci` or `ci_ai` column's (IC5 of the collation PRD); `None` for any other element.
-    pub(super) fn original<'t>(&self, at: usize, value: &'t [u8]) -> Option<Value<'t>> {
+    /// that element is a `ci` or `ci_ai` column's (IC5 of the collation PRD): `None` for any other element, and
+    /// `Some(None)` when the entry's value does not decode, which only a malformed entry gives (IX12).
+    pub(super) fn original<'t>(&self, at: usize, value: &'t [u8]) -> Option<Option<Value<'t>>> {
         let &(_, slot) = self.originals.iter().find(|(element, _)| *element == at)?;
-        let row = self.included.as_ref()?.row(value).ok()?;
-        row.value(self.included_places.len() + slot).ok().flatten()
+        let read = || {
+            let row = self.included.as_ref()?.row(value).ok()?;
+            let original = row.value(self.included_places.len() + slot).ok()?;
+            Some(original.unwrap_or(Value::Null))
+        };
+        Some(read())
     }
 
     /// The key columns of `index`, an index of `schema`, as their elements are encoded, in key order.
@@ -535,14 +542,15 @@ impl EntryLayout {
         };
         // A `ci` or `ci_ai` text as the row holds it, never its folded form (IC6 of the collation PRD).
         for &(at, _) in &self.originals {
-            if let Some(original) = self.original(at, value) {
-                let element = if at < index.len() {
-                    &mut index[at]
-                } else {
-                    &mut primary[at - index.len()]
-                };
-                *element = original.into_owned();
-            }
+            let Some(Some(original)) = self.original(at, value) else {
+                return ("(?)".to_owned(), "(?)".to_owned());
+            };
+            let element = if at < index.len() {
+                &mut index[at]
+            } else {
+                &mut primary[at - index.len()]
+            };
+            *element = original.into_owned();
         }
         (key_text(&index), key_text(&primary))
     }

@@ -621,5 +621,24 @@ fn a_collated_column_keeps_its_original_text_once() {
     let described = write.describe_table("t").unwrap();
     let layout = EntryLayout::new(&described, &described.indexes()[0]);
     assert_eq!(layout.original_places, [0], "one slot for the column");
+    // R2-001 of the RDD review: an element that is not collated has no original; a value that does not decode is
+    // told apart from it, so that a read panics as on any malformed entry (IX12).
+    let mut value = Vec::new();
+    let row = [Value::String("Ana".into())];
+    layout
+        .included
+        .as_ref()
+        .unwrap()
+        .encode_into(&row, &mut value);
+    assert_eq!(
+        layout.original(0, &value),
+        Some(Some(Value::String("Ana".into())))
+    );
+    assert_eq!(
+        layout.original(1, &value),
+        Some(Some(Value::String("Ana".into())))
+    );
+    assert_eq!(layout.original(2, &value), None);
+    assert_eq!(layout.original(0, &[0xFF, 0xFF, 0xFF]), Some(None));
     write.abort();
 }
