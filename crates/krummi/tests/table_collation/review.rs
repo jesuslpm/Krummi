@@ -75,3 +75,21 @@ fn r2_analyze_never_reads_a_large_original_through_an_index_prefix() {
     );
 }
 
+#[test]
+fn r4_an_entry_returns_a_collated_key_text_in_its_own_copy() {
+    let store = store_with_prefix_index();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let row = [("id", Value::I64(1)), ("t", s("Ana")), ("n", Value::I64(1))];
+    write.insert_row(&table, &row).unwrap();
+    write.commit().unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    let entry = read
+        .index_entries(&table, "ix", &[], ..)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(entry.get("t"), Some(Value::String(Cow::Owned(text))) if text == "Ana"));
+}
