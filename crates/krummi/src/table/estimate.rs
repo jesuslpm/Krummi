@@ -307,7 +307,11 @@ fn too_small(found: &ColumnStats, rows: u64) -> bool {
 /// A condition checked against its column: its values normalized (N4, E7, E8) and encoded as the column's elements.
 enum Checked {
     Null,
-    Equal(Value<'static>, Vec<u8>),
+    /// Whether the value is large (ST1, IC8 of the collation PRD), and its element.
+    Equal {
+        large: bool,
+        element: Vec<u8>,
+    },
     Range(Bound<Vec<u8>>, Bound<Vec<u8>>),
 }
 
@@ -336,12 +340,11 @@ fn check(
         sequence: None,
         rule,
     };
+    let key = element_column(column);
     let encode = |value: &Value<'_>| -> Result<(Value<'static>, Vec<u8>)> {
         let value = normalize(&column.ty, false, value.clone().into_owned()).map_err(fail)?;
         let mut element = Vec::new();
-        element_column(column)
-            .encode(&value, &mut element)
-            .map_err(fail)?;
+        key.encode(&value, &mut element).map_err(fail)?;
         Ok((value, element))
     };
     match condition {
@@ -350,7 +353,8 @@ fn check(
         } => Ok(Checked::Null),
         Condition::Equal { value, .. } => {
             let (value, element) = encode(value)?;
-            Ok(Checked::Equal(value, element))
+            let large = is_large(&key, &value);
+            Ok(Checked::Equal { large, element })
         }
         Condition::Range { lower, upper, .. } => {
             let bound = |bound: &Bound<Value<'_>>| -> Result<Bound<Vec<u8>>> {
@@ -399,8 +403,8 @@ fn fraction(found: &ColumnStats, checked: &Checked) -> f64 {
     let frequent: f64 = found.frequent.iter().map(|(_, f)| f).sum();
     match checked {
         Checked::Null => found.nulls,
-        Checked::Equal(value, _) if is_large(value) => found.large,
-        Checked::Equal(_, element) => {
+        Checked::Equal { large: true, .. } => found.large,
+        Checked::Equal { element, .. } => {
             if let Some((_, f)) = found.frequent.iter().find(|(e, _)| e == element) {
                 return *f;
             }
@@ -478,7 +482,7 @@ fn estimate_with(
         Checked::Range(Bound::Unbounded, Bound::Unbounded) => estimate = rows_f,
         Checked::Range(lower, upper) if empty_range(lower, upper) => estimate = 0.0,
         Checked::Null if !column.nullable => estimate = 0.0,
-        Checked::Equal(..) if alone_unique(schema, column.id) => estimate = estimate.min(1.0),
+        Checked::Equal { .. } if alone_unique(schema, column.id) => estimate = estimate.min(1.0),
         _ => {}
     }
     Estimate {

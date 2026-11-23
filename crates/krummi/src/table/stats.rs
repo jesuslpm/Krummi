@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use super::key::KeyColumn;
+use super::key::{KeyColumn, folded};
 use super::schema::SchemaColumn;
 use super::value::{ColumnType, Value};
 
@@ -101,13 +101,15 @@ pub(crate) fn has_stats(ty: &ColumnType) -> bool {
     !matches!(ty, ColumnType::Vector(_) | ColumnType::Json)
 }
 
-/// Whether `value` is large (ST1).
-pub(crate) fn is_large(value: &Value<'_>) -> bool {
-    match value {
-        Value::String(text) => text.len() > LARGE,
-        Value::Bytes(bytes) => bytes.len() > LARGE,
-        _ => false,
-    }
+/// Whether `value`, of the column `column` encodes, is large (ST1): a text or bytes of more than [`LARGE`] bytes, or a
+/// text whose folded form has more (IC8 of the collation PRD).
+pub(crate) fn is_large(column: &KeyColumn, value: &Value<'_>) -> bool {
+    let len = |value: &Value<'_>| match value {
+        Value::String(text) => text.len(),
+        Value::Bytes(bytes) => bytes.len(),
+        _ => 0,
+    };
+    len(value) > LARGE || folded(column.collation, value).is_some_and(|f| len(&f) > LARGE)
 }
 
 /// What a build gathers for one column while it reads rows.
@@ -156,7 +158,7 @@ impl Gather {
     pub(crate) fn add(&mut self, value: &Value<'_>) {
         if let Value::Null = value {
             self.nulls += 1;
-        } else if is_large(value) {
+        } else if is_large(&self.column, value) {
             self.large += 1;
         } else {
             let mut element = Vec::new();
