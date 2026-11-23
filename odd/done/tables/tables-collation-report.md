@@ -1,7 +1,7 @@
 # Intercalación de las columnas de texto terminada: verificada y sin fusionar
 
 Informe de cierre de `tables-collation` (2026-11-23). Enfoque de ejecución: ODD.
-Fuente de producto: [tables-collation.prd.md](../../docs/prd/krummi/tables/tables-collation.prd.md) (7.7).
+Fuente de producto: [tables-collation.prd.md](../../../docs/prd/krummi/tables/tables-collation.prd.md) (7.7).
 Documento de ejecución: [tables-collation.md](tables-collation.md).
 
 Rama `feat/tables-collation`, base `6b583a2`, cabeza del código `cb1c412`; no se fusionó ni se publicó nada.

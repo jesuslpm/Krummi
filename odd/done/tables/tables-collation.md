@@ -103,8 +103,8 @@ Linux in WSL 2 Ubuntu). Estimate: 12 h – 18 h. Real start: 2026-11-23 08:26:24
   `binary` columns gave the same 166 output lines on the baseline and on HEAD. Advisory: no committed assertion of the
   shortened bounds of AC-IC8; pinned in `f6f0d88`. Clippy then caught two lints in the model test of `90ce084`,
   which ran before clippy covered it: fixed in `22da401`. Scratch removed.
-- **L10** (2026-11-23): Codex code review of `6b583a2..22da401` ([report](../../docs/reviews/tables-collation/2026-11-23-code.md),
-  [resolutions](../../docs/reviews/tables-collation/2026-11-23-code-resolutions.md)). Round 1: R1 (estimates decide a
+- **L10** (2026-11-23): Codex code review of `6b583a2..22da401` ([report](../../../docs/reviews/tables-collation/2026-11-23-code.md),
+  [resolutions](../../../docs/reviews/tables-collation/2026-11-23-code-resolutions.md)). Round 1: R1 (estimates decide a
   large value by the original), R2 (prefix statistics read large originals), R3 (an original kept twice), R4 (a
   borrowed key text): all fixed (`61ee7bf`, `e5d9b8f`, `aca3dd3`, `1faea20`), regressions red before the fixes.
   Round 2: R1, R3, R4 verified; R2 still open for defaults of added columns; R5 new (joint estimates ignored the large
