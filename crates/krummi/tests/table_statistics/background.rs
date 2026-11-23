@@ -76,18 +76,21 @@ fn ac_st4_stale_statistics_are_used_and_renewed() {
     store.close().unwrap();
     let store = open(tmp.path());
     insert(&store, 11_000..12_600);
+    store.wait_statistics_idle();
     let samples = store.statistics_samples();
     let stale = estimate(&store);
     assert!(
         stale.stale,
         "2,600 modifications pass the threshold of 10,000 rows"
     );
+    // The renewal the estimate asked for shares the counter and may already have sampled, so the count is checked
+    // once it ends: one sample is the renewal's; a second would be the estimate's.
+    store.wait_statistics_idle();
     assert_eq!(
         store.statistics_samples(),
-        samples,
-        "the estimate did not sample"
+        samples + 1,
+        "only the renewal sampled, not the estimate"
     );
-    store.wait_statistics_idle();
     let renewed = estimate(&store);
     assert!(!renewed.stale);
     assert_eq!(read_statistics(&store, "n").unwrap().origin_rows, 12_600);
