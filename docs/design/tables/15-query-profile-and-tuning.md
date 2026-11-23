@@ -336,7 +336,9 @@ first instant instead of its first minutes. A cap of `R` rows per second per (sh
 the draw: `c` is the larger of the entry's executions in the previous second and in the current second so far. The
 larger of the two covers an entry's first second, which has no previous one: within it `p` falls as `R/c`, so it
 keeps about `R(1 + ln(λ/R))` rows, about 79 with `λ` = 10,000 per second and `R = 10` [I]. It is unbiased, because it
-brakes before the draw and the resulting probability is stored. It bites only at starts and spikes: with `R = 10`
+brakes before the draw and the resulting probability is stored. It bounds the expected rate, not the count: the
+rows kept in a second are random, and an entry not yet in the snapshot keeps up to one tick of rows with `p = 1`
+before the cap acts (*Capture*). It bites only at starts and spikes: with `R = 10`
 an entry may keep up to 864,000 rows a day, far above `T`. With `λ` = 100 per second and `T = 2,000`:
 
 | | Without the cap | With `R = 10` |
@@ -353,7 +355,9 @@ its cost is linear in `N`, so it is set from a target of rows for those shapes o
 **The global factor `g` brakes before the draw.** A budget of `B` sampled rows per second, a token bucket: every
 second the consumer computes the expected demand `D`, the sum of the probabilities of the last second's executions,
 and sets `g = min(1, B/D)`, smoothed. `g` is part of the probability the consumer publishes, so the draw uses
-`g·min(R/c, p(n))`, and that is the probability stored with the row. It brakes any spike:
+`g·min(R/c, p(n))`, and that is the probability stored with the row. Since `D` is the last second's demand,
+smoothed, `g` brakes a spike one second late, and within that second the expected demand may pass `B`. It brakes any
+spike:
 a deployment with hundreds of new shapes, an unusual load, and the restart of the process, when every counter starts
 again at 0. Seeding the counters at opening from the profile's last day would also spread the budget by frequency
 after a restart instead of evenly during the first day; it is a refinement left out until a measurement asks for it.
@@ -752,8 +756,10 @@ practice.
   counters; every tick, a new snapshot [I]. Its throughput bounds the rate of executions it can follow (H25).
 - Sampled executions: about `max(T, p_min·N)` rows per steady shape and day, and `T(1 + ln(N/T))` in a new shape's
   first day (*Sampled executions*): 0.4 to 20 MB per day for one shape between 10⁴ and 10⁹ executions with
-  `T = 2,000` and `p_min = 10⁻⁴` [I], never more than `R` rows per second per (shape, plan) nor `B` overall, all
-  counted by the consumer.
+  `T = 2,000` and `p_min = 10⁻⁴` [I]. `R` rows per second per (shape, plan) and `B` overall are targets of the
+  expected rate, which the consumer counts, not hard quotas: a new entry keeps up to its rate times one tick before
+  the first snapshot that includes it (*Capture*), about 1,000 rows at 10,000 executions per second, and `g` follows
+  the demand one second late (*Sampled executions*). The only hard limit is the memory bound of the buffers.
 - The page counter of M3: one increment per page access [I]; to measure.
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
