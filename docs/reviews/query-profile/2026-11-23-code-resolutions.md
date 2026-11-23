@@ -117,3 +117,27 @@ Artifact version: fix commit `ce88517`.
 
   Experiment 9, the risk row, the costs, the thresholds of question 8 and the 2026-11-23 review note follow.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-23 (verification 3)
+
+Review record: [2026-11-23-code-04.md](2026-11-23-code-04.md), wrapper status `findings` (R3), `threadId`
+`01a2071f-41c8-7452-8624-2bfba87d3ae1`, telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`. R1 and R2: "previously verified resolved; no correction regression identified".
+
+- R3: "still open; partially corrected". Leaving out sparse strata changes the comparison to the retained subset. With
+  A (99 %) at 10 / 30 and B (1 %) at 100,000 / 100, separated correctly by the estimate, B is left out, `z = 44.5`
+  forces P, and the whole workload then pays 1,009.9 pages per execution instead of 30.7.
+
+## 2026-11-23 (fourth fix)
+
+Artifact version: fix commit `c39d55b`.
+
+### R3 — major: Omitting sparse strata can force a much costlier plan despite correct estimates
+
+- Disposition: fixed.
+- Fix: rule 2 leaves out no stratum. A trial with any stratum that has fewer than 5 executions on either side is
+  inconclusive, because a stratum's share of executions says nothing about its share of pages. Codex's example is
+  now inconclusive: B has one execution per side. *The limits of the guarantee* adds that the comparison covers the
+  workload seen during the trial, and that a shape whose rare values fall in strata too sparse for the trial is never
+  forced, which costs coverage, not correctness. Question 8's thresholds follow.
+- Status: claimed, unverified until a follow-up review.
