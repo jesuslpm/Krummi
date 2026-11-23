@@ -56,12 +56,51 @@ pub fn fold(collation: Collation, text: &str) -> Cow<'_, str> {
     if text.chars().all(|c| quick_check(c) & bit == 0) {
         return Cow::Borrowed(text);
     }
-    let folded = fold_slowly(text, accents);
+    let folded = fold_by_segments(text, bit, accents);
     if folded == text {
         Cow::Borrowed(text)
     } else {
         Cow::Owned(folded)
     }
+}
+
+/// `fold_slowly` of `text`, run only where it can change something: the stable scalars (those the quick check `bit`
+/// clears: starters that are no second of a composition and fold to themselves) are copied, and an ASCII capital is
+/// lowered, while each run of other scalars is folded whole from the simple scalar before it, which may compose with
+/// its marks or be their base, up to the next simple scalar. A stable scalar blocks canonical reordering and
+/// composition across it (it is a starter that composes with nothing before it), so folding the segments apart gives
+/// the folded form of the whole text.
+fn fold_by_segments(text: &str, bit: u8, accents: bool) -> String {
+    let simple = |c: char| c.is_ascii_uppercase() || quick_check(c) & bit == 0;
+    let mut out = String::with_capacity(text.len());
+    // Where the text not yet written starts, and where the last simple scalar before it starts.
+    let mut written = 0;
+    let mut last_simple: Option<usize> = None;
+    // The start of the segment being gathered, while one is.
+    let mut segment: Option<usize> = None;
+    for (at, c) in text.char_indices() {
+        if simple(c) {
+            if let Some(start) = segment.take() {
+                out.push_str(&fold_slowly(&text[start..at], accents));
+                written = at;
+            }
+            last_simple = Some(at);
+        } else if segment.is_none() {
+            let start = last_simple.filter(|&s| s >= written).unwrap_or(written);
+            push_simple(&mut out, &text[written..start]);
+            segment = Some(start);
+        }
+    }
+    match segment {
+        Some(start) => out.push_str(&fold_slowly(&text[start..], accents)),
+        None => push_simple(&mut out, &text[written..]),
+    }
+    out
+}
+
+/// Appends `run`, simple scalars only, folded: an ASCII capital lowered, every other scalar as it is.
+fn push_simple(out: &mut String, run: &str) {
+    out.extend(run.chars().map(|c| c.to_ascii_lowercase()));
 }
 
 /// The general path of `fold`: decompose and order, case fold, decompose and order the folded scalars, remove the
@@ -323,6 +362,37 @@ mod tests {
         let mark = fold(Collation::CiAi, "\u{301}");
         assert_eq!(mark, "\u{301}");
         assert!(borrowed(mark));
+    }
+
+    /// The folding by segments gives what folding the whole text gives, over random mixes of stable letters, ASCII
+    /// capitals, letters that fold, precomposed and combining accents, `ñ`, `n` + tilde, Hangul and lone marks.
+    #[test]
+    fn collation_segments_fold_as_the_whole_text() {
+        const PIECES: [&str; 24] = [
+            "a", "Z", "é", "É", "e\u{301}", "\u{301}", "\u{303}", "n", "N", "ñ", "Ñ", "ß", "ŉ",
+            "Σ", "ς", "ᾳ", "İ", "가", "\u{1100}", "\u{1161}", " ", "0", "東", "\u{323}",
+        ];
+        let mut state = 0x5EED_u64;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) as usize
+        };
+        for _ in 0..20_000 {
+            let pieces = next() % 9;
+            let text: String = (0..pieces).map(|_| PIECES[next() % PIECES.len()]).collect();
+            for (collation, bit, accents) in [
+                (Collation::Ci, tables::QUICK_CI, false),
+                (Collation::CiAi, tables::QUICK_CI_AI, true),
+            ] {
+                assert_eq!(
+                    fold_by_segments(&text, bit, accents),
+                    fold_slowly(&text, accents),
+                    "{collation} of {text:?}"
+                );
+            }
+        }
     }
 
     #[test]
