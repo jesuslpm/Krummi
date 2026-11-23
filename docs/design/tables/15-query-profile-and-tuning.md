@@ -491,9 +491,9 @@ rules.
    count, a sum and a sum of squares of pages per execution. Each side's mean is `m = Σ w_s · m_s` and its variance
    `Σ w_s² · s_s² / n_s`, where `w_s` is the share of stratum `s` among all the trial's executions, both sides
    together. A dear parameter value that falls on one side then weighs as much as it does in the whole workload, as
-   long as the estimate puts it in a stratum of its own. A stratum where one side has fewer than 5 executions [I] is
-   left out, with the weights renormalized; if the strata left out hold more than 5 % of the executions [I], the
-   trial is inconclusive.
+   long as the estimate puts it in a stratum of its own. If any stratum has fewer than 5 executions on either side
+   [I], the trial is inconclusive. No stratum is left out: a stratum's share of executions says nothing about its
+   share of pages, and a rare stratum can hold most of the cost.
 3. **A one-sided bound.** With `f` the factor (2× as a start [I]),
 
    $$z = \frac{m_{cand} - f \cdot m_{good}}{\sqrt{v_{cand} + f^2 \cdot v_{good}}}$$
@@ -514,6 +514,8 @@ filter per execution.
   on value A and 1,000,000 on value B, and the candidate costs 1 and 100,000, so it is better for both. If three B
   executions among 200 all fall on the candidate's side (probability 1/8) and their estimate does not separate B
   from A, the candidate's mean passes twice the other's and the worse plan is forced.
+- The comparison covers the workload seen during the trial. A shape whose rare values fall in strata too sparse for
+  the trial is never forced, which costs coverage, not correctness.
 - A wrong forcing lasts at most the directive's time to live (one day as a start [I]). Then the planner chooses
   again and a new trial decides. Every forcing is visible in the profile and in `explain`.
 
@@ -942,7 +944,7 @@ practice.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
    `p_max = 1` fixed, `p_min` deferred (10⁻⁴ when it comes), `τ` = 1 day, the cap `R = 10` per entry and second, the
    budget `B`, a 100 ms tick and `k = 4`; for plan regressions 30 executions to suspect, 100 per side for a trial, 2×, a one-sided 95 % bound, 5
-   executions and 5 % for the strata, and a one-day time to live). Recommended: fixed defaults,
+   executions per side and stratum, and a one-day time to live). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
