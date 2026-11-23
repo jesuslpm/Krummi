@@ -11,6 +11,8 @@ mod applied;
 mod indexes;
 #[path = "table_collation/keys.rs"]
 mod keys;
+#[path = "table_collation/model.rs"]
+mod model;
 #[path = "table_collation/statistics.rs"]
 mod statistics;
 
