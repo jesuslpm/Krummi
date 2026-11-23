@@ -63,3 +63,33 @@ and `1399d32` are two other runs, each with its own Codex code review (`docs/rev
 - Checks: documentation only; no code changed, so the cargo checks do not apply. `git diff --stat 1399d32..1f38591`:
   2 files, 15 insertions, 7 deletions.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-23 (verification)
+
+Review record: [2026-11-23-code.md](2026-11-23-code.md), wrapper status `findings` (R1), `threadId`
+`01a206f1-8a36-7413-a8e3-889cd6dc0526`, telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`.
+
+- R1: "partially fixed; still open": the companion page still said that an entry "cannot keep more than R rows per
+  second" and that its start is "flattened to R", while its own chart model gives 100 rows/s at `t = 0.01 s` with
+  `λ = 100` and `R = 10`.
+
+## 2026-11-23 (second fix)
+
+Artifact version: fix commit `834fb9e`.
+
+### R1 — minor: Sampling rate targets are described as hard limits
+
+- Disposition: fixed (the remaining part, in the companion page).
+- Fix: `docs/design/tables/15-query-profile-and-tuning.html`:
+  - the `R / c` and `g` bullets call `R` and `B` targets of the expected rate, not hard quotas: within an entry's first
+    second it keeps more than `R`, and `g` follows the demand one second late;
+  - the green-curve bullet and *What that means in rows* say that the rate falls to about `R` after the first second,
+    with about `R(1 + ln(rate/R))` rows within it;
+  - *What that means in rows* also says that the engine's one-tick delay with `p = 1` is left out of the charts;
+  - the fleet bullets say "falls to about `R` … after its first second" and "stays near the budget".
+
+  A search of both files for "never more", "no more than", "cannot keep", "within budget" and "keeps the whole store
+  under" finds none left.
+- Checks: documentation only; no code changed.
+- Status: claimed, unverified until a follow-up review.
