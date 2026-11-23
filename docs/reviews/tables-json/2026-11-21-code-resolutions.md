@@ -123,3 +123,10 @@ Artifact version: fix commit `a935565`.
   within the first second: `∫₀¹ min(λ, R/t) dt = R(1 + ln(λ/R))` for `λ > R`, and `R/c ≥ 1` for `λ ≤ R`.
 - Checks: documentation only; no code changed.
 - Status: claimed, unverified until a follow-up review.
+
+## 2026-11-23 (verification 3)
+
+Review record: [2026-11-23-code-03.md](2026-11-23-code-03.md), wrapper status `approved`, `threadId`
+`01a206fa-5341-7d21-bb5c-88152dcaaeb8`, telemetry: coordinator `gpt-6.1-sol` / `high`, reviewer `krummi-review`
+`gpt-6.1-sol` / `high`. Verdict: "Approved in the requested scope: R1 is verified resolved; no open findings or
+correction-induced regressions were established."
