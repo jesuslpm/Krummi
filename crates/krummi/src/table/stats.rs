@@ -117,7 +117,7 @@ pub(crate) fn is_large_folded(column: &KeyColumn, value: &Value<'_>) -> bool {
 }
 
 /// The bytes of a text or bytes value; 0 for any other.
-fn text_len(value: &Value<'_>) -> usize {
+pub(crate) fn text_len(value: &Value<'_>) -> usize {
     match value {
         Value::String(text) => text.len(),
         Value::Bytes(bytes) => bytes.len(),

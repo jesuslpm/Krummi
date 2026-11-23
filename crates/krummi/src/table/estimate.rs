@@ -976,14 +976,14 @@ fn estimate_columns(
                 // PRD).
                 let large = (at.iter())
                     .any(|a| matches!(columns[*a].1, Checked::Equal { large: true, .. }));
-                match found.frequent.iter().find(|(e, _)| *e == element) {
-                    _ if large => found.large,
-                    Some((_, f)) => *f,
-                    None => {
-                        let frequent: f64 = found.frequent.iter().map(|(_, f)| f).sum();
-                        (1.0 - found.large - frequent).max(0.0)
-                            / (found.distinct - found.frequent.len() as f64).max(1.0)
-                    }
+                if large {
+                    found.large
+                } else if let Some((_, f)) = found.frequent.iter().find(|(e, _)| *e == element) {
+                    *f
+                } else {
+                    let frequent: f64 = found.frequent.iter().map(|(_, f)| f).sum();
+                    (1.0 - found.large - frequent).max(0.0)
+                        / (found.distinct - found.frequent.len() as f64).max(1.0)
                 }
             }
         };

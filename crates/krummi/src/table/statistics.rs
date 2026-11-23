@@ -241,11 +241,12 @@ pub(crate) fn build<'r>(
                     match row.stored_len(*position) {
                         StoredLen::Invalid => true,
                         StoredLen::Len(len) => text && len > stats::LARGE,
-                        // A column added after the row reads its default, borrowed from the catalog: measured before
-                        // it is folded, as the column gathering does.
+                        // A column added after the row reads its default, borrowed from the catalog, measured as a
+                        // stored value is, by its original length, before it is folded. A folded form over the
+                        // maximum never reaches an index key (IC7), so the original length is the whole test.
                         StoredLen::NotStored => {
                             let value = row.value(*position).unwrap_or(Value::Null);
-                            text && stats::is_large(column, &value)
+                            text && stats::text_len(&value) > stats::LARGE
                         }
                     }
                 };
@@ -264,35 +265,34 @@ pub(crate) fn build<'r>(
             pages.dedup();
             pages_read += pages.len() as u64;
         }
-        let elements: Vec<Option<Vec<Vec<u8>>>> = (prefixes.iter().zip(&readable))
-            .map(|((_, key), &readable)| {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut element = Vec::new();
-                    let mut prefixes = Vec::with_capacity(key.len());
-                    for (at, (position, column)) in key[..readable].iter().enumerate() {
-                        // A stored value always encodes in its column's key encoding.
-                        let _ = column
-                            .encode(&row.value(*position).unwrap_or(Value::Null), &mut element);
-                        if at >= 1 {
-                            prefixes.push(element.clone());
-                        }
-                    }
-                    prefixes
-                }))
-                .ok()
-            })
-            .collect();
-        for (((elements, gathers), &readable), (_, key)) in
-            (elements.into_iter().zip(&mut combinations).zip(&readable)).zip(&prefixes)
+        for (((_, key), &readable), gathers) in
+            (prefixes.iter().zip(&readable)).zip(&mut combinations)
         {
-            let read = elements.is_some();
-            let elements = elements.unwrap_or_default();
-            let produced = elements.len();
-            for (element, gather) in elements.into_iter().zip(gathers.iter_mut()) {
-                gather.add_element(element);
+            // The combination of each prefix of two or more readable columns, in the index's encoding.
+            let encoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut element = Vec::new();
+                let mut combinations = Vec::with_capacity(key.len());
+                for (at, (position, column)) in key[..readable].iter().enumerate() {
+                    // A stored value always encodes in its column's key encoding.
+                    let _ =
+                        column.encode(&row.value(*position).unwrap_or(Value::Null), &mut element);
+                    if at >= 1 {
+                        combinations.push(element.clone());
+                    }
+                }
+                combinations
+            }));
+            // A read that panics leaves this index's prefixes out for the row (ST1).
+            let Ok(combinations) = encoded else {
+                continue;
+            };
+            let read = combinations.len();
+            for (combination, gather) in combinations.into_iter().zip(gathers.iter_mut()) {
+                gather.add_element(combination);
             }
-            if read && readable < key.len() {
-                for gather in gathers.iter_mut().skip(produced) {
+            // The longer prefixes hold the large column, which was not read: they count the row as large.
+            if readable < key.len() {
+                for gather in gathers.iter_mut().skip(read) {
                     gather.add_large();
                 }
             }

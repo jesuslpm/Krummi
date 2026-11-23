@@ -6,7 +6,8 @@
 //!
 //! Usage: `cargo run --release -p krummi-bench --example collation_measure -- <work folder> [rounds] [scale]`, where
 //! the scale divides the row count (1 for the measurement, larger for a quick check). Prints one line per round and
-//! measure, and the medians at the end.
+//! measure, and the medians at the end. It deletes the subfolders `binary` and `ci` of the work folder before each
+//! insert and after each round, whatever they hold: give it a folder of its own.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
