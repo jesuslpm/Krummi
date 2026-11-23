@@ -7,6 +7,8 @@ mod support;
 
 #[path = "table_collation/applied.rs"]
 mod applied;
+#[path = "table_collation/keys.rs"]
+mod keys;
 
 use krummi::table::value::{ColumnType, Value, VectorElement, VectorType};
 use krummi::{
