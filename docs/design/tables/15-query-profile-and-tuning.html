@@ -129,7 +129,7 @@ td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
   thread only draws whether the execution is also kept as a row, with a probability the consumer publishes, and adds
   the parameter values when it is.</p>
   <div class="flow" role="img" aria-label="A finished execution goes to the aggregates and to the sampler; both reach the thread buffers, which the flush writes into the profile store in one deferred write per interval">
-    <div class="box"><b>Execution ends</b>Shape, plan, duration, pages, rows, estimates per node, parameter values.</div>
+    <div class="box"><b>Execution ends</b>Shape, plan, duration, CPU time, pages, rows, estimates per node, parameter values.</div>
     <div class="arrow" aria-hidden="true">→</div>
     <div class="stack">
       <div class="box a"><b>Aggregates: every execution, exact</b>Counts, sums, minimum and maximum, histograms per (shape, plan, interval).</div>

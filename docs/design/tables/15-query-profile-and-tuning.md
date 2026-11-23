@@ -43,6 +43,9 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
   sortear y enviar a la cola sólo si tiene la suerte." and, to adding it all here, "Sí, agrégalo todo y haz el
   commit". Then "Bien ahora cual es tu evaluación?" and, to adding the snapshot read, the rings' life cycle and the
   threads, "Sí".
+- On 2026-11-23, on the design itself: "¿Qué te parece el diseño del perfilado? ¿Qué mejorarías?" and, to forcing the
+  last good plan, recording CPU time and stating the dependency of the tuner's stage, "Haz el 1, 3 y 4, no quiero
+  perder exactitud", which also kept parameter values exact by default instead of masked (question 1).
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -76,18 +79,23 @@ Evidence labels, as in documents 13 and 14: **[V]** verified in a primary source
    reads, and evaluates candidate indexes as hypothetical indexes (*what-if*). With a machine it runs on online backups
    of both stores, builds the candidates for real and measures them. In both cases applying a recommendation is an
    explicit call, accepted items live in the main store's catalog, and the profile validates the change afterwards.
-5. **Cost is measured in logical pages, not time.** Krummi maps its data file, so physical reads per query cannot be
-   observed; pages touched can, and they compare across machines. Duration ranks only within one machine.
+5. **Cost is measured in logical pages and CPU time, not wall-clock time.** Krummi maps its data file, so physical
+   reads per query cannot be observed; pages touched can, and they compare across machines. Pages miss work that
+   touches few of them, such as navigating a JSON document, decompressing or sorting in memory, so each execution also
+   records its thread's CPU time, which ranks within one machine, as duration does.
 6. **Indexes are never created automatically.** Building one holds the write turn for the whole build (IX2), so it is
-   applied in a window chosen by the application. Directives, which are cheap and reversible, can apply on their own.
+   applied in a window chosen by the application. Directives, which are cheap and reversible, can apply on their own,
+   and so can forcing the last good plan of a shape whose new plan regressed, measured from the aggregates alone
+   (*Plan regressions*).
 7. **A language model helps on the analysis machine, outside Krummi.** An agent command-line tool (Codex or Claude
    Code, with a cloud model or a local one) reads the profile and the recommendations through Krummi's tools, explains
    them, answers questions by asking the tuner to measure, and proposes candidates the rules do not generate. It
    proposes and explains; Krummi measures; a person decides. Every number in its report is checked against the
    evidence by a deterministic check (*Language models on the analysis machine*).
-8. **Built in stages, each decided by a measurement.** First the requirements for module 17, the aggregates and the
-   producers and one consumer; then a minimal sampling; then the tuner; directives only if the profile shows they
-   pay (*Assessment and stages*).
+8. **Built in stages, each decided by a measurement.** First the requirements for module 17, the aggregates, the
+   producers and one consumer, and forcing the last good plan; then a minimal sampling; then the tuner, measured on a
+   copy once the online backup exists; estimate directives only if the profile shows they pay (*Assessment and
+   stages*).
 
 ## Starting state
 
@@ -162,6 +170,8 @@ Each gap names what it changes in the design.
 | H26 | Shared atomic counters on the query path | For the hottest shapes every core's addition bounces one cache line between cores | No shared writes in the query's thread: a ring per thread and one consumer |
 | H27 | Reading the published snapshot through a reference-counted pointer | Every execution adds to a shared counter, the bouncing of H26 again | A copy of the snapshot per thread, refreshed when a version number that is only read changes |
 | H28 | A ring per thread | Memory for threads that never query, rings of threads that ended, unbounded total with many threads | Rings created with a thread's first query, drained and freed when the thread ends, total memory bounded |
+| H29 | Pages miss work that touches few pages | A shape that spends its time navigating JSON documents (a walk over the bytes before the value, document 13), decompressing or sorting in memory never ranks | The CPU time of the execution's thread (M3), aggregated like duration |
+| H30 | A shape's new plan can cost more than the one it replaced | After revalidation replans a shape or the catalog changes, a frequent shape costs more until someone notices | The consumer compares the new plan with the last good one at each flush and forces the last good plan (*Plan regressions*) |
 
 ## The profile
 
@@ -235,10 +245,10 @@ mean of means is wrong); they are derived when read.
 | Field | Merges by |
 |---|---|
 | Executions; errors by class; cancelled | sum |
-| Sums of duration, rows, pages and bytes spilled | sum |
-| Sums of squares of duration and pages (for the variance) | sum |
-| Minimum and maximum of duration and pages | minimum, maximum |
-| A log-linear histogram of duration and one of pages | sum per bucket |
+| Sums of duration, CPU time, rows, pages and bytes spilled | sum |
+| Sums of squares of duration, CPU time and pages (for the variance) | sum |
+| Minimum and maximum of duration, CPU time and pages | minimum, maximum |
+| A log-linear histogram each of duration, CPU time and pages | sum per bucket |
 | A log-linear histogram of the shape's executions per transaction | sum per bucket |
 | Per node: completed executions; executions over 4×, under and over; maximum q-error | sum, maximum |
 
@@ -445,10 +455,39 @@ Krummi tables in the profile store, so the tuner and the application can query t
 | `predicate_feedback` | predicate signature, interval | Observations; under and over counts; maximum q-error; estimate source (statistics, sample, stale statistics); the statistics' modification counter |
 | `table_writes` | table, interval | Inserts, updates, deletes and bulk rows; per index, entries written, seeks, scans and rows read (M4) |
 | `executions` | shape, period, wall-clock time, sequence | The sampled executions of *Sampled executions*, each with its `p` and outlier mark |
-| `directives` | predicate signature | Learned directives with their state (*Estimate feedback*) |
+| `directives` | predicate signature or shape | Learned directives, of estimates and of plans, with their state (*Estimate feedback*, *Plan regressions*) |
 
 Interval starts use the wall clock in UTC; durations use the monotonic clock. Retention follows question 4: old
 intervals are removed by the flush, and when the profile passes its size bound the cheapest shapes go first (H12).
+
+## Plan regressions
+
+The plan cache replans a shape when revalidation sees its rows move by more than a factor or when the catalog changes
+(document 4), and the new plan can cost more than the one it replaced (H30). The aggregates per (shape, plan) already
+measure that, so catching it needs neither estimates nor a copy. It is the counterpart of Azure's *force last good
+plan*, on by default there [V], and the first automatic action to build.
+
+**Detection.** At each flush, for each shape that ran a plan new since the last flush beside an earlier plan, the
+consumer compares the new plan's pages per execution in the interval with the earlier plan's over its last window.
+The new plan **regressed** when both have enough executions (30 as a start [I]) and the new one's mean, or its p95,
+exceeds the earlier one's by a factor (2× as a start [I]). The earlier plan is the shape's **last good plan**. Pages
+compare; duration, which depends on the moment, does not decide.
+
+**Forcing.** The consumer records a **plan directive** in the profile's `directives` table: the shape, the last good
+plan's bytes from `plans` and the catalog state tokens it was planned on. The planner receives directives as an input
+(M2), so the shape's next planning takes that plan instead of choosing one. Like an estimate directive it is learned,
+disposable and kept in the profile (H15), and `explain` names it.
+
+**Trial and expiry.** The forced plan is on trial: if over the next windows its pages per execution are not below the
+regressed plan's, the directive is dropped and the shape is marked so that no plan is forced on it again for a while.
+The trial compares the shape's mean over all its executions, so a forced plan that only moves cost from some parameter
+values to others does not stay. The directive expires when the catalog state tokens it was planned on change (for
+example, an index it uses was dropped, P12), after a time to live, or when a plan of the shape is accepted into the
+catalog (M7). After it expires the planner chooses again and detection starts over; a shape that regresses again is a
+tuner recommendation to accept a plan, which a person decides.
+
+**What it never does.** It never overrides an accepted plan (SQL Server's lesson in *What others do*), and never
+forces a plan the catalog no longer supports.
 
 ## Estimate feedback
 
@@ -497,7 +536,8 @@ recommendation, never automatic.
 2. **Ranking**: total cost per shape, in logical pages over the window (executions × pages per execution, H5). The
    shapes that add up to a share of the total (95 % as a start) are selected, up to a maximum count; the user's
    experience is that "el 1 o 2% de las consultas se comen el 95% de los recursos". A second list takes the shapes
-   with the worst p95 or maximum (H11).
+   with the worst p95 or maximum (H11), and a third the shapes with the most total CPU time, on the machine
+   where the profile was recorded (H29).
 3. **Candidates** per selected shape: an index with the equality columns first, then one range column, then the
    order columns; the projected columns as included columns when the index can cover; directives and column-group
    statistics for predicates with repeated misses; an accepted plan when one plan of the shape is clearly better than
@@ -616,6 +656,7 @@ Asked "Cómo calificarías/evaluarías todo esto? es eficaz? es eficiente? es co
 |---|---|---|---|---|
 | Requirements for module 17 (M1-M7) | High | High | Low | The most valuable part: cheap now, expensive later |
 | Mergeable aggregates | High | High | Low | The model of Query Store and `pg_stat_statements` |
+| Forcing the last good plan (added 2026-11-23) | High | High | Low | Measured from the aggregates alone; reversible; its trial validates it |
 | Sampled executions | High | High with producers and one consumer | High | Statistically sound, but five parameters, a controller, calibration, outliers and the degraded mark add up |
 | Estimate directives | Uncertain | High | Medium | See the first finding |
 | What-if tuner | Medium | High | Medium | Rests on estimates, which are what fails |
@@ -641,11 +682,15 @@ Findings:
 
 Stages, each one decided by a measurement:
 
-1. **With module 17:** M1-M7, the aggregates, and the producers and one consumer. Almost free, and it opens the door,
-   which was the first aim.
+1. **With module 17:** M1-M7, the aggregates, the producers and one consumer, and forcing the last good plan
+   (*Plan regressions*). Almost free, and it opens the door, which was the first aim; forcing the last good plan is
+   its first automatic action.
 2. **Minimal sampling:** `p = g · min(R/c, T/n)`. `p_min`, the outliers, the executions per transaction and the
    seeding of counters at opening come only when a measurement asks for them.
-3. **The tuner:** measured on a copy first, the reliable mode; what-if afterwards; the language model agent with it.
+3. **The tuner:** measured on a copy, the reliable mode, and what-if; the language model agent with it. A copy of a
+   store in use needs the online backup of module 10, and the command-line runs need module 12; both come after
+   modules 17 to 19 in the root PRD. Until they exist the tuner starts with what-if in the process, and measures only
+   on a copy of the store taken while it is closed (D6).
 4. **Directives:** only if the profile shows that misestimates change plans often.
 
 In short: effective; efficient once the shared atomics are gone; more complex than this stage needs as a whole,
@@ -667,6 +712,15 @@ in the first version, now conditioned on what the profile measures; and a design
 mitigated by the stages and by measurement deciding each one. Verdict: effective; efficient on paper, pending two
 measurements, the cost in the query's thread and the consumer's throughput (experiment 6); a complexity that fits
 what is built first.
+
+Reviewed on 2026-11-23 ("¿Qué te parece el diseño del perfilado? ¿Qué mejorarías?"), with the user's decision "Haz el
+1, 3 y 4, no quiero perder exactitud":
+
+- forcing the last good plan joins stage 1 (*Plan regressions*), because it is measured from the aggregates alone,
+  while estimate directives wait for a measurement (finding 1);
+- each execution records its thread's CPU time (H29, M3);
+- stage 3 states its dependency on modules 10 and 12;
+- masking parameter values by default was proposed and declined, because it loses the exact values (question 1).
 
 ## Alternatives considered
 
@@ -726,7 +780,7 @@ what is built first.
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
 | Manual only | Full control | Someone must act | For indexes |
-| **Automatic for directives, manual for indexes** | Cheap and reversible items apply alone | — | **Chosen** |
+| **Automatic for directives and the last good plan, manual for indexes** | Cheap and reversible items apply alone | — | **Chosen** |
 | All automatic with revert (Azure) | No intervention | With IX2, unacceptable for indexes | Rejected until an online index build exists |
 
 ## Requirements for module 17
@@ -735,10 +789,12 @@ Cheap if module 17 is designed with them, expensive to add later. They are what 
 practice.
 
 - M1. Actual rows per node with a **completed** flag, false when a parent stopped the node early (`Limit`, `TopK`).
-- M2. The planner takes the **index set, the directives and the accepted plans as inputs**, without reading the
-  catalog directly, so it can plan against hypothetical indexes and apply directives without a redesign.
-- M3. A **logical pages** counter per execution (pages touched by its read transaction or cursor), with its cost
-  measured before it is assumed free.
+- M2. The planner takes the **index set, the directives (of estimates and of plans) and the accepted plans as
+  inputs**, without reading the catalog directly, so it can plan against hypothetical indexes and apply directives
+  without a redesign.
+- M3. A **logical pages** counter per execution (pages touched by its read transaction or cursor) and its **CPU
+  time**, read from its thread's CPU clock and summed over the calls of a cursor (H29), with their cost measured
+  before they are assumed free.
 - M4. **Usage counters** per index (seeks, scans, rows read) and **write counters** per table and kind (inserts,
   updates, deletes, bulk rows) with entries written per index. 7.3's modification counter (ST4) is the base but does
   not tell the kinds apart.
@@ -762,7 +818,9 @@ practice.
   expected rate, which the consumer counts, not hard quotas: a new entry keeps up to its rate times one tick before
   the first snapshot that includes it (*Capture*), about 1,000 rows at 10,000 executions per second, and `g` follows
   the demand one second late (*Sampled executions*). The only hard limit is the memory bound of the buffers.
-- The page counter of M3: one increment per page access [I]; to measure.
+- The page counter of M3: one increment per page access, and two reads of the thread's CPU clock per execution [I];
+  to measure.
+- Plan regressions: at each flush, one comparison per shape that ran a new plan [I].
 - Per interval: one deferred write in the profile store.
 - Memory: bounded by the number of shapes and plans kept (pg_stat_statements keeps 5,000 statements by default [V]).
 - Directives: one sample per directive at planning, kept with the plan.
@@ -778,6 +836,7 @@ practice.
 | A burst of sampled rows | Buffers fill and drop, biasing the weights | The global factor `g` before the draw; a dropping interval is marked degraded (H22) |
 | An analysis ignores the weights | Estimates biased towards the start of each period (H21) | The tools return weighted, calibrated estimates; every raw row carries its `p` |
 | Oscillating directives | Plans flip between runs | Trial, expiry, a pause per signature after a failed directive |
+| A forced plan is worse for some parameter values | The shape is slower for those values | The trial keeps it only when it lowers the shape's mean over all its executions; expiry lets the planner choose again |
 | Wrong what-if recommendations | An index that does not help, or hurts writes | Write overhead in the evaluation; validation after applying; revert |
 | Parameter values in the profile | Sensitive data at rest | Encrypted with the store; masking per column (question 1) |
 | A profile from another store | Wrong feedback | Main store identity in `meta` (H16) |
@@ -790,7 +849,7 @@ practice.
 
 1. Capture overhead on a point query and on a range scan through module 17, with and without the sink, 10 to 20
    rounds (the bench's noise rule).
-2. Cost of the page counter on W1-W32.
+2. Cost of the page counter and of the CPU clock reads on W1-W32.
 3. Gain of a sampling directive on synthetic correlated columns without a shared index.
 4. Agreement between what-if and measured evaluation on the bench tables.
 5. Profile size per thousand shapes over 30 days of intervals, and the sampled executions' size per day.
@@ -801,6 +860,8 @@ practice.
    behavior changes late in the period (a regression in the afternoon).
 8. Stability of the global factor `g` under a spike: hundreds of new shapes at once, and a restart under load; the
    spread of a new entry's first rows over time with the cap `R`.
+9. Forcing the last good plan on a synthetic regression (statistics rebuilt on a skewed column that move a shape
+   from an index to a full scan), and the trial's removal of a forced plan that does not help.
 
 ## Product questions
 
@@ -808,22 +869,23 @@ practice.
    masking per column: a column marked sensitive keeps, instead of its value, the bucket of its 7.3 histogram where
    the value falls, which still serves to analyze sensitivity and estimates but not to replay with the exact value.
    Alternative: off by default, which limits the tuner to what-if (H7). Changed 2026-11-21 after the user: "lo de no
-   guardar las ejecuciones individuales y los parámetros limitan bastante el análisis".
+   guardar las ejecuciones individuales y los parámetros limitan bastante el análisis". Masking by default was
+   declined on 2026-11-23: "no quiero perder exactitud".
 2. **Profiling by default.** Recommended: capture on once M3 and M6 are measured as cheap; the tuner and automatic
    directives off until the application turns them on. Alternative: everything off by default.
 3. **Where the profile lives.** Recommended: a reserved subfolder of the store's folder (like `krummi.sort`), so it
    follows the store. Alternative: a folder given by the application.
 4. **Retention and size.** Recommended: 30 days of intervals and a size bound, evicting the cheapest shapes.
    Alternative: options with no default bound.
-5. **Automatic directives.** Recommended: on when profiling is on, with trial and expiry. Alternative: only as tuner
-   recommendations.
+5. **Automatic directives and the last good plan.** Recommended: on when profiling is on, with trial and expiry.
+   Alternative: only as tuner recommendations.
 6. **Who starts the in-process tuner.** Recommended: the application calls it. Alternative: a schedule option run by
    the store's background thread.
 7. **Automatic indexes.** Recommended: never, while IX2 holds the write turn. Alternative: automatic once an online,
    batched index build exists, with revert.
 8. **Thresholds** (q-error 4×, 100 rows, three observations, a 15-minute interval; for sampling `T = 2,000`,
    `p_max = 1` fixed, `p_min` deferred (10⁻⁴ when it comes), `τ` = 1 day, the cap `R = 10` per entry and second, the
-   budget `B`, a 100 ms tick and `k = 4`). Recommended: fixed defaults,
+   budget `B`, a 100 ms tick and `k = 4`; for plan regressions 30 executions and 2×). Recommended: fixed defaults,
    tunable later by measurement. Alternative: options from the start.
 9. **Which agent on the analysis machine, and what may leave it.** Recommended: either command-line tool through the
    same tools and skill; a local model when parameter values are captured, a cloud model allowed only for shapes and
