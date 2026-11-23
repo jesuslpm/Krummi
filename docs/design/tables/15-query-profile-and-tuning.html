@@ -167,8 +167,10 @@ td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
     <li><code>T / n</code> keeps the first <code>T</code> executions of a new entry (with <code>p_max = 1</code>) and
       then falls as the entry runs more often; <code>p_min</code> is its floor.</li>
     <li><code>R / c</code> aims the entry at <code>R</code> kept rows per second, where <code>c</code> is its
-      executions per second. It is a target of the expected rate, not a hard quota: within an entry's first second
-      <code>c</code> is still small, so the entry keeps more than <code>R</code> rows that second.</li>
+      executions per second. It is a target of the expected rate, not a hard quota, and it brakes only an entry that
+      runs more than <code>R</code> times per second: within such an entry's first second <code>c</code> is still
+      small, so it keeps more than <code>R</code> rows that second. An entry that runs <code>R</code> times per second
+      or fewer has <code>R / c ≥ 1</code> and is never braked by it.</li>
     <li><code>g ≤ 1</code> is a global factor that aims the whole store at a budget of <code>B</code> rows per
       second, also a target of the expected rate: it follows the demand one second late (last chart).</li>
   </ul>
@@ -193,21 +195,24 @@ td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
     <li><strong>Decayed count</strong> (orange): identical at the start, then flattens at <code>T/(rate·τ)</code>
       once the count reaches a day's worth of executions. A steady entry keeps about <code>T</code> rows a day, spread
       evenly through the day.</li>
-    <li><strong>Decayed count with the cap R</strong> (green): after its first second it keeps about <code>R</code> rows
-      per second, so its first <code>T</code> rows spread over minutes instead of a fraction of a second. Within the
-      first second its expected rate starts at the entry's full rate and falls as <code>R/c</code>, keeping about
-      <code>R(1 + ln(rate/R))</code> rows that second.</li>
+    <li><strong>Decayed count with the cap R</strong> (green): an entry that runs more than <code>R</code> times per
+      second keeps, after its first second, <code>min(R, rate·p)</code> rows per second, where <code>p</code> is the
+      orange curve's probability: about <code>R</code> while its first <code>T</code> rows last, so they spread over
+      minutes instead of a fraction of a second, and fewer later. Within the first second its expected rate starts at
+      the entry's full rate and falls as <code>R/c</code>, keeping at most about <code>R(1 + ln(rate/R))</code> rows
+      that second. A slower entry follows the orange curve: the cap does not act on it.</li>
   </ul>
 </section>
 
 <section aria-labelledby="s-rows">
   <h2 id="s-rows">What that means in rows</h2>
   <p>Rows kept per second are the entry's rate times <code>p</code>. Without the cap, a new entry keeps everything
-  at its full rate until it reaches <code>T</code>; with it, after the first second the start is flattened to about
-  <code>R</code> rows per second (above <code>R</code> within that first second, as above). In the engine the
+  at its full rate until it reaches <code>T</code>; with it, the start of an entry that runs more than <code>R</code>
+  times per second is flattened after its first second to about <code>R</code> rows per second (above <code>R</code>
+  within that first second, as above), and a slower entry keeps the same rows as without the cap. In the engine the
   consumer also publishes the probability once per tick, so a new entry keeps up to one tick of rows with
-  <code>p = 1</code> before the cap acts; the charts leave that delay out. On the right, the rows kept since the start: a new entry keeps more in its first <code>τ</code>, then about
-  <code>T</code> per <code>τ</code>.</p>
+  <code>p = 1</code> before the cap acts; the charts leave that delay out. On the right, the rows kept since the
+  start: a new entry keeps more in its first <code>τ</code>, then about <code>T</code> per <code>τ</code>.</p>
   <div class="two">
     <div class="chart" id="c-rate"></div>
     <div class="chart" id="c-cum"></div>
@@ -231,11 +236,11 @@ td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
       exactly then.</li>
     <li><strong>Decayed count</strong> (orange): no daily burst; only the start of the process, when every count is
       zero, still spikes.</li>
-    <li><strong>With the cap R</strong> (green): the start spike is lower, since every entry falls to
-      about <code>R</code> rows per second after its first second.</li>
+    <li><strong>With the cap R</strong> (green): the start spike is lower, since after its first second no
+      entry keeps more than <code>R</code> expected rows per second.</li>
     <li><strong>With the budget B</strong> (yellow): the factor <code>g</code> lowers every probability before the
-      draw whenever the expected demand passes <code>B</code>, so after its first second the start of the process stays near the budget. This
-      curve is an idealization: it clips the demand at <code>B</code>, while <code>g</code>, computed from the
+      draw whenever the expected demand passes <code>B</code>, so after its first second the start of the process stays near the budget.
+      This curve is an idealization: it clips the demand at <code>B</code>, while <code>g</code>, computed from the
       previous second and smoothed, lets the first second of a spike pass <code>B</code>.</li>
   </ul>
   <p>The rule behind the last two: <strong>brake before the draw, never after</strong>. A limiter that throws away

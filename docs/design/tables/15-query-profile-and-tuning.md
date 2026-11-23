@@ -334,8 +334,10 @@ does not stop one entry from spending its first rows in a few seconds: at 100 ex
 2,000 rows take 20 s, at 10,000 per second 0.2 s, a load on the profile at one moment and a start portrayed by its
 first instant instead of its first minutes. A cap of `R` rows per second per (shape, plan) is one more factor before
 the draw: `c` is the larger of the entry's executions in the previous second and in the current second so far. The
-larger of the two covers an entry's first second, which has no previous one: within it `p` falls as `R/c`, so it
-keeps about `R(1 + ln(λ/R))` rows, about 79 with `λ` = 10,000 per second and `R = 10` [I]. It is unbiased, because it
+larger of the two covers an entry's first second, which has no previous one: for an entry that runs more than `R`
+times per second, `p` falls within it as `R/c`, so it keeps at most about `R(1 + ln(λ/R))` rows, about 79 with
+`λ` = 10,000 per second and `R = 10` [I]; an entry that runs `R` times per second or fewer has `R/c ≥ 1` and the cap
+never acts on it. It is unbiased, because it
 brakes before the draw and the resulting probability is stored. It bounds the expected rate, not the count: the
 rows kept in a second are random, and an entry not yet in the snapshot keeps up to one tick of rows with `p = 1`
 before the cap acts (*Capture*). It bites only at starts and spikes: with `R = 10`
