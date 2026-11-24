@@ -167,8 +167,10 @@ pub fn measure(
     );
 
     // Step 1: the approximate SQ8 scan with rerank.
+    let memory = crate::memory::resident();
     let started = Instant::now();
     let codes = Codes::build(base, metric, &sample);
+    let codes_growth = crate::memory::growth(memory);
     let codes_time = started.elapsed().as_secs_f64();
     let most = 100 * SCAN_FACTORS[SCAN_FACTORS.len() - 1];
     let candidates = |q: &[f32]| -> Vec<u32> {
@@ -202,7 +204,7 @@ pub fn measure(
     let _ = writeln!(
         out,
         "Paso 1, escaneo SQ8 aproximado con reordenación: códigos de {:.1} MiB en {codes_time:.1} s; \
-         {} códigos con algún componente saturado ({} componentes).\n",
+         {} códigos con algún componente saturado ({} componentes); {codes_growth}.\n",
         mib(codes.codes.len()),
         codes.saturated_codes,
         codes.saturated_components
@@ -236,15 +238,18 @@ pub fn measure(
     );
 
     // Step 2: IVF-Flat and IVF-SQ8.
+    let memory = crate::memory::resident();
     let started = Instant::now();
     let ivf = Ivf::build(base, metric, lists, &sample, KMEANS_SEED);
     let build_time = started.elapsed().as_secs_f64();
+    let ivf_growth = crate::memory::growth(memory);
     let (sq8_bytes, flat_bytes) = ivf.bytes();
     let _ = writeln!(
         out,
         "Paso 2, IVF: {lists} listas, muestra de {} vectores, construido en {build_time:.1} s (k-means de \
          {KMEANS_ITERATIONS} iteraciones, cuantizador y asignación de todas las filas); lista mayor {:.2} veces la media; IVF-SQ8 \
-         {:.1} MiB, IVF-Flat {:.1} MiB; {} códigos con algún componente saturado.\n",
+         {:.1} MiB, IVF-Flat {:.1} MiB; {} códigos con algún componente saturado; los dos índices juntos: \
+         {ivf_growth}.\n",
         sample.len(),
         ivf.imbalance(),
         mib(sq8_bytes),

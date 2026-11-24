@@ -8,6 +8,7 @@ pub mod hnsw;
 pub mod ivf;
 pub mod kernels;
 pub mod measure;
+pub mod memory;
 pub mod prepare;
 pub mod run;
 pub mod search;

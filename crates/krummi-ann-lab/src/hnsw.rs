@@ -65,6 +65,7 @@ pub fn measure(
         metric,
         offset: largest * largest,
     };
+    let memory = crate::memory::resident();
     let started = Instant::now();
     let graph = Hnsw::new(M, base.len(), LAYERS, EF_CONSTRUCTION, kernel);
     let items: Vec<(&[f32], usize)> = points
@@ -74,6 +75,7 @@ pub fn measure(
         .collect();
     graph.parallel_insert_slice(&items);
     let build_time = started.elapsed().as_secs_f64();
+    let growth = crate::memory::growth(memory);
     let search = |query: &[f32], k: usize, ef: usize| -> Vec<Neighbour> {
         let q = space.transform(query, norm(query));
         let found = graph.search(&q, k, ef.max(k));
@@ -85,9 +87,10 @@ pub fn measure(
     let _ = writeln!(
         out,
         "Paso 3, HNSW externo (`hnsw_rs`): M {M} (2·M en la capa 0), ef_construction {EF_CONSTRUCTION}, construido \
-         en {build_time:.1} s en todos los núcleos; los enlaces de la capa 0 ocupan {:.1} MiB (2·M identificadores \
-         de 4 bytes por vector), más los vectores, {:.1} MiB. Sin resumen: la construcción en paralelo no es \
-         determinista.\n",
+         en {build_time:.1} s en todos los núcleos; con identificadores de 4 bytes, los enlaces de la capa 0 \
+         ocuparían {:.1} MiB (2·M por vector) y los vectores {:.1} MiB, una estimación compacta: `hnsw_rs` guarda \
+         punteros compartidos y su propia copia de los vectores; el grafo: {growth}. Sin resumen: la construcción en \
+         paralelo no es determinista.\n",
         mib(base.len() * 2 * M * 4),
         mib(base.values().len() * 4)
     );
