@@ -239,6 +239,26 @@ impl Ivf {
         (centroids + ids + codes, centroids + ids + vectors)
     }
 
+    /// The bytes the index keeps allocated once built: the capacities of every buffer (ids, codes, vectors and norms
+    /// of each list, centroids and their norms, the quantizer) and the list headers. Unlike [`Ivf::bytes`], which
+    /// counts lengths, it includes unused capacity; it leaves out only the allocator's own overhead.
+    pub fn allocated_bytes(&self) -> usize {
+        let lists: usize = self
+            .lists
+            .iter()
+            .map(|l| {
+                l.ids.capacity() * 4
+                    + l.vectors.capacity() * 4
+                    + l.norms.capacity() * 8
+                    + l.codes.capacity()
+            })
+            .sum();
+        lists
+            + self.lists.capacity() * std::mem::size_of::<List>()
+            + self.centroids.allocated_bytes()
+            + self.quantizer.allocated_bytes()
+    }
+
     /// The largest list against the mean (the imbalance of document 12's rebuild criteria).
     pub fn imbalance(&self) -> f64 {
         let sizes: Vec<usize> = self.lists.iter().map(|l| l.ids.len()).collect();
@@ -296,6 +316,18 @@ mod tests {
         let trained = kmeans(&points, 7, 10, 9);
         assert_eq!(trained.values(), kmeans(&points, 7, 10, 9).values());
         assert!(cost(&trained) <= cost(&kmeans(&points, 7, 0, 9)));
+    }
+
+    #[test]
+    fn allocated_bytes_count_capacities_and_norms_beyond_the_payload() {
+        let base = clustered(12, 700);
+        let ivf = Ivf::build(&base, Metric::L2Squared, 7, &sample_ids(700, 7, 1), 3);
+        let (sq8, flat) = ivf.bytes();
+        let centroids = ivf.centroids.values().len() * 4;
+        // The payload of both indexes together, once the shared centroids and ids, plus the norms of the lists.
+        let ids = 700 * 4;
+        let payload = sq8 + flat - centroids - ids + 700 * 8;
+        assert!(ivf.allocated_bytes() >= payload);
     }
 
     #[test]

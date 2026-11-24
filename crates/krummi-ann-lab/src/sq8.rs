@@ -48,6 +48,11 @@ pub enum Prepared {
 }
 
 impl Quantizer {
+    /// The bytes its buffers hold allocated.
+    pub fn allocated_bytes(&self) -> usize {
+        (self.lo.capacity() + self.step.capacity()) * 4
+    }
+
     /// The minimum and maximum of every dimension over `sample` (already transformed to the space).
     pub fn train<'a>(dim: usize, sample: impl IntoIterator<Item = &'a [f32]>) -> Quantizer {
         let mut lo = vec![f32::INFINITY; dim];

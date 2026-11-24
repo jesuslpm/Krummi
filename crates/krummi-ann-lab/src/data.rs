@@ -24,6 +24,11 @@ impl Vectors {
         self.dim
     }
 
+    /// The bytes its buffers hold allocated: their capacities, not their lengths, norms included.
+    pub fn allocated_bytes(&self) -> usize {
+        self.values.capacity() * 4 + self.norms.capacity() * 8
+    }
+
     pub fn len(&self) -> usize {
         self.values.len() / self.dim
     }

@@ -247,14 +247,16 @@ pub fn measure(
     let _ = writeln!(
         out,
         "Paso 2, IVF: {lists} listas, muestra de {} vectores, construido en {build_time:.1} s (k-means de \
-         {KMEANS_ITERATIONS} iteraciones, cuantizador y asignación de todas las filas); lista mayor {:.2} veces la media; IVF-SQ8 \
-         {:.1} MiB, IVF-Flat {:.1} MiB; {} códigos con algún componente saturado; los dos índices juntos: \
-         {ivf_growth}.\n",
+         {KMEANS_ITERATIONS} iteraciones, cuantizador y asignación de todas las filas); lista mayor {:.2} veces la media; carga útil \
+         (longitudes de ids, códigos o vectores y centroides): IVF-SQ8 {:.1} MiB, IVF-Flat {:.1} MiB; {} códigos con \
+         algún componente saturado; los dos índices juntos tienen asignados {:.1} MiB (capacidad de cada búfer, normas \
+         incluidas), y {ivf_growth}.\n",
         sample.len(),
         ivf.imbalance(),
         mib(sq8_bytes),
         mib(flat_bytes),
-        ivf.saturated_codes
+        ivf.saturated_codes,
+        mib(ivf.allocated_bytes())
     );
     let _ = writeln!(
         out,
