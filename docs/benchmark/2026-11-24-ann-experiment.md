@@ -59,6 +59,8 @@ Los núcleos de las distancias del documento 5 dan resultados idénticos bit a b
   - M 16 (32 enlaces en la capa 0), ef_construction 200.
   - La distancia es la del núcleo del documento 5, desplazada para que nunca sea negativa.
   - Los candidatos se reordenan con la distancia exacta.
+  - La búsqueda usa un ef efectivo de max(ef, k). Por eso, en las salidas sin editar, la columna recall@100 de
+    ef 10 a 80 es la misma: corresponde a ef 100. La recall@10 de este informe sí usa el ef de cada fila.
 
 ## Cohere, 1 M × 768
 

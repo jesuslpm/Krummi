@@ -144,4 +144,18 @@ Route evidence: the units depend on each other (each uses the previous one), so 
   tested only the lab crate. Fix: the package test lists the lab crate. `bench_dependencies` now also forbids
   `krummi-ann-lab`, `hnsw_rs` and `parquet` in the library, which pins S2. After the fix, `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` pass (1275 tests, 0 failed).
+- **L14** (2026-11-24, RDD): the whole range `dfba65f..32ad2c6` exceeded the reviewers' context budget
+  (`lens_context_budget_exceeded`, no authority created). It was reviewed as chained committed slices, each from a
+  detached checkout of its last commit, and the branch was checked out again afterwards. Item 5 was named on the two
+  slices that add dependencies. Consent was granted (project rule).
+
+  | Slice | Lenses | Result | Findings and disposition | Lineage |
+  |---|---|---|---|---|
+  | `dfba65f..b703169` (T1–T3, parquet) | risk, reliability | approved | R3 warnings: stale truth cache, fixed (`check_truth`); untested tie check, fixed (test); unreadable empty ivecs, fixed by rejecting `--filas 0`. R3 suggestion: NaN recall, unreachable after that guard | `review-101b877689b09e1e` |
+  | `b703169..8984bc9` (T4–T5) | reliability, readability | approved | R3 warning: the recall slice panics under 1600 rows, fixed (clamped). R2 warning: the k-means literal, fixed (`KMEANS_ITERATIONS`). R2 suggestion: the `push_codes` doc, fixed. R2 warning: the timed scan repeats `sq8_scan`, kept, so the measured code stays as measured. R3 suggestion: `measure` untested, partly covered by the new tests; the digests pin the rest across platforms | `review-257b7856991921e1` |
+  | `8984bc9..d07655c` (T7 code, hnsw_rs) | risk, reliability | approved after one correction | R1-001 CRITICAL (`--sondeos` dropped silently above the lists): corrected in `9d0cf2d` (an error, with a test), validated, brought to the branch as `f36bc95`. Warnings R1-002 and R3 (options ignored by other commands), R3 (`--metrica` stops a run over every set), R3 (parse untested): fixed | `review-8333364a434ecddf` |
+  | `d07655c..32ad2c6` (report, tests, log) | reliability, readability | approved | R2-001 and R3 warnings (HNSW recall@100 is flat for ef ≤ 80, because the effective ef is max(ef, k)): fixed with a note in the report. R2-002 suggestion (a phase-log label): kept, because the log is append-only; L9 states what ran when | `review-0ec2b05544894344` |
+
+  The advisory fixes went into one commit after the reviews. Checks: the SIFT 10,000 and GloVe 10,000 digests are
+  unchanged (`9d63d3c2eba2f703`, `13245170461c22a6`).
 

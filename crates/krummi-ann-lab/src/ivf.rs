@@ -13,6 +13,9 @@ use crate::search::{push_codes, rerank};
 use crate::sq8::{Prepared, Quantizer, Space};
 use crate::topk::{Neighbour, TopK};
 
+/// The k-means iterations of the training (document 12).
+pub const KMEANS_ITERATIONS: usize = 10;
+
 /// The lists of pgvector's rule (document 12, *Training and building*): rows / 1000 up to 1 M rows, √rows above.
 pub fn lists_for(rows: usize) -> usize {
     if rows <= 1_000_000 {
@@ -143,7 +146,7 @@ impl Ivf {
             .map(|id| space.transform(base.row(id), base.norm(id)))
             .collect();
         let points: Vec<Vec<f32>> = sample.iter().map(|&id| transformed[id].clone()).collect();
-        let centroids = kmeans(&points, lists, 10, seed);
+        let centroids = kmeans(&points, lists, KMEANS_ITERATIONS, seed);
         let quantizer = Quantizer::train(base.dim(), points.iter().map(Vec::as_slice));
         let assignment = assign_all(&centroids, &transformed);
         let mut out: Vec<List> = (0..lists).map(|_| List::default()).collect();

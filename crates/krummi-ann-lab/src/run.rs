@@ -274,7 +274,9 @@ pub fn ground_truth(options: &Options) -> Result<(), String> {
         for metric in metrics {
             let path = truth_path(&options.folder, set, metric, base.len());
             let lists = if path.exists() {
-                read_ivecs(&path).map_err(|e| failed(&path, e))?
+                let lists = read_ivecs(&path).map_err(|e| failed(&path, e))?;
+                check_truth(&path, &lists, queries.len(), base.len())?;
+                lists
             } else {
                 let started = Instant::now();
                 let lists = exact_all(&base, &queries, metric, TRUTH_K);
@@ -330,19 +332,7 @@ fn sections(
     options: &Options,
     section: impl Fn(&str, &Vectors, &Vectors, Metric, &[Vec<u32>]) -> String,
 ) -> Result<(), String> {
-    for set in sets(options) {
-        let metrics: Vec<Metric> = set
-            .metrics()
-            .iter()
-            .copied()
-            .filter(|&m| options.metric.is_none_or(|only| only == m))
-            .collect();
-        if metrics.is_empty() {
-            return Err(format!(
-                "El conjunto {set} no se mide con la métrica {}.",
-                options.metric.map_or("", Metric::name)
-            ));
-        }
+    for (set, metrics) in chosen(options)? {
         let (base, queries) = load(&options.folder, set, options.rows)?;
         if let Some(nprobes) = &options.nprobes {
             check_nprobes(nprobes, base.len())?;
@@ -356,6 +346,7 @@ fn sections(
                 ));
             }
             let truth = read_ivecs(&path).map_err(|e| failed(&path, e))?;
+            check_truth(&path, &truth, queries.len(), base.len())?;
             let title = format!(
                 "{set}, {} filas de {} dimensiones, {}",
                 base.len(),
@@ -382,6 +373,46 @@ fn sections(
         }
     }
     Ok(())
+}
+
+/// The sets and metrics a measurement walks: every metric of each set, or only `--metrica`. Without `--conjunto`, a
+/// set that lacks that metric is skipped; with it, the set must have the metric.
+fn chosen(options: &Options) -> Result<Vec<(Set, Vec<Metric>)>, String> {
+    let chosen: Vec<(Set, Vec<Metric>)> = sets(options)
+        .into_iter()
+        .map(|set| {
+            let metrics = set
+                .metrics()
+                .iter()
+                .copied()
+                .filter(|&m| options.metric.is_none_or(|only| only == m))
+                .collect();
+            (set, metrics)
+        })
+        .filter(|(_, metrics): &(Set, Vec<Metric>)| !metrics.is_empty())
+        .collect();
+    match (options.set, options.metric) {
+        (Some(set), Some(metric)) if chosen.is_empty() => Err(format!(
+            "El conjunto {set} no se mide con la métrica {}.",
+            metric.name()
+        )),
+        _ => Ok(chosen),
+    }
+}
+
+/// Fails when a cached exact ground truth does not belong to these queries and this base: one list per query, each of
+/// `TRUTH_K` ids (or all the rows of a smaller base). Without the check, recall would be computed on the shorter side.
+fn check_truth(path: &Path, truth: &[Vec<u32>], queries: usize, rows: usize) -> Result<(), String> {
+    let k = TRUTH_K.min(rows);
+    if truth.len() == queries && truth.iter().all(|list| list.len() == k) {
+        Ok(())
+    } else {
+        Err(format!(
+            "La verdad exacta {} no corresponde a las {queries} consultas ni a las {rows} filas: bórrela y ejecute \
+             de nuevo la orden verdad.",
+            path.display()
+        ))
+    }
 }
 
 /// Fails when an explicit nprobe exceeds the lists of a base of `rows` vectors, so no requested row is dropped.
@@ -428,5 +459,54 @@ mod tests {
             check_nprobes(&[4, 11], 10_000),
             Err("El sondeo 11 supera las 10 listas de 10000 filas.".to_string())
         );
+    }
+
+    #[test]
+    fn a_set_without_the_chosen_metric_is_skipped_unless_named() {
+        let options = |set: Option<Set>| Options {
+            set,
+            metric: Some(Metric::Cosine),
+            ..Options::default()
+        };
+        assert_eq!(
+            chosen(&options(None)).unwrap(),
+            vec![(Set::Glove, vec![Metric::Cosine])]
+        );
+        assert_eq!(
+            chosen(&options(Some(Set::Sift))).unwrap_err(),
+            "El conjunto sift no se mide con la métrica coseno."
+        );
+        assert_eq!(chosen(&Options::default()).unwrap().len(), Set::ALL.len());
+    }
+
+    #[test]
+    fn a_truth_of_other_queries_or_another_k_is_rejected() {
+        let path = Path::new("t.ivecs");
+        let lists = |n: usize, k: usize| vec![vec![0u32; k]; n];
+        assert_eq!(check_truth(path, &lists(3, TRUTH_K), 3, 1000), Ok(()));
+        assert_eq!(check_truth(path, &lists(3, 50), 3, 50), Ok(()));
+        let message = "La verdad exacta t.ivecs no corresponde a las 3 consultas ni a las 1000 filas: bórrela y \
+                       ejecute de nuevo la orden verdad.";
+        assert_eq!(
+            check_truth(path, &lists(2, TRUTH_K), 3, 1000).unwrap_err(),
+            message
+        );
+        assert_eq!(
+            check_truth(path, &lists(3, 10), 3, 1000).unwrap_err(),
+            message
+        );
+    }
+
+    #[test]
+    fn differing_distances_counts_only_real_differences_not_ties() {
+        // Rows 1 and 2 are at the same distance from the query; row 3 is farther.
+        let base = Vectors::new(1, vec![0.0, 1.0, -1.0, 2.0]);
+        let queries = Vectors::new(1, vec![0.0]);
+        let expected = vec![vec![0, 1]];
+        let count = |found: Vec<u32>| {
+            differing_distances(&base, &queries, Metric::L2Squared, &[found], &expected, 2)
+        };
+        assert_eq!(count(vec![0, 2]), 0);
+        assert_eq!(count(vec![0, 3]), 1);
     }
 }

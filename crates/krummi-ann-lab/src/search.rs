@@ -26,7 +26,8 @@ pub fn rerank(
     top.into_sorted()
 }
 
-/// The best `count` codes of `ids` by their SQ8 distance to `prepared`, as a top-k that the caller may keep filling.
+/// Pushes every `(id, code)` of `entries` into `top` by its SQ8 distance to `prepared`; `top` keeps the best of them
+/// up to its capacity, and the caller may keep filling it.
 pub fn push_codes<'a>(
     top: &mut TopK,
     prepared: &Prepared,

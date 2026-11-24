@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 use crate::data::Vectors;
-use crate::ivf::{Ivf, lists_for, sample_ids};
+use crate::ivf::{Ivf, KMEANS_ITERATIONS, lists_for, sample_ids};
 use crate::kernels::Metric;
 use crate::search::{push_codes, rerank};
 use crate::sq8::Codes;
@@ -216,7 +216,13 @@ pub fn measure(
         let mut at = |k: usize| -> f64 {
             let results = parallel(queries.len(), |i| {
                 let q = queries.row(i);
-                rerank(base, q, metric, ordered[i][..k * r].iter().copied(), k)
+                rerank(
+                    base,
+                    q,
+                    metric,
+                    ordered[i][..(k * r).min(ordered[i].len())].iter().copied(),
+                    k,
+                )
             });
             results.iter().for_each(|res| digest.add(res));
             recall_of(&results, truth, k)
@@ -236,8 +242,8 @@ pub fn measure(
     let (sq8_bytes, flat_bytes) = ivf.bytes();
     let _ = writeln!(
         out,
-        "Paso 2, IVF: {lists} listas, muestra de {} vectores, construido en {build_time:.1} s (k-means de 10 \
-         iteraciones, cuantizador y asignación de todas las filas); lista mayor {:.2} veces la media; IVF-SQ8 \
+        "Paso 2, IVF: {lists} listas, muestra de {} vectores, construido en {build_time:.1} s (k-means de \
+         {KMEANS_ITERATIONS} iteraciones, cuantizador y asignación de todas las filas); lista mayor {:.2} veces la media; IVF-SQ8 \
          {:.1} MiB, IVF-Flat {:.1} MiB; {} códigos con algún componente saturado.\n",
         sample.len(),
         ivf.imbalance(),
