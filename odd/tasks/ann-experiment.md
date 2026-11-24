@@ -57,9 +57,9 @@ Estimate: 3 h 30 min – 6 h. Real start: 2026-11-24 06:21:06 +0000.
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S2, S8 | inline | pending | |
-| T2 | S3 | inline | pending | |
-| T3 | S5 | inline | pending | |
+| T1 | S2, S8 | inline | done | `14f7346` |
+| T2 | S3 | inline | done | (this commit) |
+| T3 | S5 | inline | in progress | |
 | T4 | S5, S6 | inline | pending | |
 | T5 | S5, S6, S7 | inline | pending | |
 | T6 | S4, S6, S7 | inline | pending | |
@@ -84,3 +84,15 @@ Route evidence: the units depend on each other (each uses the previous one), so 
 - **L2** (2026-11-24): starting state verified by the explorer: no distance kernel, exact top-k or threshold search
   exists in the engine (only `vector_norm`, `crates/krummi/src/table/value.rs:562`); no vector data set or vector
   workload in `krummi-bench`; nothing of the experiment exists. Machine: i9-13980HX, 24 cores, 64 GB; WSL 31 GB.
+- **L3** (2026-11-24, T1): golden bits pinned on win-x64 (`kernels::tests::GOLDEN`); linux-x64 checks them in T6.
+- **L4** (2026-11-24, T2, default taken): the Cohere Wikipedia 22-12 copies on Hugging Face no longer answer
+  (`401` on `Cohere/wikipedia-22-12-en-embeddings`); the same vectors come from VectorDBBench's public mirror
+  `https://assets.zilliz.com/benchmark/cohere_medium_1m/` (`train.parquet` 3,131,995,162 bytes, `test.parquet` 1,000
+  queries, `neighbors.parquet` the top-1000 by cosine). Not normalized (norms about 13.5–14.4), as S3 assumed. GloVe:
+  `downloads.cs.stanford.edu` (the `nlp.stanford.edu` URL did not answer), 1,193,514 rows, no zero row; 1,000 held out
+  with seed 12. SIFT: `ftp.irisa.fr`, its 10,000 queries cut to the first 1,000 with their ground truth. Prepared in
+  1.8 s (SIFT), 14.8 s (GloVe) and 181.8 s (Cohere, the row API of `parquet`).
+- **L5** (2026-11-24, T3 evidence): exact ground truth of SIFT at 1 M against the source's: recall@10 0.9994,
+  recall@100 0.9999, and 0 queries whose 10 first distances differ, so every difference is a tie. One query on one
+  thread: 0.118 s (about 1.1 G multiply-adds per second, document 5's estimate). The parallel ground truth walked the
+  base once per query and took 63.1 s; walking it once per block of queries takes 21.3 s, with identical bytes.
