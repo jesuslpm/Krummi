@@ -62,8 +62,8 @@ Estimate: 3 h 30 min – 6 h. Real start: 2026-11-24 06:21:06 +0000.
 | T3 | S5 | inline | done | `b703169`, then the blocked walk in the T4–T5 commit |
 | T4 | S5, S6 | inline | done | one commit with T5 (they share the measurement) |
 | T5 | S5, S6, S7 | inline | done | one commit with T4 |
-| T6 | S4, S6, S7 | inline | done | the report commit (L12) |
-| T7 | S7 | inline, only if T6 misses S7 | done | `d07655c` (code); results in the report commit |
+| T6 | S4, S6, S7 | inline | done | `ddefad1` |
+| T7 | S7 | inline, only if T6 misses S7 | done | `d07655c` (code), `ddefad1` (results) |
 
 - T1: the crate, the exact kernels with their golden test, and the exact top-k with a bounded heap.
 - T2: download and convert the data sets to one raw cache format; held-out queries.
@@ -139,4 +139,9 @@ Route evidence: the units depend on each other (each uses the previous one), so 
   - IVF-SQ8 meets the reference case;
   - the two switch criteria that fire do so narrowly;
   - HNSW fixes only the dot-product case.
+- **L13** (2026-11-24, closing checks): `cargo test --workspace` failed in `ac_r5_the_workspace_has_only_the_krummi_packages`.
+  The test lists the workspace packages, and `krummi-ann-lab` had been missing from it since T1; the earlier runs had
+  tested only the lab crate. Fix: the package test lists the lab crate. `bench_dependencies` now also forbids
+  `krummi-ann-lab`, `hnsw_rs` and `parquet` in the library, which pins S2. After the fix, `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` pass (1275 tests, 0 failed).
 
