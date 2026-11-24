@@ -167,4 +167,17 @@ Route evidence: the units depend on each other (each uses the previous one), so 
   - R3-001 (`--sondeos` is checked per set, so a run over sets of different sizes can fail late);
   - R3-002 (no test of the clamped slice);
   - R3-003 (an option error is reported before an unknown command).
+- **L16** (2026-11-24, Codex R1): report `docs/reviews/ann-experiment/2026-11-24-code.md`, status `findings`, with R1
+  (blocker), R2 (major) and R3 (minor). Resolutions are in `2026-11-24-code-resolutions.md`.
+  - R1 fixed in `56c24ce`.
+  - R3 fixed in `f5b4294`.
+  - R2 fixed in `96ee454`, plus the report and the RSS run.
+
+  Default taken for R2: the RSS is measured on Linux only, because the workspace forbids unsafe code and std has no
+  working-set API on Windows. It is measured at 100,000 rows, each figure the first section of its process.
+  - The first RSS run's log file was written at 23:07:25 UTC; its start was not logged.
+  - The dot-product run went from 23:08:10 to 23:15:49 UTC (phase log).
+
+  The `fix` phase mark was written late (23:07:38): `mark fixes` was rejected, because the phase is `fix`. Codex
+  ended at 22:43:19 (`bg-end`), and the fix commits are at 22:52:29.
 

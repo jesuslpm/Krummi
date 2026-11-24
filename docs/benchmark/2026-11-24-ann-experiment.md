@@ -96,8 +96,11 @@ HNSW externo:
 | | L2 | Producto escalar |
 |---|---|---|
 | Construcción, en paralelo | 1169 s | 1791 s |
-| Enlaces de la capa 0 | 122 MiB | 122 MiB |
+| Enlaces de la capa 0, estimación compacta (4 bytes por enlace) | 122 MiB | 122 MiB |
 | Vectores `f32` | 2930 MiB | 2930 MiB |
+
+La estimación compacta no es lo que ocupa `hnsw_rs`, que guarda punteros compartidos. Su memoria medida está en
+*Memoria*.
 
 | ef | recall@10 L2 | p95 L2 ms | recall@10 producto escalar | p95 producto escalar ms |
 |---|---|---|---|---|
@@ -175,11 +178,45 @@ completas se aceleran entre 1.7 y 1.8 veces en los conjuntos de 10 000 filas:
 
 No se midió con turbo a 1 M. Por eso el p95 del producto escalar con nprobe 72 (20.90 ms) **no se da por cumplido**.
 
+## Memoria
+
+El RSS se midió en Linux, a 100 000 filas, leyendo `VmRSS` de `/proc/self/status` antes y después de construir cada
+estructura. Windows no tiene una API segura en la biblioteca estándar, y el workspace prohíbe `unsafe`.
+
+El crecimiento incluye los temporales de la construcción que el asignador no devolvió. En un mismo proceso, el
+asignador reutiliza lo que liberó una sección anterior, y el crecimiento sale más bajo: el producto escalar de Cohere
+medido justo después de L2 dio +0.0 MiB para los códigos SQ8. Por eso cada cifra de esta tabla es la primera sección
+de su proceso.
+
+| Conjunto, 100 000 filas | Estructura | Tamaño calculado | Crecimiento del RSS |
+|---|---|---|---|
+| SIFT, 128 | Códigos SQ8 | 12.2 MiB | 25.4 MiB |
+| SIFT, 128 | IVF-SQ8 e IVF-Flat juntos | 61.9 MiB | 138.3 MiB |
+| GloVe, 100 | Códigos SQ8 | 9.5 MiB | 20.0 MiB |
+| GloVe, 100 | IVF-SQ8 e IVF-Flat juntos | 48.6 MiB | 105.8 MiB |
+| GloVe, 100 | HNSW (`hnsw_rs`) | 50.3 MiB, estimación compacta | 302.4 MiB |
+| Cohere L2, 768 | Códigos SQ8 | 73.2 MiB | 149.2 MiB |
+| Cohere L2, 768 | IVF-SQ8 e IVF-Flat juntos | 367.5 MiB | 792.2 MiB |
+| Cohere L2, 768 | HNSW (`hnsw_rs`) | 305.2 MiB, estimación compacta | 460.3 MiB |
+| Cohere, producto escalar, 768 | IVF-SQ8 e IVF-Flat juntos | 367.5 MiB | 790.0 MiB |
+| Cohere, producto escalar, 768 | HNSW (`hnsw_rs`) | 305.2 MiB, estimación compacta | 566.0 MiB |
+
+Estas cifras dan una idea de lo que ocupa cada estructura:
+
+- **El grafo de `hnsw_rs`, sin contar los vectores,** ocupa unos 2.7–2.8 KiB por vector con GloVe y con el producto
+  escalar de Cohere: 302.4 − 38.1 MiB de vectores y 566.0 − 293.0 MiB, en 100 000 filas. La estimación compacta es de
+  128 bytes por vector. Con L2, el mismo cálculo da unos 1.7 KiB.
+- **Extrapolado a 1 M:** unos 2.6 GiB de grafo más los vectores. Esto no se midió.
+- **IVF:** el crecimiento es algo más del doble del tamaño calculado, porque la construcción copia la base a un espacio
+  transformado y la libera al terminar. El índice que queda es el del tamaño calculado.
+- **El pico del proceso** (`VmHWM`) lo fija la carga de la base completa, antes de recortarla a 100 000 filas: 5.7 GiB
+  con Cohere. No mide ninguna estructura.
+
 ## Lo que no se midió
 
-- **Memoria:** el RSS y el conjunto de trabajo en la caché de páginas no se midieron. El experimento es en memoria, y
-  se informa el tamaño de cada estructura.
-- **Caché fría:** no aplica en memoria. Queda para el índice almacenado.
+- **Memoria en Windows y a 1 M:** el RSS solo se midió en Linux y a 100 000 filas (*Memoria*).
+- **Caché fría y conjunto de trabajo en la caché de páginas:** no aplican en memoria. Quedan para el índice
+  almacenado.
 - **10 M, filtros, deriva, corrección, durabilidad y costo operativo:** son mediciones del índice almacenado, de 7.6.
 - **HNSW en Linux:** su construcción en paralelo no es determinista, así que no tiene resumen que comparar entre
   plataformas.
@@ -194,3 +231,5 @@ Salidas sin editar de `krummi-ann-lab`:
 - [Windows, barrido fino](2026-11-24-ann-experiment/windows-fine.md)
 - [Windows, HNSW](2026-11-24-ann-experiment/windows-hnsw.md)
 - [Windows con turbo](2026-11-24-ann-experiment/windows-boost.md)
+- [Linux, memoria a 100 000 filas](2026-11-24-ann-experiment/linux-memory.md)
+- [Linux, memoria del producto escalar](2026-11-24-ann-experiment/linux-memory-dot.md)

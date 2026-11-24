@@ -585,6 +585,9 @@ boost off (base clock).
   a narrower gap than the estimates above suggested (IVF-SQ8 5–12 ms, HNSW 1–2 ms). It does not reach 0.95 on GloVe with M 16. It took 1169 to 1791 s to build
   in parallel, against 579 to 773 s for IVF.
 - **Determinism:** the 12 result digests match bit for bit between Windows and Linux.
+- **Memory** (Linux, 100,000 rows, RSS growth while building). The `hnsw_rs` graph takes about 2.7–2.8 KiB per vector
+  beyond the vectors, against 128 bytes for compact 4-byte links. IVF grows to about twice its computed size while it
+  builds, and keeps its computed size afterwards.
 
 ## When the recommendation would change
 
