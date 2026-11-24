@@ -22,7 +22,7 @@ const SCAN_FACTORS: [usize; 5] = [1, 2, 4, 8, 16];
 /// Rerank factors of IVF-SQ8 measured with their latency.
 const IVF_FACTORS: [usize; 3] = [2, 4, 8];
 
-/// The nprobe sweep, cut at the number of lists.
+/// The default nprobe sweep, cut at the number of lists.
 const NPROBES: [usize; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
 
 /// Queries run untimed before each timed configuration.
@@ -91,7 +91,7 @@ fn ids(results: &[Neighbour]) -> Vec<u32> {
 }
 
 /// Runs `search` over every query on this thread, timed, after a warm-up; returns the results and the latency.
-fn timed(
+pub(crate) fn timed(
     queries: &Vectors,
     search: impl Fn(&[f32]) -> Vec<Neighbour>,
 ) -> (Vec<Vec<Neighbour>>, Latency) {
@@ -110,7 +110,10 @@ fn timed(
 }
 
 /// Runs `work(i)` for every query index `i` on every core, untimed.
-fn parallel<T: Clone + Default + Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
+pub(crate) fn parallel<T: Clone + Default + Send>(
+    count: usize,
+    work: impl Fn(usize) -> T + Sync,
+) -> Vec<T> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
     let chunk = count.div_ceil(threads).max(1);
     let mut out = vec![T::default(); count];
@@ -127,22 +130,24 @@ fn parallel<T: Clone + Default + Send>(count: usize, work: impl Fn(usize) -> T +
     out
 }
 
-fn recall_of(results: &[Vec<Neighbour>], truth: &[Vec<u32>], k: usize) -> f64 {
+pub(crate) fn recall_of(results: &[Vec<Neighbour>], truth: &[Vec<u32>], k: usize) -> f64 {
     let found: Vec<Vec<u32>> = results.iter().map(|r| ids(r)).collect();
     crate::run::recall(&found, truth, k)
 }
 
-fn mib(bytes: usize) -> f64 {
+pub(crate) fn mib(bytes: usize) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
 }
 
-/// Measures one data set at one scale under one metric and returns its section of the report, in Markdown.
+/// Measures one data set at one scale under one metric and returns its section of the report, in Markdown. `nprobes`
+/// replaces the default sweep.
 pub fn measure(
     title: &str,
     base: &Vectors,
     queries: &Vectors,
     metric: Metric,
     truth: &[Vec<u32>],
+    nprobes: Option<&[usize]>,
 ) -> String {
     let rows = base.len();
     let lists = lists_for(rows);
@@ -245,7 +250,8 @@ pub fn measure(
         "| nprobe | % listas | índice | r | recall@10 | recall@100 | p50 ms | p95 ms | p99 ms | consultas/s |"
     );
     let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|");
-    for nprobe in NPROBES.into_iter().filter(|&n| n <= lists) {
+    let nprobes = nprobes.unwrap_or(&NPROBES);
+    for nprobe in nprobes.iter().copied().filter(|&n| n <= lists) {
         let share = 100.0 * nprobe as f64 / lists as f64;
         let row = |out: &mut String,
                    index: &str,

@@ -27,6 +27,10 @@ pub struct Options {
     pub set: Option<Set>,
     pub rows: Option<usize>,
     pub report: Option<PathBuf>,
+    /// Only this metric of the set (`--metrica`).
+    pub metric: Option<Metric>,
+    /// The nprobe sweep instead of the default one (`--sondeos`).
+    pub nprobes: Option<Vec<usize>>,
 }
 
 /// A data set of S3.
@@ -299,12 +303,47 @@ pub fn ground_truth(options: &Options) -> Result<(), String> {
     Ok(())
 }
 
-/// Measures the approximate searches of S5 on every metric of the set at `--filas` (all the vectors by default),
-/// prints each section and appends it to `--informe` when given. The exact ground truth must exist (`verdad`).
+/// Measures the approximate searches of S5 (steps 1 and 2) on every metric of the set at `--filas` (all the vectors
+/// by default), prints each section and appends it to `--informe` when given. The exact ground truth must exist
+/// (`verdad`).
 pub fn measure(options: &Options) -> Result<(), String> {
+    sections(options, |title, base, queries, metric, truth| {
+        crate::measure::measure(
+            title,
+            base,
+            queries,
+            metric,
+            truth,
+            options.nprobes.as_deref(),
+        )
+    })
+}
+
+/// Measures the external HNSW (step 3) as [`measure`] measures the other searches.
+pub fn graph(options: &Options) -> Result<(), String> {
+    sections(options, crate::hnsw::measure)
+}
+
+/// Runs `section` on every set and metric chosen by `options`, prints each section and appends it to `--informe`.
+fn sections(
+    options: &Options,
+    section: impl Fn(&str, &Vectors, &Vectors, Metric, &[Vec<u32>]) -> String,
+) -> Result<(), String> {
     for set in sets(options) {
+        let metrics: Vec<Metric> = set
+            .metrics()
+            .iter()
+            .copied()
+            .filter(|&m| options.metric.is_none_or(|only| only == m))
+            .collect();
+        if metrics.is_empty() {
+            return Err(format!(
+                "El conjunto {set} no se mide con la métrica {}.",
+                options.metric.map_or("", Metric::name)
+            ));
+        }
         let (base, queries) = load(&options.folder, set, options.rows)?;
-        for &metric in set.metrics() {
+        for metric in metrics {
             let path = truth_path(&options.folder, set, metric, base.len());
             if !path.exists() {
                 return Err(format!(
@@ -320,7 +359,7 @@ pub fn measure(options: &Options) -> Result<(), String> {
                 metric.name()
             );
             let started = Instant::now();
-            let section = crate::measure::measure(&title, &base, &queries, metric, &truth);
+            let section = section(&title, &base, &queries, metric, &truth);
             println!(
                 "{section}(medido en {:.1} s)
 ",
