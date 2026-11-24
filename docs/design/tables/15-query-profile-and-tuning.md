@@ -56,6 +56,9 @@ si no sería posible "aprender" de los errores." It continued, verbatim:
   máquina de análisis?", "Se pueden crear volúmenes con XFS en AKS? y en un contenedor linux con Docker Desktop en mi
   portátil Windows?", "Genial!! así podré hacer pruebas de análisis cuando llegue el momento." and, to adding it here,
   "Sí".
+- On how long the profile lasts, on 2026-11-24: "Una cuestión sobre el perfilado. ¿Tendríamos perfil para más de un
+  día? o los vamos eliminando...", "Entonces en la máquina de análisis habría que fusionar el perfil que hay en la
+  máquina de análisis con lo que viene de produccion?" and, to adding it here, "Sí agrégalo".
 
 Status: proposal. Nothing here is implemented, built or measured, and no PRD takes it yet. It comes after module 17
 (queries), which it builds on; what module 17 must provide from its first version so that this work needs no
@@ -185,6 +188,8 @@ Each gap names what it changes in the design.
 | H30 | A shape's new plan can cost more than the one it replaced | After revalidation replans a shape or the catalog changes, a frequent shape costs more until someone notices | The consumer suspects a new plan from the aggregates, confirms the regression with a trial that runs both plans at random, and forces the last good plan (*Plan regressions*) |
 | H31 | A full copy of a large store every day | Too slow and too large to keep the analysis copy current | Incremental backups applied to a replica (module 10, B1, B2) |
 | H32 | The analysis writes: candidate indexes and replayed writes | Analyzing the replica itself breaks the chain of incrementals applied to it | Each analysis runs on a copy-on-write clone of the replica, deleted afterwards (*Keeping the analysis copy*) |
+| H33 | Sampled executions kept for long in production | About 400 MB a day with 1,000 active entries at `T = 2,000` and 200 bytes per row [I], several GB a week on the main store's machine | About 3 days of samples in production; the long history in the analysis machine's archive |
+| H34 | Each daily copy of the production profile repeats its last 30 days | Adding the copies together counts everything several times; a watermark on the wall clock skips or repeats intervals when the clock goes back or the profile is created again | The archive imports only closed intervals after a watermark of (instance identity, sequence) (*The profile archive*) |
 
 ## The profile
 
@@ -450,9 +455,10 @@ and a sample never exists without its aggregates. If the write fails or the prof
 wait in memory up to a bound; past it the cheapest shapes are dropped and counted. A query never waits for
 any of this.
 
-Because the aggregates merge exactly, retention loses resolution, never precision: 15-minute intervals for 7 days,
-then merged into hours and later into days, for 30 to 90 days (question 4). The sampled executions follow a retention
-of their own.
+Because the aggregates merge exactly, retention loses resolution, never precision: in production, 15-minute
+intervals for 7 days, then merged into hours and later into days, for 30 days; sampled executions for about 3 days
+(question 4). Each closed interval gets the next number of the profile's sequence (*The profile archive*). The long
+history lives in the analysis machine's archive (*The profile archive*).
 
 ### Contents
 
@@ -460,7 +466,7 @@ Krummi tables in the profile store, so the tuner and the application can query t
 
 | Table | Key | Contents |
 |---|---|---|
-| `meta` | — | Format version, the main store's identity (H16), dropped counts, first and last interval |
+| `meta` | — | Format version, the main store's identity (H16), the profile's instance identity and the sequence of its last closed interval (*The profile archive*), dropped counts, first and last interval |
 | `shapes` | shape id | Canonical shape bytes, table, first and last seen |
 | `plans` | plan id | Shape, plan bytes, origin (planner, directive, accepted), first and last seen |
 | `runtime` | plan, interval start | The aggregates of *Aggregates*; peak memory; replans |
@@ -689,6 +695,36 @@ with `fsync` of the journal, which rules out the file systems whose copy-on-writ
   `mkfs.xfs -i nrext64=0` mounted. After updating to WSL 3.0.5 (kernel 6.18.58.1) and Docker Desktop 29.9.3, the
   default options mount. In both cases a 200 MiB file cloned with `cp --reflink=always` took about 0 s and 0 MiB more,
   identical to the original; writing 800 KiB into the clone used about 1 MiB more and left the original untouched.
+
+### The profile archive
+
+The profile in production keeps a short history, so that it weighs little on the main store's machine (H33): 30
+days of aggregates and about 3 days of sampled executions (question 4). The long history lives on the analysis
+machine, in an **archive**: a profile store of its own that receives, every day, the profile copied whole from
+production (*Keeping the analysis copy*).
+
+Each daily copy brings again the same 30 days of aggregates, so adding the copies together would count everything
+several times (H34). The archive therefore **imports**, it does not sum:
+
+- **A watermark per production profile.** Every production profile has an **instance identity**, drawn when the
+  profile is created, and numbers its closed intervals with a **sequence** that only grows. The archive remembers,
+  per instance, the last sequence it imported, and takes from each copy only the closed intervals after it; the
+  interval in flight is never taken. A watermark on the wall clock would skip or repeat intervals when production's
+  clock goes back, and a profile discarded and created again after damage starts a new instance with its own
+  sequence.
+- **Aggregates are appended as they are.** A closed interval never changes, so nothing is summed. Intervals that
+  production has already merged into hours or days are older than the watermark, and the archive already holds them
+  at their 15-minute resolution.
+- **Sampled executions are appended as they are.** Each row keeps its probability, so its weight stays valid in the
+  archive, and the calibration uses the aggregates of the same interval, imported with it.
+- **Shapes and plans are inserted when missing.** Their identifiers come from the hash of their canonical bytes, so
+  they are the same on both machines (M5).
+- **The same main store.** The archive checks the main store's identity in `meta` (H16) and refuses a copy from
+  another store.
+
+Within the archive, the only sums are its own merges of old intervals into hours and days, the exact merge the
+aggregates were designed for, and it keeps sampled executions as long as the analysis needs, for months if wanted,
+without weighing on production.
 
 ## Language models on the analysis machine
 
@@ -1008,8 +1044,11 @@ The analysis copy (*Keeping the analysis copy*) asks of it:
    directives off until the application turns them on. Alternative: everything off by default.
 3. **Where the profile lives.** Recommended: a reserved subfolder of the store's folder (like `krummi.sort`), so it
    follows the store. Alternative: a folder given by the application.
-4. **Retention and size.** Recommended: 30 days of intervals and a size bound, evicting the cheapest shapes.
-   Alternative: options with no default bound.
+4. **Retention and size.** Recommended: in production, 30 days of aggregates (15-minute intervals for 7 days, then
+   hours, then days) and about 3 days of sampled executions, with a size bound that evicts the cheapest shapes; the
+   long history in the analysis machine's archive, with a retention of its own (*The profile archive*). Changed
+   2026-11-24 after the user asked whether the profile lasts more than a day. Alternative: the whole history in
+   production, with options and no default bound.
 5. **Automatic directives and the last good plan.** Recommended: on when profiling is on, with trial and expiry.
    Alternative: only as tuner recommendations.
 6. **Who starts the in-process tuner.** Recommended: the application calls it. Alternative: a schedule option run by
