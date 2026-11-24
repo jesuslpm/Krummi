@@ -4,7 +4,11 @@
 
 pub mod data;
 pub mod files;
+pub mod ivf;
 pub mod kernels;
+pub mod measure;
 pub mod prepare;
 pub mod run;
+pub mod search;
+pub mod sq8;
 pub mod topk;

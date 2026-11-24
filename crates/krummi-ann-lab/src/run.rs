@@ -299,9 +299,46 @@ pub fn ground_truth(options: &Options) -> Result<(), String> {
     Ok(())
 }
 
-/// Measures the approximate searches (T4, T5).
-pub fn measure(_options: &Options) -> Result<(), String> {
-    Err("La medición todavía no está implementada.".to_string())
+/// Measures the approximate searches of S5 on every metric of the set at `--filas` (all the vectors by default),
+/// prints each section and appends it to `--informe` when given. The exact ground truth must exist (`verdad`).
+pub fn measure(options: &Options) -> Result<(), String> {
+    for set in sets(options) {
+        let (base, queries) = load(&options.folder, set, options.rows)?;
+        for &metric in set.metrics() {
+            let path = truth_path(&options.folder, set, metric, base.len());
+            if !path.exists() {
+                return Err(format!(
+                    "Falta la verdad exacta {}: ejecute antes la orden verdad con las mismas opciones.",
+                    path.display()
+                ));
+            }
+            let truth = read_ivecs(&path).map_err(|e| failed(&path, e))?;
+            let title = format!(
+                "{set}, {} filas de {} dimensiones, {}",
+                base.len(),
+                base.dim(),
+                metric.name()
+            );
+            let started = Instant::now();
+            let section = crate::measure::measure(&title, &base, &queries, metric, &truth);
+            println!(
+                "{section}(medido en {:.1} s)
+",
+                started.elapsed().as_secs_f64()
+            );
+            if let Some(report) = &options.report {
+                use std::io::Write;
+                let mut file = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(report)
+                    .map_err(|e| failed(report, e))?;
+                file.write_all(section.as_bytes())
+                    .map_err(|e| failed(report, e))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

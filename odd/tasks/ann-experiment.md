@@ -58,11 +58,11 @@ Estimate: 3 h 30 min – 6 h. Real start: 2026-11-24 06:21:06 +0000.
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S2, S8 | inline | done | `14f7346` |
-| T2 | S3 | inline | done | (this commit) |
-| T3 | S5 | inline | in progress | |
-| T4 | S5, S6 | inline | pending | |
-| T5 | S5, S6, S7 | inline | pending | |
-| T6 | S4, S6, S7 | inline | pending | |
+| T2 | S3 | inline | done | `b703169` |
+| T3 | S5 | inline | done | `b703169`, then the blocked walk in the T4–T5 commit |
+| T4 | S5, S6 | inline | done | one commit with T5 (they share the measurement) |
+| T5 | S5, S6, S7 | inline | done | one commit with T4 |
+| T6 | S4, S6, S7 | inline | in progress | |
 | T7 | S7 | inline, only if T6 misses S7 | pending | |
 
 - T1: the crate, the exact kernels with their golden test, and the exact top-k with a bounded heap.
@@ -96,3 +96,14 @@ Route evidence: the units depend on each other (each uses the previous one), so 
   recall@100 0.9999, and 0 queries whose 10 first distances differ, so every difference is a tie. One query on one
   thread: 0.118 s (about 1.1 G multiply-adds per second, document 5's estimate). The parallel ground truth walked the
   base once per query and took 63.1 s; walking it once per block of queries takes 21.3 s, with identical bytes.
+- **L6** (2026-11-24, T3): ground truth computed for the three sets at 10,000, 100,000 and all rows. Cohere by cosine
+  against the source's: recall@10 1.0000, recall@100 1.0000, 0 differing queries. GloVe has no source ground truth.
+- **L7** (2026-11-24, T4–T5): first trial (SIFT 10,000) showed IVF-SQ8 slower than IVF-Flat: the SQ8 pass indexed its
+  arrays and did not vectorize; walking code, query and steps in blocks of 16 made it about 4 times faster with the
+  same results (digest `9d63d3c2eba2f703` before and after). Unpinned, the timed thread may land on an E core: the
+  exact search of SIFT 10,000 takes p50 0.82 ms with affinity `0xFFFF` (logical 0–15, the P cores) and 1.55 ms with
+  `0xFFFF0000` (the E cores). Default taken: the Windows runs use `start /affinity 0xFFFF` under the bench power plan;
+  in WSL the hypervisor schedules the virtual CPUs, so the Linux runs are not pinned (stated in the report).
+- **L8** (2026-11-24, T5 default): IVF assigns and probes by L2 in the space of the codes (vectors as given for l2 and
+  dot, normalized for cosine), as document 12 assumes ("IVF partitions by L2"); the dot product on unnormalized
+  vectors is thus measured as the risk it names.
