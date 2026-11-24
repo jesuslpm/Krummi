@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crate::data::Vectors;
 use crate::files::{read_fvecs, read_ivecs, write_fvecs, write_ivecs};
+use crate::ivf::lists_for;
 use crate::kernels::Metric;
 use crate::prepare;
 use crate::topk;
@@ -343,6 +344,9 @@ fn sections(
             ));
         }
         let (base, queries) = load(&options.folder, set, options.rows)?;
+        if let Some(nprobes) = &options.nprobes {
+            check_nprobes(nprobes, base.len())?;
+        }
         for metric in metrics {
             let path = truth_path(&options.folder, set, metric, base.len());
             if !path.exists() {
@@ -380,6 +384,17 @@ fn sections(
     Ok(())
 }
 
+/// Fails when an explicit nprobe exceeds the lists of a base of `rows` vectors, so no requested row is dropped.
+fn check_nprobes(nprobes: &[usize], rows: usize) -> Result<(), String> {
+    let lists = lists_for(rows);
+    match nprobes.iter().find(|&&n| n > lists) {
+        Some(n) => Err(format!(
+            "El sondeo {n} supera las {lists} listas de {rows} filas."
+        )),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,5 +419,14 @@ mod tests {
                 .collect();
             assert_eq!(list, &one);
         }
+    }
+
+    #[test]
+    fn explicit_nprobes_above_the_lists_are_rejected() {
+        assert_eq!(check_nprobes(&[4, 10], 10_000), Ok(()));
+        assert_eq!(
+            check_nprobes(&[4, 11], 10_000),
+            Err("El sondeo 11 supera las 10 listas de 10000 filas.".to_string())
+        );
     }
 }
