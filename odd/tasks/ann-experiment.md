@@ -158,4 +158,13 @@ Route evidence: the units depend on each other (each uses the previous one), so 
 
   The advisory fixes went into one commit after the reviews. Checks: the SIFT 10,000 and GloVe 10,000 digests are
   unchanged (`9d63d3c2eba2f703`, `13245170461c22a6`).
+- **L15** (2026-11-24, RDD last slice): `32ad2c6..1fdce49` (the advisory fixes and `f36bc95`), assessed medium
+  `under_budget`, reviewed under the closing rule with lenses reliability and readability. Approved, lineage
+  `review-cc6339465020a82c`. Kept as follow-ups, all informational:
+  - R2-001 (the truth error names both counts);
+  - R2-002 (the wording "requested row" in a doc comment);
+  - R2-003 (an empty selection is success);
+  - R3-001 (`--sondeos` is checked per set, so a run over sets of different sizes can fail late);
+  - R3-002 (no test of the clamped slice);
+  - R3-003 (an option error is reported before an unknown command).
 
