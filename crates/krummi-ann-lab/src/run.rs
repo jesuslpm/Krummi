@@ -224,14 +224,16 @@ pub fn exact_all(base: &Vectors, queries: &Vectors, metric: Metric, k: usize) ->
     lists
 }
 
-/// How many of the first `k` ids of `expected` are among the first `k` of `found`, over all the queries.
+/// The share of the first `k` ids of `expected` that are among the first `k` of `found`, over all the queries. A
+/// base of fewer than `k` rows has fewer than `k` neighbours to find, so the share is of those it has.
 pub fn recall(found: &[Vec<u32>], expected: &[Vec<u32>], k: usize) -> f64 {
-    let mut hits = 0usize;
+    let (mut hits, mut wanted_total) = (0usize, 0usize);
     for (f, e) in found.iter().zip(expected) {
         let wanted = &e[..k.min(e.len())];
         hits += f.iter().take(k).filter(|id| wanted.contains(id)).count();
+        wanted_total += wanted.len();
     }
-    hits as f64 / (expected.len() * k) as f64
+    hits as f64 / wanted_total.max(1) as f64
 }
 
 /// How many queries have first `k` neighbours at other distances in `found` than in `expected`. Two lists that
@@ -436,6 +438,10 @@ mod tests {
         let found = vec![vec![2, 1, 9, 4], vec![5, 0, 0, 0]];
         assert_eq!(recall(&found, &expected, 2), 0.75);
         assert_eq!(recall(&found, &expected, 4), 0.5);
+        // A base of fewer than k rows: finding all of its neighbours is a recall of 1.
+        let small = vec![vec![0, 1, 2, 3, 4]];
+        assert_eq!(recall(&small, &small, 10), 1.0);
+        assert_eq!(recall(&[vec![0, 1, 2, 3, 9]], &small, 10), 0.8);
     }
 
     #[test]
