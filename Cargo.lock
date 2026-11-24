@@ -703,6 +703,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "krummi-ann-lab"
+version = "0.1.0"
+
+[[package]]
 name = "krummi-bench"
 version = "0.1.0"
 dependencies = [
