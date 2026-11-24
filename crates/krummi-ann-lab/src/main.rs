@@ -66,6 +66,12 @@ fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
     if options.metric.is_some() && command != "medir" && command != "grafo" {
         return Err("La opción --metrica solo vale con medir y grafo.".to_string());
     }
+    if options.rows.is_some() && command == "preparar" {
+        return Err("La opción --filas no vale con preparar.".to_string());
+    }
+    if options.report.is_some() && command != "medir" && command != "grafo" {
+        return Err("La opción --informe solo vale con medir y grafo.".to_string());
+    }
     Ok((command, options))
 }
 
@@ -150,5 +156,17 @@ mod tests {
             );
         }
         assert!(parsed(&["grafo", "--carpeta", "w", "--metrica", "l2"]).is_ok());
+        assert_eq!(
+            parsed(&["preparar", "--carpeta", "w", "--filas", "2"]).unwrap_err(),
+            "La opción --filas no vale con preparar."
+        );
+        assert!(parsed(&["verdad", "--carpeta", "w", "--filas", "2"]).is_ok());
+        for command in ["preparar", "verdad"] {
+            assert_eq!(
+                parsed(&[command, "--carpeta", "w", "--informe", "r.md"]).unwrap_err(),
+                "La opción --informe solo vale con medir y grafo."
+            );
+        }
+        assert!(parsed(&["grafo", "--carpeta", "w", "--informe", "r.md"]).is_ok());
     }
 }
