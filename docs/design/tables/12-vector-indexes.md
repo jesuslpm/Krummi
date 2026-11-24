@@ -11,6 +11,10 @@ indexes*, built after 7.5 and before module 17, with this document as its techni
 Status: a proposal. Nothing here is implemented, built or measured. The six decisions in *Product questions* need the
 user's approval; PRD 7.6 settles them.
 
+Annotated 2026-11-24: the in-memory experiment of *Benchmarks*, steps 1 to 3, has run. Its results are in *Measured
+result* below and in the [report](../../benchmark/2026-11-24-ann-experiment.md). The rest of the document is unchanged,
+and its **[M]** estimates are kept as they were written.
+
 History: a first evaluation (v1) assumed that the index is maintained inside the transaction that changes the table.
 An external review relayed by the user (findings R1-1 to R1-9, *Review history* below) and a change of requirement
 the same day replaced it (v2, this document). The requirement change, verbatim: "Los índices vectoriales ANN de
@@ -486,6 +490,12 @@ Measured as **latency reduction against the exact scan**, IVF keeps about 97 % o
 10–30 % of HNSW's. IVF-SQ8 is the balanced choice for interactive latency, not for a service with many queries per
 second.
 
+Measured on 2026-11-24, in memory, one thread, at base clock (*Measured result*):
+
+- Exact scan: 0.92 s.
+- IVF-SQ8: 17.2 ms with 4 % of the lists for L2, and 20.9 ms with 7.2 % for the dot product.
+- External HNSW: 11.2 ms for L2 and 5.9 ms for the dot product.
+
 ## Risks
 
 | Risk | Consequence | Mitigation |
@@ -549,6 +559,32 @@ that does not fit in RAM. **Ground truth:** Krummi's own exact scan.
 - recall@10 ≥ 0.95 with a p95 ≤ 20 ms, one thread, warm cache, backlog drained;
 - a write transaction's p95 with the index within 10 % of without it;
 - the worker holds the write turn ≤ 15 ms per batch.
+
+### Measured result (2026-11-24)
+
+Steps 1 to 3 ran in memory with `krummi-ann-lab`, on Windows and Linux; see the
+[report](../../benchmark/2026-11-24-ann-experiment.md). Setup: one thread, warm cache, Windows on the P cores with
+boost off (base clock).
+
+| Data set | First nprobe with recall@10 ≥ 0.95 | % of the lists | p95 | External HNSW (M 16) at recall@10 ≥ 0.95 |
+|---|---|---|---|---|
+| Cohere 1 M × 768, L2 | 40 | 4.0 | 17.20 ms | ef 320, p95 11.19 ms |
+| Cohere 1 M × 768, dot product, unnormalized | 72 | 7.2 | 20.90 ms | ef 80, p95 5.89 ms |
+| GloVe 1.19 M × 100, cosine | 160 | 14.7 | 6.18 ms | not reached: 0.9175 at ef 640, p95 19.24 ms |
+| SIFT 1 M × 128, L2 | 32 | 3.2 | 2.49 ms | not measured |
+
+- **Step 1 (quantization):** quantization alone loses almost nothing. The SQ8 scan with a rerank of 10·r candidates
+  gives recall@10 ≥ 0.978 at r = 1 and 1.0000 at r = 2 on every data set at 1 M.
+- **Step 2 (partitioning):** IVF-SQ8 with r = 2 has IVF-Flat's recall in every row, at about 1/3.5 of its p95, so
+  all the loss comes from partitioning. The 1 M IVF-SQ8 index takes 739 MiB, against 2936 MiB for IVF-Flat.
+- **Thresholds:** L2 at 1 M × 768, the reference case, meets them. Two switch criteria fire narrowly:
+  - the dot product misses the 20 ms p95 by 0.9 ms at base clock (boost makes full passes 1.7–1.8 times faster at
+    10,000 rows; it was not measured at 1 M);
+  - GloVe needs 14.7 % of the lists, at a p95 far under 20 ms.
+- **The graph:** the external HNSW is 3.5 times faster than IVF-SQ8 for the dot product and 1.5 times faster for L2,
+  a narrower gap than the estimates above suggested (IVF-SQ8 5–12 ms, HNSW 1–2 ms). It does not reach 0.95 on GloVe with M 16. It took 1169 to 1791 s to build
+  in parallel, against 579 to 773 s for IVF.
+- **Determinism:** the 12 result digests match bit for bit between Windows and Linux.
 
 ## When the recommendation would change
 

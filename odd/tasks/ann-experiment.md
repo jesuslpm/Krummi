@@ -62,8 +62,8 @@ Estimate: 3 h 30 min – 6 h. Real start: 2026-11-24 06:21:06 +0000.
 | T3 | S5 | inline | done | `b703169`, then the blocked walk in the T4–T5 commit |
 | T4 | S5, S6 | inline | done | one commit with T5 (they share the measurement) |
 | T5 | S5, S6, S7 | inline | done | one commit with T4 |
-| T6 | S4, S6, S7 | inline | in progress | |
-| T7 | S7 | inline, only if T6 misses S7 | pending | |
+| T6 | S4, S6, S7 | inline | done | the report commit (L12) |
+| T7 | S7 | inline, only if T6 misses S7 | done | `d07655c` (code); results in the report commit |
 
 - T1: the crate, the exact kernels with their golden test, and the exact top-k with a bounded heap.
 - T2: download and convert the data sets to one raw cache format; held-out queries.
@@ -107,3 +107,36 @@ Route evidence: the units depend on each other (each uses the previous one), so 
 - **L8** (2026-11-24, T5 default): IVF assigns and probes by L2 in the space of the codes (vectors as given for l2 and
   dot, normalized for cosine), as document 12 assumes ("IVF partitions by L2"); the dot product on unnormalized
   vectors is thus measured as the risk it names.
+- **L9** (2026-11-24, T6 evidence): the Windows run (06:52–08:20 UTC, bench power plan with boost off, affinity
+  `0xFFFF`) wrote the 12 sections in `work/ann/out/windows.md`. At 1 M, IVF-SQ8 with r = 2 already has IVF-Flat's
+  recall in every row (quantization loses nothing after the rerank). recall@10 ≥ 0.95 is reached by Cohere l2 between
+  nprobe 32 (0.9415, p95 14.89 ms) and 64 (0.9773, p95 27.99 ms); by Cohere dot between 64 (0.9483, 6.4 %, p95
+  19.65 ms) and 128 (0.9750, 12.8 %, p95 35.45 ms); GloVe stays at 0.9457 at 128 (11.7 % of the lists). The first
+  Linux run failed (`cargo: not found`: a non-interactive `sh` in WSL does not read `~/.cargo/env`); the script now
+  sources it and was run again. An 11 s `cargo clippy` overlapped the start of the Linux run.
+- **L10** (2026-11-24, defaults taken): GloVe misses S7's first switch criterion (more than ~10 % of the lists), so
+  T7 runs (an external HNSW, `hnsw_rs` 0.3.5, M 16, ef_construction 200, document 5's kernels as its distance, the
+  candidates reranked exactly; Windows only, because its parallel build is not deterministic). The 0.95 crossings are
+  measured with a finer sweep (`--sondeos`, `--metrica`): l2 40, 48, 56; dot 72, 80, 96, 112; GloVe 160, 192, 256. The
+  bench plan turns boost off, so the P cores run at their base clock; SIFT 10,000 and Cohere 10,000 l2 are measured
+  again with `-Boost` to report the clock's share of the 20 ms threshold.
+- **L11** (2026-11-24, T6–T7 evidence): S4 holds. `cargo test` passes on Linux, golden bits included, and the 12
+  result digests are identical on Windows and Linux. The fine sweep and the HNSW ran on Windows from 19:34 to 21:54
+  UTC. IVF-SQ8 r = 2 reaches recall@10 ≥ 0.95 as follows:
+  - Cohere L2: nprobe 40 (4.0 %), p95 17.20 ms; meets S7.
+  - Cohere dot: nprobe 72 (7.2 %), p95 20.90 ms; misses the p95 by 0.9 ms at base clock.
+  - GloVe: nprobe 160 (14.7 %), p95 6.18 ms; misses the share of the lists.
+
+  The external HNSW reaches recall@10 ≥ 0.95 at:
+  - L2: ef 320, p95 11.19 ms;
+  - dot: ef 80, p95 5.89 ms;
+  - GloVe: never; 0.9175 at ef 640.
+
+  Builds in parallel: HNSW 1169–1791 s, IVF 579–773 s. With boost, full passes at 10,000 rows run 1.7–1.8 times
+  faster. RSS was not measured (S6 gap, stated in the report); index sizes were.
+- **L12** (2026-11-24, T6): report `docs/benchmark/2026-11-24-ann-experiment.md`, with the raw outputs beside it.
+  Design document 12 was annotated with *Measured result*. The algorithm choice for PRD 7.6 is left to the user:
+  - IVF-SQ8 meets the reference case;
+  - the two switch criteria that fire do so narrowly;
+  - HNSW fixes only the dot-product case.
+
