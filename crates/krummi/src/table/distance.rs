@@ -63,7 +63,6 @@ impl VectorMetric {
     }
 
     /// Its byte in the catalog.
-    #[allow(dead_code, reason = "used by the vector indexes' worker (T6)")]
     pub(crate) fn code(self) -> u8 {
         match self {
             VectorMetric::L2 => 0,
@@ -74,7 +73,6 @@ impl VectorMetric {
     }
 
     /// The metric of a catalog byte, `None` for an unknown one.
-    #[allow(dead_code, reason = "used by the vector indexes' worker (T6)")]
     pub(crate) fn of_code(code: u8) -> Option<VectorMetric> {
         Some(match code {
             0 => VectorMetric::L2,
@@ -271,7 +269,6 @@ pub(crate) fn hamming(a: &[u8], b: &[u8]) -> u32 {
 /// The `f32` work vector of a value of `vector` (not `bit`), as an index trains, assigns and quantizes it: `f32`
 /// elements as they are, `f16` ones exactly, `i8` ones times the scale in `f32`; for the cosine, divided by the norm
 /// (in `f64`, then rounded), so that the order of 1 - cos is the order of the negated dot product of unit vectors.
-#[allow(dead_code, reason = "used by the vector indexes' worker (T6)")]
 pub(crate) fn work_vector(vector: &VectorType, value: &[u8], out: &mut Vec<f32>) {
     out.clear();
     let dim = usize::from(vector.dimension);
@@ -298,7 +295,6 @@ pub(crate) fn work_vector(vector: &VectorType, value: &[u8], out: &mut Vec<f32>)
 }
 
 /// Σ(aᵢ - bᵢ)² of two `f32` work vectors in `f32`, in the fixed order: the assignment's distance to a centroid.
-#[allow(dead_code, reason = "used by the vector indexes' worker (T6)")]
 pub(crate) fn work_l2(a: &[f32], b: &[f32]) -> f32 {
     let (a_chunks, a_tail) = a.as_chunks::<LANES>();
     let (b_chunks, b_tail) = b.as_chunks::<LANES>();
@@ -316,7 +312,6 @@ pub(crate) fn work_l2(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// Σ terms in `f32` in the fixed order: 16 lanes, the tree, then the tail in order.
-#[allow(dead_code, reason = "used by the vector indexes' worker (T6)")]
 pub(crate) fn work_sum(terms: &[f32]) -> f32 {
     let (chunks, tail) = terms.as_chunks::<LANES>();
     let mut lanes = [0f32; LANES];
@@ -330,7 +325,6 @@ pub(crate) fn work_sum(terms: &[f32]) -> f32 {
 
 /// One pass of `term(codeᵢ, aᵢ, bᵢ)` over an SQ8 code in `f32`, in the fixed order.
 #[inline]
-#[allow(dead_code, reason = "used by the vector indexes' worker (T6)")]
 pub(crate) fn code_pass(
     code: &[u8],
     a: &[f32],

@@ -55,7 +55,6 @@ impl Rng {
 /// How the codes are compared: L2 on the work vectors, or the dot product (the cosine's work vectors are unit vectors,
 /// whose dot product orders as one minus the cosine).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "used by the approximate search (T7)")]
 pub(crate) enum Space {
     L2,
     Dot,
@@ -96,7 +95,6 @@ impl Generation {
         })
     }
 
-    #[allow(dead_code, reason = "used by the approximate search (T7)")]
     pub(crate) fn centroid(&self, list: usize) -> &[f32] {
         &self.centroids[list * self.dim..(list + 1) * self.dim]
     }
@@ -119,7 +117,6 @@ impl Generation {
     }
 
     /// The lists in order of the distance of their centroids to `query`, nearest first, ties to the lowest list.
-    #[allow(dead_code, reason = "used by the approximate search (T7)")]
     pub(crate) fn probe_order(&self, query: &[f32]) -> Vec<u32> {
         let mut order: Vec<(f32, u32)> = (0..self.lists as usize)
             .map(|list| (work_l2(self.centroid(list), query), list as u32))
@@ -129,7 +126,6 @@ impl Generation {
     }
 
     /// `query` prepared for distances to codes in `space`.
-    #[allow(dead_code, reason = "used by the approximate search (T7)")]
     pub(crate) fn prepare(&self, space: Space, query: &[f32]) -> Prepared {
         match space {
             Space::L2 => Prepared::L2 {
@@ -199,7 +195,6 @@ impl Generation {
 }
 
 /// A query prepared for one generation: the distance to a code is then one pass over the code.
-#[allow(dead_code, reason = "used by the approximate search (T7)")]
 pub(crate) enum Prepared {
     /// For L2: q - lo, and the step of each dimension.
     L2 { shifted: Vec<f32>, step: Vec<f32> },
@@ -207,7 +202,6 @@ pub(crate) enum Prepared {
     Dot { weight: Vec<f32>, constant: f32 },
 }
 
-#[allow(dead_code, reason = "used by the approximate search (T7)")]
 impl Prepared {
     /// The approximate distance to `code`; smaller is nearer. It only chooses candidates.
     pub(crate) fn distance(&self, code: &[u8]) -> f32 {

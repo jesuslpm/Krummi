@@ -6,7 +6,7 @@
 //! never scanned. Its definition is in the table's catalog entry, after the statistics part, with the roots of its two
 //! trees, which no catalog name reaches (N1): the **pending** tree, keyed by the primary key of each row that changed
 //! and that the index does not reflect yet (VI3), with its number of keys; and the **data** tree, which holds
-//! everything else under a leading tag byte: the state record, and each generation's header, counters, centroids, list
+//! everything else under a leading tag byte: the state record, and each generation's header (with its centroids), counters, list
 //! sizes, postings (`generation ‖ list ‖ primary key` → SQ8 code) and locator (`generation ‖ primary key` → list). The
 //! entry also holds the index's instance, a counter that emptying the table raises, so that the worker drops a batch
 //! prepared for an index that is no longer the same (VI3).
@@ -101,16 +101,13 @@ pub struct VectorRoots {
 }
 
 /// The tags that lead the keys of a data tree.
-#[allow(dead_code, reason = "used by the worker and the searches (T5–T8)")]
 pub(crate) mod tag {
     /// The state record: one key, the tag alone.
     pub(crate) const STATE: u8 = 0;
-    /// `generation` → its header: lists, rows at training, quantizer.
+    /// `generation` → its header: lists, rows at training, quantizer and centroids (tag 3 is unused).
     pub(crate) const HEADER: u8 = 1;
     /// `generation` → its counters: entries and codes with a saturated component.
     pub(crate) const COUNTERS: u8 = 2;
-    /// `generation ‖ list` → the list's centroid.
-    pub(crate) const CENTROID: u8 = 3;
     /// `generation ‖ list` → the list's number of entries.
     pub(crate) const LIST_SIZE: u8 = 4;
     /// `generation ‖ list ‖ primary key` → the row's SQ8 code.
@@ -161,7 +158,6 @@ impl IndexState {
         }
     }
 
-    #[allow(dead_code, reason = "used by the worker and the searches (T5–T8)")]
     pub(crate) fn public(&self) -> VectorIndexState {
         match (self.active, self.building, self.rebuilding) {
             (0, 0, _) => VectorIndexState::Training,
@@ -196,7 +192,6 @@ impl IndexState {
             || self.end.as_deref().is_none_or(|end| key > end)
     }
 
-    #[allow(dead_code, reason = "used by the worker and the searches (T5–T8)")]
     pub(crate) fn decode(bytes: &[u8]) -> Option<IndexState> {
         if bytes.len() < 13 || bytes[12] > 1 {
             return None;

@@ -42,7 +42,7 @@
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 use std::ops::Bound::Unbounded;
 use std::sync::Arc;
 
@@ -55,6 +55,7 @@ use super::filter::{Candidates, Filter, FilterCondition, index_keys};
 use super::rows::{At, Reader, TableRow, Versions};
 use super::schema::{SchemaColumn, TableSchema};
 use super::value::{ColumnType, Value, VectorType, normalize};
+use super::vector_index::VectorRoots;
 use crate::{Folder, ReadTransaction, WriteTransaction};
 
 /// The most neighbours a search returns (document 5, question 9).
@@ -212,6 +213,7 @@ pub(crate) struct Searched<'a> {
     pub(crate) reader: &'a Arc<Reader>,
     pub(crate) schema: &'a TableSchema,
     pub(crate) index_roots: &'a [u64],
+    pub(crate) vector_roots: &'a [VectorRoots],
 }
 
 impl Searched<'_> {
@@ -412,6 +414,7 @@ impl ReadTable<'_> {
             reader: &self.reader,
             schema: &self.schema,
             index_roots: &self.index_roots,
+            vector_roots: &self.vector_roots,
         }
     }
 }
@@ -425,6 +428,7 @@ pub(crate) struct OwnedSearched {
     pub(crate) reader: Arc<Reader>,
     pub(crate) schema: TableSchema,
     pub(crate) index_roots: Vec<u64>,
+    pub(crate) vector_roots: Vec<VectorRoots>,
 }
 
 impl OwnedSearched {
@@ -437,6 +441,7 @@ impl OwnedSearched {
             reader: &self.reader,
             schema: &self.schema,
             index_roots: &self.index_roots,
+            vector_roots: &self.vector_roots,
         }
     }
 }
@@ -452,6 +457,7 @@ impl WriteTransaction<'_> {
             reader: Arc::clone(&state.reader),
             schema: state.schema.clone(),
             index_roots: state.index_roots.clone(),
+            vector_roots: state.vector_roots.clone(),
         })
     }
 
@@ -470,5 +476,324 @@ impl WriteTransaction<'_> {
         owned
             .searched(self.folder)
             .exact(&self.inner, column, metric, query)
+    }
+}
+
+/// The rows that pass at most which a search through an index computes every exact distance instead (VI6), measured
+/// (*Dejado a la implementación*).
+pub(crate) const EXACT_THRESHOLD: u64 = 20_000;
+/// The share of the lists a search probes first when it does not say (VI6).
+const DEFAULT_PROBE_SHARE: f64 = 0.05;
+/// The candidates a search reranks per neighbour, and at least (VI6, *Dejado a la implementación*).
+const RERANK_PER_NEIGHBOUR: usize = 2;
+const RERANK_AT_LEAST: usize = 20;
+
+/// The SQ8 candidates of an approximate search: a max-heap by approximate distance, then key, whose top is the worst.
+struct CodeCandidates {
+    capacity: usize,
+    heap: BinaryHeap<(OrderedF32, Vec<u8>)>,
+}
+
+#[derive(Clone, Copy)]
+struct OrderedF32(f32);
+
+impl PartialEq for OrderedF32 {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for OrderedF32 {}
+
+impl PartialOrd for OrderedF32 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedF32 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+impl CodeCandidates {
+    fn push(&mut self, distance: f32, key: &[u8]) {
+        if self.heap.len() >= self.capacity {
+            let worst = self.heap.peek().expect("capacity is at least 1");
+            if (OrderedF32(distance), key) >= (worst.0, worst.1.as_slice()) {
+                return;
+            }
+        }
+        self.heap.push((OrderedF32(distance), key.to_vec()));
+        if self.heap.len() > self.capacity {
+            self.heap.pop();
+        }
+    }
+}
+
+impl Searched<'_> {
+    /// The search of VI5 and VI6 through the vector index `index` (filter first, then distance).
+    pub(crate) fn approximate<S: PageSource + ?Sized>(
+        &self,
+        shared: &crate::Shared,
+        tx: &S,
+        index: &str,
+        query: &Nearest<'_>,
+    ) -> Result<Neighbours> {
+        let at = (self.schema.vector_index_position(index))
+            .ok_or_else(|| self.folder.missing_vector_index(self.name, index))?;
+        let definition = &self.schema.vector_indexes()[at];
+        let (id, vector) = super::vector_index::vector_of(self.schema, at);
+        let column = self
+            .schema
+            .column_by_id(definition.column.id)
+            .expect("a live column of the index");
+        let metric = definition.metric;
+        let bytes = self.check_query(column, vector, query)?;
+        let filter = Filter::check(self.folder, self.name, self.schema, &query.filter)?;
+        let place = self
+            .schema
+            .column_position(column.id)
+            .expect("a live column");
+        let roots = self.vector_roots[at];
+        let state = super::vector_index::read_state(tx, &roots)?;
+        let exact = Exact::new(vector, metric, &bytes);
+        let hooks = shared.vectors.search_hooks();
+        let threshold = hooks.threshold.unwrap_or(EXACT_THRESHOLD);
+        // No generation ready: the exact distance of every row that passes (VI5).
+        let exact_all = |top: &mut TopK| {
+            self.passing(tx, place, &filter, |primary, row, value| {
+                top.push(exact.key(value), primary, || self.key_values(row));
+                Ok(true)
+            })
+        };
+        if state.active == 0 {
+            let mut top = TopK::new(query.k);
+            exact_all(&mut top)?;
+            return Ok(Neighbours {
+                exact: true,
+                rows: top.into_neighbours(metric),
+            });
+        }
+        // The rows the index does not reflect yet, evaluated exactly (VI5): those that pass, with their distances.
+        let mut pending: HashSet<Vec<u8>> = HashSet::new();
+        let all = Interval {
+            prefix: &[],
+            lower: Unbounded,
+            upper: Unbounded,
+        };
+        for entry in krummi_tree::Range::new(tx, roots.pending, all)? {
+            pending.insert(entry?.0.to_vec());
+        }
+        let mut top = TopK::new(query.k);
+        let passing: Option<HashSet<Vec<u8>>>;
+        let passed: u64;
+        let mut pending_passed = 0usize;
+        if filter.has_conditions() {
+            // Filter first: the passing rows, their exact distances while they stay under the threshold (VI6).
+            let mut set = HashSet::new();
+            let mut count = 0u64;
+            self.passing(tx, place, &filter, |primary, row, value| {
+                count += 1;
+                if count <= threshold || pending.contains(primary) {
+                    top.push(exact.key(value), primary, || self.key_values(row));
+                }
+                if pending.contains(primary) {
+                    pending_passed += 1;
+                }
+                set.insert(primary.to_vec());
+                Ok(true)
+            })?;
+            if count <= threshold {
+                return Ok(Neighbours {
+                    exact: true,
+                    rows: top.into_neighbours(metric),
+                });
+            }
+            // Over the threshold only the pending rows keep their exact distances; the others come from the index.
+            top = self
+                .pending_top(tx, place, query.k, &exact, &pending, Some(&set))?
+                .0;
+            passing = Some(set);
+            passed = count;
+        } else {
+            let (entries, _) = super::vector_worker::read_counters(tx, roots.data, state.active)?;
+            let mut in_index = 0u64;
+            for key in &pending {
+                let locator = super::vector_worker::locator_key(state.active, key);
+                in_index += u64::from(krummi_tree::get(tx, roots.data, &locator)?.is_some());
+            }
+            let pending_top = self.pending_top(tx, place, query.k, &exact, &pending, None)?;
+            pending_passed = pending_top.1;
+            passed = (entries - in_index.min(entries)) + pending_passed as u64;
+            if passed <= threshold {
+                let mut top = TopK::new(query.k);
+                exact_all(&mut top)?;
+                return Ok(Neighbours {
+                    exact: true,
+                    rows: top.into_neighbours(metric),
+                });
+            }
+            top = pending_top.0;
+            passing = None;
+        }
+        let _ = passed;
+        let generation =
+            super::vector_worker::load_generation(shared, tx, id, &roots, &vector, state.active)?;
+        let mut work = Vec::new();
+        super::distance::work_vector(&vector, &bytes, &mut work);
+        let space = match metric {
+            VectorMetric::L2 => super::ivf::Space::L2,
+            _ => super::ivf::Space::Dot,
+        };
+        let prepared = generation.prepare(space, &work);
+        let order = generation.probe_order(&work);
+        let probes = query.probes.unwrap_or_else(|| {
+            ((f64::from(generation.lists) * DEFAULT_PROBE_SHARE).ceil() as usize).max(1)
+        });
+        let capacity = if hooks.rerank_all {
+            usize::MAX
+        } else {
+            (query.k * RERANK_PER_NEIGHBOUR).max(RERANK_AT_LEAST)
+        };
+        let mut candidates = CodeCandidates {
+            capacity,
+            heap: BinaryHeap::new(),
+        };
+        let mut found = 0usize;
+        for (probed, list) in order.iter().enumerate() {
+            // Past the first probes, the next lists only while fewer than k rows that pass were found (VI6).
+            if probed >= probes && found + pending_passed >= query.k {
+                break;
+            }
+            let prefix = super::vector_worker::list_key(
+                super::vector_index::tag::POSTING,
+                state.active,
+                *list,
+            );
+            let list_entries = Interval {
+                prefix: &prefix,
+                lower: Unbounded,
+                upper: Unbounded,
+            };
+            for entry in krummi_tree::Range::new(tx, roots.data, list_entries)? {
+                let (key, code) = entry?;
+                let primary = &key[prefix.len()..];
+                if pending.contains(primary)
+                    || passing.as_ref().is_some_and(|set| !set.contains(primary))
+                {
+                    continue;
+                }
+                found += 1;
+                candidates.push(prepared.distance(code), primary);
+            }
+        }
+        // The candidates' rows, read again at the snapshot, decide by their exact distances (VI5).
+        let mut versions = Versions::default();
+        for (_, primary) in candidates.heap.into_vec() {
+            let Some(stored) = krummi_tree::get(tx, self.rows_root, &primary)? else {
+                return Err(match krummi_tree::leaf_of(tx, roots.data, &primary) {
+                    Ok(page) => tx.damaged(page),
+                    Err(error) => error,
+                });
+            };
+            let row = self.reader.decode(
+                tx,
+                self.at(),
+                &mut versions,
+                Cow::Owned(primary.clone()),
+                stored,
+                false,
+            )?;
+            if let Some(Value::Vector(value)) = row.value(place) {
+                top.push(exact.key(&value), &primary, || self.key_values(&row));
+            }
+        }
+        Ok(Neighbours {
+            exact: false,
+            rows: top.into_neighbours(metric),
+        })
+    }
+
+    /// The best `k` of the `pending` rows that exist with a vector, pass `passing` when given, by their exact distances,
+    /// and how many of them there are.
+    fn pending_top<S: PageSource + ?Sized>(
+        &self,
+        tx: &S,
+        place: usize,
+        k: usize,
+        exact: &Exact<'_>,
+        pending: &HashSet<Vec<u8>>,
+        passing: Option<&HashSet<Vec<u8>>>,
+    ) -> Result<(TopK, usize)> {
+        let mut top = TopK::new(k);
+        let mut count = 0;
+        let mut versions = Versions::default();
+        for key in pending {
+            if passing.is_some_and(|set| !set.contains(key)) {
+                continue;
+            }
+            let Some(stored) = krummi_tree::get(tx, self.rows_root, key)? else {
+                continue;
+            };
+            let row = self.reader.decode(
+                tx,
+                self.at(),
+                &mut versions,
+                Cow::Borrowed(key),
+                stored,
+                false,
+            )?;
+            if let Some(Value::Vector(value)) = row.value(place) {
+                count += 1;
+                top.push(exact.key(&value), key, || self.key_values(&row));
+            }
+        }
+        Ok((top, count))
+    }
+}
+
+impl ReadTransaction<'_> {
+    /// The k nearest neighbours of `query`'s vector among the rows of `table` that pass its filter, through the vector
+    /// index `index`, which decides the column and the metric (VI5, VI6). The filter is evaluated first: when at most a
+    /// threshold of rows pass, it computes the exact distance of each of them and the result is exact; otherwise it
+    /// probes the lists of the index nearest to the query, considering only the rows that passed, goes on to the next
+    /// lists while fewer than k of them were found, and reranks the candidates with their exact distances, so it returns
+    /// k rows whenever at least k pass; the result is then approximate. The rows the index does not reflect yet (its
+    /// pending rows) are evaluated exactly, so the worker's lag hides none; while no generation is ready, the search is
+    /// exact. Fails as [`nearest_exact`](Self::nearest_exact), with
+    /// [`ErrorKind::InvalidSize`](crate::ErrorKind::InvalidSize) for an index name without 1 to 1,024 bytes and
+    /// [`ErrorKind::DifferentSchema`](crate::ErrorKind::DifferentSchema) for a vector index the table does not have (a
+    /// secondary index's name included), instead of the failures of the column and the metric.
+    pub fn nearest(
+        &self,
+        table: &ReadTable<'_>,
+        index: &str,
+        query: &Nearest<'_>,
+    ) -> Result<Neighbours> {
+        self.folder.check_index_name(index)?;
+        self.check_table(table)?;
+        table
+            .searched(self.folder)
+            .approximate(self.store, &self.inner, index, query)
+    }
+}
+
+impl WriteTransaction<'_> {
+    /// [`ReadTransaction::nearest`] over the rows this write sees, with its failures, and with
+    /// [`ErrorKind::TreeNotFound`](crate::ErrorKind::TreeNotFound) for a handle of a table the write deleted. It is not a
+    /// change for T10 and ends no reference.
+    pub fn nearest(
+        &self,
+        table: &WriteTable<'_>,
+        index: &str,
+        query: &Nearest<'_>,
+    ) -> Result<Neighbours> {
+        self.folder.check_index_name(index)?;
+        let owned = self.owned_searched(table)?;
+        owned
+            .searched(self.folder)
+            .approximate(self.store, &self.inner, index, query)
     }
 }

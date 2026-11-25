@@ -265,6 +265,11 @@ impl Filter {
         Ok(filter)
     }
 
+    /// Whether the filter has a condition (a filter without one passes every row with a vector, VI6).
+    pub(crate) fn has_conditions(&self) -> bool {
+        !self.predicates.is_empty() || self.none
+    }
+
     /// Whether the row whose live column at place `i` has `value(i)` meets the filter. `scratch` is a buffer it
     /// reuses.
     pub(crate) fn meets<'v>(

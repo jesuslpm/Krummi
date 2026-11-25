@@ -242,7 +242,6 @@ impl VectorWork {
         lock(&self.hooks).thresholds.unwrap_or_default()
     }
 
-    #[allow(dead_code, reason = "used by the approximate search (T7)")]
     pub(crate) fn search_hooks(&self) -> SearchHooks {
         lock(&self.hooks).search
     }
