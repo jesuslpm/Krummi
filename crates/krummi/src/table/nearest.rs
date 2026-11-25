@@ -580,8 +580,10 @@ impl Searched<'_> {
             let (entries, _) = super::vector_worker::read_counters(tx, roots.data, state.active)?;
             let mut held = 0u64;
             for key in &pending {
-                let locator = super::vector_worker::locator_key(state.active, key);
-                held += u64::from(krummi_tree::get(tx, roots.data, &locator)?.is_some());
+                if let Some(reference) = super::vector_worker::row_ref(tx, roots.data, key)? {
+                    let locator = reference.locator(state.active);
+                    held += u64::from(krummi_tree::get(tx, roots.data, &locator)?.is_some());
+                }
             }
             if entries - held.min(entries) + pending_passed as u64 <= threshold {
                 let mut top = TopK::new(query.k);
@@ -624,21 +626,26 @@ impl Searched<'_> {
         loop {
             let reach = if probed == 0 { probes } else { probed + 1 };
             for list in &order[probed.min(order.len())..reach.min(order.len())] {
-                let prefix = super::vector_worker::list_key(
+                // The postings that hold the primary key, then those of the long primary keys, which hold its number.
+                for posting in [
                     super::vector_index::tag::POSTING,
-                    state.active,
-                    *list,
-                );
-                let list_entries = Interval {
-                    prefix: &prefix,
-                    lower: Unbounded,
-                    upper: Unbounded,
-                };
-                for entry in krummi_tree::Range::new(tx, roots.data, list_entries)? {
-                    let (key, code) = entry?;
-                    let primary = &key[prefix.len()..];
-                    if pending.is_empty() || !pending.contains(primary) {
-                        pool.push((prepared.distance(code), primary));
+                    super::vector_index::tag::LONG_POSTING,
+                ] {
+                    let prefix = super::vector_worker::list_key(posting, state.active, *list);
+                    let list_entries = Interval {
+                        prefix: &prefix,
+                        lower: Unbounded,
+                        upper: Unbounded,
+                    };
+                    for entry in krummi_tree::Range::new(tx, roots.data, list_entries)? {
+                        let (key, code) = entry?;
+                        let mut primary = &key[prefix.len()..];
+                        if posting == super::vector_index::tag::LONG_POSTING {
+                            primary = super::vector_worker::long_primary(tx, roots.data, primary)?;
+                        }
+                        if pending.is_empty() || !pending.contains(primary) {
+                            pool.push((prepared.distance(code), primary));
+                        }
                     }
                 }
             }

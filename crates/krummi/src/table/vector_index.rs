@@ -118,6 +118,16 @@ pub(crate) mod tag {
     pub(crate) const RETIRED: u8 = 7;
     /// `generation` → its indicators when it was published, against which an automatic rebuild measures their growth.
     pub(crate) const BASELINE: u8 = 8;
+    /// `generation ‖ list ‖ number` → the SQ8 code of a row whose primary key is too long to sit whole in a posting key.
+    pub(crate) const LONG_POSTING: u8 = 9;
+    /// `generation ‖ number` → the list of such a row.
+    pub(crate) const LONG_LOCATOR: u8 = 10;
+    /// `number` → the primary key of such a row.
+    pub(crate) const LONG_KEY: u8 = 11;
+    /// The first bytes of such primary keys → each whole key that begins so, with its number.
+    pub(crate) const LONG_BUCKET: u8 = 12;
+    /// The last number given to such a row.
+    pub(crate) const LONG_NEXT: u8 = 13;
 }
 
 /// The state record of a vector index (VI4, VI9): its active generation (0 while none is ready), the generation it

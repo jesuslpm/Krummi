@@ -456,6 +456,92 @@ pub(crate) fn locator_key(generation: u32, primary: &[u8]) -> Vec<u8> {
     key
 }
 
+/// The longest primary key the keys of an entry hold whole: the tree's maximum less the tag, the generation and the
+/// list. A longer one, which a table admits up to the tree's maximum, gets a number of its own (`tag::LONG_KEY`).
+pub(crate) const INLINE_KEY: usize = krummi_tree::MAX_KEY - 9;
+
+/// How the keys of a data tree name a row: by its primary key, or by the number a longer primary key gets.
+#[derive(Clone, Copy)]
+pub(crate) enum RowRef<'k> {
+    Key(&'k [u8]),
+    Long(u64),
+}
+
+impl RowRef<'_> {
+    pub(crate) fn locator(&self, generation: u32) -> Vec<u8> {
+        match self {
+            RowRef::Key(primary) => locator_key(generation, primary),
+            RowRef::Long(number) => {
+                let mut key = generation_key(tag::LONG_LOCATOR, generation);
+                key.extend(number.to_be_bytes());
+                key
+            }
+        }
+    }
+
+    pub(crate) fn posting(&self, generation: u32, list: u32) -> Vec<u8> {
+        match self {
+            RowRef::Key(primary) => posting_key(generation, list, primary),
+            RowRef::Long(number) => {
+                let mut key = list_key(tag::LONG_POSTING, generation, list);
+                key.extend(number.to_be_bytes());
+                key
+            }
+        }
+    }
+}
+
+/// The key of the bucket of the long primary keys that begin as `primary`.
+fn bucket_key(primary: &[u8]) -> Vec<u8> {
+    let mut key = vec![tag::LONG_BUCKET];
+    key.extend(&primary[..primary.len().min(krummi_tree::MAX_KEY - 1)]);
+    key
+}
+
+/// The number of `primary` in a bucket's bytes: entries of a number (8 bytes), a length (4) and a key.
+fn in_bucket(bytes: &[u8], primary: &[u8]) -> Option<u64> {
+    let mut rest = bytes;
+    while rest.len() >= 12 {
+        let number = u64::from_be_bytes(rest[..8].try_into().ok()?);
+        let len = u32::from_be_bytes(rest[8..12].try_into().ok()?) as usize;
+        let key = rest.get(12..12 + len)?;
+        if key == primary {
+            return Some(number);
+        }
+        rest = &rest[12 + len..];
+    }
+    None
+}
+
+/// How the data tree at `data` names the row of `primary`; none for a long primary key that never got a number.
+pub(crate) fn row_ref<'k, S: PageSource + ?Sized>(
+    tx: &S,
+    data: u64,
+    primary: &'k [u8],
+) -> Result<Option<RowRef<'k>>> {
+    if primary.len() <= INLINE_KEY {
+        return Ok(Some(RowRef::Key(primary)));
+    }
+    let bucket = krummi_tree::get(tx, data, &bucket_key(primary))?;
+    Ok(bucket
+        .and_then(|bytes| in_bucket(bytes, primary))
+        .map(RowRef::Long))
+}
+
+/// The primary key of the long row `number` in the data tree at `data`; a missing one is damage of its page.
+pub(crate) fn long_primary<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    data: u64,
+    number: &[u8],
+) -> Result<&'t [u8]> {
+    let mut key = vec![tag::LONG_KEY];
+    key.extend(number);
+    krummi_tree::get(tx, data, &key)?.ok_or_else(|| match krummi_tree::leaf_of(tx, data, &key) {
+        Ok(page) => tx.damaged(page),
+        Err(error) => error,
+    })
+}
+
 /// The counters of a generation: its entries and its codes with a saturated component.
 pub(crate) fn read_counters<S: PageSource + ?Sized>(
     tx: &S,
@@ -951,7 +1037,12 @@ fn rows_with_vector<'t, S: PageSource + ?Sized>(
     let mut versions = Versions::default();
     for entry in krummi_tree::Range::new(tx, roots.pending, all)? {
         let (key, _) = entry?;
-        let held = krummi_tree::get(tx, roots.data, &locator_key(active, key))?.is_some();
+        let held = match row_ref(tx, roots.data, key)? {
+            Some(reference) => {
+                krummi_tree::get(tx, roots.data, &reference.locator(active))?.is_some()
+            }
+            None => false,
+        };
         rows -= u64::from(held).min(rows);
         let vector = row_vector(tx, reader, at, &mut versions, rows_root, key, place)?;
         rows += u64::from(vector.is_some());
@@ -1032,6 +1123,8 @@ fn cleanup(shared: &Shared, target: &Target) -> Result<bool> {
     for tag in [
         tag::POSTING,
         tag::LOCATOR,
+        tag::LONG_POSTING,
+        tag::LONG_LOCATOR,
         tag::LIST_SIZE,
         tag::COUNTERS,
         tag::BASELINE,
@@ -1269,8 +1362,16 @@ impl<'s> WriteTransaction<'s> {
         entry: Entry,
         deltas: &mut Deltas,
     ) -> Result<()> {
+        let reference = match &entry {
+            Some(_) => self.row_ref_or_new(table, at, key)?,
+            None => match row_ref(&self.inner, self.roots(table, at)?.data, key)? {
+                Some(reference) => reference,
+                // A long primary key that never got a number has no entry to remove.
+                None => return Ok(()),
+            },
+        };
         let data = self.roots(table, at)?.data;
-        let locator = locator_key(generation, key);
+        let locator = reference.locator(generation);
         let old = krummi_tree::get(&self.inner, data, &locator)?.map(|v| v.to_vec());
         let mut root = data;
         if let Some(old) = old {
@@ -1282,7 +1383,7 @@ impl<'s> WriteTransaction<'s> {
                     root = krummi_tree::remove(
                         &mut self.inner,
                         root,
-                        &posting_key(generation, list, key),
+                        &reference.posting(generation, list),
                     )?
                     .root;
                     *deltas.lists.entry((generation, list)).or_default() -= 1;
@@ -1300,7 +1401,7 @@ impl<'s> WriteTransaction<'s> {
             root = krummi_tree::set(
                 &mut self.inner,
                 root,
-                &posting_key(generation, list, key),
+                &reference.posting(generation, list),
                 &code,
             )?
             .root;
@@ -1316,6 +1417,39 @@ impl<'s> WriteTransaction<'s> {
         }
         self.set_roots(table, at, |roots| roots.data = root);
         Ok(())
+    }
+
+    /// How the data tree names the row of `primary`, giving a long primary key its number on its first entry.
+    fn row_ref_or_new<'k>(
+        &mut self,
+        table: &WriteTable<'_>,
+        at: usize,
+        primary: &'k [u8],
+    ) -> Result<RowRef<'k>> {
+        let data = self.roots(table, at)?.data;
+        if let Some(reference) = row_ref(&self.inner, data, primary)? {
+            return Ok(reference);
+        }
+        let last = match krummi_tree::get(&self.inner, data, &[tag::LONG_NEXT])? {
+            Some(bytes) if bytes.len() == 8 => {
+                u64::from_be_bytes(bytes.try_into().expect("8 bytes"))
+            }
+            _ => 0,
+        };
+        let number = last + 1;
+        self.set_data(table, at, &[tag::LONG_NEXT], &number.to_be_bytes())?;
+        let mut key = vec![tag::LONG_KEY];
+        key.extend(number.to_be_bytes());
+        self.set_data(table, at, &key, primary)?;
+        let bucket = bucket_key(primary);
+        let data = self.roots(table, at)?.data;
+        let mut entries =
+            krummi_tree::get(&self.inner, data, &bucket)?.map_or_else(Vec::new, <[u8]>::to_vec);
+        entries.extend(number.to_be_bytes());
+        entries.extend(u32::try_from(primary.len()).expect("a key").to_be_bytes());
+        entries.extend(primary);
+        self.set_data(table, at, &bucket, &entries)?;
+        Ok(RowRef::Long(number))
     }
 
     /// Adds the counters and list sizes of `deltas` to those the data tree holds.
@@ -1442,10 +1576,12 @@ impl crate::Store {
                 {
                     break;
                 }
+                // Bounded, so a worker that ends without notifying is seen at the next check.
                 state = work
                     .wake
-                    .wait(state)
-                    .unwrap_or_else(PoisonError::into_inner);
+                    .wait_timeout(state, Duration::from_millis(50))
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             }
         }
         let _ = shared.engine.make_durable();
@@ -1602,8 +1738,12 @@ impl ReadTransaction<'_> {
                     _ => None,
                 };
                 let expected = entry_of(&generation, &vector, vector_value.as_deref(), &mut work);
-                let locator = krummi_tree::get(tx, roots.data, &locator_key(g, key))?
-                    .and_then(decode_locator);
+                let reference = row_ref(tx, roots.data, key)?;
+                let locator = match &reference {
+                    Some(reference) => krummi_tree::get(tx, roots.data, &reference.locator(g))?
+                        .and_then(decode_locator),
+                    None => None,
+                };
                 match (&expected, locator) {
                     (None, None) => {}
                     (Some((list, code, saturated)), Some((found, found_saturated))) => {
@@ -1612,8 +1752,12 @@ impl ReadTransaction<'_> {
                                 "g{g}: locator of {key:?} names list {found}, not {list}"
                             ));
                         }
-                        let posting =
-                            krummi_tree::get(tx, roots.data, &posting_key(g, *list, key))?;
+                        let posting = match &reference {
+                            Some(reference) => {
+                                krummi_tree::get(tx, roots.data, &reference.posting(g, *list))?
+                            }
+                            None => None,
+                        };
                         if posting != Some(code.as_slice()) {
                             problems.push(format!(
                                 "g{g}: posting of {key:?} in list {list} is not its code"
@@ -1631,38 +1775,33 @@ impl ReadTransaction<'_> {
             }
             // Every locator and posting belongs to a row the check counted.
             let mut locators = 0u64;
-            let prefix = generation_key(tag::LOCATOR, g);
-            for entry in krummi_tree::Range::new(
-                tx,
-                roots.data,
-                Interval {
-                    prefix: &prefix,
-                    lower: Bound::Unbounded,
-                    upper: Bound::Unbounded,
-                },
-            )? {
-                let (key, _) = entry?;
-                let primary = &key[prefix.len()..];
-                if !covers(primary) || pending(primary)? {
-                    continue;
-                }
-                locators += 1;
-            }
             let mut postings = 0u64;
-            let prefix = generation_key(tag::POSTING, g);
-            for entry in krummi_tree::Range::new(
-                tx,
-                roots.data,
-                Interval {
-                    prefix: &prefix,
-                    lower: Bound::Unbounded,
-                    upper: Bound::Unbounded,
-                },
-            )? {
-                let (key, _) = entry?;
-                let primary = &key[prefix.len() + 4..];
-                if covers(primary) && !pending(primary)? {
-                    postings += 1;
+            for (locator, posting, long) in [
+                (tag::LOCATOR, tag::POSTING, false),
+                (tag::LONG_LOCATOR, tag::LONG_POSTING, true),
+            ] {
+                for (counted, tag, skip) in
+                    [(&mut locators, locator, 0), (&mut postings, posting, 4)]
+                {
+                    let prefix = generation_key(tag, g);
+                    for entry in krummi_tree::Range::new(
+                        tx,
+                        roots.data,
+                        Interval {
+                            prefix: &prefix,
+                            lower: Bound::Unbounded,
+                            upper: Bound::Unbounded,
+                        },
+                    )? {
+                        let (key, _) = entry?;
+                        let mut primary = &key[prefix.len() + skip..];
+                        if long {
+                            primary = long_primary(tx, roots.data, primary)?;
+                        }
+                        if covers(primary) && !pending(primary)? {
+                            *counted += 1;
+                        }
+                    }
                 }
             }
             if locators != expected_entries || postings != expected_entries {
