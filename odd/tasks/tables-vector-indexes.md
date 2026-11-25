@@ -193,3 +193,9 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
 - **L19** — RDD review of `ccc2564` (the last fixes), lenses reliability and readability, approved, no findings, lineage `review-f185432df41a3778`. Every commit of the branch has been through RDD; reviewed boundary `ccc2564`.
 - **L20** — Codex R1 first try: the wrapper found no CLI (`Codex CLI not found: codex`): it accepted only `.exe`, `.cmd` and `.bat`; fixed in `6e3d022` (any extension outside Windows). Its Pester tests use a `.cmd` fake and were not run on Linux.
 - **L21** — Codex R1 second try: `Codex does not load the project config here (model '<default>', expected 'gpt-6.1-sol'). Trust this folder in Codex (/home/jesuslmp/projects/Krummi) and retry.` Adding the trust entry to `~/.codex/config.toml` was denied by the auto mode classifier; the Codex review waits for the user.
+- **L22** — The Stop hook's selectorless review (`caa533e..HEAD`, 56 paths) stopped with `lens_context_budget_exceeded`;
+  that range was reviewed slice by slice up to `ccc2564` (L8–L19). RDD review of `ccc2564..7c61c20` (the Codex
+  wrapper fix and the closing documents), lenses reliability and readability, approved, lineage
+  `review-99d04abda3d18e6a`: R2-isWindows-undefined-5x and R3-001 (WARNING, `$IsWindows` is undefined in Windows
+  PowerShell 5.1) dismissed with evidence: the script starts with `#Requires -Version 7`, so 5.1 never runs it; a
+  comment now states the intent. R2-report-codex-test-gap (SUGGESTION) stands as written in the report's *Pending*.
