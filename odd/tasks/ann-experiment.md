@@ -180,4 +180,12 @@ Route evidence: the units depend on each other (each uses the previous one), so 
 
   The `fix` phase mark was written late (23:07:38): `mark fixes` was rejected, because the phase is `fix`. Codex
   ended at 22:43:19 (`bg-end`), and the fix commits are at 22:52:29.
+- **L17** (2026-11-25, Codex R2): report `docs/reviews/ann-experiment/2026-11-24-code-02.md`, status `findings`. R1 and
+  R3 were verified resolved. R2 stays open: the report claimed IVF kept its payload size, derived a graph-only HNSW
+  figure from an RSS delta, and gave no 1 M figure.
+  - Fixed in `fe18410` (`Ivf::allocated_bytes`), and in the report and design document 12, which now separate
+    payload, allocated bytes and observed RSS growth.
+  - Measured on Linux, each structure in its own process: every set at 100,000 rows, and Cohere 1 M × 768 L2, the
+    reference case (23:23:49 to 00:00:08 UTC).
+  - Checks: `cargo test --workspace` 1284 passed, 0 failed; clippy and fmt clean.
 

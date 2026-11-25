@@ -72,3 +72,57 @@ Checks after the fixes:
 
 `git diff --check` (noted in the report, not a finding): the trailing blank line at the end of the execution
 document was removed. The phase log's first line and the raw outputs are kept as generated.
+
+## 2026-11-24 (verification)
+
+Follow-up report: [2026-11-24-code-02.md](2026-11-24-code-02.md), wrapper status `findings` (R2 open), thread
+`01a20fd9-e59c-74f0-9c56-ebb1703ee8eb`. Telemetry:
+- coordinator `gpt-6.1-sol` / `high`;
+- reviewer `krummi-review` (Meitner) `gpt-6.1-sol` / `high`.
+
+Outcomes, quoted:
+- R1: "verified resolved".
+- R3: "verified resolved".
+- R2: "partially corrected, still open". Verdict: "**Changes required.** R2 remains open (major); R1 and R3 are
+  verified resolved."
+
+## 2026-11-25
+
+Artifact versions:
+- `fe18410`: code, `Ivf::allocated_bytes` and the IVF output line;
+- the commit that adds this entry: the report's *Memoria*, the raw output `linux-memory-2.md` and design document 12.
+
+### R2 — major: Complete the required memory measurement and distinguish payload estimates
+
+- Disposition: fixed (second correction).
+- Fix: the three measures are now kept apart, in the output and in the report.
+  - **Payload** is the sum of buffer lengths. The output labels it "carga útil".
+  - **Allocated** is new. `Ivf::allocated_bytes` sums every buffer's capacity: ids, codes, vectors and norms of each
+    list, the list headers, the centroids and their norms, and the quantizer. The test is
+    `allocated_bytes_count_capacities_and_norms_beyond_the_payload`.
+  - **Observed RSS growth** is labelled as including the construction temporaries.
+- Claims withdrawn:
+  - "El índice que queda es el del tamaño calculado" (the report) and "keeps its computed size afterwards" (design
+    document 12). The IVF structure keeps 1.4–1.5 times its payload allocated: 90.2 against 61.9 MiB for SIFT at
+    100,000 rows, and 5,252.2 against 3,675.6 MiB for Cohere at 1 M. This agrees with Codex's capacity
+    reproduction.
+  - The graph-only figure per vector and its extrapolation to 1 M. The report now gives only the observed RSS growth
+    of `hnsw_rs`, and states that graph and temporaries cannot be separated from outside the crate.
+- Fix, 1 M coverage: the reference case of document 12 (Cohere 1 M × 768, L2) was measured on Linux, each structure
+  in its own process (phase log `Linux memory run 2`, 23:23:49 to 00:00:08 UTC):
+  - SQ8 codes: 732.4 MiB payload, RSS +1486.3 MiB;
+  - IVF structure: 3675.6 MiB payload, 5252.2 MiB allocated, RSS +7695.9 MiB;
+  - `hnsw_rs`: 3051.8 MiB compact estimate, RSS +4618.3 MiB.
+
+  The 100,000-row figures were measured again in fresh processes, one per set and metric.
+- Kept as stated limits, with their evidence in *Lo que no se midió*:
+  - Windows RSS: no safe std API, and `unsafe_code = "forbid"`. Payload and allocated bytes are the same on both
+    platforms, so only the allocator's overhead differs.
+  - RSS at 1 M for SIFT, GloVe and the dot product.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Checks:
+- `cargo fmt --all --check`: passed.
+- `cargo clippy -p krummi-ann-lab --all-targets -- -D warnings`: passed.
+- `cargo test -p krummi-ann-lab`: 24 and 2 tests passed.
+- The full workspace run is recorded in the execution document.

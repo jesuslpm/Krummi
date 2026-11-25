@@ -180,41 +180,61 @@ No se midió con turbo a 1 M. Por eso el p95 del producto escalar con nprobe 72 
 
 ## Memoria
 
-El RSS se midió en Linux, a 100 000 filas, leyendo `VmRSS` de `/proc/self/status` antes y después de construir cada
-estructura. Windows no tiene una API segura en la biblioteca estándar, y el workspace prohíbe `unsafe`.
+Tres medidas distintas, que no se sustituyen entre sí:
 
-El crecimiento incluye los temporales de la construcción que el asignador no devolvió. En un mismo proceso, el
-asignador reutiliza lo que liberó una sección anterior, y el crecimiento sale más bajo: el producto escalar de Cohere
-medido justo después de L2 dio +0.0 MiB para los códigos SQ8. Por eso cada cifra de esta tabla es la primera sección
-de su proceso.
+- **Carga útil:** la suma de las longitudes de los búferes de datos (ids, códigos o vectores, y centroides). Es lo que
+  informan las secciones como "IVF-SQ8 739.2 MiB, IVF-Flat 2936.4 MiB".
+- **Asignado:** la suma de las capacidades de todos los búferes que la estructura conserva una vez construida, con la
+  capacidad sobrante, las normas, el cuantizador y las cabeceras de las listas. Es exacto para las estructuras del
+  laboratorio, salvo la sobrecarga del propio asignador. No se puede calcular para `hnsw_rs`, cuyos búferes son
+  privados.
+- **Crecimiento del RSS:** `VmRSS` de `/proc/self/status`, leído antes y después de construir la estructura. Es lo
+  observado, e incluye los temporales de la construcción que el asignador no devolvió. No aísla la estructura.
 
-| Conjunto, 100 000 filas | Estructura | Tamaño calculado | Crecimiento del RSS |
-|---|---|---|---|
-| SIFT, 128 | Códigos SQ8 | 12.2 MiB | 25.4 MiB |
-| SIFT, 128 | IVF-SQ8 e IVF-Flat juntos | 61.9 MiB | 138.3 MiB |
-| GloVe, 100 | Códigos SQ8 | 9.5 MiB | 20.0 MiB |
-| GloVe, 100 | IVF-SQ8 e IVF-Flat juntos | 48.6 MiB | 105.8 MiB |
-| GloVe, 100 | HNSW (`hnsw_rs`) | 50.3 MiB, estimación compacta | 302.4 MiB |
-| Cohere L2, 768 | Códigos SQ8 | 73.2 MiB | 149.2 MiB |
-| Cohere L2, 768 | IVF-SQ8 e IVF-Flat juntos | 367.5 MiB | 792.2 MiB |
-| Cohere L2, 768 | HNSW (`hnsw_rs`) | 305.2 MiB, estimación compacta | 460.3 MiB |
-| Cohere, producto escalar, 768 | IVF-SQ8 e IVF-Flat juntos | 367.5 MiB | 790.0 MiB |
-| Cohere, producto escalar, 768 | HNSW (`hnsw_rs`) | 305.2 MiB, estimación compacta | 566.0 MiB |
+El RSS se midió en Linux (WSL 2), con cada estructura en su propio proceso como primera sección. Se midió así porque,
+en un mismo proceso, el asignador reutiliza lo que liberó una sección anterior: el producto escalar de Cohere medido
+justo después de L2 dio +0.0 MiB para sus códigos SQ8 ([salida](2026-11-24-ann-experiment/linux-memory.md)). Las
+cifras salen de [esta salida](2026-11-24-ann-experiment/linux-memory-2.md), salvo el HNSW a 100 000 filas, que sale de
+las dos anteriores.
 
-Estas cifras dan una idea de lo que ocupa cada estructura:
+| Conjunto | Estructura | Carga útil | Asignado | Crecimiento del RSS |
+|---|---|---|---|---|
+| SIFT 100 000 × 128 | Códigos SQ8 del escaneo | 12.2 MiB | — | 25.4 MiB |
+| SIFT 100 000 × 128 | IVF-SQ8 e IVF-Flat, en una estructura | 61.9 MiB | 90.2 MiB | 138.6 MiB |
+| GloVe 100 000 × 100 | Códigos SQ8 del escaneo | 9.5 MiB | — | 20.0 MiB |
+| GloVe 100 000 × 100 | IVF-SQ8 e IVF-Flat, en una estructura | 48.6 MiB | 69.7 MiB | 106.7 MiB |
+| GloVe 100 000 × 100 | HNSW (`hnsw_rs`) | 50.3 MiB, estimación compacta | — | 302.4 MiB |
+| Cohere 100 000 × 768, L2 | IVF-SQ8 e IVF-Flat, en una estructura | 367.5 MiB | 531.5 MiB | 787.8 MiB |
+| Cohere 100 000 × 768, L2 | HNSW (`hnsw_rs`) | 305.2 MiB, estimación compacta | — | 460.3 MiB |
+| Cohere 100 000 × 768, producto escalar | IVF-SQ8 e IVF-Flat, en una estructura | 367.5 MiB | 531.5 MiB | 787.6 MiB |
+| Cohere 100 000 × 768, producto escalar | HNSW (`hnsw_rs`) | 305.2 MiB, estimación compacta | — | 566.0 MiB |
+| **Cohere 1 M × 768, L2** | Códigos SQ8 del escaneo | 732.4 MiB | — | 1486.3 MiB |
+| **Cohere 1 M × 768, L2** | IVF-SQ8 e IVF-Flat, en una estructura | 3675.6 MiB | 5252.2 MiB | 7695.9 MiB |
+| **Cohere 1 M × 768, L2** | HNSW (`hnsw_rs`) | 3051.8 MiB, estimación compacta | — | 4618.3 MiB |
 
-- **El grafo de `hnsw_rs`, sin contar los vectores,** ocupa unos 2.7–2.8 KiB por vector con GloVe y con el producto
-  escalar de Cohere: 302.4 − 38.1 MiB de vectores y 566.0 − 293.0 MiB, en 100 000 filas. La estimación compacta es de
-  128 bytes por vector. Con L2, el mismo cálculo da unos 1.7 KiB.
-- **Extrapolado a 1 M:** unos 2.6 GiB de grafo más los vectores. Esto no se midió.
-- **IVF:** el crecimiento es algo más del doble del tamaño calculado, porque la construcción copia la base a un espacio
-  transformado y la libera al terminar. El índice que queda es el del tamaño calculado.
-- **El pico del proceso** (`VmHWM`) lo fija la carga de la base completa, antes de recortarla a 100 000 filas: 5.7 GiB
-  con Cohere. No mide ninguna estructura.
+La carga útil de la estructura IVF es la suma de las de los dos índices, tal como las informa la salida: a 1 M,
+739.2 MiB de IVF-SQ8 y 2936.4 MiB de IVF-Flat. Los centroides y los ids, que los dos comparten, cuentan dos veces.
+
+Lo que se puede afirmar:
+
+- **IVF:** la estructura conserva asignadas entre 1.4 y 1.5 veces esa suma de cargas útiles, por la capacidad sobrante
+  de las listas y las normas. Durante la construcción el RSS crece algo más que eso, con la copia transformada de la base.
+- **HNSW:** el RSS crece durante su construcción 4618.3 MiB a 1 M × 768, sin contar la copia transformada de los
+  puntos, que se hace antes de la primera lectura. La estimación compacta, 3051.8 MiB, es 1.5 veces menor. Cuánto de
+  ese crecimiento es grafo y cuánto son temporales no se puede separar desde fuera de `hnsw_rs`.
+- **El pico del proceso** (`VmHWM`) lo fija, a 100 000 filas, la carga de la base completa antes de recortarla
+  (5.7 GiB con Cohere). No mide ninguna estructura.
+- Las estructuras del laboratorio guardan los dos índices IVF juntos y toda la base en memoria. El índice almacenado
+  de 7.6 guarda páginas, así que estas cifras no son su tamaño en disco ni su conjunto de trabajo.
 
 ## Lo que no se midió
 
-- **Memoria en Windows y a 1 M:** el RSS solo se midió en Linux y a 100 000 filas (*Memoria*).
+- **Memoria en Windows:** la biblioteca estándar no tiene una API segura para el conjunto de trabajo, y el workspace
+  prohíbe `unsafe` (`unsafe_code = "forbid"` en `Cargo.toml`). La carga útil y lo asignado son los mismos en las dos
+  plataformas, porque el código y el crecimiento de los búferes son deterministas. Solo cambia la sobrecarga del
+  asignador.
+- **Memoria a 1 M de SIFT, GloVe y del producto escalar de Cohere:** a 1 M solo se midió el caso de referencia del
+  documento 12.
 - **Caché fría y conjunto de trabajo en la caché de páginas:** no aplican en memoria. Quedan para el índice
   almacenado.
 - **10 M, filtros, deriva, corrección, durabilidad y costo operativo:** son mediciones del índice almacenado, de 7.6.
@@ -233,3 +253,4 @@ Salidas sin editar de `krummi-ann-lab`:
 - [Windows con turbo](2026-11-24-ann-experiment/windows-boost.md)
 - [Linux, memoria a 100 000 filas](2026-11-24-ann-experiment/linux-memory.md)
 - [Linux, memoria del producto escalar](2026-11-24-ann-experiment/linux-memory-dot.md)
+- [Linux, memoria en procesos propios, 100 000 filas y Cohere L2 a 1 M](2026-11-24-ann-experiment/linux-memory-2.md)
