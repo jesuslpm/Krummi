@@ -55,14 +55,14 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S2 (PRD annotation of the Linux-only decision, ES and EN) and the worktree hook made POSIX for Linux | inline | pending | |
-| T2 | S1: VI2, VI8 (distance kernels), AC-VI12, AC-VI10 golden bits | inline | pending | |
-| T3 | S1: VI7, VI16 (filters, public exact search, errors), AC-VI12, AC-VI13 (nulls) | inline | pending | |
-| T4 | S1: VI1, VI10, VI14 (definitions, catalog, Describe, schema changes, format 16), AC-VI1, AC-VI9, AC-VI14 (format) | inline | pending | |
-| T5 | S1: VI3 foreground (pending log in every row write, bulk load), AC-VI2 (pending part) | inline | pending | |
-| T6 | S1: VI3, VI4, VI12, VI13 (worker, training, build, reconcile, close and open, failures), AC-VI3, AC-VI4, AC-VI14, AC-VI15, AC-VI17 | inline | pending | |
-| T7 | S1: VI5, VI6 (approximate filter-first search), AC-VI2, AC-VI5, AC-VI6, AC-VI7, AC-VI13 | inline | pending | |
-| T8 | S1: VI9, VI11 (information, generations, automatic and requested rebuilds), AC-VI8, AC-VI16, AC-VI17 | inline | pending | |
+| T1 | S2 (PRD annotation of the Linux-only decision, ES and EN) and the worktree hook made POSIX for Linux | inline | done | `69918a0`, `d9fe1da` |
+| T2 | S1: VI2, VI8 (distance kernels), AC-VI12, AC-VI10 golden bits | inline | done | `caa533e` |
+| T3 | S1: VI7, VI16 (filters, public exact search, errors), AC-VI12, AC-VI13 (nulls) | inline | done | `caa533e` |
+| T4 | S1: VI1, VI10, VI14 (definitions, catalog, Describe, schema changes, format 16), AC-VI1, AC-VI9, AC-VI14 (format) | inline | done | `c2fbfa0` |
+| T5 | S1: VI3 foreground (pending log in every row write, bulk load), AC-VI2 (pending part) | inline | done | `15b67d3` |
+| T6 | S1: VI3, VI4, VI12, VI13 (worker, training, build, reconcile, close and open, failures), AC-VI3, AC-VI4, AC-VI14, AC-VI15, AC-VI17 | inline | done | `8ee9045`, `597fee2` (RDD correction), review fixes and AC-VI4/AC-VI14 tests `308516e` |
+| T7 | S1: VI5, VI6 (approximate filter-first search), AC-VI2, AC-VI5, AC-VI6, AC-VI7, AC-VI13 | inline | done | `9986904` |
+| T8 | S1: VI9, VI11 (information, generations, automatic and requested rebuilds), AC-VI8, AC-VI16, AC-VI17 | inline | done | code in `8ee9045`, tests `6b06454` |
 | T9 | S3 (measurements: threshold, defaults, VI15 on Linux, pgvector, bench rounds), AC-VI11 | inline | pending | |
 | T10 | S1 (guide and reference docs) | inline | pending | |
 | T11 | S5 (RDD of the last slice, Codex review, closing report, archive) | inline | pending | |
@@ -81,3 +81,75 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
 - **L4** — Defaults taken during the run (CLAUDE.md: no questions once started): pgvector runs in Docker
   (`pgvector/pgvector` image) on the same machine, which needs no `sudo`; the Cohere data is downloaded again from the
   public VectorDBBench replica into the ignored `work/` folder.
+- **L5** — T1 done. RDD assessment of `7793a51..d9fe1da`: medium, `under_budget` (configuration change), not
+  reviewed; the reviewed boundary stays at `7793a51`. The Engram mirror is pending: auto mode could not check the
+  `mem_save` call because a hook changes its input.
+- **L6** — T2 and T3 in one commit (`caa533e`: the work kernels wait for T6 under `allow(dead_code)`); the engine's
+  f32 kernels give the golden bits the experiment took on win-x64. RDD assessment `7793a51..caa533e`: medium,
+  `under_budget`.
+- **L7** — T4 done (`c2fbfa0`): vector index definitions share the name space and the 64-index limit with the secondary
+  ones; `drop_index` drops either kind; emptying gives each vector index new trees and the next instance. Format 16:
+  the tests that pinned 15 now pin 16 and 15 is refused. Known environmental failure, also on `main` at `7793a51` with
+  this machine's rustc: 7 `trybuild` mismatches of `tests/ui/trees/*_cannot_be_sent_to_another_thread.rs`
+  (`trees_compile`), a diagnostic text difference. Items the next tasks use carry a temporary `allow(dead_code)` with
+  reason «used by the worker and the searches (T5–T8)»; remove them as they are used.
+- **L8** — RDD reviews (the whole `7793a51..c2fbfa0` passed the reviewer's context budget, `lens_context_budget_exceeded`,
+  so it was split; the review takes `base..HEAD`, so the first slice was reviewed with HEAD detached at `caa533e`):
+  - `7793a51..caa533e` (hook, PRD annotation, kernels, filters, exact search), lenses risk and reliability, approved, no
+    findings, lineage `review-65892a7ace81cb36`.
+  - `caa533e..c2fbfa0` (format 16, definitions; escalated with item 1, a persisted format change), lenses risk and
+    reliability, approved with two warnings, lineage `review-7fa2180227cd5afb`: R3-001 (WARNING) the partial-index
+    condition test's offset missed the new 2-byte vector count; R3-002 (WARNING) no unit test of a non-empty vector index
+    section, its rejections or its identities. Both fixed in `9d9add9` (offset `2 + 24 + 4`; round trip, 12 broken cases,
+    the 64-index limit, renames, drops and stored identities with vector indexes).
+  Reviewed boundary: `c2fbfa0`.
+- **L9** — T5 done (`15b67d3`): every insert, delete, range delete and update that changes the vector marks the row in
+  each vector index's pending tree (count kept in the catalog entry); the bulk load marks through its inserts. The
+  information operation of VI11 came forward (state and pending rows; lists and indicators wait for the generations)
+  so the tests can observe the pending rows, and the worker's test hook `Store::pause_vector_work` exists already so
+  that the tests keep working once T6 drains the pending rows. No RED was observed first: the marking was written
+  before its tests; the suites of indexes, rows, bulk loads, ranges and tables pass unchanged.
+- **L10** — T6/T7 decisions taken during the run (defaults, recorded as CLAUDE.md asks):
+  - The build's end: the training write fixes the table's greatest key (`end`) in the state record; the backfill reads up
+    to it, and pending keys beyond it reach the building generation through the pending rows (AC-VI3 found that a build
+    chasing rows appended at the end never published).
+  - Automatic rebuilds: each published generation keeps its indicators (`BASELINE`); a rebuild is due when an indicator
+    passes its threshold (saturated codes 10 %, largest list 12 × the mean, rows 2 × or ½ × the trained ones with
+    another number of lists) and grew 1.5 × over that baseline, so data whose rebuild cannot lower an indicator (one
+    found looping on clustered data) does not rebuild forever. Thresholds and growth are test hooks.
+  - Resuming after an opening: reading the catalog at the opening broke AC-C9, AC-X19 and AC-Q1 («a new opening
+    remembers nothing»), so the worker resumes the first time a transaction opens a table with a vector index, which
+    reads no page more.
+  - Search defaults before measuring (T9): exact under 20,000 passing rows; 5 % of the lists probed first; 2 × k
+    candidates reranked, at least 20. Quantizer margin 2 % of each sampled range. Batch apply budget 8 ms.
+  - The worker's tests run the default suite at 12,000 rows; AC-VI3 at 100,000 rows with the 15 ms turn is an
+    acceptance test (`#[ignore]`, release).
+- **L11** — RDD reviews of `c2fbfa0..6b06454` (reviewed slice by slice with HEAD detached at each slice's last commit):
+  - `c2fbfa0..15b67d3` (T5 and the catalog test fix), lens reliability, approved with two suggestions, lineage
+    `review-84a601c123f2e5d1`: R3-merge-path-coverage (SUGGESTION) dismissed with evidence: `Reader::patch` takes only
+    fixed-width columns, so it never changes a vector; the test's update of `n` alone goes through it and every vector
+    update through the merge (comment added to the test); R3-range-delete-second-index (SUGGESTION) fixed: the range
+    delete now asserts the second index's pending rows too.
+  - `15b67d3..8ee9045` (T6, the worker), lenses risk, resilience and reliability, correction required, lineage
+    `review-dd7a80cc74645096`. The native correction covered R3-lost-wakeup-on-stop (CRITICAL: `stop` notified without
+    the waiters' mutexes, so a close could hang): fixed in `597fee2` on top of `8ee9045`, the targeted validator approved
+    (its first run failed with the provider killed and was rerun once as the bound status reoffered it), acknowledged;
+    T7 and T8 were replayed on top (`9986904`, `6b06454`). The warnings, fixed in `308516e`: R4-head-of-line and
+    R3-one-index-starves (a failing index stopped the pass: errors are now kept per index), R4-retry-backoff-defeated (the
+    pause after a failure waited on the condvar every commit notifies and gave up after 50: it now has its own condvar,
+    woken only by the close, and never gives up), R4-generation-cache-unbounded-bytes (bounded at 256 MiB),
+    R3-stale-roots-new-snapshot (step, cleanup and the rebuild check now take the roots from their own snapshot),
+    R4-training-starves-reconcile (mitigated: pending rows of a ready index go before a training; one thread is VI4's
+    decision), R3-missing-coverage (crash tests AC-VI4 in `crash.rs`, failure tests AC-VI14 in
+    `vector_fault_tests.rs`). Dismissed: R1-001 and R3-state-format-break (the state record's encoding changed between
+    two commits of this branch, before any store of format 16 exists outside it).
+- **L12** — AC-VI3 acceptance in release (`308516e`): 100,000 rows, the index created while a thread writes without stop; 52 batches, the longest held the turn 9.14 ms (≤ 15 ms); states training, building, ready; the index in step with the rows.
+- **L13** — RDD reviews: `597fee2..6b06454` (T7 search, T8 tests), lenses risk and reliability, approved, lineage
+  `review-051f2d94bfafcfca`: R3-sleep-sync (WARNING, tests synchronized by sleeps) fixed in `57c56c7` with the hook
+  `Store::wait_vector_held` (also in `crash.rs`). `6b06454..57c56c7` (the worker review's fixes), lenses risk,
+  resilience and reliability, approved, lineage `review-40e5fb82a059637f`: R1-001 and R3-backoff-unbounded (WARNING,
+  a failing pass retries forever, at most every 1.28 s) dismissed: VI13 retries a failed batch at the next pass and
+  reports it to no one, and the previous review asked for no permanent give-up; the close ends it and T12 stops it.
+  R3-cache-size-accounting (SUGGESTION) dismissed: the generation holds `f32`s, 4 bytes each; one generation over
+  256 MiB (over 16,000 lists at 4,096 dimensions) is beyond the lists VI4 gives below 256 M rows. Reviewed boundary:
+  `57c56c7`.
