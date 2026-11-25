@@ -9,7 +9,7 @@ use krummi_ann_lab::kernels::Metric;
 use krummi_ann_lab::run;
 
 const USAGE: &str = "Uso: krummi-ann-lab <preparar|verdad|medir|grafo|motor> --carpeta <carpeta> \
-[--conjunto <sift|glove|cohere>] [--filas <n>] [--informe <archivo>] [--metrica <l2|dot|coseno>] [--sondeos <n,n,...>] \
+[--conjunto <sift|glove|cohere>; motor, solo cohere] [--filas <n>] [--informe <archivo>] [--metrica <l2|dot|coseno>] [--sondeos <n,n,...>] \
 [--paso <cargar|buscar|umbral|indice|sin-indice>]";
 
 fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
@@ -67,6 +67,9 @@ fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
     }
     if options.step.is_some() != (command == "motor") {
         return Err("La opción --paso vale, y hace falta, solo con motor.".to_string());
+    }
+    if command == "motor" && options.set.is_some_and(|set| set != run::Set::Cohere) {
+        return Err("El comando motor solo mide el conjunto cohere.".to_string());
     }
     if options.metric.is_some() && command != "medir" && command != "grafo" {
         return Err("La opción --metrica solo vale con medir y grafo.".to_string());
@@ -189,5 +192,31 @@ mod tests {
             );
         }
         assert!(parsed(&["grafo", "--carpeta", "w", "--informe", "r.md"]).is_ok());
+        for set in ["sift", "glove"] {
+            let args = [
+                "motor",
+                "--carpeta",
+                "w",
+                "--paso",
+                "buscar",
+                "--conjunto",
+                set,
+            ];
+            assert_eq!(
+                parsed(&args).unwrap_err(),
+                "El comando motor solo mide el conjunto cohere."
+            );
+        }
+        let args = [
+            "motor",
+            "--carpeta",
+            "w",
+            "--paso",
+            "buscar",
+            "--conjunto",
+            "cohere",
+        ];
+        assert!(parsed(&args).is_ok());
+        assert!(parsed(&["medir", "--carpeta", "w", "--conjunto", "sift"]).is_ok());
     }
 }
