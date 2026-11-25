@@ -126,3 +126,24 @@ Checks:
 - `cargo clippy -p krummi-ann-lab --all-targets -- -D warnings`: passed.
 - `cargo test -p krummi-ann-lab`: 24 and 2 tests passed.
 - The full workspace run is recorded in the execution document.
+
+## 2026-11-25 (verification)
+
+Follow-up report: [2026-11-25-code.md](2026-11-25-code.md), wrapper status `findings` (R2 open), thread
+`01a21008-331f-7c31-b8e2-11d24d3673b1`. Telemetry:
+- coordinator `gpt-6.1-sol` / `high`;
+- reviewer `krummi-review` (Socrates) `gpt-6.1-sol` / `high`.
+
+Outcome, quoted: R2 "partially corrected, still open". The allocation accounting, the withdrawn claims and the 1 M
+reference case are verified. Open:
+- "Remaining coverage gap": Windows RSS, and RSS at 1 M for SIFT, GloVe and the Cohere dot product.
+- "Incorrect process-isolation claim introduced by the correction".
+
+### R2 — major (third round)
+
+- Process-isolation claim: fixed in the commit that adds this entry. The report and design document 12 now say that
+  `medir` builds SQ8 and then IVF in one process, so IVF inherits what the allocator retained from step 1, and that
+  HNSW runs in another process.
+- Coverage gap: pending, a decision for the user. It costs another dependency for a safe Windows memory API (unsafe
+  code is forbidden), or external process sampling, plus about 2 to 3 hours of runs.
+- Status: the wording fix is claimed, unverified until a follow-up review.

@@ -191,9 +191,11 @@ Tres medidas distintas, que no se sustituyen entre sí:
 - **Crecimiento del RSS:** `VmRSS` de `/proc/self/status`, leído antes y después de construir la estructura. Es lo
   observado, e incluye los temporales de la construcción que el asignador no devolvió. No aísla la estructura.
 
-El RSS se midió en Linux (WSL 2), con cada estructura en su propio proceso como primera sección. Se midió así porque,
-en un mismo proceso, el asignador reutiliza lo que liberó una sección anterior: el producto escalar de Cohere medido
-justo después de L2 dio +0.0 MiB para sus códigos SQ8 ([salida](2026-11-24-ann-experiment/linux-memory.md)). Las
+El RSS se midió en Linux (WSL 2), con cada conjunto y métrica en un proceso propio. En ese proceso, `medir` construye
+primero los códigos SQ8 y después el IVF, así que el IVF hereda lo que el asignador retuvo del paso 1. El HNSW (`grafo`)
+corre en otro proceso. Se separaron los procesos porque, si no, el asignador reutiliza lo que liberó una sección
+anterior: el producto escalar de Cohere medido justo después de L2 dio +0.0 MiB para sus códigos SQ8
+([salida](2026-11-24-ann-experiment/linux-memory.md)). Las
 cifras salen de [esta salida](2026-11-24-ann-experiment/linux-memory-2.md), salvo el HNSW a 100 000 filas, que sale de
 las dos anteriores.
 
