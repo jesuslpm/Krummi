@@ -153,3 +153,41 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
   R3-cache-size-accounting (SUGGESTION) dismissed: the generation holds `f32`s, 4 bytes each; one generation over
   256 MiB (over 16,000 lists at 4,096 dimensions) is beyond the lists VI4 gives below 256 M rows. Reviewed boundary:
   `57c56c7`.
+- **L14** — T9, VI15 on Linux (Kubuntu, 16 logical cores, one search thread), Cohere 1 M × 768 L2 from the
+  VectorDBBench mirror (`train.parquet` 3,131,995,162 bytes, as the experiment), `krummi-ann-lab motor`
+  (`work/ann/motor.md`):
+  - Insert one row, durable commit: p95 3.515 ms without the index, 3.263 ms with it and the worker paused (0.928 ×,
+    ≤ 1.10 met); with the worker running 6.305 ms (its batches and their durability wait). Deferred commit: 0.031 /
+    0.035 ms (1.118 ×, a 4 µs difference).
+  - Training and build 188.4 s; 1,287 batches, the longest held the turn 11.65 ms (≤ 15 ms met); 1,000 lists,
+    saturated codes 0.20 %, largest list 3.82 × the mean.
+  - Without a filter: probes 40 (4 %) recall@10 0.9582, p95 16.40 ms after `3d4ab30` (≥ 0.95 with ≤ 20 ms met); the
+    default probes went from 5 % (p95 20.48 ms) to 4 % with this measurement.
+  - The threshold of VI6: exact against the index cross between 10,000 and 20,000 rows that pass (9.0 against 10.4 ms,
+    18.0 against 15.7 ms), where the index's recall is 0.82–0.86; kept at 20,000.
+  - Filters: `cat = 7` (10,000 rows, exact path) 134 ms without a secondary index (the table scan filter-first needs),
+    8.3 ms with `by_cat`; `cat < 50` (500,000 rows, approximate, recall@10 0.9425) p95 27.6 ms after `2fad948` and
+    `3d4ab30`, which check the filter on the index candidates in distance order instead of building the whole passing
+    set (it was 230 ms, and 360 ms through `by_cat`); the results are the same rows (checked by AC-VI6 with every list
+    probed and every candidate reranked).
+- **L15** — T9, pgvector (`scripts/bench/pgvector_compare.sh`, PostgreSQL 17.12 and pgvector 0.8.7 in Docker on the
+  same machine, the client in a `python:3.13-slim` container, one thread, `ivfflat.iterative_scan = relaxed_order`,
+  IVFFlat 1,000 lists; `work/ann/pgvector.md`, `work/ann/pgvector-filters.md`): at the same recall@10 (0.958) Krummi's
+  p95 is 16.4 ms and pgvector's 42.1 ms (30 probes); at 0.9706 pgvector needs 54.2 ms. Insert p95 3.065 / 3.676 ms
+  (1.199 ×). `SELECT 1` p95 0.026 ms. With the filters PostgreSQL scanned exactly (recall 1.0, `cat = 7` 41 ms,
+  `cat < 50` 354 ms) also with `enable_seqscan = off`; its plan was not observed. Build 47.5 s (parallel maintenance
+  workers by default) against Krummi's 188.4 s on one thread (VI4).
+- **L16** — T9, N11: one A/B round of every load, base `7793a51` against `3d4ab30` (`scripts/bench/ab_loads.py`,
+  Krummi only, full scale, one load per process): every load within ±3 % except W10, 5.0 % faster on the branch;
+  then 10 rounds of W23–W32 and W10.
+- **L17** — T9, N11: 10 A/B rounds of W23–W32 and W10 (`work/bench/ab.md`, 66 min): every load within ±1.7 %
+  (W10 1.003, W23 1.000, W24 1.009, W25 1.015, W26 0.995, W27 1.017, W28 1.003, W29 1.003, W30 1.008, W31 0.992,
+  W32 1.004 in op/s of the branch over the base).
+- **L18** — RDD review of `57c56c7..587907e` (worker durable wait, filter-first search in distance order, the
+  measurement tools, the guide), lenses risk, resilience, reliability and readability, approved, lineage
+  `review-28b9280c3ad6ab2c`. Fixed in `ccc2564`: R1-bench-hardcoded-pw (WARNING; PostgreSQL now listens on 127.0.0.1
+  only, its container and throwaway password go at the end of the run), R2-default-probe-share-duplicated (WARNING;
+  the tool reads `krummi::table::DEFAULT_PROBE_SHARE`), R2-pending-top-twice (WARNING; the pending rows are read once),
+  R2-doc-step-list-stale (SUGGESTION; steps and the threshold comment), R3-durable-after-commit (WARNING; documented: a
+  failure of the durable wait is a failed flush, which makes the store refuse writes and ends the thread, T12).
+- **L19** — RDD review of `ccc2564` (the last fixes), lenses reliability and readability, approved, no findings, lineage `review-f185432df41a3778`. Every commit of the branch has been through RDD; reviewed boundary `ccc2564`.

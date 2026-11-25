@@ -9,3 +9,25 @@
 2026-11-25T15:37:35+00:00	bg-start	acceptance	AC-VI3 100k release
 2026-11-25T15:37:46+00:00	bg-end	acceptance	AC-VI3 100k release
 2026-11-25T15:39:54+00:00	mark	acceptance	T9
+2026-11-25T15:41:09+00:00	bg-start	acceptance	Cohere prepare and truth
+2026-11-25T15:43:37+00:00	bg-end	acceptance	Cohere prepare and truth
+2026-11-25T15:51:01+00:00	bg-start	acceptance	VI15 load 1M
+2026-11-25T15:54:49+00:00	bg-end	acceptance	VI15 load 1M
+2026-11-25T15:55:10+00:00	bg-start	acceptance	VI15 search 1M
+2026-11-25T16:15:01+00:00	bg-end	acceptance	VI15 search 1M
+2026-11-25T16:16:24+00:00	bg-start	acceptance	VI15 index, threshold, search
+2026-11-25T16:30:37+00:00	bg-end	acceptance	VI15 index, threshold, search
+2026-11-25T16:33:31+00:00	bg-start	acceptance	VI15 search lazy filter
+2026-11-25T16:44:05+00:00	bg-end	acceptance	VI15 search lazy filter
+2026-11-25T16:45:21+00:00	bg-start	acceptance	VI15 search windows
+2026-11-25T16:51:27+00:00	bg-end	acceptance	VI15 search windows
+2026-11-25T16:53:09+00:00	bg-start	acceptance	pgvector 1M
+2026-11-25T17:20:50+00:00	bg-end	acceptance	pgvector 1M
+2026-11-25T17:21:34+00:00	bg-start	acceptance	pgvector filters forced
+2026-11-25T17:45:14+00:00	bg-end	acceptance	pgvector filters forced
+2026-11-25T17:46:28+00:00	bg-start	acceptance	bench A/B 1 round
+2026-11-25T18:05:11+00:00	bg-end	acceptance	bench A/B 1 round
+2026-11-25T18:06:12+00:00	bg-start	acceptance	bench A/B 10 rounds
+2026-11-25T19:12:53+00:00	bg-end	acceptance	bench A/B 10 rounds
+2026-11-25T19:13:23+00:00	mark	checks	T10
+2026-11-25T19:17:25+00:00	mark	review	T11
