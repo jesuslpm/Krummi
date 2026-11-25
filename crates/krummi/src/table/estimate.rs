@@ -97,6 +97,8 @@ pub(crate) struct Retired {
     pub tables: Vec<(u64, u64)>,
     pub columns: Vec<(u64, u64)>,
     pub indexes: Vec<(u64, u64)>,
+    /// Whether the commit leaves work to the vector indexes' worker (VI3, VI4).
+    pub vectors: bool,
 }
 
 impl StatsMemory {

@@ -19,6 +19,7 @@ mod index_key_tests;
 mod index_scan;
 #[cfg(test)]
 mod index_tests;
+mod ivf;
 pub mod json;
 pub mod key;
 mod maintain;
@@ -75,6 +76,8 @@ pub use vector_index::{
     SchemaVectorIndex, VectorIndexDefinition, VectorIndexInfo, VectorIndexState,
 };
 pub(crate) use vector_worker::VectorWork;
+#[doc(hidden)]
+pub use vector_worker::{RebuildThresholds, VectorPoint};
 #[doc(hidden)]
 pub use worker::StatisticsPoint;
 pub(crate) use worker::Work;

@@ -119,6 +119,8 @@ pub(crate) mod tag {
     pub(crate) const LOCATOR: u8 = 6;
     /// `generation` → nothing: a generation a publication retired, whose keys later batches delete.
     pub(crate) const RETIRED: u8 = 7;
+    /// `generation` → its indicators when it was published, against which an automatic rebuild measures their growth.
+    pub(crate) const BASELINE: u8 = 8;
 }
 
 /// The state record of a vector index (VI4, VI9): its active generation (0 while none is ready), the generation it
@@ -131,6 +133,9 @@ pub(crate) struct IndexState {
     pub(crate) rebuilding: bool,
     pub(crate) cursor: Option<Vec<u8>>,
     pub(crate) next: u32,
+    /// The table's greatest key when the building generation was trained, none when it was empty: the build reads the
+    /// rows up to it, and the rows written after it, beyond it, reach the building generation through the pending rows.
+    pub(crate) end: Option<Vec<u8>>,
 }
 
 /// The state of a vector index as its information reports it (VI4, VI11).
@@ -172,10 +177,23 @@ impl IndexState {
         out.extend(self.building.to_be_bytes());
         out.extend(self.next.to_be_bytes());
         out.push(u8::from(self.rebuilding));
-        if let Some(cursor) = &self.cursor {
-            out.extend(cursor);
+        for key in [&self.cursor, &self.end] {
+            match key {
+                Some(key) => {
+                    out.push(1);
+                    out.extend(u32::try_from(key.len()).expect("a key").to_be_bytes());
+                    out.extend(key);
+                }
+                None => out.push(0),
+            }
         }
         out
+    }
+
+    /// Whether the building generation reflects the row of `key` (I-building): up to the cursor, and beyond the end.
+    pub(crate) fn covers(&self, key: &[u8]) -> bool {
+        self.cursor.as_deref().is_some_and(|cursor| key <= cursor)
+            || self.end.as_deref().is_none_or(|end| key > end)
     }
 
     #[allow(dead_code, reason = "used by the worker and the searches (T5–T8)")]
@@ -184,12 +202,30 @@ impl IndexState {
             return None;
         }
         let u32_at = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
-        Some(IndexState {
+        let mut rest = &bytes[13..];
+        let mut key = || -> Option<Option<Vec<u8>>> {
+            let (&flag, tail) = rest.split_first()?;
+            rest = tail;
+            match flag {
+                0 => Some(None),
+                1 => {
+                    let len = u32::from_be_bytes(rest.get(..4)?.try_into().ok()?) as usize;
+                    let key = rest.get(4..4 + len)?.to_vec();
+                    rest = &rest[4 + len..];
+                    Some(Some(key))
+                }
+                _ => None,
+            }
+        };
+        let cursor = key()?;
+        let end = key()?;
+        rest.is_empty().then_some(IndexState {
             active: u32_at(0),
             building: u32_at(4),
             next: u32_at(8),
             rebuilding: bytes[12] == 1,
-            cursor: (bytes.len() > 13).then(|| bytes[13..].to_vec()),
+            cursor,
+            end,
         })
     }
 }
@@ -461,20 +497,105 @@ impl crate::Folder<'_> {
     }
 }
 
-/// The information of the vector index whose roots are `roots`, read from its data tree in `tx` (VI11).
-pub(crate) fn read_info<S: krummi_tree::PageSource + ?Sized>(
+/// The information of the vector index `index` whose roots are `roots`, over vectors of `vector`, read from its data
+/// tree in `tx` (VI11): the generation the searches use and its counters and list sizes.
+pub(crate) fn read_info_with<S: krummi_tree::PageSource + ?Sized>(
+    shared: &crate::Shared,
     tx: &S,
+    index: u64,
     roots: &VectorRoots,
+    vector: &super::value::VectorType,
 ) -> Result<VectorIndexInfo> {
     let state = read_state(tx, roots)?;
-    Ok(VectorIndexInfo {
+    let mut info = VectorIndexInfo {
         state: state.public(),
         lists: None,
         pending: roots.pending_count,
         saturated: None,
         largest_list: None,
         rows_against_trained: None,
-    })
+    };
+    if state.active == 0 {
+        return Ok(info);
+    }
+    let g = state.active;
+    let generation = super::vector_worker::load_generation(shared, tx, index, roots, vector, g)?;
+    let indicators = Indicators::of(tx, roots.data, g, &generation)?;
+    info.lists = Some(u64::from(generation.lists));
+    info.saturated = indicators.saturated;
+    info.largest_list = indicators.largest_list;
+    info.rows_against_trained = Some(indicators.rows);
+    Ok(info)
+}
+
+/// The indicators of VI9 of a generation (VI11): the fraction of its codes with a saturated component and its largest
+/// list against the mean, none without entries, and its entries against the rows it was trained on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Indicators {
+    pub(crate) saturated: Option<f64>,
+    pub(crate) largest_list: Option<f64>,
+    pub(crate) rows: f64,
+}
+
+impl Indicators {
+    /// The indicators of the generation `g`, `generation`, of the data tree at `data`.
+    pub(crate) fn of<S: krummi_tree::PageSource + ?Sized>(
+        tx: &S,
+        data: u64,
+        g: u32,
+        generation: &super::ivf::Generation,
+    ) -> Result<Indicators> {
+        let (entries, saturated) = super::vector_worker::read_counters(tx, data, g)?;
+        let prefix = super::vector_worker::generation_key(tag::LIST_SIZE, g);
+        let mut largest = 0u64;
+        let all = krummi_tree::Interval {
+            prefix: &prefix,
+            lower: std::ops::Bound::Unbounded,
+            upper: std::ops::Bound::Unbounded,
+        };
+        for entry in krummi_tree::Range::new(tx, data, all)? {
+            let (_, value) = entry?;
+            if let Ok(bytes) = <[u8; 8]>::try_from(value) {
+                largest = largest.max(u64::from_le_bytes(bytes));
+            }
+        }
+        let mean = entries as f64 / f64::from(generation.lists);
+        Ok(Indicators {
+            saturated: (entries > 0).then(|| saturated as f64 / entries as f64),
+            largest_list: (entries > 0).then(|| largest as f64 / mean),
+            rows: entries as f64 / generation.trained_rows.max(1) as f64,
+        })
+    }
+
+    /// The bytes of the baseline: each indicator as an `f64`, a negative one for none.
+    pub(crate) fn to_bytes(self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(24);
+        for value in [
+            self.saturated.unwrap_or(-1.0),
+            self.largest_list.unwrap_or(-1.0),
+            self.rows,
+        ] {
+            out.extend(value.to_le_bytes());
+        }
+        out
+    }
+
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Indicators> {
+        let values: Vec<f64> = (bytes.len() == 24).then(|| {
+            bytes
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|c| f64::from_le_bytes(*c))
+                .collect()
+        })?;
+        let some = |v: f64| (v >= 0.0).then_some(v);
+        Some(Indicators {
+            saturated: some(values[0]),
+            largest_list: some(values[1]),
+            rows: values[2],
+        })
+    }
 }
 
 /// The state record of the data tree at `roots.data`; a missing or malformed one is damage of its page (G6).
@@ -507,7 +628,14 @@ impl crate::ReadTransaction<'_> {
         self.check_table(table)?;
         let at = (table.schema.vector_index_position(index))
             .ok_or_else(|| self.folder.missing_vector_index(&table.name, index))?;
-        read_info(&self.inner, &table.vector_roots[at])
+        let (id, vector) = vector_of(&table.schema, at);
+        read_info_with(
+            self.store,
+            &self.inner,
+            id,
+            &table.vector_roots[at],
+            &vector,
+        )
     }
 }
 
@@ -521,12 +649,25 @@ impl WriteTransaction<'_> {
         index: &str,
     ) -> Result<VectorIndexInfo> {
         self.folder.check_index_name(index)?;
-        let roots = {
+        let (roots, id, vector) = {
             let state = self.live_table(table)?;
             let at = (state.schema.vector_index_position(index))
                 .ok_or_else(|| self.folder.missing_vector_index(&state.name, index))?;
-            state.vector_roots[at]
+            let (id, vector) = vector_of(&state.schema, at);
+            (state.vector_roots[at], id, vector)
         };
-        read_info(&self.inner, &roots)
+        read_info_with(self.store, &self.inner, id, &roots, &vector)
+    }
+}
+
+/// The identity of the vector index at `at` of `schema` and the type of its column.
+pub(crate) fn vector_of(schema: &TableSchema, at: usize) -> (u64, super::value::VectorType) {
+    let index = &schema.vector_indexes()[at];
+    let column = schema
+        .column_by_id(index.column.id)
+        .expect("a live column of the index");
+    match column.ty {
+        ColumnType::Vector(vector) => (index.id, vector),
+        _ => unreachable!("an index over a vector column"),
     }
 }

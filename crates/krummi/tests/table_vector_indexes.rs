@@ -10,6 +10,8 @@ mod definitions;
 mod exact;
 #[path = "table_vector_indexes/pending.rs"]
 mod pending;
+#[path = "table_vector_indexes/worker.rs"]
+mod worker;
 
 use krummi::table::value::{ColumnType, Value, VectorElement, VectorType};
 use krummi::{Column, Schema, WriteTable, WriteTransaction};

@@ -90,10 +90,11 @@ pub use table::{
     BulkLoadError, Collation, Column, ColumnStatistics, Condition, Direction, Estimate,
     FilterCondition, HistogramBucket, IndexDefinition, IndexEntry, IndexKey, IndexMode, Nearest,
     Neighbour, Neighbours, Nulls, PrefixStatistics, ProjectedColumn, ProjectedRow, Projection,
-    ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn,
-    SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SchemaVectorIndex, SequenceMode, TableMode,
-    TableRow, TableSchema, Upserted, VectorIndexDefinition, VectorIndexInfo, VectorIndexState,
-    VectorMetric, WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence, WriteTable,
+    ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, RebuildThresholds, Schema,
+    SchemaColumn, SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SchemaVectorIndex, SequenceMode,
+    TableMode, TableRow, TableSchema, Upserted, VectorIndexDefinition, VectorIndexInfo,
+    VectorIndexState, VectorMetric, VectorPoint, WriteIndexEntries, WriteIndexRows, WriteRows,
+    WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
@@ -283,6 +284,7 @@ impl Store {
     pub fn close(mut self) -> Result<()> {
         let shared = self.shared.take().expect("a store closes once");
         shared.work.stop();
+        shared.vectors.stop();
         let shared = Arc::try_unwrap(shared)
             .ok()
             .expect("the statistics thread ended and no transaction is open");
@@ -294,6 +296,7 @@ impl Drop for Store {
     fn drop(&mut self) {
         if let Some(shared) = &self.shared {
             shared.work.stop();
+            shared.vectors.stop();
         }
     }
 }
@@ -1619,9 +1622,14 @@ impl WriteTransaction<'_> {
     /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
+        let vectors = retired.vectors;
         // Once the commit passed its point of no return and before it lets go of the turn: only when it applies (R18),
         // and before any later writer or save (R11).
-        inner.commit_applying(true, &mut |txid| store.statistics.retire(&retired, txid))
+        inner.commit_applying(true, &mut |txid| store.statistics.retire(&retired, txid))?;
+        if vectors {
+            store.vectors.kick(store);
+        }
+        Ok(())
     }
 
     /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
@@ -1632,7 +1640,12 @@ impl WriteTransaction<'_> {
     /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        inner.commit_applying(false, &mut |txid| store.statistics.retire(&retired, txid))
+        let vectors = retired.vectors;
+        inner.commit_applying(false, &mut |txid| store.statistics.retire(&retired, txid))?;
+        if vectors {
+            store.vectors.kick(store);
+        }
+        Ok(())
     }
 
     /// Aborts the transaction: none of its changes apply, and the next request waiting gets the turn.
