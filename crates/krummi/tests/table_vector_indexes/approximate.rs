@@ -213,6 +213,14 @@ fn ac_vi6_filter_first() {
                 exact_distances(store, &found);
             }
         }
+        // Every list probed and every candidate reranked: the rows that pass, nearest first, as the exact search over
+        // them gives them, though the filter is checked on the candidates as they come.
+        store.set_vector_rerank_all(true);
+        let q = query(20).with_filter(many).with_probes(1_000);
+        let found = near(store, &q);
+        assert!(!found.exact);
+        assert_eq!(found.rows, exact(store, &q).rows);
+        store.set_vector_rerank_all(false);
     });
 }
 
