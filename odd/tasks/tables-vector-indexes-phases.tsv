@@ -38,3 +38,9 @@
 2026-11-25T19:21:24+00:00	mark	close	T11
 2026-11-25T19:22:52+00:00	mark	wait	Codex trust of the folder
 2026-11-25T19:40:05+00:00	mark	review	T11
+2026-11-25T19:40:05+00:00	bg-start	review	codex-R1
+2026-11-25T19:51:37+00:00	bg-end	review	codex-R1
+2026-11-25T21:06:13+00:00	mark	fix	Codex R1 fixes
+2026-11-25T21:06:13+00:00	mark	checks	checks after Codex R1 fixes
+2026-11-25T21:11:05+00:00	bg-start	acceptance	pgvector-R4
+2026-11-25T21:29:18+00:00	bg-end	acceptance	pgvector-R4
