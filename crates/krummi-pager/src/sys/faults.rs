@@ -238,7 +238,9 @@ pub fn materialize_power_cut(ops: &[Recorded], cut: usize, source: &Path, target
 /// pessimistic model: file contents survive up to their last flush, plus what `model` keeps of the later writes;
 /// new names (creations, renames, removals) survive only after their folder is flushed on Unix, and on Windows
 /// once the file itself is flushed (renames are written through). The files already in `target` are the
-/// starting state, durable; recorded paths under `source` are rebased onto `target`. Subfolders are ignored.
+/// starting state, durable; recorded paths under `source` are rebased onto `target`. Subfolders are ignored. A
+/// recording that uses a file that is not live, or that names a file outside `source`, panics with the operation,
+/// the path and the operations that create, rename or remove it.
 pub fn materialize(ops: &[Recorded], cut: usize, source: &Path, target: &Path, model: Model) {
     let mut files: Vec<SimFile> = Vec::new();
     let mut live: HashMap<PathBuf, usize> = HashMap::new();
@@ -253,27 +255,33 @@ pub fn materialize(ops: &[Recorded], cut: usize, source: &Path, target: &Path, m
         }
     }
     let mut durable = live.clone();
-    for op in &ops[..cut] {
+    let file = |live: &HashMap<PathBuf, usize>, at: usize, path: &Path| match live.get(path) {
+        Some(&id) => id,
+        None => not_live(ops, at, path),
+    };
+    for (at, op) in ops[..cut].iter().enumerate() {
         match op {
             Recorded::Create(p) => {
                 files.push(SimFile::default());
                 live.insert(p.clone(), files.len() - 1);
             }
             Recorded::Write(p, offset, data) => {
-                files[live[p]]
+                files[file(&live, at, p)]
                     .pending
                     .push(Pending::Write(*offset, data.clone()));
             }
-            Recorded::SetLen(p, len) => files[live[p]].pending.push(Pending::SetLen(*len)),
+            Recorded::SetLen(p, len) => files[file(&live, at, p)]
+                .pending
+                .push(Pending::SetLen(*len)),
             Recorded::Sync(p) => {
-                let id = live[p];
+                let id = file(&live, at, p);
                 files[id].flush();
                 if cfg!(windows) {
                     durable.insert(p.clone(), id);
                 }
             }
             Recorded::Rename(from, to) => {
-                let id = live.remove(from).unwrap();
+                let id = live.remove(from).unwrap_or_else(|| not_live(ops, at, from));
                 live.insert(to.clone(), id);
                 if cfg!(windows) {
                     durable.remove(from);
@@ -300,7 +308,183 @@ pub fn materialize(ops: &[Recorded], cut: usize, source: &Path, target: &Path, m
         }
     }
     for (path, id) in durable {
-        let relative = path.strip_prefix(source).unwrap();
+        let relative = path.strip_prefix(source).unwrap_or_else(|_| {
+            panic!(
+                "recorded file {} is not in the source folder {}: the recording holds operations of another folder",
+                path.display(),
+                source.display()
+            )
+        });
         std::fs::write(target.join(relative), files[id].after_cut(model)).unwrap();
+    }
+}
+
+/// Panics because recorded operation `at` uses `path` while no live file has that name, with the operations of the
+/// whole recording that create, rename or remove it, before and after it: the threads of a store record their
+/// operations after making them, so a recording can hold two operations of different threads out of order.
+fn not_live(ops: &[Recorded], at: usize, path: &Path) -> ! {
+    let naming = |range: std::ops::Range<usize>| {
+        let named: Vec<String> = range
+            .filter(|&i| ops[i].names(path))
+            .map(|i| format!("{i} {}", ops[i].summary()))
+            .collect();
+        if named.is_empty() {
+            "none".to_owned()
+        } else {
+            named.join(", ")
+        }
+    };
+    panic!(
+        "recorded operation {at} of {} ({}) uses {}, which is not a live file there; operations that create, rename \
+         or remove it, before: {}; after: {}",
+        ops.len(),
+        ops[at].summary(),
+        path.display(),
+        naming(0..at),
+        naming(at + 1..ops.len())
+    )
+}
+
+impl Recorded {
+    /// Whether this operation creates, renames or removes the file `path`.
+    fn names(&self, path: &Path) -> bool {
+        match self {
+            Recorded::Create(p) | Recorded::Remove(p) => p == path,
+            Recorded::Rename(from, to) => from == path || to == path,
+            _ => false,
+        }
+    }
+
+    /// The operation, without the bytes it wrote.
+    fn summary(&self) -> String {
+        match self {
+            Recorded::Create(p) => format!("Create {}", p.display()),
+            Recorded::Write(p, offset, data) => {
+                format!("Write {} at {offset}, {} bytes", p.display(), data.len())
+            }
+            Recorded::SetLen(p, len) => format!("SetLen {} to {len}", p.display()),
+            Recorded::Sync(p) => format!("Sync {}", p.display()),
+            Recorded::Rename(from, to) => format!("Rename {} to {}", from.display(), to.display()),
+            Recorded::Remove(p) => format!("Remove {}", p.display()),
+            Recorded::SyncDir(p) => format!("SyncDir {}", p.display()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The message of the panic of materializing the first `cut` operations of `ops`, recorded in `source`.
+    fn failure(ops: &[Recorded], cut: usize, source: &Path) -> String {
+        let target = tempfile::tempdir().unwrap();
+        let panic = std::panic::catch_unwind(|| {
+            materialize(ops, cut, source, target.path(), Model::Flushed);
+        })
+        .expect_err("materializing the recording panics");
+        match panic.downcast::<String>() {
+            Ok(message) => *message,
+            Err(panic) => (*panic.downcast::<&str>().unwrap()).to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_write_to_a_file_never_created_names_the_operation_and_that_nothing_named_the_file() {
+        let source = Path::new("source");
+        let (a, b) = (source.join("a"), source.join("b"));
+        let ops = [
+            Recorded::Create(a),
+            Recorded::Write(b.clone(), 8, vec![1, 2, 3]),
+        ];
+        assert_eq!(
+            failure(&ops, 2, source),
+            format!(
+                "recorded operation 1 of 2 (Write {} at 8, 3 bytes) uses {}, which is not a live file there; \
+                 operations that create, rename or remove it, before: none; after: none",
+                b.display(),
+                b.display()
+            )
+        );
+    }
+
+    #[test]
+    fn a_write_after_the_removal_of_its_file_names_the_creation_and_the_removal() {
+        let source = Path::new("source");
+        let a = source.join("a");
+        let ops = [
+            Recorded::Create(a.clone()),
+            Recorded::Remove(a.clone()),
+            Recorded::Write(a.clone(), 0, vec![7]),
+        ];
+        assert_eq!(
+            failure(&ops, 3, source),
+            format!(
+                "recorded operation 2 of 3 (Write {a} at 0, 1 bytes) uses {a}, which is not a live file there; \
+                 operations that create, rename or remove it, before: 0 Create {a}, 1 Remove {a}; after: none",
+                a = a.display()
+            )
+        );
+    }
+
+    #[test]
+    fn a_creation_recorded_after_the_write_of_its_file_is_named_as_later() {
+        let source = Path::new("source");
+        let (a, b) = (source.join("a"), source.join("b"));
+        let ops = [
+            Recorded::Sync(a.clone()),
+            Recorded::Create(b.clone()),
+            Recorded::Rename(b.clone(), a.clone()),
+        ];
+        // Only the operations before the cut are materialized, but the later ones are named.
+        assert_eq!(
+            failure(&ops, 1, source),
+            format!(
+                "recorded operation 0 of 3 (Sync {a}) uses {a}, which is not a live file there; operations that \
+                 create, rename or remove it, before: none; after: 2 Rename {b} to {a}",
+                a = a.display(),
+                b = b.display()
+            )
+        );
+    }
+
+    #[test]
+    fn a_rename_and_a_size_change_of_a_file_that_is_not_live_name_the_operation() {
+        let source = Path::new("source");
+        let (a, b) = (source.join("a"), source.join("b"));
+        let rename = [Recorded::Rename(a.clone(), b.clone())];
+        assert!(failure(&rename, 1, source).starts_with(&format!(
+            "recorded operation 0 of 1 (Rename {} to {}) uses {}, which is not a live file there;",
+            a.display(),
+            b.display(),
+            a.display()
+        )));
+        let set_len = [Recorded::SetLen(a.clone(), 4096)];
+        assert!(failure(&set_len, 1, source).starts_with(&format!(
+            "recorded operation 0 of 1 (SetLen {} to 4096) uses {},",
+            a.display(),
+            a.display()
+        )));
+    }
+
+    #[test]
+    fn a_file_outside_the_source_folder_is_named_with_the_folder() {
+        let source = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let stray = other.path().join("krummi.data");
+        // Durable on Windows once the file is flushed, and on Unix once its folder is.
+        let ops = [
+            Recorded::Create(stray.clone()),
+            Recorded::Sync(stray.clone()),
+            Recorded::SyncDir(other.path().to_path_buf()),
+        ];
+        assert_eq!(
+            failure(&ops, 3, source.path()),
+            format!(
+                "recorded file {} is not in the source folder {}: the recording holds operations of another \
+                 folder",
+                stray.display(),
+                source.path().display()
+            )
+        );
     }
 }
