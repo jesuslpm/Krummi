@@ -1,6 +1,6 @@
 # Approximate Vector Indexes — PRD
 
-**Version**: 1.0
+**Version**: 1.1
 **Date**: 2026-11-25
 **Parent document**: [Krummi Tables — PRD](tables.prd.en.md) (v1.0)
 
@@ -58,6 +58,11 @@ Decisions of the user of 2026-11-25:
 - the other proposals of the draft, which follow the rules of 7.2 and 7.3 (VI1, VI9 on request, VI10 to VI13): «Aceptar
   todas (Recomendado)».
 
+*Annotation of 2026-11-25, at the start of the execution (v1.1): the execution runs on Kubuntu and cannot test or
+measure on Windows (user: «Solo Linux, anotado»). This PRD is validated on Linux x86-64 with glibc only and Windows stops
+being a criterion: the tests, AC-VI10, AC-VI11 and the measurements of VI15 are Linux's, and the PRD can close without
+Windows. It is an exception to D3 and AC18 of the [root](../krummi.prd.en.md), which carries its annotation.*
+
 This PRD inherits everything from its ancestors. It makes precise or extends rules of its parent, of
 [tables-schema.prd.en.md](tables-schema.prd.en.md) (7.1) and of [tables-indexes.prd.en.md](tables-indexes.prd.en.md)
 (7.2), which carry its annotation (*Annotations to other PRDs*).
@@ -86,7 +91,7 @@ conditions.
 | VI13 | **Worker failures**, like ST9: a failure of a batch when reading (damage, input/output, out of memory) or when storing without making the store stop accepting writes (disk full of G7, maximum size of P10) leaves the index as before that batch, without informing anyone, and the worker retries it in its next pass; searches stay correct, because the rows remain pending. An input/output failure when committing makes the store stop accepting writes (T12), like that of any writer; the next operation of the application reports it, and the worker stops. The space the index takes counts toward the disk and the maximum size like that of any tree. |
 | VI14 | **Format**: the change is incompatible (B12) and the format version goes from 15 to 16. |
 | VI16 | **Exact search** (user: «Sí, pública (Recomendado)»): the same search of VI5, with the same filters, requested as exact and naming a metric instead of an index: it computes the exact distance of all the rows that pass the filter, never uses a vector index and does not need one to exist. It admits all the element types, `bit` included with the Hamming distance, and the metrics of VI2 in the others. Its result is always exact, with the order, the ties, the units and the maximum k of VI5 and VI8. It is the exact search of document 5 that the parent leaves as "never use the index". |
-| VI15 | **Measurement**: there are no new benchmark loads with a threshold against Voron, which has no vector indexes in its storage layer. The comparison reference is **PostgreSQL with pgvector** (user: «pgvector»), with its IVFFlat index and its iterative searches (`ivfflat.iterative_scan`, since pgvector 0.8.0), on the same machine and with the same data. It is an informative comparison in the closing report, with a script and without a threshold: PostgreSQL does not enter the benchmark. It compares, on one thread (`max_parallel_workers_per_gather = 0`), the p95 of Krummi and of pgvector with the same recall@10 of at least 0.95, without a filter and with a filter that lets few rows pass and another that lets many pass, and the p95 of inserting a row into a table with the index. It reports separately the p95 of an empty PostgreSQL query (`SELECT 1`), which measures what its protocol costs, and the versions of PostgreSQL and pgvector used. Installing them on the measurement machine is part of the execution. The closing report measures, with the Cohere data of the experiment (1 M × 768, L2), one thread, warm cache, no pending rows and the worker with no work, and on Windows and on Linux, these thresholds of document 12: recall@10 of at least 0.95 with a p95 of at most 20 ms, without a filter; the p95 of inserting a row into a table with the index, at most 10 % above that without it; and the time a batch holds the turn, at most 15 ms (VI3). A threshold that is not met leaves the PRD not closed until the user decides. With N11 since 7.3, also a round of all the benchmark loads before and after the change, and 10 to 20 rounds of the table write loads (W23 to W32), which are the ones affected, and of those that deviate by more than 3 %. |
+| VI15 | **Measurement**: there are no new benchmark loads with a threshold against Voron, which has no vector indexes in its storage layer. The comparison reference is **PostgreSQL with pgvector** (user: «pgvector»), with its IVFFlat index and its iterative searches (`ivfflat.iterative_scan`, since pgvector 0.8.0), on the same machine and with the same data. It is an informative comparison in the closing report, with a script and without a threshold: PostgreSQL does not enter the benchmark. It compares, on one thread (`max_parallel_workers_per_gather = 0`), the p95 of Krummi and of pgvector with the same recall@10 of at least 0.95, without a filter and with a filter that lets few rows pass and another that lets many pass, and the p95 of inserting a row into a table with the index. It reports separately the p95 of an empty PostgreSQL query (`SELECT 1`), which measures what its protocol costs, and the versions of PostgreSQL and pgvector used. Installing them on the measurement machine is part of the execution. The closing report measures, with the Cohere data of the experiment (1 M × 768, L2), one thread, warm cache, no pending rows and the worker with no work, and on Linux (annotation of 2026-11-25), these thresholds of document 12: recall@10 of at least 0.95 with a p95 of at most 20 ms, without a filter; the p95 of inserting a row into a table with the index, at most 10 % above that without it; and the time a batch holds the turn, at most 15 ms (VI3). A threshold that is not met leaves the PRD not closed until the user decides. With N11 since 7.3, also a round of all the benchmark loads before and after the change, and 10 to 20 rounds of the table write loads (W23 to W32), which are the ones affected, and of those that deviate by more than 3 %. |
 
 ### Starting state
 
@@ -109,7 +114,7 @@ Verified on 2026-11-25 in the code, in the PRDs of the ancestors and in the desi
 
 - **Application developer (Rust)**: creates vector indexes, searches for neighbors with relational filters in Rust,
   queries the state of an index and, if they want, requests a rebuild before the worker does it on its own.
-- **Maintainer**: runs the tests and the measurements of VI15 on Windows and on Linux.
+- **Maintainer**: runs the tests and the measurements of VI15 on Linux (annotation of 2026-11-25).
 
 ## Flow
 
@@ -235,12 +240,13 @@ Those of the ancestors apply.
 9. **AC-VI9** — Given a table with a vector index, when the table is emptied, bulk loaded, the column is renamed, its
    removal is attempted and the index or the table is dropped, then what VI10 fixes happens, and in a temporary store
    the same.
-10. **AC-VI10** — Given the same store file with a ready index, opened on Windows and on Linux, when the same
+10. **AC-VI10** — Given the same store file with a ready index, closed and opened again on Linux, when the same
     approximate search and the same exact search are made, then the rows and the distances are bit-for-bit identical;
-    and so is the exact search over the same data loaded on each platform.
+    so is the exact search over the same data loaded into another store; and the distance kernels give the bits a golden
+    test pins (annotation of 2026-11-25: no Windows).
 11. **AC-VI11** — When the thresholds of VI15 are measured, then each one meets its figure (recall@10 ≥ 0.95 with p95
-    ≤ 20 ms; inserting with the index ≤ 1.10 times without it; a batch ≤ 15 ms) on Windows and on Linux, and the closing
-    report brings the comparison with pgvector.
+    ≤ 20 ms; inserting with the index ≤ 1.10 times without it; a batch ≤ 15 ms) on Linux (annotation of 2026-11-25), and the
+    closing report brings the comparison with pgvector.
 12. **AC-VI12** — Given a search with the L2, dot product and cosine metrics, when their distances are compared with the
     reference ones of VI8 computed separately, then they are those; and two rows whose Euclidean distances coincide when
     rounded come out in the order of their squares.

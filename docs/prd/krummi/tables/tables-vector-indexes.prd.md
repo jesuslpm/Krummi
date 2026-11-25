@@ -1,6 +1,6 @@
 # Índices vectoriales aproximados — PRD
 
-**Versión**: 1.0
+**Versión**: 1.1
 **Fecha**: 2026-11-25
 **Documento padre**: [Tablas de Krummi — PRD](tables.prd.md) (v1.0)
 
@@ -55,6 +55,11 @@ Decisiones del usuario del 2026-11-25:
 - las demás propuestas del borrador, que siguen las reglas de 7.2 y 7.3 (VI1, VI9 a pedido, VI10 a VI13): «Aceptar
   todas (Recomendado)».
 
+*Anotación del 2026-11-25, al empezar la ejecución (v1.1): la ejecución se hace en Kubuntu y no puede probar ni medir
+en Windows (usuario: «Solo Linux, anotado»). Este PRD se valida solo en Linux x86-64 con glibc y Windows deja de ser un
+criterio: las pruebas, AC-VI10, AC-VI11 y las mediciones de VI15 son de Linux, y el PRD se puede cerrar sin Windows. Es
+una excepción a D3 y AC18 de la [raíz](../krummi.prd.md), que lleva su anotación.*
+
 Este PRD hereda todo lo de sus ascendientes. Precisa o amplía reglas de su padre, de
 [tables-schema.prd.md](tables-schema.prd.md) (7.1) y de [tables-indexes.prd.md](tables-indexes.prd.md) (7.2), que
 llevan su anotación (*Anotaciones a otros PRD*).
@@ -83,7 +88,7 @@ condiciones relacionales.
 | VI13 | **Fallos del trabajador**, como ST9: un fallo de un lote al leer (daño, entrada y salida, memoria agotada) o al guardar sin pasar el almacén a no aceptar escrituras (disco lleno de G7, tamaño máximo de P10) deja el índice como antes de ese lote, sin informar a nadie, y el trabajador lo reintenta en su siguiente pasada; las búsquedas siguen siendo correctas, porque las filas siguen pendientes. Un fallo de entrada y salida al confirmar pasa el almacén a no aceptar escrituras (T12), como el de cualquier escritor; la siguiente operación de la aplicación lo informa, y el trabajador se detiene. El espacio que ocupa el índice cuenta para el disco y el tamaño máximo como el de cualquier árbol. |
 | VI14 | **Formato**: el cambio es incompatible (B12) y la versión del formato pasa de 15 a 16. |
 | VI16 | **Búsqueda exacta** (usuario: «Sí, pública (Recomendado)»): la misma búsqueda de VI5, con los mismos filtros, pedida como exacta y nombrando una métrica en lugar de un índice: calcula la distancia exacta de todas las filas que pasan el filtro, nunca usa un índice vectorial y no necesita que exista. Admite todos los tipos de elemento, `bit` incluido con la distancia de Hamming, y las métricas de VI2 en los demás. Su resultado es siempre exacto, con el orden, los empates, las unidades y el máximo de k de VI5 y VI8. Es la búsqueda exacta del documento 5 que el padre deja «nunca usan el índice». |
-| VI15 | **Medición**: no hay cargas nuevas del banco con umbral frente a Voron, que no tiene índices vectoriales en su capa de almacenamiento. La referencia de comparación es **PostgreSQL con pgvector** (usuario: «pgvector»), con su índice IVFFlat y sus búsquedas iterativas (`ivfflat.iterative_scan`, desde pgvector 0.8.0), en la misma máquina y con los mismos datos. Es una comparación informativa del informe de cierre, con un script y sin umbral: PostgreSQL no entra en el banco. Compara, en un hilo (`max_parallel_workers_per_gather = 0`), el p95 de Krummi y de pgvector con la misma recall@10 de al menos 0,95, sin filtro y con un filtro que deja pasar pocas filas y otro que deja pasar muchas, y el p95 de insertar una fila en una tabla con el índice. Informa aparte el p95 de una consulta vacía de PostgreSQL (`SELECT 1`), que mide lo que cuesta su protocolo, y las versiones de PostgreSQL y pgvector usadas. Instalarlos en la máquina de medición es parte de la ejecución. El informe de cierre mide, con los datos de Cohere del experimento (1 M × 768, L2), un hilo, caché caliente, sin pendientes y el trabajador sin trabajo, y en Windows y en Linux, estos umbrales del documento 12: recall@10 de al menos 0,95 con un p95 de como mucho 20 ms, sin filtro; el p95 de insertar una fila en una tabla con el índice, como mucho un 10 % por encima del de sin él; y el tiempo que un lote retiene el turno, como mucho 15 ms (VI3). Un umbral que no se cumple deja el PRD sin cerrar hasta que el usuario decida. Con N11 desde 7.3, también una ronda de todas las cargas del banco antes y después del cambio, y de 10 a 20 rondas de las cargas de escritura de tablas (W23 a W32), que son las afectadas, y de las que se aparten más de un 3 %. |
+| VI15 | **Medición**: no hay cargas nuevas del banco con umbral frente a Voron, que no tiene índices vectoriales en su capa de almacenamiento. La referencia de comparación es **PostgreSQL con pgvector** (usuario: «pgvector»), con su índice IVFFlat y sus búsquedas iterativas (`ivfflat.iterative_scan`, desde pgvector 0.8.0), en la misma máquina y con los mismos datos. Es una comparación informativa del informe de cierre, con un script y sin umbral: PostgreSQL no entra en el banco. Compara, en un hilo (`max_parallel_workers_per_gather = 0`), el p95 de Krummi y de pgvector con la misma recall@10 de al menos 0,95, sin filtro y con un filtro que deja pasar pocas filas y otro que deja pasar muchas, y el p95 de insertar una fila en una tabla con el índice. Informa aparte el p95 de una consulta vacía de PostgreSQL (`SELECT 1`), que mide lo que cuesta su protocolo, y las versiones de PostgreSQL y pgvector usadas. Instalarlos en la máquina de medición es parte de la ejecución. El informe de cierre mide, con los datos de Cohere del experimento (1 M × 768, L2), un hilo, caché caliente, sin pendientes y el trabajador sin trabajo, y en Linux (anotación del 2026-11-25), estos umbrales del documento 12: recall@10 de al menos 0,95 con un p95 de como mucho 20 ms, sin filtro; el p95 de insertar una fila en una tabla con el índice, como mucho un 10 % por encima del de sin él; y el tiempo que un lote retiene el turno, como mucho 15 ms (VI3). Un umbral que no se cumple deja el PRD sin cerrar hasta que el usuario decida. Con N11 desde 7.3, también una ronda de todas las cargas del banco antes y después del cambio, y de 10 a 20 rondas de las cargas de escritura de tablas (W23 a W32), que son las afectadas, y de las que se aparten más de un 3 %. |
 
 ### Estado de partida
 
@@ -106,7 +111,7 @@ Verificado el 2026-11-25 en el código, en los PRD de los ascendientes y en los 
 
 - **Desarrollador integrador**: crea índices vectoriales, busca vecinos con filtros relacionales en Rust, consulta el
   estado de un índice y, si quiere, pide una reconstrucción antes de que el trabajador la haga solo.
-- **Mantenedor**: ejecuta en Windows y en Linux las pruebas y las mediciones de VI15.
+- **Mantenedor**: ejecuta en Linux las pruebas y las mediciones de VI15 (anotación del 2026-11-25).
 
 ## Flujo
 
@@ -234,11 +239,13 @@ Valen los de los ascendientes.
 9. **AC-VI9** — Dada una tabla con un índice vectorial, cuando se vacía la tabla, se carga en masa, se renombra la
    columna, se intenta quitarla y se borra el índice o la tabla, entonces pasa lo que fija VI10, y en un almacén
    temporal lo mismo.
-10. **AC-VI10** — Dado un mismo archivo de almacén con un índice listo, abierto en Windows y en Linux, cuando se hace la
-    misma búsqueda aproximada y la misma búsqueda exacta, entonces las filas y las distancias son idénticas bit a bit;
-    y la búsqueda exacta sobre los mismos datos cargados en cada plataforma también.
+10. **AC-VI10** — Dado un mismo archivo de almacén con un índice listo, cerrado y abierto otra vez en Linux, cuando se
+    hace la misma búsqueda aproximada y la misma búsqueda exacta, entonces las filas y las distancias son idénticas bit
+    a bit; la búsqueda exacta sobre los mismos datos cargados en otro almacén también; y los núcleos de distancia dan los
+    bits que fija una prueba dorada (anotación del 2026-11-25: sin Windows).
 11. **AC-VI11** — Cuando se miden los umbrales de VI15, entonces cada uno cumple su cifra (recall@10 ≥ 0,95 con p95
-    ≤ 20 ms; insertar con el índice ≤ 1,10 veces sin él; un lote ≤ 15 ms) en Windows y en Linux, y el informe de cierre
+    ≤ 20 ms; insertar con el índice ≤ 1,10 veces sin él; un lote ≤ 15 ms) en Linux (anotación del 2026-11-25), y el
+    informe de cierre
     trae la comparación con pgvector.
 12. **AC-VI12** — Dada una búsqueda con la métrica L2, producto escalar y coseno, cuando se comparan sus distancias con
     las de referencia de VI8 calculadas aparte, entonces son esas; y dos filas cuyas distancias euclídeas coinciden al

@@ -51,6 +51,10 @@ lleva ese diseño a Rust como producto propio, sin atarse a su formato en disco.
 | D11 | **Lecturas sin copia** (v1.1): las lecturas devuelven a la aplicación referencias a memoria del motor, sin copiar los datos a un buffer de quien llama. Las referencias valen mientras la transacción de lectura que las obtuvo esté abierta, y el compilador impide usarlas después. Si una página se guarda cifrada (módulo 9) o comprimida (módulo 5), se descifra o descomprime una sola vez en memoria de la transacción y la referencia apunta ahí. Las escrituras trabajan sobre una copia de la página, que el aislamiento por instantánea (G3) exige. |
 | D12 | **Código no seguro** (v1.1): el Pager (módulo 1), con la variante cifrada que le añade el módulo 9, es la única parte del motor que puede usar código no seguro de Rust (`unsafe`). Lo encapsula detrás de una interfaz segura; el resto del motor lo tiene prohibido y una comprobación automática lo impide. |
 
+*Anotación del 2026-11-25 a D3 y AC18 desde los índices vectoriales aproximados
+([tables-vector-indexes.prd.md](tables/tables-vector-indexes.prd.md), 7.6): excepción: ese PRD se valida solo en Linux
+x86-64 con glibc, porque su ejecución no tiene Windows; sus pruebas y mediciones de Windows dejan de ser un criterio.*
+
 *Anotación del 2026-10-22 a D12: ninguna operación pública provoca comportamiento indefinido, salvo que otro
 programa modifique los archivos del almacén mientras está abierto, lo que queda fuera de alcance (decisión P16 de
 [pager.prd.md](pager/pager.prd.md)).*
