@@ -613,10 +613,12 @@ impl Searched<'_> {
         // when it passes, gets its exact distance, until `wanted` passed. That is the best `wanted` of the rows that
         // pass in those lists, as if the rows that pass were found first and only those considered (VI6). While fewer
         // than k pass in the probed lists, the next lists in order join them.
-        let mut pool: Vec<(f32, Vec<u8>)> = Vec::new();
-        let mut checked: HashMap<Vec<u8>, bool> = HashMap::new();
+        let mut pool: Vec<(f32, &[u8])> = Vec::new();
+        let mut checked: HashMap<&[u8], bool> = HashMap::new();
         let mut versions = Versions::default();
         let mut scratch = Vec::new();
+        let order_of =
+            |a: &(f32, &[u8]), b: &(f32, &[u8])| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(b.1));
         let mut probed = 0;
         loop {
             let reach = if probed == 0 { probes } else { probed + 1 };
@@ -634,46 +636,57 @@ impl Searched<'_> {
                 for entry in krummi_tree::Range::new(tx, roots.data, list_entries)? {
                     let (key, code) = entry?;
                     let primary = &key[prefix.len()..];
-                    if !pending.contains(primary) {
-                        pool.push((prepared.distance(code), primary.to_vec()));
+                    if pending.is_empty() || !pending.contains(primary) {
+                        pool.push((prepared.distance(code), primary));
                     }
                 }
             }
             probed = reach.min(order.len());
-            pool.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            // In order of distance, a window at a time: only the postings the scan reaches are sorted.
             let mut kept = TopK::new(query.k);
             let mut passed = 0usize;
-            for (_, primary) in &pool {
-                if passed >= wanted {
-                    break;
+            let (mut start, mut window) = (0, wanted.clamp(64, 1 << 20));
+            'scan: while start < pool.len() && passed < wanted {
+                let end = start.saturating_add(window).min(pool.len());
+                if end < pool.len() {
+                    pool[start..].select_nth_unstable_by(end - start - 1, order_of);
                 }
-                if checked.get(primary) == Some(&false) {
-                    continue;
+                pool[start..end].sort_unstable_by(order_of);
+                for &(_, primary) in &pool[start..end] {
+                    if passed >= wanted {
+                        break 'scan;
+                    }
+                    if checked.get(primary) == Some(&false) {
+                        continue;
+                    }
+                    let Some(stored) = krummi_tree::get(tx, self.rows_root, primary)? else {
+                        // A posting of a row that is not pending names a row of the snapshot (I-ready).
+                        return Err(match krummi_tree::leaf_of(tx, roots.data, primary) {
+                            Ok(page) => tx.damaged(page),
+                            Err(error) => error,
+                        });
+                    };
+                    let row = self.reader.decode(
+                        tx,
+                        self.at(),
+                        &mut versions,
+                        Cow::Borrowed(primary),
+                        stored,
+                        false,
+                    )?;
+                    let meets =
+                        filter.meets(|i| row.value(i).expect("a live column"), &mut scratch);
+                    checked.insert(primary, meets);
+                    if !meets {
+                        continue;
+                    }
+                    if let Some(Value::Vector(value)) = row.value(place) {
+                        passed += 1;
+                        kept.push(exact.key(&value), primary, || self.key_values(&row));
+                    }
                 }
-                let Some(stored) = krummi_tree::get(tx, self.rows_root, primary)? else {
-                    // A posting of a row that is not pending names a row of the snapshot (I-ready).
-                    return Err(match krummi_tree::leaf_of(tx, roots.data, primary) {
-                        Ok(page) => tx.damaged(page),
-                        Err(error) => error,
-                    });
-                };
-                let row = self.reader.decode(
-                    tx,
-                    self.at(),
-                    &mut versions,
-                    Cow::Owned(primary.clone()),
-                    stored,
-                    false,
-                )?;
-                let meets = filter.meets(|i| row.value(i).expect("a live column"), &mut scratch);
-                checked.insert(primary.clone(), meets);
-                if !meets {
-                    continue;
-                }
-                if let Some(Value::Vector(value)) = row.value(place) {
-                    passed += 1;
-                    kept.push(exact.key(&value), primary, || self.key_values(&row));
-                }
+                start = end;
+                window = window.saturating_mul(2);
             }
             if passed + pending_passed >= query.k || probed >= order.len() {
                 top.merge(kept);
