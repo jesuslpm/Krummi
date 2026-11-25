@@ -12,6 +12,7 @@ Usage: python pgvector_compare.py <data folder> <report> [--filas N] [--sondeos 
 """
 
 import argparse
+import re
 import array
 import struct
 import sys
@@ -117,6 +118,16 @@ def search(conn, queries, count, where, probes, expected):
     return hits / (10 * count), percentile(times, 50), percentile(times, 95)
 
 
+def plan(conn, query, where, probes):
+    """The plan PostgreSQL runs for the search of `query` with `where`, as EXPLAIN (ANALYZE) prints it."""
+    sql = f"EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) SELECT id FROM docs {where} ORDER BY v <-> %s::vector LIMIT 10"
+    with conn.cursor() as cur:
+        cur.execute(f"SET ivfflat.probes = {probes}")
+        cur.execute(sql, (literal(query),))
+        # The query's vector, 768 numbers, is shortened.
+        return [re.sub(r"'\[[^]]*\]'", "'[…]'", r[0]) for r in cur.fetchall()]
+
+
 def exact_truth(conn, queries, count, where):
     """The exact 10 nearest with the filter, by a sequential scan."""
     sql = f"SELECT id FROM docs {where} ORDER BY v <-> %s::vector LIMIT 10"
@@ -154,7 +165,9 @@ def main():
         print(text, flush=True)
         lines.append(text)
 
-    with psycopg.connect(args.dsn, autocommit=True) as conn:
+    # No prepared statements: each search is planned with its own vector, as the plans recorded below are. A prepared
+    # statement goes to a generic plan after five runs, which may not use the vector index.
+    with psycopg.connect(args.dsn, autocommit=True, prepare_threshold=None) as conn:
         with conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute("DROP TABLE IF EXISTS docs")
@@ -203,20 +216,29 @@ def main():
                 recall, p50, p95 = search(conn, queries, QUERIES, "", p, expected)
                 say(f"| {p} | {recall:.4f} | {p50:.2f} | {p95:.2f} |")
         truths = {}
+        plans = []
         for forced in (False, True):
-            plan = "el índice forzado (`enable_seqscan = off`)" if forced else "el plan que elige PostgreSQL"
-            say(f"\n### Con filtro ({FILTERED_QUERIES} consultas, k = 10, {plan})\n")
+            # Without a sequential scan, PostgreSQL can still read the primary key's index and sort; without a sort, only
+            # the vector index gives the order.
+            mode = "IVFFlat forzado (`enable_seqscan = off`, `enable_sort = off`)" if forced else "el plan que elige PostgreSQL"
+            say(f"\n### Con filtro ({FILTERED_QUERIES} consultas, k = 10, {mode})\n")
             say("| Filtro | Sondeos | recall@10 | p50 ms | p95 ms |\n|---|---|---|---|---|")
             with conn.cursor() as cur:
                 cur.execute(f"SET enable_seqscan = {'off' if forced else 'on'}")
+                cur.execute(f"SET enable_sort = {'off' if forced else 'on'}")
             for label, where in [("cat = 7", "WHERE cat = 7"), ("cat < 50", "WHERE cat < 50")]:
                 if where not in truths:
                     truths[where] = exact_truth(conn, queries, FILTERED_QUERIES, where)
                 for p in probes:
                     recall, p50, p95 = search(conn, queries, FILTERED_QUERIES, where, p, truths[where])
                     say(f"| {label} | {p} | {recall:.4f} | {p50:.2f} | {p95:.2f} |")
+                plans.append((label, mode, plan(conn, queries[0], where, probes[0])))
             with conn.cursor() as cur:
                 cur.execute("RESET enable_seqscan")
+                cur.execute("RESET enable_sort")
+        say(f"\n### Planes con filtro (primera consulta, {probes[0]} sondeos)\n")
+        for label, mode, lines_of_plan in plans:
+            say(f"`{label}`, {mode}:\n\n```text\n" + "\n".join(lines_of_plan) + "\n```\n")
     with open(args.report, "a", encoding="utf-8") as out:
         out.write("\n".join(lines) + "\n\n")
 

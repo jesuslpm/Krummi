@@ -101,13 +101,18 @@ PostgreSQL 17.12 y pgvector 0.8.7 en Docker, en la misma máquina. Un hilo (`max
 |---|---|---|
 | p95 con recall@10 ≈ 0,958 | 16,40 ms (40 sondeos) | 42,10 ms (30 sondeos) |
 | p95 con recall@10 ≈ 0,97 | 19,98 ms (0,9679) | 54,19 ms (0,9706) |
-| Insertar una fila, p95 con / sin índice | 3,263 / 3,515 ms | 3,676 / 3,065 ms (1,199 ×) |
-| `cat = 7`, p95 | 134 ms sin índice; 8,3 ms con `by_cat` | 41 ms (recorrido exacto) |
-| `cat < 50`, p95 | 27,6 ms (recall 0,9425) | 354 ms (recorrido exacto, recall 1,0) |
+| Insertar una fila, p95 con / sin índice | 3,263 / 3,515 ms | 3,676 / 3,065 ms (1,199 ×); en otra corrida, 3,623 / 3,320 ms (1,091 ×) |
+| `cat = 7`, p95 con recall@10 ≥ 0,95 | 134 ms sin índice sobre `cat` y 8,3 ms con `by_cat` (exacto, 1,0) | 134,59 ms (IVFFlat, 120 sondeos, 0,9765); 41 ms con su recorrido exacto (1,0) |
+| `cat < 50`, p95 con recall@10 ≥ 0,95 | 31,49 ms (50 sondeos, 0,9600) | 44,32 ms (30 sondeos, 0,9515); 54,50 ms (40 sondeos, 0,9685) |
 | Crear el índice | 188,4 s (un hilo) | 47,5 s (trabajadores de mantenimiento por defecto) |
 | `SELECT 1`, p95 | — | 0,026 ms |
 
-Con los filtros, PostgreSQL recorrió la tabla también con `enable_seqscan = off`. No se observó su plan.
+Con filtro, cada fila de pgvector se planificó con su propio vector y usa IVFFlat con el filtro sobre sus candidatos.
+Los planes de `EXPLAIN (ANALYZE)` están en `work/ann/pgvector-filters-r4b.md`, por ejemplo
+`Index Scan using near on docs`, `Filter: (cat < 50)`, `Rows Removed by Filter: 11`. Una primera medición daba
+recall 1,0 con 350 ms para `cat < 50`, porque psycopg prepara la sentencia tras cinco ejecuciones y el plan genérico
+de PostgreSQL recorre la tabla. De esa medición sale el recorrido exacto de `cat = 7` (41 ms). Sin el índice
+`by_cat`, el camino exacto de Krummi para `cat = 7` (134 ms) es más lento que ese recorrido de PostgreSQL.
 
 ### Banco (N11)
 
