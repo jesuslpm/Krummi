@@ -621,6 +621,19 @@ unless measurements require it; DiskANN and SPANN as complete systems.
 
 All open; each needs the user's approval before the PRD.
 
+*Annotated 2026-11-25: PRD 7.6 ([tables-vector-indexes.prd.md](../../prd/krummi/tables/tables-vector-indexes.prd.md))
+decides them:*
+- *IVF-SQ8 as a new kind of index (VI1);*
+- *the backlog always evaluated exactly, with no cap (VI5);*
+- *no partition columns, because filtering first covers tenants (VI6);*
+- *the online build (VI4);*
+- *batches of at most 15 ms and training on one thread (VI3, VI4);*
+- *automatic rebuilds that the application may also request, instead of explicit ones (VI9).*
+
+*It also changes how filters are served: the search finds the rows that pass the relational filter first, and with
+the index it considers only those rows (VI6). The user kept IVF-SQ8 for every metric although two switch criteria
+fired narrowly in the experiment.*
+
 1. **A new kind of index.** An IVF vector index maintained asynchronously (A1), and the opt-in `ApproxNearest` query
    node, in PRD 7.6 (in scope since 2026-11-10). Document 5's "a vector is never a key of an index" stays true; the new kind of index is
    what needs the decision.

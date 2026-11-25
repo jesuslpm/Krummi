@@ -98,6 +98,14 @@ authoritative):*
 - *Out of scope: "Collations and comparing text without distinguishing case" is no longer out, except what
   tables-collation.prd.md excludes.*
 
+*Annotations of 2026-11-25 from the approximate vector indexes ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6, Spanish,
+authoritative):*
+
+- *IX1 and IX3: the maximum of 64 indexes per table and the size of the schema also count the vector indexes, which
+  share the namespace of the table's indexes (VI1).*
+- *IX5: removing a column with a vector index fails like with a secondary index (VI10).*
+- *IX6: Describe also returns the list of the vector indexes, separately (VI1).*
+
 ### Starting state
 
 Verified on 2026-11-16 in the code and in the design documents:

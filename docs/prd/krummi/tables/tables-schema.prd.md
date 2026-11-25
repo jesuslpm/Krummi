@@ -159,6 +159,11 @@ cosa. Las cargas, sus sumas de comprobación y sus umbrales no cambian (PY7).*
 - *E18: la clave primaria se mide con la forma plegada de sus columnas `ci` y `ci_ai` (IC7).*
 - *E20: el formato sube en uno (IC10).*
 
+*Anotaciones del 2026-11-25 desde los índices vectoriales aproximados ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6):*
+
+- *E3, E5 y E13: vaciar la tabla, quitar una columna y la carga masiva con un índice vectorial siguen VI10.*
+- *E20: el formato sube en uno (VI14).*
+
 ### Estado de partida
 
 - No hay tablas ni secuencias en el código: el catálogo guarda árboles normales, multivalor y de tamaño fijo, cada
