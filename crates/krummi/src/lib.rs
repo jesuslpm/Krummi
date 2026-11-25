@@ -91,9 +91,9 @@ pub use table::{
     FilterCondition, HistogramBucket, IndexDefinition, IndexEntry, IndexKey, IndexMode, Nearest,
     Neighbour, Neighbours, Nulls, PrefixStatistics, ProjectedColumn, ProjectedRow, Projection,
     ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn,
-    SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SequenceMode, TableMode, TableRow, TableSchema,
-    Upserted, VectorMetric, WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence,
-    WriteTable,
+    SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SchemaVectorIndex, SequenceMode, TableMode,
+    TableRow, TableSchema, Upserted, VectorIndexDefinition, VectorIndexState, VectorMetric,
+    WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).

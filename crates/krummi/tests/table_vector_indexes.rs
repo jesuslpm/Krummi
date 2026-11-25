@@ -4,6 +4,8 @@
 
 mod support;
 
+#[path = "table_vector_indexes/definitions.rs"]
+mod definitions;
 #[path = "table_vector_indexes/exact.rs"]
 mod exact;
 

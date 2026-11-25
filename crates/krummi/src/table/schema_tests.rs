@@ -38,6 +38,7 @@ fn valid() -> TableSchema {
         schema_state: 99,
         indexes: Vec::new(),
         index_state: 98,
+        vector_indexes: Vec::new(),
     }
 }
 
@@ -45,8 +46,8 @@ fn valid() -> TableSchema {
 fn a_valid_schema_decodes_as_it_was_encoded() {
     let schema = valid();
     assert_eq!(
-        TableSchema::decode(1, &schema.encode(5, &[], TableStats::default())),
-        Some((schema.clone(), 5, vec![], TableStats::default()))
+        TableSchema::decode(1, &schema.encode(5, &[], &[], TableStats::default())),
+        Some((schema.clone(), 5, vec![], vec![], TableStats::default()))
     );
     // ST13 of the statistics PRD: the counter, the statistics tree and the last emptying come back.
     let stats = TableStats {
@@ -55,8 +56,8 @@ fn a_valid_schema_decodes_as_it_was_encoded() {
         emptied: 1_000,
     };
     assert_eq!(
-        TableSchema::decode(1, &schema.encode(5, &[], stats)),
-        Some((schema, 5, vec![], stats))
+        TableSchema::decode(1, &schema.encode(5, &[], &[], stats)),
+        Some((schema, 5, vec![], vec![], stats))
     );
 }
 
@@ -67,10 +68,10 @@ fn a_collation_decodes_as_it_was_encoded() {
     for collation in [Collation::Ci, Collation::CiAi] {
         let mut schema = valid();
         schema.columns[1].collation = Some(collation);
-        let bytes = schema.encode(5, &[], TableStats::default());
+        let bytes = schema.encode(5, &[], &[], TableStats::default());
         assert_eq!(
             TableSchema::decode(1, &bytes),
-            Some((schema.clone(), 5, vec![], TableStats::default()))
+            Some((schema.clone(), 5, vec![], vec![], TableStats::default()))
         );
         assert_eq!(bytes.len(), schema.stored_len(), "{collation}");
         // The byte after the flags of `name`: its name, its one-byte type code, its flags.
@@ -112,7 +113,7 @@ fn a_decoded_schema_that_breaks_e5_is_damage() {
         let mut schema = valid();
         break_it(&mut schema);
         assert_eq!(
-            TableSchema::decode(1, &schema.encode(5, &[], TableStats::default())),
+            TableSchema::decode(1, &schema.encode(5, &[], &[], TableStats::default())),
             None,
             "{label}"
         );
@@ -122,7 +123,7 @@ fn a_decoded_schema_that_breaks_e5_is_damage() {
 /// G6: bytes that are not a schema, whatever they are, decode as `None` and never panic.
 #[test]
 fn garbage_never_panics() {
-    let encoded = valid().encode(5, &[], TableStats::default());
+    let encoded = valid().encode(5, &[], &[], TableStats::default());
     let mut state = 0x2545_f491_4f6c_dd1du64;
     let mut next = || {
         state ^= state << 13;
@@ -149,7 +150,7 @@ fn garbage_never_panics() {
                     .collect()
             }
         }
-        if let Some((schema, _, _, _)) = TableSchema::decode(1, &bytes) {
+        if let Some((schema, _, _, _, _)) = TableSchema::decode(1, &bytes) {
             // What decodes keeps E5's invariants.
             assert!(schema.version >= 1);
             assert!(!schema.key.is_empty());
@@ -214,11 +215,11 @@ fn with_indexes() -> TableSchema {
 #[test]
 fn indexes_decode_as_they_were_encoded() {
     let schema = with_indexes();
-    let bytes = schema.encode(5, &[30, 31], TableStats::default());
+    let bytes = schema.encode(5, &[30, 31], &[], TableStats::default());
     assert_eq!(bytes.len(), schema.stored_len());
     assert_eq!(
         TableSchema::decode(1, &bytes),
-        Some((schema, 5, vec![30, 31], TableStats::default()))
+        Some((schema, 5, vec![30, 31], vec![], TableStats::default()))
     );
 }
 
@@ -245,13 +246,13 @@ fn a_decoded_index_that_breaks_its_rules_is_damage() {
         let mut schema = with_indexes();
         break_it(&mut schema);
         assert_eq!(
-            TableSchema::decode(1, &schema.encode(5, &[30, 31], TableStats::default())),
+            TableSchema::decode(1, &schema.encode(5, &[30, 31], &[], TableStats::default())),
             None,
             "{label}"
         );
     }
     // The condition of a partial index is reserved: an index with one is not Krummi's.
-    let mut bytes = with_indexes().encode(5, &[30, 31], TableStats::default());
+    let mut bytes = with_indexes().encode(5, &[30, 31], &[], TableStats::default());
     // The condition's length is the last thing before the statistics part.
     let at = bytes.len() - 24 - 4;
     bytes[at..at + 4].copy_from_slice(&1u32.to_le_bytes());
@@ -265,7 +266,7 @@ fn a_decoded_index_that_breaks_its_rules_is_damage() {
         cosine: false,
     });
     assert_eq!(
-        TableSchema::decode(1, &schema.encode(5, &[30, 31], TableStats::default())),
+        TableSchema::decode(1, &schema.encode(5, &[30, 31], &[], TableStats::default())),
         None,
         "a vector key column"
     );
@@ -305,7 +306,7 @@ fn schema_changes_keep_the_indexes_in_step() {
 fn the_stored_identities_are_the_schemas() {
     let mut schema = with_indexes();
     schema.columns[1].default = Some(Value::String("x".repeat(1 << 16).into()));
-    let bytes = schema.encode(5, &[30, 31], TableStats::default());
+    let bytes = schema.encode(5, &[30, 31], &[], TableStats::default());
     let mut walked = Vec::new();
     assert_eq!(stored_identities(&bytes, |id| walked.push(id)), Some(5));
     let mut expected: Vec<u64> = schema.identities().collect();

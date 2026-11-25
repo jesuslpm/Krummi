@@ -17,11 +17,13 @@ use krummi_pager::{SchemaDifference, SchemaRule};
 use krummi_tree::catalog::MAX_EXTRA;
 
 use super::collation::Collation;
+use super::distance::VectorMetric;
 use super::index::{
     MAX_INDEX_KEY, MAX_INDEX_NAME, MAX_INDEXES, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
 };
 use super::key::{Direction, Nulls};
 use super::row::{RowColumn, RowLayout};
+use super::vector_index::{SchemaVectorIndex, VectorRoots};
 #[cfg(test)]
 #[path = "schema_tests.rs"]
 mod tests;
@@ -148,6 +150,8 @@ pub struct TableSchema {
     /// The secondary indexes, by their names' bytes (B5).
     indexes: Vec<SchemaIndex>,
     index_state: u64,
+    /// The vector indexes, by their names' bytes (B5; VI1 of the vector indexes PRD).
+    vector_indexes: Vec<SchemaVectorIndex>,
 }
 
 /// A rule of E5 that a schema or a change breaks, with the column it names and, for a rule of an index (IX3, IX5 of
@@ -429,6 +433,7 @@ impl TableSchema {
             schema_state,
             indexes: Vec::new(),
             index_state,
+            vector_indexes: Vec::new(),
         }
     }
 
@@ -474,6 +479,48 @@ impl TableSchema {
     /// The secondary index `name`.
     pub fn index(&self, name: &str) -> Option<&SchemaIndex> {
         self.index_position(name).map(|at| &self.indexes[at])
+    }
+
+    /// The vector indexes, in the order of their names (B5); empty when the table has none (VI1 of the vector indexes
+    /// PRD).
+    pub fn vector_indexes(&self) -> &[SchemaVectorIndex] {
+        &self.vector_indexes
+    }
+
+    /// The vector index `name`.
+    pub fn vector_index(&self, name: &str) -> Option<&SchemaVectorIndex> {
+        self.vector_index_position(name)
+            .map(|at| &self.vector_indexes[at])
+    }
+
+    /// The place of the vector index `name` among the vector indexes.
+    pub(crate) fn vector_index_position(&self, name: &str) -> Option<usize> {
+        self.vector_indexes
+            .binary_search_by(|index| index.name.as_bytes().cmp(name.as_bytes()))
+            .ok()
+    }
+
+    /// Adds `index`, whose name the table does not have, in the order of the names, with the new index state, and
+    /// returns its place among the vector indexes.
+    pub(crate) fn add_vector_index(&mut self, index: SchemaVectorIndex, index_state: u64) -> usize {
+        let at = self
+            .vector_indexes
+            .binary_search_by(|other| other.name.as_bytes().cmp(index.name.as_bytes()))
+            .expect_err("a new index name");
+        self.vector_indexes.insert(at, index);
+        self.index_state = index_state;
+        at
+    }
+
+    /// Removes the vector index at `at`, with the new index state.
+    pub(crate) fn remove_vector_index(&mut self, at: usize, index_state: u64) {
+        self.vector_indexes.remove(at);
+        self.index_state = index_state;
+    }
+
+    /// The number of its indexes, secondary and vector ones, which at most [`MAX_INDEXES`] (VI1).
+    pub(crate) fn index_count(&self) -> usize {
+        self.indexes.len() + self.vector_indexes.len()
     }
 
     /// The index state: drawn when the table was created and again each time one of its indexes is created or
@@ -529,9 +576,15 @@ impl TableSchema {
         FIXED_LEN + 8 * self.key.len() + self.indexes_len() + self.columns_len()
     }
 
-    /// The bytes of the index definitions as the catalog entry stores them.
+    /// The bytes of the index definitions as the catalog entry stores them, the vector indexes' included.
     fn indexes_len(&self) -> usize {
-        self.indexes.iter().map(SchemaIndex::stored_len).sum()
+        self.indexes
+            .iter()
+            .map(SchemaIndex::stored_len)
+            .sum::<usize>()
+            + (self.vector_indexes.iter())
+                .map(SchemaVectorIndex::stored_len)
+                .sum::<usize>()
     }
 
     /// The bytes of the columns as the catalog entry stores them.
@@ -575,6 +628,7 @@ impl TableSchema {
     pub(crate) fn identities(&self) -> impl Iterator<Item = u64> + '_ {
         (self.columns.iter().map(|c| c.id))
             .chain(self.indexes.iter().map(|index| index.id))
+            .chain(self.vector_indexes.iter().map(|index| index.id))
             .chain([self.schema_state, self.index_state])
     }
 
@@ -623,12 +677,22 @@ impl TableSchema {
                 if self.key.contains(&id) {
                     return invalid(SchemaRule::DropKeyColumn, Some(name));
                 }
-                // A column of an index, named with the first index in the order of B5 that has it (IX5).
-                if let Some(index) = self.indexes.iter().find(|index| index.uses(id)) {
+                // A column of an index, secondary or vector, named with the first index in the order of B5 that has it
+                // (IX5, VI10).
+                let secondary = (self.indexes.iter())
+                    .filter(|index| index.uses(id))
+                    .map(|index| index.name.as_str());
+                let vector = (self.vector_indexes.iter())
+                    .filter(|index| index.column.id == id)
+                    .map(|index| index.name.as_str());
+                if let Some(index) = secondary
+                    .chain(vector)
+                    .min_by(|a, b| a.as_bytes().cmp(b.as_bytes()))
+                {
                     return Err(Invalid {
                         rule: SchemaRule::DropKeyColumn,
                         column: Some(name.to_owned()),
-                        index: Some(index.name.clone()),
+                        index: Some(index.to_owned()),
                     });
                 }
                 next.columns.remove(at);
@@ -649,6 +713,9 @@ impl TableSchema {
                 let id = self.columns[at].id;
                 for index in &mut next.indexes {
                     index.rename_column(id, to);
+                }
+                for index in next.vector_indexes.iter_mut().filter(|i| i.column.id == id) {
+                    index.column.name = to.to_owned();
                 }
                 from
             }
@@ -1156,6 +1223,45 @@ impl<'b> Reader<'b> {
     fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// A vector index of a schema in the catalog (see [`TableSchema::encode`]) and its roots, for a table with the live
+    /// `columns`: a name of 1 to 1,024 bytes and a live vector column, not of `bit`, that admits its metric (the rules
+    /// of VI1 and VI2 that Krummi never writes broken).
+    fn vector_index(
+        &mut self,
+        columns: &[SchemaColumn],
+    ) -> Option<(SchemaVectorIndex, VectorRoots)> {
+        let id = self.u64()?;
+        let name = std::str::from_utf8(self.bytes()?).ok()?;
+        let column_id = self.u64()?;
+        let metric = VectorMetric::of_code(self.u8()?)?;
+        let roots = VectorRoots {
+            instance: self.u64()?,
+            pending: self.u64()?,
+            pending_count: self.u64()?,
+            data: self.u64()?,
+        };
+        if !(1..=MAX_INDEX_NAME).contains(&name.len()) {
+            return None;
+        }
+        let column = columns.iter().find(|c| c.id == column_id)?;
+        let ColumnType::Vector(vector) = column.ty else {
+            return None;
+        };
+        if metric == VectorMetric::Hamming || !metric.fits(&vector) {
+            return None;
+        }
+        let index = SchemaVectorIndex {
+            id,
+            name: name.to_owned(),
+            column: SchemaIndexColumn {
+                id: column_id,
+                name: column.name.clone(),
+            },
+            metric,
+        };
+        Some((index, roots))
+    }
 }
 
 /// The bytes of a live column in a table's catalog entry, with its type and flags (see [`Reader::raw_column`]).
@@ -1226,6 +1332,12 @@ pub(crate) fn stored_identities(bytes: &[u8], mut visit: impl FnMut(u64)) -> Opt
     }
     // The statistics part (ST13 of the statistics PRD) names no identity.
     r.take(TableStats::LEN)?;
+    let vector_count = usize::from(r.u16()?);
+    for _ in 0..vector_count {
+        visit(r.u64()?);
+        r.bytes()?;
+        r.take(8 + 1 + 4 * 8)?;
+    }
     r.is_empty().then_some(history)
 }
 
@@ -1241,8 +1353,8 @@ const COLLATION: u8 = 8;
 
 /// The bytes of a schema in its catalog entry ([`TableSchema::encode`]) besides its columns, its primary key
 /// columns' identities and its indexes: the history tree's root, the version, the schema state, the two counts, the
-/// index state, the number of indexes and the statistics part ([`TableStats`]).
-const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2 + 8 + 2 + TableStats::LEN;
+/// index state, the number of indexes, the statistics part ([`TableStats`]) and the number of vector indexes.
+const FIXED_LEN: usize = 8 + 2 + 8 + 2 + 2 + 8 + 2 + TableStats::LEN + 2;
 
 /// What a table's catalog entry keeps for its statistics (ST4, ST13 of the statistics PRD), after its indexes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1325,14 +1437,26 @@ impl TableSchema {
     /// identities of the primary key columns in key order, the index state and the indexes in the order of their
     /// names, each with its identity, name, the root of its tree (`index_roots`, in the same order), flags (unique),
     /// key columns (identity, direction and null order), included columns (identity) and the condition of a partial
-    /// index, reserved and always empty (IX1, IX14 of the secondary indexes PRD), and last the statistics part
-    /// (`stats`, ST13 of the statistics PRD).
+    /// index, reserved and always empty (IX1, IX14 of the secondary indexes PRD), then the statistics part (`stats`,
+    /// ST13 of the statistics PRD), and last the vector indexes in the order of their names, each with its identity,
+    /// name, column, metric and its roots (`vector_roots`, in the same order; VI1 of the vector indexes PRD).
     ///
     /// # Panics
     ///
     /// Unless there is one root per index.
-    pub fn encode(&self, history: u64, index_roots: &[u64], stats: TableStats) -> Vec<u8> {
+    pub fn encode(
+        &self,
+        history: u64,
+        index_roots: &[u64],
+        vector_roots: &[VectorRoots],
+        stats: TableStats,
+    ) -> Vec<u8> {
         assert_eq!(index_roots.len(), self.indexes.len(), "one root per index");
+        assert_eq!(
+            vector_roots.len(),
+            self.vector_indexes.len(),
+            "roots per vector index"
+        );
         let mut w = Writer(Vec::new());
         w.u64(history);
         w.u16(self.version);
@@ -1386,6 +1510,17 @@ impl TableSchema {
         w.u64(stats.counter);
         w.u64(stats.root);
         w.u64(stats.emptied);
+        w.u16(u16::try_from(self.vector_indexes.len()).expect("at most 64 indexes"));
+        for (index, roots) in self.vector_indexes.iter().zip(vector_roots) {
+            w.u64(index.id);
+            w.bytes(index.name.as_bytes());
+            w.u64(index.column.id);
+            w.u8(index.metric.code());
+            w.u64(roots.instance);
+            w.u64(roots.pending);
+            w.u64(roots.pending_count);
+            w.u64(roots.data);
+        }
         debug_assert_eq!(
             w.0.len(),
             self.stored_len(),
@@ -1397,7 +1532,11 @@ impl TableSchema {
     /// The schema of the table `table_id`, the root of its history tree and the roots of its indexes' trees, in the
     /// order of the indexes, from `bytes`, or `None` when they are not what [`encode`](Self::encode) writes: the
     /// caller reports damage of the catalog page (G6).
-    pub fn decode(table_id: u64, bytes: &[u8]) -> Option<(TableSchema, u64, Vec<u64>, TableStats)> {
+    #[allow(clippy::type_complexity)]
+    pub fn decode(
+        table_id: u64,
+        bytes: &[u8],
+    ) -> Option<(TableSchema, u64, Vec<u64>, Vec<VectorRoots>, TableStats)> {
         let mut r = Reader(bytes);
         let (history, version, schema_state, count) = r.header()?;
         let mut columns = Vec::with_capacity(count);
@@ -1460,6 +1599,31 @@ impl TableSchema {
             root: r.u64()?,
             emptied: r.u64()?,
         };
+        let vector_count = usize::from(r.u16()?);
+        if index_count + vector_count > MAX_INDEXES {
+            return None;
+        }
+        let mut vector_indexes: Vec<SchemaVectorIndex> = Vec::with_capacity(vector_count);
+        let mut vector_roots = Vec::with_capacity(vector_count);
+        for _ in 0..vector_count {
+            let (index, index_roots) = r.vector_index(&columns)?;
+            // In the order of their names, each once, with identities and names that no other index has (VI1).
+            let in_order = vector_indexes
+                .last()
+                .is_none_or(|last| last.name.as_bytes() < index.name.as_bytes());
+            let taken =
+                |other_id: u64, other_name: &str| other_id == index.id || other_name == index.name;
+            let repeated = (indexes.iter().any(|other| taken(other.id, &other.name)))
+                || (vector_indexes.iter()).any(|other| {
+                    taken(other.id, &other.name)
+                        || (other.column.id, other.metric) == (index.column.id, index.metric)
+                });
+            if !in_order || repeated {
+                return None;
+            }
+            vector_indexes.push(index);
+            vector_roots.push(index_roots);
+        }
         r.is_empty().then_some((
             TableSchema {
                 table_id,
@@ -1469,9 +1633,11 @@ impl TableSchema {
                 schema_state,
                 indexes,
                 index_state,
+                vector_indexes,
             },
             history,
             roots,
+            vector_roots,
             stats,
         ))
     }

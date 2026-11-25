@@ -227,7 +227,16 @@ pub enum SchemaRule {
     /// An index key equal to another index's of the table: the same columns in the same order, with the same
     /// directions and null orders.
     SameIndexKey,
-    /// More than 64 indexes in a table.
+    /// A vector index over a column that is not a vector or whose elements are `bit` (VI1, VI2 of the vector indexes
+    /// PRD).
+    VectorIndexColumn,
+    /// A vector index with a metric its column does not admit: L2 or the dot product on a cosine column, the cosine
+    /// on a column without it, or Hamming (VI2 of the vector indexes PRD).
+    VectorIndexMetric,
+    /// A vector index equal to another of the table: the same column and the same metric (VI1 of the vector indexes
+    /// PRD).
+    SameVectorIndex,
+    /// More than 64 indexes in a table, secondary and vector ones together (VI1 of the vector indexes PRD).
     TooManyIndexes,
     /// A vector column named by an estimate, a read of statistics or analyze: vectors have no statistics (ST12 of the
     /// statistics PRD).
@@ -268,8 +277,15 @@ pub enum SchemaDifference {
     IndexKey,
     /// An included column of an index at a position, or the number of its included columns.
     IndexIncluded,
-    /// An index that the table does not have, named by a scan of an index (IX9 of the secondary indexes PRD).
+    /// An index that the table does not have, named by a scan of an index (IX9 of the secondary indexes PRD), or a
+    /// vector index named by a search, its information or a rebuild (vector indexes PRD).
     MissingIndex,
+    /// The kind of an index: secondary or vector (VI1 of the vector indexes PRD).
+    IndexKind,
+    /// The column of a vector index (VI1 of the vector indexes PRD).
+    VectorIndexColumn,
+    /// The metric of a vector index (VI1 of the vector indexes PRD).
+    VectorIndexMetric,
 }
 
 /// An engine error. The texts of the data that only the errors of secondary indexes carry are boxed (`Box<str>`), as
@@ -942,6 +958,11 @@ fn schema_rule_text(rule: SchemaRule) -> &'static str {
             "an index key that is the primary key or, not unique, a prefix of it"
         }
         SchemaRule::SameIndexKey => "an index key equal to another index's",
+        SchemaRule::VectorIndexColumn => {
+            "a vector index over a column that is not a vector of f32, f16 or i8"
+        }
+        SchemaRule::VectorIndexMetric => "a vector index with a metric its column does not admit",
+        SchemaRule::SameVectorIndex => "a vector index equal to another's column and metric",
         SchemaRule::TooManyIndexes => "more than 64 indexes",
         SchemaRule::VectorColumn => "a vector column, which has no statistics",
         SchemaRule::JsonColumn => "a JSON column, which has no statistics",
@@ -963,6 +984,9 @@ fn difference_text(difference: SchemaDifference) -> &'static str {
         SchemaDifference::IndexKey => "key",
         SchemaDifference::IndexIncluded => "included columns",
         SchemaDifference::MissingIndex => "index",
+        SchemaDifference::IndexKind => "kind of index",
+        SchemaDifference::VectorIndexColumn => "vector column",
+        SchemaDifference::VectorIndexMetric => "metric",
     }
 }
 
