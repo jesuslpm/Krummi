@@ -430,3 +430,103 @@ impl crate::Folder<'_> {
         }
     }
 }
+
+/// What [`ReadTransaction::vector_index_info`] gives of a vector index (VI11), as the transaction sees it: its state;
+/// the lists of the generation the searches use, none while no generation is ready; the rows of its pending tree; and
+/// the indicators of VI9 of that generation, each none when it cannot be computed: the fraction of codes with a
+/// component out of the quantizer's range (none without entries), the size of the largest list against the mean (none
+/// when every list is empty), and the rows with a vector it reflects against those it had when it was trained.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VectorIndexInfo {
+    pub state: VectorIndexState,
+    pub lists: Option<u64>,
+    pub pending: u64,
+    pub saturated: Option<f64>,
+    pub largest_list: Option<f64>,
+    pub rows_against_trained: Option<f64>,
+}
+
+impl crate::Folder<'_> {
+    /// The error of a vector index that `table` does not have, named by a search, its information or a rebuild: a
+    /// different schema, as IX9.
+    pub(crate) fn missing_vector_index(self, table: &str, index: &str) -> Error {
+        Error::DifferentIndex {
+            folder: self.owned(),
+            table: table.to_owned(),
+            index: index.to_owned(),
+            difference: SchemaDifference::MissingIndex,
+            expected: "a vector index".into(),
+            found: "no vector index".into(),
+        }
+    }
+}
+
+/// The information of the vector index whose roots are `roots`, read from its data tree in `tx` (VI11).
+pub(crate) fn read_info<S: krummi_tree::PageSource + ?Sized>(
+    tx: &S,
+    roots: &VectorRoots,
+) -> Result<VectorIndexInfo> {
+    let state = read_state(tx, roots)?;
+    Ok(VectorIndexInfo {
+        state: state.public(),
+        lists: None,
+        pending: roots.pending_count,
+        saturated: None,
+        largest_list: None,
+        rows_against_trained: None,
+    })
+}
+
+/// The state record of the data tree at `roots.data`; a missing or malformed one is damage of its page (G6).
+pub(crate) fn read_state<S: krummi_tree::PageSource + ?Sized>(
+    tx: &S,
+    roots: &VectorRoots,
+) -> Result<IndexState> {
+    let bytes = krummi_tree::get(tx, roots.data, &[tag::STATE])?;
+    match bytes.and_then(IndexState::decode) {
+        Some(state) => Ok(state),
+        None => Err(match krummi_tree::leaf_of(tx, roots.data, &[tag::STATE]) {
+            Ok(page) => tx.damaged(page),
+            Err(error) => error,
+        }),
+    }
+}
+
+impl crate::ReadTransaction<'_> {
+    /// The information of the vector index `index` of `table`, as the snapshot sees it (VI11). Fails with
+    /// [`ErrorKind::InvalidSize`](crate::ErrorKind::InvalidSize) for a name without 1 to 1,024 bytes, with
+    /// [`ErrorKind::Misuse`](crate::ErrorKind::Misuse) for a table opened in another transaction, with
+    /// [`ErrorKind::DifferentSchema`](crate::ErrorKind::DifferentSchema) for a vector index the table does not have (a
+    /// secondary index's name included), and with damage of a page it reads. It is not a change for T10.
+    pub fn vector_index_info(
+        &self,
+        table: &super::catalog::ReadTable<'_>,
+        index: &str,
+    ) -> Result<VectorIndexInfo> {
+        self.folder.check_index_name(index)?;
+        self.check_table(table)?;
+        let at = (table.schema.vector_index_position(index))
+            .ok_or_else(|| self.folder.missing_vector_index(&table.name, index))?;
+        read_info(&self.inner, &table.vector_roots[at])
+    }
+}
+
+impl WriteTransaction<'_> {
+    /// [`ReadTransaction::vector_index_info`] as this write sees the index, with its failures, and with
+    /// [`ErrorKind::TreeNotFound`](crate::ErrorKind::TreeNotFound) for a handle of a table the write deleted. It ends no
+    /// reference.
+    pub fn vector_index_info(
+        &self,
+        table: &WriteTable<'_>,
+        index: &str,
+    ) -> Result<VectorIndexInfo> {
+        self.folder.check_index_name(index)?;
+        let roots = {
+            let state = self.live_table(table)?;
+            let at = (state.schema.vector_index_position(index))
+                .ok_or_else(|| self.folder.missing_vector_index(&state.name, index))?;
+            state.vector_roots[at]
+        };
+        read_info(&self.inner, &roots)
+    }
+}

@@ -92,8 +92,8 @@ pub use table::{
     Neighbour, Neighbours, Nulls, PrefixStatistics, ProjectedColumn, ProjectedRow, Projection,
     ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, Schema, SchemaColumn,
     SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SchemaVectorIndex, SequenceMode, TableMode,
-    TableRow, TableSchema, Upserted, VectorIndexDefinition, VectorIndexState, VectorMetric,
-    WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence, WriteTable,
+    TableRow, TableSchema, Upserted, VectorIndexDefinition, VectorIndexInfo, VectorIndexState,
+    VectorMetric, WriteIndexEntries, WriteIndexRows, WriteRows, WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
@@ -175,6 +175,8 @@ pub(crate) struct Shared {
     statistics: table::StatsMemory,
     /// Its background work on statistics (ST6 of the statistics PRD).
     work: table::Work,
+    /// Its vector indexes' worker (VI3 of the vector indexes PRD).
+    vectors: table::VectorWork,
     /// Itself, for the statistics thread it starts.
     this: std::sync::Weak<Shared>,
 }
@@ -203,6 +205,7 @@ impl Store {
                 projections: table::Projections::new(next_serial()),
                 statistics: table::StatsMemory::default(),
                 work: table::Work::default(),
+                vectors: table::VectorWork::default(),
                 this: this.clone(),
             })),
         }

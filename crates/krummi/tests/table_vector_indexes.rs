@@ -8,6 +8,8 @@ mod support;
 mod definitions;
 #[path = "table_vector_indexes/exact.rs"]
 mod exact;
+#[path = "table_vector_indexes/pending.rs"]
+mod pending;
 
 use krummi::table::value::{ColumnType, Value, VectorElement, VectorType};
 use krummi::{Column, Schema, WriteTable, WriteTransaction};

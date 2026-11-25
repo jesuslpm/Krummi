@@ -44,6 +44,7 @@ mod stats_fault_tests;
 mod update_tests;
 pub mod value;
 mod vector_index;
+mod vector_worker;
 mod worker;
 
 pub use bulk::BulkLoadError;
@@ -70,7 +71,10 @@ pub use sequence::{ReadSequence, SequenceMode, WriteSequence};
 pub use statistics::{ColumnStatistics, HistogramBucket, PrefixStatistics};
 #[doc(hidden)]
 pub use vector_index::VectorRoots;
-pub use vector_index::{SchemaVectorIndex, VectorIndexDefinition, VectorIndexState};
+pub use vector_index::{
+    SchemaVectorIndex, VectorIndexDefinition, VectorIndexInfo, VectorIndexState,
+};
+pub(crate) use vector_worker::VectorWork;
 #[doc(hidden)]
 pub use worker::StatisticsPoint;
 pub(crate) use worker::Work;
