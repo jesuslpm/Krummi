@@ -188,4 +188,9 @@ Route evidence: the units depend on each other (each uses the previous one), so 
   - Measured on Linux, each structure in its own process: every set at 100,000 rows, and Cohere 1 M × 768 L2, the
     reference case (23:23:49 to 00:00:08 UTC).
   - Checks: `cargo test --workspace` 1284 passed, 0 failed; clippy and fmt clean.
+- **L18** (2026-11-25, Codex R3 and the user's decision): report `docs/reviews/ann-experiment/2026-11-25-code.md`,
+  status `findings`, with R2 open on two points.
+  - The process-isolation wording: fixed in `f302d58`.
+  - The remaining RSS coverage: Windows, and 1 M for SIFT, GloVe and dot. Asked (wait not logged; one question), the
+    user answered, verbatim: "Aceptar el límite (Recomendado)". It is an agreed limit of S6 for this experiment.
 

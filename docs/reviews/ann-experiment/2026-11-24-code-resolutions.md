@@ -147,3 +147,13 @@ reference case are verified. Open:
 - Coverage gap: pending, a decision for the user. It costs another dependency for a safe Windows memory API (unsafe
   code is forbidden), or external process sampling, plus about 2 to 3 hours of runs.
 - Status: the wording fix is claimed, unverified until a follow-up review.
+
+## 2026-11-25 (user decision)
+
+The user, asked whether to measure the remaining RSS coverage or to accept it as a limit, answered verbatim:
+"Aceptar el límite (Recomendado)". The remaining coverage is therefore an agreed scope limit of this experiment,
+recorded in the execution document's Log (L18) and stated in the report's *Lo que no se midió*:
+- Windows RSS;
+- RSS at 1 M for SIFT, GloVe and the Cohere dot product.
+
+Codex's verdict is not changed.
