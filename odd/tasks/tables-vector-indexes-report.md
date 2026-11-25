@@ -240,7 +240,7 @@ una búsqueda exacta pública, información del índice y reconstrucciones autom
 
 ## Limpieza manual
 
-- `work/ann/` (unos 11 GB): `raw/` con los parquet (3,1 GB), `data/` con la base preparada (3,1 GB) y `motor/`, el
+- `work/ann/` (12 GB): `raw/` con los parquet (3,1 GB), `data/` con la base preparada (3,1 GB) y `motor/`, el
   almacén de 1 M con su índice.
-- `work/bench/` (las fuentes y el binario de la base) y `work/cohere/`.
+- `work/bench/` (324 MB: las fuentes y el binario de la base) y `work/cohere/` (vacía).
 - Las imágenes de Docker `pgvector/pgvector:pg17` y `python:3.13-slim`.
