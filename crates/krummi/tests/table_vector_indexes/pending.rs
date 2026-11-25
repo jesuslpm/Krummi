@@ -77,7 +77,9 @@ fn ac_vi2_every_row_write_marks_the_rows_it_changes() {
                 ("v", vector(&[v, 0.0])),
             ]
         };
-        // An update of `n` alone, an identical update and an upsert with the same vector: nothing pending.
+        // An update of `n` alone, an identical update and an upsert with the same vector: nothing pending. The update of
+        // `n` alone takes the patch of fixed-width columns, which never changes a vector; the updates of a vector take the
+        // merge of the whole row (`Reader::patch`).
         write
             .update_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(100))])
             .unwrap();
@@ -122,6 +124,7 @@ fn ac_vi2_every_row_write_marks_the_rows_it_changes() {
             4
         );
         assert_eq!(pending(&write, "near"), 10);
+        assert_eq!(pending(&write, "other"), 8, "every vector index");
         write.abort();
         assert_eq!(committed_pending(store, "near"), 6);
         let mut write = store.write().unwrap();

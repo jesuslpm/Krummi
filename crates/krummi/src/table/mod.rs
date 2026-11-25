@@ -44,6 +44,8 @@ mod stats_fault_tests;
 #[cfg(test)]
 mod update_tests;
 pub mod value;
+#[cfg(test)]
+mod vector_fault_tests;
 mod vector_index;
 mod vector_worker;
 mod worker;

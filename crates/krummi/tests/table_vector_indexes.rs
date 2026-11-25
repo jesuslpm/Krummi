@@ -2,10 +2,14 @@
 //! the exact search and its filters (AC-VI12, AC-VI13), and the indexes, their worker and the searches through them.
 //! Each criterion runs on a store on disk and on a temporary one, except the parts that reopen the store.
 
+#[path = "../../krummi-tx/tests/common/mod.rs"]
+mod common;
 mod support;
 
 #[path = "table_vector_indexes/approximate.rs"]
 mod approximate;
+#[path = "table_vector_indexes/crash.rs"]
+mod crash;
 #[path = "table_vector_indexes/definitions.rs"]
 mod definitions;
 #[path = "table_vector_indexes/exact.rs"]

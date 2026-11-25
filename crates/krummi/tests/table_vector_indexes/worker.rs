@@ -1,6 +1,7 @@
 //! The worker of the vector indexes (VI3, VI4, VI12, VI13): training from 10,000 rows with a vector and the lists of
 //! VI4 (AC-VI15), building while other writes go on (AC-VI3, its acceptance run at 100,000 rows apart), closing and
-//! opening in each state (AC-VI17), crashes in the middle of the work (AC-VI4) and the failures of a batch (AC-VI14).
+//! opening in each state (AC-VI17), and emptying or dropping while it works. Crashes are in `crash.rs` (AC-VI4) and the
+//! failures of a batch in the crate's `vector_fault_tests.rs` (AC-VI14).
 
 use std::time::{Duration, Instant};
 
@@ -295,4 +296,62 @@ fn emptying_and_dropping_while_the_worker_works() {
         store.wait_vector_idle();
         assert_eq!(in_use(store), base, "every page freed");
     });
+}
+
+/// AC-VI3, acceptance (run in release): a table of 100,000 rows gets its index while another thread writes rows without
+/// stop; no batch of the worker holds the turn more than 15 ms, the index passes through training, building and ready,
+/// and once the writes end and nothing is pending each row has its entry.
+#[test]
+#[ignore = "acceptance: 100,000 rows and the 15 ms turn of a batch, in release"]
+fn ac_vi3_acceptance_100000_rows_and_the_turn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    create_table(&mut write);
+    write.commit().unwrap();
+    fill(&store, 0..100_000);
+    store.take_vector_turns();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let seen = std::thread::scope(|scope| {
+        let writer = scope.spawn(|| {
+            let mut next = 100_000i64;
+            while !stop.load(std::sync::atomic::Ordering::Acquire) {
+                let mut write = store.write().unwrap();
+                let table = write.open_table("t").unwrap();
+                for _ in 0..10 {
+                    let row = [("id", Value::I64(next)), ("v", point(next))];
+                    write.insert_row(&table, &row).unwrap();
+                    write
+                        .update_row(
+                            &table,
+                            &[("id", Value::I64(next - 50_000)), ("v", point(next + 1))],
+                        )
+                        .unwrap();
+                    next += 1;
+                }
+                write.commit().unwrap();
+            }
+        });
+        create_index(&store);
+        let mut seen = vec![info(&store).state];
+        let start = Instant::now();
+        while seen.last() != Some(&VectorIndexState::Ready) {
+            let state = info(&store).state;
+            if seen.last() != Some(&state) {
+                seen.push(state);
+            }
+            assert!(start.elapsed() < Duration::from_secs(1200), "{seen:?}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        stop.store(true, std::sync::atomic::Ordering::Release);
+        writer.join().unwrap();
+        seen
+    });
+    assert_eq!(seen.first(), Some(&VectorIndexState::Training));
+    assert!(seen.contains(&VectorIndexState::Building), "{seen:?}");
+    ready(&store);
+    let (longest, batches) = store.take_vector_turns();
+    println!("AC-VI3: {batches} batches, the longest held the turn {longest:?}");
+    assert!(longest <= Duration::from_millis(15), "{longest:?}");
+    store.close().unwrap();
 }

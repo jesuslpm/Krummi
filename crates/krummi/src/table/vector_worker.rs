@@ -41,6 +41,8 @@ const APPLY_BUDGET: Duration = Duration::from_millis(8);
 const SAMPLE_CHUNK: usize = 2048;
 /// The keys of a retired generation one batch deletes.
 const CLEANUP_BATCH: usize = 4096;
+/// The most bytes of trained generations the store keeps in memory for its searches and its worker.
+const CACHE_BYTES: usize = 256 << 20;
 /// The first batch's rows; later batches adapt to the time they took.
 const FIRST_BATCH: usize = 128;
 /// The default thresholds of an automatic rebuild (VI9, *Dejado a la implementación*): the fraction of saturated
@@ -98,6 +100,8 @@ pub(crate) struct VectorWork {
     hooks: Mutex<Hooks>,
     held: Mutex<Vec<VectorPoint>>,
     released: Condvar,
+    /// Where the thread waits after a failed pass, woken only by the close.
+    backoff: Condvar,
     /// The trained generations read so far, by index, instance and generation (immutable once written).
     cache: Mutex<HashMap<(u64, u64, u32), Arc<Generation>>>,
 }
@@ -186,6 +190,7 @@ impl VectorWork {
         self.wake.notify_all();
         drop(lock(&self.held));
         self.released.notify_all();
+        self.backoff.notify_all();
         let handle = lock(&self.thread).take();
         if let Some(handle) = handle {
             let _ = handle.join();
@@ -230,8 +235,10 @@ impl VectorWork {
         }
         let generation = Arc::new(read()?);
         let mut cache = lock(&self.cache);
-        // A few generations of a few indexes; a store with many keeps only the latest read.
-        if cache.len() >= 64 {
+        // At most [`CACHE_BYTES`] of centroids and quantizers: past it, only the generations read from then on.
+        let size = |g: &Generation| 4 * (g.lo.len() + g.step.len() + g.centroids.len());
+        let held: usize = cache.values().map(|g| size(g)).sum();
+        if held + size(&generation) > CACHE_BYTES {
             cache.clear();
         }
         cache.insert(key, Arc::clone(&generation));
@@ -286,13 +293,13 @@ fn run(shared: &Shared) {
                 Ok(true) => failures = 0,
                 Ok(false) => break,
                 // A failed batch changes nothing; it is retried, after a pause that grows with the failures (VI13).
+                // The pause is its own: commits do not cut it short, and it ends only with the close.
                 Err(_) => {
                     failures += 1;
                     let pause = Duration::from_millis(10u64 << failures.min(7));
-                    let state = lock(&work.state);
-                    let _ = work.wake.wait_timeout(state, pause);
-                    if failures > 50 {
-                        break;
+                    let held = lock(&work.held);
+                    if !work.stopping() {
+                        let _ = work.backoff.wait_timeout(held, pause);
                     }
                 }
             }
@@ -301,6 +308,7 @@ fn run(shared: &Shared) {
 }
 
 /// A vector index as the worker finds it in a snapshot.
+#[derive(Clone)]
 struct Target {
     table: u64,
     name: String,
@@ -352,22 +360,46 @@ fn targets(read: &ReadTransaction<'_>) -> Result<Vec<Target>> {
 fn pass(shared: &Shared) -> Result<bool> {
     let targets = targets(&shared.read()?)?;
     let mut worked = false;
+    let mut failed = None;
     for target in &targets {
         if shared.vectors.stopping() {
             return Ok(worked);
         }
-        worked |= step(shared, target)?;
+        // A failing index is retried at the next pass; it never holds back the others (VI13).
+        match step(shared, target) {
+            Ok(did) => worked |= did,
+            Err(error) => failed = failed.or(Some(error)),
+        }
     }
-    Ok(worked)
+    match failed {
+        Some(error) if !worked => Err(error),
+        _ => Ok(worked),
+    }
 }
 
 /// One step of work on `target`: training, a batch of pending or build keys, a batch of cleanup, or the start of an
 /// automatic rebuild. Whether it did something.
 fn step(shared: &Shared, target: &Target) -> Result<bool> {
-    let state = {
+    // The index's roots, rows and state as one snapshot sees them: never roots of an older one.
+    let (state, target) = {
         let read = shared.read()?;
-        read_state(&read.inner, &target.roots)?
+        let Some(table) = find(&read, target)? else {
+            return Ok(false);
+        };
+        let roots = table.vector_roots[target.at];
+        let fresh = Target {
+            roots,
+            rows: read.row_count(&table)?,
+            counter: table.stats.counter,
+            ..target.clone()
+        };
+        (read_state(&read.inner, &roots)?, fresh)
     };
+    let target = &target;
+    // Pending rows first while a generation serves the searches, so that a long training lets them wait less.
+    if state.active != 0 && target.roots.pending_count > 0 && state.building == 0 {
+        return batch(shared, target, &state);
+    }
     let training = state.building == 0 && (state.active == 0 || state.rebuilding);
     if training && train(shared, target, &state)? {
         return Ok(true);
@@ -920,10 +952,13 @@ pub(crate) struct Deltas {
 fn cleanup(shared: &Shared, target: &Target) -> Result<bool> {
     let retired = {
         let read = shared.read()?;
+        let Some(table) = find(&read, target)? else {
+            return Ok(false);
+        };
         let prefix = [tag::RETIRED];
         let found = krummi_tree::Range::new(
             &read.inner,
-            target.roots.data,
+            table.vector_roots[target.at].data,
             Interval {
                 prefix: &prefix,
                 lower: Bound::Unbounded,
@@ -973,16 +1008,23 @@ fn cleanup(shared: &Shared, target: &Target) -> Result<bool> {
 fn start_rebuild_if_due(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
     let due = {
         let read = shared.read()?;
+        let Some(table) = find(&read, target)? else {
+            return Ok(false);
+        };
+        let roots = table.vector_roots[target.at];
+        if read_state(&read.inner, &roots)? != *state {
+            return Ok(false);
+        }
         let info = super::vector_index::read_info_with(
             shared,
             &read.inner,
             target.index,
-            &target.roots,
+            &roots,
             &target.vector,
         )?;
         let thresholds = shared.vectors.thresholds();
         let key = generation_key(tag::BASELINE, state.active);
-        let baseline = krummi_tree::get(&read.inner, target.roots.data, &key)?
+        let baseline = krummi_tree::get(&read.inner, roots.data, &key)?
             .and_then(Indicators::from_bytes)
             .unwrap_or(Indicators {
                 saturated: None,
@@ -1351,6 +1393,14 @@ impl crate::Store {
         hooks.longest_turn = Duration::ZERO;
         hooks.batches = 0;
         taken
+    }
+
+    /// A test hook, not part of the interface: whether the vector indexes' worker thread is running.
+    #[doc(hidden)]
+    pub fn vector_work_alive(&self) -> bool {
+        lock(&self.shared().vectors.thread)
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
     }
 
     /// A test hook, not part of the interface: holds a point of the worker or releases it.
