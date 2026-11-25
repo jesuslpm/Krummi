@@ -157,3 +157,12 @@ recorded in the execution document's Log (L18) and stated in the report's *Lo qu
 - RSS at 1 M for SIFT, GloVe and the Cohere dot product.
 
 Codex's verdict is not changed.
+
+## 2026-11-25 (verification, round 4)
+
+Follow-up report: [2026-11-25-code-02.md](2026-11-25-code-02.md), wrapper status `approved`, no finding open, thread
+`01a2114e-bf3d-7881-9e91-534ab634d4e2`. Telemetry:
+- coordinator `gpt-6.1-sol` / `high`;
+- reviewer `krummi-review` (Boyle) `gpt-6.1-sol` / `high`.
+
+Verdict, quoted: "Approved."
