@@ -35,8 +35,10 @@ use super::vector_index::{IndexState, Indicators, VectorRoots, read_state, tag};
 use crate::{ReadTransaction, Shared, WriteTransaction};
 
 /// The longest a batch applies rows inside the write turn, so that with its commit it holds the turn at most 15 ms
-/// (VI3).
-const APPLY_BUDGET: Duration = Duration::from_millis(8);
+/// (VI3): the commit of a batch has taken up to twice its apply.
+const APPLY_BUDGET: Duration = Duration::from_millis(5);
+/// The turn a batch aims at, its commit included; the next batch's rows follow from the last one's pace.
+const TURN_TARGET: Duration = Duration::from_millis(5);
 /// The rows a sampling read takes at a time, so that no snapshot stays open long (document 12).
 const SAMPLE_CHUNK: usize = 2048;
 /// The keys of a retired generation one batch deletes.
@@ -905,14 +907,16 @@ fn batch(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
         next.end = None;
     }
     write.set_state(&handle, target.at, &next)?;
-    let elapsed = apply_start.elapsed();
     shared.vectors.pass(VectorPoint::BatchTurn);
-    finish_batch(shared, write, started)?;
-    // The next batch takes as many rows as fit in about three quarters of the budget at this batch's pace.
+    let held = finish_batch(shared, write, started)?;
+    // The next batch takes as many rows as fit in the budget at this batch's pace, its commit included: the commit's
+    // share of the turn grows with the pages a batch changes.
     if applied > 0 {
-        let per_item = elapsed.as_secs_f64() / applied as f64;
-        let fit = (APPLY_BUDGET.as_secs_f64() * 0.75 / per_item.max(1e-7)) as usize;
-        lock(&work.state).batch = fit.clamp(16, 4096);
+        let per_item = held.as_secs_f64() / applied as f64;
+        let fit = (TURN_TARGET.as_secs_f64() / per_item.max(1e-7)) as usize;
+        // At most twice the last batch: a batch's commit costs more, and less evenly, than its apply.
+        let mut state = lock(&work.state);
+        state.batch = fit.min(2 * size).clamp(16, 4096);
     }
     Ok(true)
 }
@@ -1079,12 +1083,21 @@ fn turn(shared: &Shared) -> Result<Option<(WriteTransaction<'_>, Instant)>> {
     }
 }
 
-/// Commits a batch without waiting for the disk (VI3) and records how long it held the turn; a batch of pending or
-/// build keys passes [`VectorPoint::BatchTurn`] first.
-fn finish_batch(shared: &Shared, write: WriteTransaction<'_>, started: Instant) -> Result<()> {
+/// Commits a batch without waiting for the disk (VI3) and records how long it held the turn, then, without the turn,
+/// waits until it is durable; a batch of pending or build keys passes [`VectorPoint::BatchTurn`] first.
+fn finish_batch(
+    shared: &Shared,
+    write: WriteTransaction<'_>,
+    started: Instant,
+) -> Result<Duration> {
     let result = write.commit_deferred();
-    shared.vectors.record_turn(started.elapsed());
-    result
+    let held = started.elapsed();
+    shared.vectors.record_turn(held);
+    result?;
+    // Outside the turn, the worker waits until its batch is durable: a read sees a deferred commit only then, and the
+    // next batch must not read again the pending rows this one reconciled (VI3: the commit itself does not wait).
+    shared.engine.make_durable()?;
+    Ok(held)
 }
 
 impl<'s> WriteTransaction<'s> {
