@@ -373,7 +373,7 @@ pub fn search_step(options: &Options, report: &Path) -> Result<(), String> {
     for probes in sweep_probes.iter().copied().map(Some).chain([None]) {
         let (recall, p50, p95, _) = sweep(&store, &queries, queries.len(), probes, &[], &expected)?;
         let label = probes.map_or("por defecto".to_string(), |p| p.to_string());
-        let share = probes.map_or(5.0, |p| 100.0 * p as f64 / lists as f64);
+        let share = probes.map_or(4.0, |p| 100.0 * p as f64 / lists as f64);
         text.push_str(&format!(
             "| {label} | {share:.1} | {recall:.4} | {p50:.2} | {p95:.2} |\n"
         ));
@@ -392,6 +392,20 @@ pub fn search_step(options: &Options, report: &Path) -> Result<(), String> {
         "## Búsquedas con filtro ({FILTERED_QUERIES} consultas, k = 10)\n\n\
          | Filtro | Filas que pasan | Sondeos | Camino | recall@10 | p50 ms | p95 ms |\n|---|---|---|---|---|---|---|\n"
     );
+    let indexed = {
+        let read = store.read().map_err(fail)?;
+        !read
+            .describe_table("docs")
+            .map_err(fail)?
+            .indexes()
+            .is_empty()
+    };
+    let note = if indexed {
+        "con el índice secundario `by_cat`"
+    } else {
+        "sin índice sobre `cat`"
+    };
+    text = text.replacen("k = 10)", &format!("k = 10, {note})"), 1);
     for (label, filter, passing) in [
         ("cat = 7", &few, base.len() / 100),
         ("cat < 50", &many, base.len() / 2),
@@ -408,6 +422,38 @@ pub fn search_step(options: &Options, report: &Path) -> Result<(), String> {
         }
     }
     append(report, &format!("{text}\n"))?;
+    store.close().map_err(fail)
+}
+
+/// The step `indice`: creates the secondary index `by_cat` over `cat`, through which the filters find their rows.
+pub fn index_step(options: &Options, report: &Path) -> Result<(), String> {
+    let store = open(&options.folder)?;
+    let started = Instant::now();
+    let mut write = store.write().map_err(fail)?;
+    let table = write.open_table("docs").map_err(fail)?;
+    let by_cat = krummi::IndexDefinition::new("by_cat", vec![krummi::IndexKey::new("cat")]);
+    write
+        .create_index(&table, &by_cat, IndexMode::CreateIfNotExists)
+        .map_err(fail)?;
+    write.commit().map_err(fail)?;
+    append(
+        report,
+        &format!(
+            "Índice secundario `by_cat` creado en {:.1} s.\n\n",
+            started.elapsed().as_secs_f64()
+        ),
+    )?;
+    store.close().map_err(fail)
+}
+
+/// The step `sin-indice`: drops the secondary index `by_cat`, so that the filters read the table.
+pub fn drop_index_step(options: &Options, report: &Path) -> Result<(), String> {
+    let store = open(&options.folder)?;
+    let mut write = store.write().map_err(fail)?;
+    let table = write.open_table("docs").map_err(fail)?;
+    write.drop_index(&table, "by_cat").map_err(fail)?;
+    write.commit().map_err(fail)?;
+    append(report, "Índice secundario `by_cat` borrado.\n\n")?;
     store.close().map_err(fail)
 }
 

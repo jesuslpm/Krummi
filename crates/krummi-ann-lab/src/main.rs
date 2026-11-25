@@ -10,7 +10,7 @@ use krummi_ann_lab::run;
 
 const USAGE: &str = "Uso: krummi-ann-lab <preparar|verdad|medir|grafo|motor> --carpeta <carpeta> \
 [--conjunto <sift|glove|cohere>] [--filas <n>] [--informe <archivo>] [--metrica <l2|dot|coseno>] [--sondeos <n,n,...>] \
-[--paso <cargar|buscar|umbral>]";
+[--paso <cargar|buscar|umbral|indice|sin-indice>]";
 
 fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
     let mut args = args.iter().map(|a| a.to_string_lossy().into_owned());
@@ -103,8 +103,10 @@ fn main() -> ExitCode {
                 Some("cargar") => krummi_ann_lab::engine::load_step(&options, &report),
                 Some("buscar") => krummi_ann_lab::engine::search_step(&options, &report),
                 Some("umbral") => krummi_ann_lab::engine::threshold_step(&options, &report),
+                Some("indice") => krummi_ann_lab::engine::index_step(&options, &report),
+                Some("sin-indice") => krummi_ann_lab::engine::drop_index_step(&options, &report),
                 other => Err(format!(
-                    "Paso no válido: {other:?}. Son cargar, buscar y umbral."
+                    "Paso no válido: {other:?}. Son cargar, buscar, umbral, indice y sin-indice."
                 )),
             }
         }
