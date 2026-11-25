@@ -35,6 +35,7 @@ Every Rust example in these guides is a complete program. Each one runs as a doc
 | [Secondary indexes](indexes.md) | you look up or scan rows by columns other than the primary key |
 | [Sequences and identifiers](sequences-and-ids.md) | you generate keys: sequences, `ulid` and `uuid` values |
 | [Statistics and estimates](statistics.md) | you need to know how many rows a key range or condition covers |
+| [Vector search and vector indexes](vector-indexes.md) | you find the rows nearest to a vector, with filters, exactly or through an approximate index |
 
 ## Where to go next
 

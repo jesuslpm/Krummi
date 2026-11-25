@@ -149,6 +149,7 @@ mod guides {
     guide!(Json, "json.md");
     guide!(Indexes, "indexes.md");
     guide!(Statistics, "statistics.md");
+    guide!(VectorIndexes, "vector-indexes.md");
 }
 
 /// Options for opening a store.

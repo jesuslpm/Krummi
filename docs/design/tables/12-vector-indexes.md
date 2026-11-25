@@ -15,6 +15,25 @@ Annotated 2026-11-24: the in-memory experiment of *Benchmarks*, steps 1 to 3, ha
 result* below and in the [report](../../benchmark/2026-11-24-ann-experiment.md). The rest of the document is unchanged,
 and its **[M]** estimates are kept as they were written.
 
+Annotated 2026-11-25: PRD 7.6 ([tables-vector-indexes.prd.md](../../prd/krummi/tables/tables-vector-indexes.prd.md)) is
+implemented on branch `feat/tables-vector-indexes`, with these departures from *Recommended design*, decided while
+building it ([execution document](../../../odd/tasks/tables-vector-indexes.md), log L10–L14):
+
+- **Trees.** Each index has two trees: `pending`, and one data tree whose keys lead with a tag (state record, generation
+  header with its centroids and quantizer, counters, list sizes, postings, locator, retired generations, published
+  indicators). A published generation's old keys are deleted later in bounded batches, not in the publishing write.
+- **The build's end.** The training write fixes the table's greatest key; the backfill reads up to it, and pending keys
+  beyond it are reconciled into the building generation directly, so a build over a table that grows at its end
+  still finishes.
+- **Batches.** The worker waits, outside the turn, until its deferred commit is durable before the next batch, because
+  a read sees a deferred commit only then; a batch's size follows the whole turn it held, its commit included.
+- **Filters.** The rows that pass are counted only up to the threshold of VI6 (20,000 rows, measured); over it, the
+  postings of the probed lists are visited in SQ8 order and the filter is checked on each until the reranked number
+  pass, which chooses the same candidates as building the passing set first.
+- **Rebuilds** are automatic (VI9) when an indicator passes its threshold and grew 1.5 × since the generation was
+  published.
+- Measured on Linux with Cohere 1 M × 768 L2: 4 % of the lists give recall@10 0.9582 with a p95 of 16.4 ms.
+
 History: a first evaluation (v1) assumed that the index is maintained inside the transaction that changes the table.
 An external review relayed by the user (findings R1-1 to R1-9, *Review history* below) and a change of requirement
 the same day replaced it (v2, this document). The requirement change, verbatim: "Los índices vectoriales ANN de
