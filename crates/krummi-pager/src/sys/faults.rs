@@ -239,8 +239,9 @@ pub fn materialize_power_cut(ops: &[Recorded], cut: usize, source: &Path, target
 /// new names (creations, renames, removals) survive only after their folder is flushed on Unix, and on Windows
 /// once the file itself is flushed (renames are written through). The files already in `target` are the
 /// starting state, durable; recorded paths under `source` are rebased onto `target`. Subfolders are ignored. A
-/// recording that uses a file that is not live, or that names a file outside `source`, panics with the operation,
-/// the path and the operations that create, rename or remove it.
+/// write, size change, flush or rename of a file that is not live panics with the operation, the path and the
+/// operations that create, rename or remove it (a removal of a name that is not live changes nothing); a file
+/// outside `source` that would survive panics with the file and the folder.
 pub fn materialize(ops: &[Recorded], cut: usize, source: &Path, target: &Path, model: Model) {
     let mut files: Vec<SimFile> = Vec::new();
     let mut live: HashMap<PathBuf, usize> = HashMap::new();
@@ -427,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn a_creation_recorded_after_the_write_of_its_file_is_named_as_later() {
+    fn a_rename_recorded_after_the_flush_of_its_file_is_named_as_later() {
         let source = Path::new("source");
         let (a, b) = (source.join("a"), source.join("b"));
         let ops = [
@@ -486,5 +487,23 @@ mod tests {
                 source.path().display()
             )
         );
+    }
+
+    #[test]
+    fn a_removal_of_a_name_that_is_not_live_changes_nothing() {
+        let source = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        std::fs::write(target.path().join("kept"), b"kept").unwrap();
+        let ops = [
+            Recorded::Remove(source.path().join("missing")),
+            Recorded::SyncDir(source.path().to_path_buf()),
+        ];
+        materialize(&ops, 2, source.path(), target.path(), Model::Flushed);
+        let names: Vec<_> = std::fs::read_dir(target.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["kept"]);
+        assert_eq!(std::fs::read(target.path().join("kept")).unwrap(), b"kept");
     }
 }
