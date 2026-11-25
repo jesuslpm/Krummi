@@ -6,7 +6,11 @@ mod bulk;
 pub mod catalog;
 pub mod collation;
 mod collation_tables;
+mod distance;
+#[cfg(test)]
+mod distance_tests;
 mod estimate;
+mod filter;
 mod identity;
 mod index;
 mod index_key;
@@ -20,6 +24,7 @@ pub mod key;
 mod maintain;
 #[cfg(test)]
 mod malformed_tests;
+mod nearest;
 pub mod projection;
 #[cfg(test)]
 mod projection_tests;
@@ -43,13 +48,16 @@ mod worker;
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
 pub use collation::Collation;
+pub use distance::VectorMetric;
 pub use estimate::{Condition, Estimate};
 pub(crate) use estimate::{PrivateStatistics, Retired, StatsMemory};
+pub use filter::FilterCondition;
 pub use index::{
     IndexDefinition, IndexKey, IndexMode, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
 };
 pub use index_scan::{IndexEntry, ReadIndexEntries, WriteIndexEntries};
 pub use key::{Direction, Nulls};
+pub use nearest::{Nearest, Neighbour, Neighbours};
 pub(crate) use projection::Projections;
 pub use projection::{ProjectedColumn, ProjectedRow, Projection};
 pub use ranges::{ReadIndexRows, ReadRows, WriteIndexRows, WriteRows};
