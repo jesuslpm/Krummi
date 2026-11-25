@@ -8,8 +8,9 @@ use std::process::ExitCode;
 use krummi_ann_lab::kernels::Metric;
 use krummi_ann_lab::run;
 
-const USAGE: &str = "Uso: krummi-ann-lab <preparar|verdad|medir|grafo> --carpeta <carpeta> \
-[--conjunto <sift|glove|cohere>] [--filas <n>] [--informe <archivo>] [--metrica <l2|dot|coseno>] [--sondeos <n,n,...>]";
+const USAGE: &str = "Uso: krummi-ann-lab <preparar|verdad|medir|grafo|motor> --carpeta <carpeta> \
+[--conjunto <sift|glove|cohere>] [--filas <n>] [--informe <archivo>] [--metrica <l2|dot|coseno>] [--sondeos <n,n,...>] \
+[--paso <cargar|buscar|umbral>]";
 
 fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
     let mut args = args.iter().map(|a| a.to_string_lossy().into_owned());
@@ -35,6 +36,7 @@ fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
                 );
             }
             "--informe" => options.report = Some(PathBuf::from(value()?)),
+            "--paso" => options.step = Some(value()?),
             "--metrica" => {
                 let text = value()?;
                 options.metric = Some(
@@ -60,8 +62,11 @@ fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
     }
     options.folder = folder.ok_or_else(|| format!("Falta --carpeta.\n{USAGE}"))?;
     // An option that the command would ignore is an error, so no run reports success without it.
-    if options.nprobes.is_some() && command != "medir" {
-        return Err("La opción --sondeos solo vale con medir.".to_string());
+    if options.nprobes.is_some() && command != "medir" && command != "motor" {
+        return Err("La opción --sondeos solo vale con medir y motor.".to_string());
+    }
+    if options.step.is_some() != (command == "motor") {
+        return Err("La opción --paso vale, y hace falta, solo con motor.".to_string());
     }
     if options.metric.is_some() && command != "medir" && command != "grafo" {
         return Err("La opción --metrica solo vale con medir y grafo.".to_string());
@@ -69,8 +74,8 @@ fn parse(args: &[OsString]) -> Result<(String, run::Options), String> {
     if options.rows.is_some() && command == "preparar" {
         return Err("La opción --filas no vale con preparar.".to_string());
     }
-    if options.report.is_some() && command != "medir" && command != "grafo" {
-        return Err("La opción --informe solo vale con medir y grafo.".to_string());
+    if options.report.is_some() && !["medir", "grafo", "motor"].contains(&command.as_str()) {
+        return Err("La opción --informe solo vale con medir, grafo y motor.".to_string());
     }
     Ok((command, options))
 }
@@ -89,6 +94,20 @@ fn main() -> ExitCode {
         "verdad" => run::ground_truth(&options),
         "medir" => run::measure(&options),
         "grafo" => run::graph(&options),
+        "motor" => {
+            let report = options
+                .report
+                .clone()
+                .unwrap_or_else(|| options.folder.join("motor.md"));
+            match options.step.as_deref() {
+                Some("cargar") => krummi_ann_lab::engine::load_step(&options, &report),
+                Some("buscar") => krummi_ann_lab::engine::search_step(&options, &report),
+                Some("umbral") => krummi_ann_lab::engine::threshold_step(&options, &report),
+                other => Err(format!(
+                    "Paso no válido: {other:?}. Son cargar, buscar y umbral."
+                )),
+            }
+        }
         _ => {
             eprintln!("Orden no válida: {command}.\n{USAGE}");
             return ExitCode::from(2);
@@ -146,7 +165,7 @@ mod tests {
         for command in ["preparar", "verdad", "grafo"] {
             assert_eq!(
                 parsed(&[command, "--carpeta", "w", "--sondeos", "4"]).unwrap_err(),
-                "La opción --sondeos solo vale con medir."
+                "La opción --sondeos solo vale con medir y motor."
             );
         }
         for command in ["preparar", "verdad"] {
@@ -164,7 +183,7 @@ mod tests {
         for command in ["preparar", "verdad"] {
             assert_eq!(
                 parsed(&[command, "--carpeta", "w", "--informe", "r.md"]).unwrap_err(),
-                "La opción --informe solo vale con medir y grafo."
+                "La opción --informe solo vale con medir, grafo y motor."
             );
         }
         assert!(parsed(&["grafo", "--carpeta", "w", "--informe", "r.md"]).is_ok());

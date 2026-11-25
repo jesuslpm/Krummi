@@ -1071,6 +1071,7 @@ name = "krummi-ann-lab"
 version = "0.1.0"
 dependencies = [
  "hnsw_rs",
+ "krummi",
  "parquet",
 ]
 

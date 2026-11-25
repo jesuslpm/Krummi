@@ -3,6 +3,7 @@
 //! PRD 7.6 is written from its measurements and moves the kernels into the engine.
 
 pub mod data;
+pub mod engine;
 pub mod files;
 pub mod hnsw;
 pub mod ivf;

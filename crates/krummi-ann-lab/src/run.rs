@@ -32,6 +32,8 @@ pub struct Options {
     pub metric: Option<Metric>,
     /// The nprobe sweep instead of the default one (`--sondeos`).
     pub nprobes: Option<Vec<usize>>,
+    /// The step of `motor` (`--paso`): `cargar`, `buscar` or `umbral`.
+    pub step: Option<String>,
 }
 
 /// A data set of S3.
