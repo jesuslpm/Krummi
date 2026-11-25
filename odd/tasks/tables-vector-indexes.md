@@ -199,3 +199,4 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
   `review-99d04abda3d18e6a`: R2-isWindows-undefined-5x and R3-001 (WARNING, `$IsWindows` is undefined in Windows
   PowerShell 5.1) dismissed with evidence: the script starts with `#Requires -Version 7`, so 5.1 never runs it; a
   comment now states the intent. R2-report-codex-test-gap (SUGGESTION) stands as written in the report's *Pending*.
+- **L23** — 2026-11-25, the user trusted the folder in Codex, verbatim: «hecho». RDD review of `7c61c20..7ce3e50` (the lookup comment), lens readability, approved, no findings, lineage `review-584893515d187337`.
