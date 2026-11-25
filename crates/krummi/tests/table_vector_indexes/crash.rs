@@ -55,10 +55,12 @@ fn recorded(point_held: VectorPoint) -> (Store, tempfile::TempDir) {
     (store, source)
 }
 
-/// Waits until the worker reached a held point: its state stops changing for a while.
-fn settle(store: &Store) {
-    std::thread::sleep(std::time::Duration::from_millis(400));
-    let _ = store;
+/// Waits until the worker waits at the held `point`.
+fn settle(store: &Store, point: VectorPoint) {
+    assert!(
+        store.wait_vector_held(point),
+        "the worker reaches {point:?}"
+    );
 }
 
 #[test]
@@ -66,7 +68,7 @@ fn ac_vi4_a_crash_during_the_training_the_build_or_a_batch() {
     let empty = empty_pages();
     // During the training.
     let (store, source) = recorded(VectorPoint::Sampled);
-    settle(&store);
+    settle(&store, VectorPoint::Sampled);
     let run = Run::finish(source, Vec::new());
     let killed = run.killed();
     drop(store);
@@ -74,11 +76,17 @@ fn ac_vi4_a_crash_during_the_training_the_build_or_a_batch() {
 
     // During the build, a batch holding the turn.
     let (store, source) = recorded(VectorPoint::BatchTurn);
-    settle(&store);
-    store.hold_vector_work(VectorPoint::BatchTurn, false);
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    store.hold_vector_work(VectorPoint::BatchTurn, true);
-    settle(&store);
+    // The training's write, then the first batches of the build, each held at its turn and let go.
+    for _ in 0..3 {
+        settle(&store, VectorPoint::BatchTurn);
+        store.take_vector_turns();
+        store.hold_vector_work(VectorPoint::BatchTurn, false);
+        while store.take_vector_turns().1 == 0 {
+            std::thread::yield_now();
+        }
+        store.hold_vector_work(VectorPoint::BatchTurn, true);
+    }
+    settle(&store, VectorPoint::BatchTurn);
     let run = Run::finish(source, Vec::new());
     let killed = run.killed();
     drop(store);
@@ -102,7 +110,7 @@ fn ac_vi4_a_crash_during_the_training_the_build_or_a_batch() {
             .unwrap();
     }
     write.commit().unwrap();
-    settle(&store);
+    settle(&store, VectorPoint::BatchTurn);
     let run = Run::finish(source, Vec::new());
     let killed = run.killed();
     drop(store);

@@ -45,11 +45,22 @@ fn ready_store(store: &Store, rows: i64) {
 fn trained_and_paused(store: &Store) {
     store.hold_vector_work(VectorPoint::BatchTurn, true);
     store.pause_vector_work(false);
-    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        store.wait_vector_held(VectorPoint::BatchTurn),
+        "the training holds the turn"
+    );
     store.pause_vector_work(true);
+    store.take_vector_turns();
     store.hold_vector_work(VectorPoint::BatchTurn, false);
+    let start = Instant::now();
+    while store.take_vector_turns().1 == 0 {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "the training commits"
+        );
+        std::thread::yield_now();
+    }
     store.wait_vector_idle();
-    std::thread::sleep(Duration::from_millis(50));
 }
 
 fn wait_state(store: &Store, state: VectorIndexState) -> VectorIndexInfo {

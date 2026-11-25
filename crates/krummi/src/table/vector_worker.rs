@@ -102,6 +102,8 @@ pub(crate) struct VectorWork {
     released: Condvar,
     /// Where the thread waits after a failed pass, woken only by the close.
     backoff: Condvar,
+    /// The held point where the thread waits, for the tests.
+    waiting: Mutex<Option<VectorPoint>>,
     /// The trained generations read so far, by index, instance and generation (immutable once written).
     cache: Mutex<HashMap<(u64, u64, u32), Arc<Generation>>>,
 }
@@ -217,11 +219,14 @@ impl VectorWork {
     fn pass(&self, point: VectorPoint) {
         let mut held = lock(&self.held);
         while held.contains(&point) && !self.stopping() {
+            *lock(&self.waiting) = Some(point);
+            self.released.notify_all();
             held = self
                 .released
                 .wait(held)
                 .unwrap_or_else(PoisonError::into_inner);
         }
+        *lock(&self.waiting) = None;
     }
 
     /// The generation `generation` of the index `index` of instance `instance`, from the cache or read with `read`.
@@ -1393,6 +1398,26 @@ impl crate::Store {
         hooks.longest_turn = Duration::ZERO;
         hooks.batches = 0;
         taken
+    }
+
+    /// A test hook, not part of the interface: waits until the worker waits at the held `point` (at most a minute), and
+    /// whether it does.
+    #[doc(hidden)]
+    pub fn wait_vector_held(&self, point: VectorPoint) -> bool {
+        let work = &self.shared().vectors;
+        let start = std::time::Instant::now();
+        let mut held = lock(&work.held);
+        while *lock(&work.waiting) != Some(point) {
+            if start.elapsed() > Duration::from_secs(60) {
+                return false;
+            }
+            held = work
+                .released
+                .wait_timeout(held, Duration::from_millis(10))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        true
     }
 
     /// A test hook, not part of the interface: whether the vector indexes' worker thread is running.
