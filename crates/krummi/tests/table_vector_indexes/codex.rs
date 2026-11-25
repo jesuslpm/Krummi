@@ -103,3 +103,30 @@ fn r1_dropping_another_column_keeps_the_entries() {
         .unwrap();
     assert_eq!((ids(&found), found.rows[0].distance), (vec![42], 0.0));
 }
+
+/// R3: with rows without a vector, the rows with one decide an automatic rebuild: 1,000 vectors among 13,000 rows
+/// start none, and the index stays ready.
+#[test]
+fn r3_rows_without_a_vector_start_no_rebuild() {
+    let store = Store::open_temporary(&StoreOptions::default()).unwrap();
+    indexed(&store, "t");
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    for id in 10_000..22_000 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("n", Value::I64(0))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    wait_ready(&store, "t");
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    write
+        .delete_range(&table, &[], Value::I64(0)..Value::I64(9_000))
+        .unwrap();
+    write.commit().unwrap();
+    wait_ready(&store, "t");
+    let after = state(&store, "t");
+    assert_eq!(after.state, VectorIndexState::Ready, "{after:?}");
+    assert_eq!(after.rows_against_trained, Some(0.1));
+}

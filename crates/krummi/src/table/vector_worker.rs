@@ -507,7 +507,8 @@ fn train(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
         return cancel_rebuild(shared, target, state);
     }
     if lock(&work.state).untrainable.get(&key) == Some(&target.counter) {
-        return Ok(false);
+        // Still too few rows: a rebuild that waits for them ends, as it would have when they were counted (VI9).
+        return cancel_rebuild(shared, target, state);
     }
     let seed = target.index ^ u64::from(state.next).wrapping_mul(0x9E37_79B9_7F4A_7C15);
     let capacity = SAMPLE_PER_LIST * lists_for(target.rows.max(MIN_TRAINING_ROWS)) as usize;
@@ -929,6 +930,35 @@ fn batch(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
     Ok(true)
 }
 
+/// The rows with a vector of an index whose active generation is `active`: those the generation reflects, less the
+/// pending ones it holds, plus the pending rows that have a vector (the live column at `place`).
+fn rows_with_vector<'t, S: PageSource + ?Sized>(
+    tx: &'t S,
+    roots: &VectorRoots,
+    active: u32,
+    reader: &'t Arc<Reader>,
+    at: At<'_>,
+    rows_root: u64,
+    place: usize,
+) -> Result<u64> {
+    let (entries, _) = read_counters(tx, roots.data, active)?;
+    let mut rows = entries;
+    let all = Interval {
+        prefix: &[],
+        lower: Bound::Unbounded,
+        upper: Bound::Unbounded,
+    };
+    let mut versions = Versions::default();
+    for entry in krummi_tree::Range::new(tx, roots.pending, all)? {
+        let (key, _) = entry?;
+        let held = krummi_tree::get(tx, roots.data, &locator_key(active, key))?.is_some();
+        rows -= u64::from(held).min(rows);
+        let vector = row_vector(tx, reader, at, &mut versions, rows_root, key, place)?;
+        rows += u64::from(vector.is_some());
+    }
+    Ok(rows)
+}
+
 /// The vector of the row `key` of the rows tree at `rows_root` (the live column at `place`), none when the row is gone
 /// or its vector is null.
 fn row_vector<'t, S: PageSource + ?Sized>(
@@ -1023,7 +1053,7 @@ fn cleanup(shared: &Shared, target: &Target) -> Result<bool> {
 /// Starts a rebuild of the ready index of `target` when an indicator passes its threshold (VI9): it marks the index as
 /// rebuilding, and the next steps train and build the new generation. Whether it did.
 fn start_rebuild_if_due(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
-    let due = {
+    let (due, vector_rows) = {
         let read = shared.read()?;
         let Some(table) = find(&read, target)? else {
             return Ok(false);
@@ -1032,6 +1062,16 @@ fn start_rebuild_if_due(shared: &Shared, target: &Target, state: &IndexState) ->
         if read_state(&read.inner, &roots)? != *state {
             return Ok(false);
         }
+        // The rows with a vector decide, not the table's rows: rows without one are never in the index (VI1, VI9).
+        let vector_rows = rows_with_vector(
+            &read.inner,
+            &roots,
+            state.active,
+            &table.reader,
+            table.at(),
+            table.rows_root,
+            place_of(&table.schema, target.column),
+        )?;
         let info = super::vector_index::read_info_with(
             shared,
             &read.inner,
@@ -1056,16 +1096,17 @@ fn start_rebuild_if_due(shared: &Shared, target: &Target, state: &IndexState) ->
         let lists_change = rows_due
             && info
                 .lists
-                .is_some_and(|lists| lists_for(target.rows) != lists as u32);
-        grew(info.saturated, baseline.saturated, thresholds.saturated)
+                .is_some_and(|lists| lists_for(vector_rows) != lists as u32);
+        let due = grew(info.saturated, baseline.saturated, thresholds.saturated)
             || grew(
                 info.largest_list,
                 baseline.largest_list,
                 thresholds.largest_list,
             )
-            || lists_change
+            || lists_change;
+        (due, vector_rows)
     };
-    if !due || target.rows < MIN_TRAINING_ROWS {
+    if !due || vector_rows < MIN_TRAINING_ROWS {
         return Ok(false);
     }
     let Some((mut write, started)) = turn(shared)? else {
@@ -1690,40 +1731,20 @@ impl WriteTransaction<'_> {
         if current.public() != super::vector_index::VectorIndexState::Ready {
             return Ok(());
         }
-        // The rows with a vector: those the generation reflects, less the pending ones it holds, plus the pending rows
-        // that have a vector.
-        let (entries, _) = read_counters(&self.inner, roots.data, current.active)?;
-        let mut rows = entries;
-        let all = Interval {
-            prefix: &[],
-            lower: Bound::Unbounded,
-            upper: Bound::Unbounded,
-        };
-        let pending: Vec<Vec<u8>> = krummi_tree::Range::new(&self.inner, roots.pending, all)?
-            .map(|entry| entry.map(|(key, _)| key.to_vec()))
-            .collect::<Result<_>>()?;
-        let mut versions = Versions::default();
         let at_rows = At {
             name: &at_of.0,
             rows_root,
             history: at_of.1,
         };
-        for key in &pending {
-            let held =
-                krummi_tree::get(&self.inner, roots.data, &locator_key(current.active, key))?
-                    .is_some();
-            rows -= u64::from(held).min(rows);
-            let vector = row_vector(
-                &self.inner,
-                &reader,
-                at_rows,
-                &mut versions,
-                rows_root,
-                key,
-                place,
-            )?;
-            rows += u64::from(vector.is_some());
-        }
+        let rows = rows_with_vector(
+            &self.inner,
+            &roots,
+            current.active,
+            &reader,
+            at_rows,
+            rows_root,
+            place,
+        )?;
         if rows < MIN_TRAINING_ROWS {
             return Ok(());
         }
