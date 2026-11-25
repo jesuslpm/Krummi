@@ -95,3 +95,20 @@ warnings` clean; `cargo test --workspace` 1,332 passed, 2 failed, 36 ignored. Th
 `trees_compile` (also on `main`) and `krummi-tx` `group_commit::ac_e13_failures_of_the_journals_writer`. That test is
 intermittent: it failed 1 of 20 runs on the branch and 1 of 40 on a copy of the base `7793a51`. The regression tests
 of R1, R2 and R3 (`table_vector_indexes::codex`) and of R5 (`options_a_command_would_ignore_are_rejected`) pass.
+
+## 2026-11-25 (verification)
+
+Follow-up report: [2026-11-25-code-02.md](2026-11-25-code-02.md), fix range `daaacd1..5eaa9ba`. Verdict, quoted:
+«Approved — R1–R5 verified resolved; no open findings in the follow-up scope.»
+
+- R1: «Verified resolved: unrelated column drop no longer removes a valid vector entry».
+- R2: «Verified resolved: the complete supported primary-key domain is indexable».
+- R3: «Verified resolved: automatic reconstruction counts non-null vectors».
+- R4: «Verified resolved: the filtered comparison now reports comparable measured quality and plans».
+- R5: «Verified resolved: motor rejects a dataset it would ignore».
+
+The two product questions stay open for the user.
+
+Review record: `docs/reviews/tables-vector-indexes/2026-11-25-code-02.md`, wrapper status `approved`, `threadId`
+`01a2149e-3efa-7992-bc08-c012efd2e929`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`.
