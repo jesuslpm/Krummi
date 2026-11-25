@@ -5,7 +5,7 @@
 //!
 //! Each step writes a Markdown section to the report and leaves the store in `<folder>/motor`, which the next step uses:
 //! `cargar` (load, inserts, index), `buscar` (searches), `umbral` (the exact search against the index over filters of
-//! growing size).
+//! growing size), `indice` and `sin-indice` (create or drop the secondary index `by_cat` that the filters can use).
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -373,7 +373,9 @@ pub fn search_step(options: &Options, report: &Path) -> Result<(), String> {
     for probes in sweep_probes.iter().copied().map(Some).chain([None]) {
         let (recall, p50, p95, _) = sweep(&store, &queries, queries.len(), probes, &[], &expected)?;
         let label = probes.map_or("por defecto".to_string(), |p| p.to_string());
-        let share = probes.map_or(4.0, |p| 100.0 * p as f64 / lists as f64);
+        let share = probes.map_or(100.0 * krummi::table::DEFAULT_PROBE_SHARE, |p| {
+            100.0 * p as f64 / lists as f64
+        });
         text.push_str(&format!(
             "| {label} | {share:.1} | {recall:.4} | {p50:.2} | {p95:.2} |\n"
         ));
@@ -467,7 +469,7 @@ pub fn threshold_step(options: &Options, report: &Path) -> Result<(), String> {
                     | Filtro | Filas que pasan | Exacto p50 ms | Índice p50 ms | recall@10 del índice |\n|---|---|---|---|---|\n"
         .to_string();
     for top in [1i64, 2, 3, 5, 10, 20] {
-        // Categories 0 and 50 pass half a percent each: `cat < top` passes `top` percent, and 50 adds a half.
+        // `cat` is the id modulo 100: `cat < top` passes `top` percent of the rows.
         let filter = vec![FilterCondition::Range {
             column: "cat",
             lower: std::ops::Bound::Included(Value::I64(0)),

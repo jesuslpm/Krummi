@@ -140,6 +140,7 @@ def main():
     parser.add_argument("report")
     parser.add_argument("--filas", type=int, default=None)
     parser.add_argument("--sondeos", default="20,30,40,50,60,80")
+    parser.add_argument("--solo-filtros", action="store_true")
     parser.add_argument("--dsn", default="host=127.0.0.1 port=55432 user=postgres password=bench dbname=postgres")
     args = parser.parse_args()
     probes = [int(p) for p in args.sondeos.split(",")]
@@ -195,18 +196,27 @@ def main():
         say(f"| Insertar una fila con el índice (p50 / p95) | {with_index[0]:.3f} / {with_index[1]:.3f} ms |")
         say(f"| Razón del p95, con / sin | {with_index[1] / without[1]:.3f} |")
         say(f"| `SELECT 1` (p50 / p95) | {percentile(times, 50):.3f} / {percentile(times, 95):.3f} ms |\n")
-        say(f"### Sin filtro ({QUERIES} consultas, k = 10)\n")
-        say("| Sondeos | recall@10 | p50 ms | p95 ms |\n|---|---|---|---|")
-        for p in probes:
-            recall, p50, p95 = search(conn, queries, QUERIES, "", p, expected)
-            say(f"| {p} | {recall:.4f} | {p50:.2f} | {p95:.2f} |")
-        say(f"\n### Con filtro ({FILTERED_QUERIES} consultas, k = 10)\n")
-        say("| Filtro | Sondeos | recall@10 | p50 ms | p95 ms |\n|---|---|---|---|---|")
-        for label, where in [("cat = 7", "WHERE cat = 7"), ("cat < 50", "WHERE cat < 50")]:
-            truth = exact_truth(conn, queries, FILTERED_QUERIES, where)
+        if not args.solo_filtros:
+            say(f"### Sin filtro ({QUERIES} consultas, k = 10)\n")
+            say("| Sondeos | recall@10 | p50 ms | p95 ms |\n|---|---|---|---|")
             for p in probes:
-                recall, p50, p95 = search(conn, queries, FILTERED_QUERIES, where, p, truth)
-                say(f"| {label} | {p} | {recall:.4f} | {p50:.2f} | {p95:.2f} |")
+                recall, p50, p95 = search(conn, queries, QUERIES, "", p, expected)
+                say(f"| {p} | {recall:.4f} | {p50:.2f} | {p95:.2f} |")
+        truths = {}
+        for forced in (False, True):
+            plan = "el índice forzado (`enable_seqscan = off`)" if forced else "el plan que elige PostgreSQL"
+            say(f"\n### Con filtro ({FILTERED_QUERIES} consultas, k = 10, {plan})\n")
+            say("| Filtro | Sondeos | recall@10 | p50 ms | p95 ms |\n|---|---|---|---|---|")
+            with conn.cursor() as cur:
+                cur.execute(f"SET enable_seqscan = {'off' if forced else 'on'}")
+            for label, where in [("cat = 7", "WHERE cat = 7"), ("cat < 50", "WHERE cat < 50")]:
+                if where not in truths:
+                    truths[where] = exact_truth(conn, queries, FILTERED_QUERIES, where)
+                for p in probes:
+                    recall, p50, p95 = search(conn, queries, FILTERED_QUERIES, where, p, truths[where])
+                    say(f"| {label} | {p} | {recall:.4f} | {p50:.2f} | {p95:.2f} |")
+            with conn.cursor() as cur:
+                cur.execute("RESET enable_seqscan")
     with open(args.report, "a", encoding="utf-8") as out:
         out.write("\n".join(lines) + "\n\n")
 

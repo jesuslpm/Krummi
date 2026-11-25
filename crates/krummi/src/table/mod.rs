@@ -62,6 +62,8 @@ pub use index::{
 };
 pub use index_scan::{IndexEntry, ReadIndexEntries, WriteIndexEntries};
 pub use key::{Direction, Nulls};
+#[doc(hidden)]
+pub use nearest::DEFAULT_PROBE_SHARE;
 pub use nearest::{Nearest, Neighbour, Neighbours};
 pub(crate) use projection::Projections;
 pub use projection::{ProjectedColumn, ProjectedRow, Projection};

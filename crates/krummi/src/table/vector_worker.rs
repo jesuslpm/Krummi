@@ -14,7 +14,8 @@
 //! rows of a table with one; it ends when the store closes, abandoning a training in progress and waiting for the batch
 //! that holds the turn. A batch that fails (damage, input and output, memory, a full disk or the maximum size) changes
 //! nothing and is retried at the next pass, without telling anyone; a failure that makes the store refuse writes ends
-//! the thread (T12).
+//! the thread (T12). A batch commits, then waits outside the turn until it is durable; a failure of that wait is a
+//! failed flush, which also makes the store refuse writes and ends the thread.
 
 use std::collections::HashMap;
 use std::ops::Bound;

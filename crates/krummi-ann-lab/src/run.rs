@@ -32,7 +32,7 @@ pub struct Options {
     pub metric: Option<Metric>,
     /// The nprobe sweep instead of the default one (`--sondeos`).
     pub nprobes: Option<Vec<usize>>,
-    /// The step of `motor` (`--paso`): `cargar`, `buscar` or `umbral`.
+    /// The step of `motor` (`--paso`): `cargar`, `buscar`, `umbral`, `indice` or `sin-indice`.
     pub step: Option<String>,
 }
 

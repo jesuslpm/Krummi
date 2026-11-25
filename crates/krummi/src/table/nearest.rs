@@ -495,7 +495,8 @@ impl WriteTransaction<'_> {
 /// (*Dejado a la implementación*).
 pub(crate) const EXACT_THRESHOLD: u64 = 20_000;
 /// The share of the lists a search probes first when it does not say (VI6).
-const DEFAULT_PROBE_SHARE: f64 = 0.04;
+#[doc(hidden)]
+pub const DEFAULT_PROBE_SHARE: f64 = 0.04;
 /// The candidates a search reranks per neighbour, and at least (VI6, *Dejado a la implementación*).
 const RERANK_PER_NEIGHBOUR: usize = 2;
 const RERANK_AT_LEAST: usize = 20;
@@ -554,6 +555,9 @@ impl Searched<'_> {
         for entry in krummi_tree::Range::new(tx, roots.pending, all)? {
             pending.insert(entry?.0.to_vec());
         }
+        // The pending rows that pass, read once, with their exact distances.
+        let (mut top, pending_passed) =
+            self.pending_top(tx, place, query.k, &exact, &pending, &filter)?;
         if filter.has_conditions() {
             // Filter first (VI6): the rows that pass, with their exact distances, as long as they stay under the
             // threshold; past it, the count is all that decides, so the scan stops.
@@ -579,8 +583,7 @@ impl Searched<'_> {
                 let locator = super::vector_worker::locator_key(state.active, key);
                 held += u64::from(krummi_tree::get(tx, roots.data, &locator)?.is_some());
             }
-            let (_, with_vector) = self.pending_top(tx, place, 1, &exact, &pending, &filter)?;
-            if entries - held.min(entries) + with_vector as u64 <= threshold {
+            if entries - held.min(entries) + pending_passed as u64 <= threshold {
                 let mut top = TopK::new(query.k);
                 exact_all(&mut top)?;
                 return Ok(Neighbours {
@@ -589,8 +592,6 @@ impl Searched<'_> {
                 });
             }
         }
-        let (mut top, pending_passed) =
-            self.pending_top(tx, place, query.k, &exact, &pending, &filter)?;
         let generation =
             super::vector_worker::load_generation(shared, tx, id, &roots, &vector, state.active)?;
         let mut work = Vec::new();
