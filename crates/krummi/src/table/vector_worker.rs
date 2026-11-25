@@ -1155,16 +1155,6 @@ fn start_rebuild_if_due(shared: &Shared, target: &Target, state: &IndexState) ->
         if read_state(&read.inner, &roots)? != *state {
             return Ok(false);
         }
-        // The rows with a vector decide, not the table's rows: rows without one are never in the index (VI1, VI9).
-        let vector_rows = rows_with_vector(
-            &read.inner,
-            &roots,
-            state.active,
-            &table.reader,
-            table.at(),
-            table.rows_root,
-            place_of(&table.schema, target.column),
-        )?;
         let info = super::vector_index::read_info_with(
             shared,
             &read.inner,
@@ -1186,18 +1176,31 @@ fn start_rebuild_if_due(shared: &Shared, target: &Target, state: &IndexState) ->
         };
         let rows = info.rows_against_trained.unwrap_or(1.0) / baseline.rows.max(f64::MIN_POSITIVE);
         let rows_due = rows > thresholds.rows || rows < 1.0 / thresholds.rows;
-        let lists_change = rows_due
-            && info
-                .lists
-                .is_some_and(|lists| lists_for(vector_rows) != lists as u32);
-        let due = grew(info.saturated, baseline.saturated, thresholds.saturated)
+        let grown = grew(info.saturated, baseline.saturated, thresholds.saturated)
             || grew(
                 info.largest_list,
                 baseline.largest_list,
                 thresholds.largest_list,
-            )
-            || lists_change;
-        (due, vector_rows)
+            );
+        if !grown && !rows_due {
+            return Ok(false);
+        }
+        // The rows with a vector decide, not the table's rows: rows without one are never in the index (VI1, VI9).
+        // Counting them reads the pending rows, so only an indicator past its threshold pays for it.
+        let vector_rows = rows_with_vector(
+            &read.inner,
+            &roots,
+            state.active,
+            &table.reader,
+            table.at(),
+            table.rows_root,
+            place_of(&table.schema, target.column),
+        )?;
+        let lists_change = rows_due
+            && info
+                .lists
+                .is_some_and(|lists| lists_for(vector_rows) != lists as u32);
+        (grown || lists_change, vector_rows)
     };
     if !due || vector_rows < MIN_TRAINING_ROWS {
         return Ok(false);
