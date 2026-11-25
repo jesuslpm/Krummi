@@ -193,4 +193,14 @@ Route evidence: the units depend on each other (each uses the previous one), so 
   - The process-isolation wording: fixed in `f302d58`.
   - The remaining RSS coverage: Windows, and 1 M for SIFT, GloVe and dot. Asked (wait not logged; one question), the
     user answered, verbatim: "Aceptar el límite (Recomendado)". It is an agreed limit of S6 for this experiment.
+- **L19** (2026-11-25, close): Codex R4 approved (`docs/reviews/ann-experiment/2026-11-25-code-02.md`). The fix
+  commits `1fdce49..a9ce492` were assessed medium `under_budget` and reviewed under the closing rule (reliability,
+  readability): approved, lineage `review-d0e0ca1d71bed224`. Kept as informational follow-ups:
+  - R2-001 (the RSS fallback message also covers read errors on Linux);
+  - R2-002 and R3-003 (the order of the RSS sample and the timer in step 1);
+  - R2-003 (a second MiB helper);
+  - R2-004 and R3-001 (the `allocated_bytes` test is a lower bound);
+  - R3-002 (no assertion of equal lengths in `recall`).
+
+  Closing report: [ann-experiment-report.md](ann-experiment-report.md).
 

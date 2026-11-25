@@ -17,3 +17,19 @@
 2026-11-24T21:55:32+00:00	mark	docs	T6 report
 2026-11-24T21:59:19+00:00	mark	checks	closing checks
 2026-11-24T22:12:27+00:00	mark	review	RDD last slice
+2026-11-24T22:35:44+00:00	bg-start	review	codex-R1
+2026-11-24T22:43:19+00:00	bg-end	review	codex-R1
+2026-11-24T23:07:38+00:00	mark	fix	Codex R1 fixes (marked late, L16)
+2026-11-24T23:08:10+00:00	bg-start	fix	Linux memory run, dot product
+2026-11-24T23:15:49+00:00	bg-end	fix	Linux memory run, dot product
+2026-11-24T23:17:44+00:00	bg-start	review	codex-R2
+2026-11-24T23:21:49+00:00	bg-end	review	codex-R2
+2026-11-24T23:23:49+00:00	bg-start	fix	Linux memory run 2, 100k and 1M
+2026-11-25T00:00:08+00:00	bg-end	fix	Linux memory run 2, 100k and 1M
+2026-11-25T00:08:19+00:00	bg-start	review	codex-R3
+2026-11-25T00:11:09+00:00	bg-end	review	codex-R3
+2026-11-25T06:04:52+00:00	mark	review	codex-R4
+2026-11-25T06:04:59+00:00	bg-start	review	codex-R4
+2026-11-25T06:07:37+00:00	bg-end	review	codex-R4
+2026-11-25T06:09:33+00:00	mark	close	closing report
+2026-11-25T06:09:33+00:00	end		
