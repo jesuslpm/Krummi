@@ -324,9 +324,18 @@ struct Target {
     at: usize,
     roots: VectorRoots,
     vector: VectorType,
-    place: usize,
+    /// The identity of the indexed column: its place among the live columns is taken from each snapshot's schema,
+    /// since dropping another column moves it.
+    column: u64,
     rows: u64,
     counter: u64,
+}
+
+/// The place among the live columns of `schema` of the column of identity `column`.
+fn place_of(schema: &super::schema::TableSchema, column: u64) -> usize {
+    schema
+        .column_position(column)
+        .expect("a live column of the index")
 }
 
 /// The vector indexes of the tables `read` sees.
@@ -352,10 +361,7 @@ fn targets(read: &ReadTransaction<'_>) -> Result<Vec<Target>> {
                 at,
                 roots: table.vector_roots[at],
                 vector,
-                place: table
-                    .schema
-                    .column_position(index.column.id)
-                    .expect("a live column"),
+                column: index.column.id,
                 rows: read.row_count(&table)?,
                 counter: table.stats.counter,
             });
@@ -617,7 +623,7 @@ fn sample(
                     }
                 }
             },
-            target.place,
+            place_of(&table.schema, target.column),
         )?;
         if taken < SAMPLE_CHUNK {
             return Ok(Some((reservoir, seen)));
@@ -755,7 +761,7 @@ fn batch(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
                             backfill.push(key.to_vec());
                         }
                     },
-                    target.place,
+                    place_of(&table.schema, target.column),
                 )?;
             }
             end = backfill.len() < want;
@@ -773,7 +779,7 @@ fn batch(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
                 &mut versions,
                 table.rows_root,
                 &key,
-                target.place,
+                place_of(&table.schema, target.column),
             )?;
             let active_entry = match &active {
                 Some(g) if !backfill => {
@@ -814,6 +820,7 @@ fn batch(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
             break;
         }
         let (rows_root, reader, at) = write.rows_of(&handle)?;
+        let place = place_of(&write.live_table(&handle)?.schema, target.column);
         let vector = {
             let mut versions = Versions::default();
             let at = At {
@@ -828,7 +835,7 @@ fn batch(shared: &Shared, target: &Target, state: &IndexState) -> Result<bool> {
                 &mut versions,
                 rows_root,
                 &item.key,
-                target.place,
+                place,
             )?
         };
         // The entries computed in the read hold when the row's vector is the same; otherwise they are computed again.

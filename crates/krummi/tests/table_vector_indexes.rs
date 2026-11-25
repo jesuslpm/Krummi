@@ -8,6 +8,8 @@ mod support;
 
 #[path = "table_vector_indexes/approximate.rs"]
 mod approximate;
+#[path = "table_vector_indexes/codex.rs"]
+mod codex;
 #[path = "table_vector_indexes/crash.rs"]
 mod crash;
 #[path = "table_vector_indexes/definitions.rs"]
