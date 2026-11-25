@@ -2,9 +2,9 @@
 
 Informe de cierre de `ann-experiment` (2026-11-25). Enfoque de ejecución: ODD.
 
-- Origen del producto: el [documento de diseño 12](../../docs/design/tables/12-vector-indexes.md), *Benchmarks*, pasos 1 a 3. El PRD 7.6 se escribe después, con estas mediciones (S1).
+- Origen del producto: el [documento de diseño 12](../../../docs/design/tables/12-vector-indexes.md), *Benchmarks*, pasos 1 a 3. El PRD 7.6 se escribe después, con estas mediciones (S1).
 - Documento de ejecución: [ann-experiment.md](ann-experiment.md).
-- Informe del experimento: [2026-11-24-ann-experiment.md](../../docs/benchmark/2026-11-24-ann-experiment.md).
+- Informe del experimento: [2026-11-24-ann-experiment.md](../../../docs/benchmark/2026-11-24-ann-experiment.md).
 
 Estado de la entrega:
 - Rama `feat/tables-vector-indexes`, con commits locales.
@@ -37,8 +37,8 @@ Estado de la entrega:
 - **Revisiones y verificación:**
   - RDD: seis revisiones aprobadas y reconocidas; el detalle está más abajo.
   - Codex: cuatro rondas, de las que la cuarta aprobó; los informes están en
-    [docs/reviews/ann-experiment/](../../docs/reviews/ann-experiment/2026-11-24-code.md), con sus
-    [resoluciones](../../docs/reviews/ann-experiment/2026-11-24-code-resolutions.md).
+    [docs/reviews/ann-experiment/](../../../docs/reviews/ann-experiment/2026-11-24-code.md), con sus
+    [resoluciones](../../../docs/reviews/ann-experiment/2026-11-24-code-resolutions.md).
 - **Hallazgos corregidos por el camino:**
   - El test de paquetes del workspace fallaba desde T1, porque no conocía el crate nuevo (L13).
   - `--sondeos` descartaba sin avisar los valores mayores que el número de listas (RDD R1-001, CRITICAL).
