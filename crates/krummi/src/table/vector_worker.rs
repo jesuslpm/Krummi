@@ -180,7 +180,11 @@ impl VectorWork {
     /// and a batch that has its turn commits (VI12).
     pub(crate) fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+        // Taking each mutex after the flag is set orders this notification after any waiter's check of the flag: a
+        // waiter either sees the flag or is already waiting when the notification comes, so none is lost.
+        drop(lock(&self.state));
         self.wake.notify_all();
+        drop(lock(&self.held));
         self.released.notify_all();
         let handle = lock(&self.thread).take();
         if let Some(handle) = handle {
