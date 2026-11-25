@@ -63,9 +63,9 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
 | T6 | S1: VI3, VI4, VI12, VI13 (worker, training, build, reconcile, close and open, failures), AC-VI3, AC-VI4, AC-VI14, AC-VI15, AC-VI17 | inline | done | `8ee9045`, `597fee2` (RDD correction), review fixes and AC-VI4/AC-VI14 tests `308516e` |
 | T7 | S1: VI5, VI6 (approximate filter-first search), AC-VI2, AC-VI5, AC-VI6, AC-VI7, AC-VI13 | inline | done | `9986904` |
 | T8 | S1: VI9, VI11 (information, generations, automatic and requested rebuilds), AC-VI8, AC-VI16, AC-VI17 | inline | done | code in `8ee9045`, tests `6b06454` |
-| T9 | S3 (measurements: threshold, defaults, VI15 on Linux, pgvector, bench rounds), AC-VI11 | inline | pending | |
-| T10 | S1 (guide and reference docs) | inline | pending | |
-| T11 | S5 (RDD of the last slice, Codex review, closing report, archive) | inline | pending | |
+| T9 | S3 (measurements: threshold, defaults, VI15 on Linux, pgvector, bench rounds), AC-VI11 | inline | done | `4d82143`, `2fad948`, `0cd926c`, `3d4ab30`, `96bb348` (L14–L17) |
+| T10 | S1 (guide and reference docs) | inline | done | `587907e` |
+| T11 | S5 (RDD of the last slice, Codex review, closing report, archive) | inline | blocked: Codex review waits for the user (L21); RDD done, [report](tables-vector-indexes-report.md) written | |
 
 ## Log
 
@@ -191,3 +191,5 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
   R2-doc-step-list-stale (SUGGESTION; steps and the threshold comment), R3-durable-after-commit (WARNING; documented: a
   failure of the durable wait is a failed flush, which makes the store refuse writes and ends the thread, T12).
 - **L19** — RDD review of `ccc2564` (the last fixes), lenses reliability and readability, approved, no findings, lineage `review-f185432df41a3778`. Every commit of the branch has been through RDD; reviewed boundary `ccc2564`.
+- **L20** — Codex R1 first try: the wrapper found no CLI (`Codex CLI not found: codex`): it accepted only `.exe`, `.cmd` and `.bat`; fixed in `6e3d022` (any extension outside Windows). Its Pester tests use a `.cmd` fake and were not run on Linux.
+- **L21** — Codex R1 second try: `Codex does not load the project config here (model '<default>', expected 'gpt-6.1-sol'). Trust this folder in Codex (/home/jesuslmp/projects/Krummi) and retry.` Adding the trust entry to `~/.codex/config.toml` was denied by the auto mode classifier; the Codex review waits for the user.
