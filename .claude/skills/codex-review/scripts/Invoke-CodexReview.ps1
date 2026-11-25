@@ -255,7 +255,7 @@ try {
     $result.report = $reportRel
 
     $command = Get-Command $CodexPath -CommandType Application -ErrorAction SilentlyContinue |
-        Where-Object { $_.Extension -in '.exe', '.cmd', '.bat' } | Select-Object -First 1
+        Where-Object { -not $IsWindows -or $_.Extension -in '.exe', '.cmd', '.bat' } | Select-Object -First 1
     if (-not $command) { throw "Codex CLI not found: $CodexPath" }
     $script:CodexExe = $command.Source
 
