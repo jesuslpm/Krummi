@@ -5,3 +5,5 @@
 2026-11-26T09:06:43+00:00	bg-end	acceptance	T1 baseline
 2026-11-26T09:07:34+00:00	mark	explore	T2
 2026-11-26T09:19:19+00:00	mark	implement	T3a
+2026-11-26T09:25:36+00:00	bg-start	acceptance	T3a A/B
+2026-11-26T09:28:53+00:00	bg-end	acceptance	T3a A/B
