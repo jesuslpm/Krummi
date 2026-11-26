@@ -97,13 +97,6 @@ impl FixedSlot {
         }
         Some(&bytes[self.start as usize..self.end as usize])
     }
-
-    /// The value of the column, of type `ty`, in `bytes`, a row of its layout that [`RowLayout::row`] accepted: what
-    /// [`Row::read`] gives for its position, without reading the row's header again, a panic included.
-    #[inline]
-    pub fn value<'r>(self, ty: &ColumnType, bytes: &'r [u8]) -> Value<'r> {
-        read_stored(ty, self.read(bytes))
-    }
 }
 
 /// Whether the null bit of mask `mask` in the byte `byte` of `bytes` is set; never for a mask of 0.
@@ -626,8 +619,16 @@ impl<'r> Row<'_, 'r> {
     /// accepts, and a panic for one it rejects, for a row whose content was not checked (L2 of the row reads PRD).
     #[inline]
     pub fn read(&self, position: usize) -> Value<'r> {
+        const MALFORMED: &str = "a malformed row: a column that does not decode";
+        let malformed = || -> Infallible { panic!("{MALFORMED}") };
         match self.column_bytes(position) {
-            Ok(stored) => read_stored(&self.layout.columns[position].ty, stored),
+            Ok(Some(bytes)) => {
+                match decode_with(&self.layout.columns[position].ty, bytes, malformed) {
+                    Ok(value) => value,
+                    Err(never) => match never {},
+                }
+            }
+            Ok(None) => Value::Null,
             Err(RowDamaged) => panic!("{MALFORMED}"),
         }
     }
@@ -712,24 +713,6 @@ fn always_decodes(ty: &ColumnType) -> bool {
             | ColumnType::Uuid(_)
             | ColumnType::Ulid
     )
-}
-
-/// The panic of a read of a column that does not decode, in a row whose content was not checked (L2 of the row reads
-/// PRD).
-const MALFORMED: &str = "a malformed row: a column that does not decode";
-
-/// The value of a column of type `ty` whose stored bytes are `stored` (`None` for a null), as [`Row::read`] gives it:
-/// a panic for bytes that do not decode.
-#[inline]
-fn read_stored<'r>(ty: &ColumnType, stored: Option<&'r [u8]>) -> Value<'r> {
-    let Some(bytes) = stored else {
-        return Value::Null;
-    };
-    let malformed = || -> Infallible { panic!("{MALFORMED}") };
-    match decode_with(ty, bytes, malformed) {
-        Ok(value) => value,
-        Err(never) => match never {},
-    }
 }
 
 /// The value of the stored bytes of a column of type `ty`. A temporal value outside its domain or a `decimal` over

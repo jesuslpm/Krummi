@@ -744,11 +744,7 @@ impl Reader {
             return key_value(&self.key_types[k], &key[start..]);
         }
         let (layout, place) = match old {
-            // A fixed-width column of a row of the current version, the most common read, from its slot.
-            None => match self.fast[i].slot.fixed() {
-                Some(fixed) => return fixed.value(&column.ty, bytes),
-                None => (&self.layout, Some(i)),
-            },
+            None => (&self.layout, Some(i)),
             Some(old) => (&old.layout, old.places[i]),
         };
         match place {
