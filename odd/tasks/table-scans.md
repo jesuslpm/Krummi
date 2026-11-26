@@ -136,3 +136,16 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   approved, acknowledged; two SUGGESTION findings left as non-blocking follow-ups (a check that every fixed-width
   type has a rank; the unbounded text range through the approximate and pending paths). Closing report:
   [table-scans-report.md](table-scans-report.md).
+- **L17** (2026-11-26) Rebase. The base moved: `feat/tables-vector-indexes` is at `d519e9a5`, 13 commits after `76d8820`
+  (the vector worker starts when the store opens and reads after durable commits; `check_tests::open_settled`).
+  Estimate for the rebase, checks and new measurements: 2 h to 3 h 30 min; start 2026-11-26 12:46:36 +0000. The
+  rebase onto `origin/feat/tables-vector-indexes` applied the 15 commits without conflicts once run with
+  `merge.directoryRenames=false` (with rename detection, git moved this run's `odd/tasks` files into `odd/done/tables`,
+  as the base had archived the only other execution). No new test counts reads after opening a store, so none needs
+  `open_settled`. Checks on Windows at `6bc23bd8`: fmt and workspace clippy clean; `cargo test --workspace
+  --no-fail-fast` 1,346 passed, 4 failed: the three known environmental failures of L14 and
+  `table_statistics::codex::r13_analyze_without_memory_for_its_snapshot_changes_nothing`, which then passed 6 times
+  out of 6 with its whole binary. Its cause is the base's: the test injects an out-of-memory failure into the next
+  snapshot of the opener's fault context, and the vector worker adopts that context (`vector_worker.rs:166-171`) and,
+  since `433843ad` and `02e3ccb2`, takes a snapshot after a durable commit, so it can take the failure meant for
+  `analyze`. Bench power plan on for the new measurements.
