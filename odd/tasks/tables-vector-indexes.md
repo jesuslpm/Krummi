@@ -65,7 +65,7 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
 | T8 | S1: VI9, VI11 (information, generations, automatic and requested rebuilds), AC-VI8, AC-VI16, AC-VI17 | inline | done | code in `8ee9045`, tests `6b06454` |
 | T9 | S3 (measurements: threshold, defaults, VI15 on Linux, pgvector, bench rounds), AC-VI11 | inline | done | `4d82143`, `2fad948`, `0cd926c`, `3d4ab30`, `96bb348` (L14–L17) |
 | T10 | S1 (guide and reference docs) | inline | done | `587907e` |
-| T11 | S5 (RDD of the last slice, Codex review, closing report, archive) | inline | blocked: Codex review waits for the user (L21); RDD done, [report](tables-vector-indexes-report.md) written | |
+| T11 | S5 (RDD of the last slice, Codex review, closing report, archive) | inline | done: four Codex rounds, approved (L24–L34); every commit through RDD; [report](tables-vector-indexes-report.md) | `732cd88`..HEAD |
 
 ## Log
 
@@ -227,3 +227,4 @@ maintenance, filter-first k nearest neighbours, public exact search). Branch: `f
 - **L33** — Codex R3 ([report](../../docs/reviews/tables-vector-indexes/2026-11-26-code.md)), follow-up of `5eaa9ba..aeed1a0`, wrapper status `findings`. R6 (major): a deferred creation of the first vector index could leave it in training, because the worker read before the commit was durable. Fixed in `02e3ccb`: the worker waits until the queued commits are durable before each pass. Tests: the review's reproduction (RED 3/3) and a test with the journal's writer stopped (RED 10/10).
   - RDD reviews: `a4f44e3..a02a079`, lenses resilience and reliability, escalated as item 4, approved, lineage `review-a5555188ebeab550`, with one SUGGESTION (the reproduction depends on timing), answered by the second test. `f55af4a`, reliability, approved, lineage `review-40fb50c81e161b2c`: R3-001 (WARNING, the "deterministic" test depended on a fixed sleep) and R3-002 (SUGGESTION, resume the journal on failure), fixed in `7def9ed`. `7def9ed`, approved, lineage `review-c6b21ad7ac18a581`: R3-001 (WARNING, waiting only for the wake-up was weaker than the sleep), fixed in `42d5743`, which does both. `42d5743`, approved, no findings, lineage `review-f607e4cba75a6ce1`. The reviewed boundary is `42d5743`.
 - **L34** — Codex R4 ([report](../../docs/reviews/tables-vector-indexes/2026-11-26-code-02.md)), follow-up of `aeed1a0..c9d4fa8`, wrapper status `approved`: R6 verified resolved, no open findings or questions. The Codex loop ends after four rounds.
+- **L35** — Closing: the closing report is updated with the Codex loop (four rounds, approved), the VI12 and R6 changes and the time from `phase_times.py report` (10 h 28 min active against an estimate of 26–40 h; 9 h 18 min of waits). [Report](tables-vector-indexes-report.md).
