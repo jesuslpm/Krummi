@@ -29,3 +29,7 @@
 2026-11-26T12:33:04+00:00	end		
 2026-11-26T12:46:44+00:00	mark	implement	rebase
 2026-11-26T12:47:18+00:00	mark	checks	rebase checks
+2026-11-26T13:03:46+00:00	bg-start	acceptance	rebase A/B
+2026-11-26T13:53:59+00:00	bg-end	acceptance	rebase A/B
+2026-11-26T13:54:31+00:00	bg-start	acceptance	rebase W26 10 rounds
+2026-11-26T14:11:13+00:00	bg-end	acceptance	rebase W26 10 rounds

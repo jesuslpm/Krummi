@@ -149,3 +149,12 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   snapshot of the opener's fault context, and the vector worker adopts that context (`vector_worker.rs:166-171`) and,
   since `433843ad` and `02e3ccb2`, takes a snapshot after a durable commit, so it can take the failure meant for
   `analyze`. Bench power plan on for the new measurements.
+- **L18** (2026-11-26) Measurements after the rebase (WSL, bench power plan; `~/ts/before` at the new base `d519e9a5`,
+  `~/ts/after` at `bcc7e9cc`, both rebuilt; files in `work/ts/rebase/`). New base alone, 3 rounds: nearest 171.7 ms,
+  scan 160.2, scanv 160.6, scanp 102.0, tscan 91.7, tscanp 34.7, iscanp 1,181.8. A/B new base → branch, 3 alternated
+  rounds: nearest 175.4 → 136.3 ms (0.777), scan 161.3 → 116.8 (0.724), scanv 159.6 → 115.6 (0.724), scanp 101.6 →
+  84.4 (0.830), tscan 91.6 → 66.5 (0.726), tscanp 0.998, iscanp 1.001. Bench, 3 rounds (op/s branch / base): W23
+  1.003, W24 1.005, W25 1.005, W26 0.964, W27 1.001, W28 1.002, W29 1.001, W30 1.011, W31 1.000, W32 0.989. W26, more
+  than 3 % apart, then 10 rounds: 0.990, 5 of 10 rounds slower: noise. The opening of the store by the profiling
+  program now starts the vector worker's read of the catalog; the vector modes wait for it (`wait_vector_idle`) and
+  every mode takes the median of its runs. Bench power plan restored to Balanced.
