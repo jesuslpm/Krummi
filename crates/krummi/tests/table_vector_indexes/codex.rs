@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use krummi::table::value::{ColumnType, Value};
 use krummi::{
-    Column, IndexMode, Nearest, Schema, Store, StoreOptions, TableMode, VectorIndexDefinition,
-    VectorIndexState, VectorMetric, VectorPoint,
+    Column, IndexMode, Nearest, OpenMode, Schema, Store, StoreOptions, TableMode,
+    VectorIndexDefinition, VectorIndexState, VectorMetric, VectorPoint,
 };
 
 use super::{f32_vector, ids, vector};
@@ -221,4 +221,54 @@ fn r2_long_primary_keys_are_indexed() {
     }
     // The removed row is no longer found: its vector's nearest row is a neighbour.
     assert_ne!(key_of(&search(20_000.0 + long[1].1 as f32)), long[1].0);
+}
+
+/// R6 (follow-up of 2026-11-26): the first vector index created by a deferred commit, in a transaction that also
+/// writes 8 MiB elsewhere, trains. The commit wakes the worker before reads see it; the worker waits until the
+/// commits that woke it are durable before it reads, so it finds the index.
+#[test]
+fn r6_an_index_created_by_a_deferred_commit_trains() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    store.wait_vector_idle();
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("v", ColumnType::Vector(f32_vector(1, false))),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    for id in 0..10_000 {
+        let row = [("id", Value::I64(id)), ("v", vector(&[(id % 100) as f32]))];
+        write.insert_row(&table, &row).unwrap();
+    }
+    write.commit().unwrap();
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let definition = VectorIndexDefinition::new("near", "v", VectorMetric::L2);
+    write
+        .create_vector_index(&table, &definition, IndexMode::CreateNew)
+        .unwrap();
+    // A large value that does not compress widens the time until the commit is durable.
+    let other = write.open_tree_with("other", OpenMode::CreateNew).unwrap();
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let big: Vec<u8> = (0..8 << 20)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as u8
+        })
+        .collect();
+    write.set(&other, b"key", &big).unwrap();
+    write.commit_deferred().unwrap();
+    store.make_durable().unwrap();
+    store.wait_vector_idle();
+    let after = state(&store, "t");
+    assert_ne!(after.state, VectorIndexState::Training, "{after:?}");
+    wait_ready(&store, "t");
 }

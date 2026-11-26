@@ -291,6 +291,10 @@ fn run(shared: &Shared) {
                     .unwrap_or_else(PoisonError::into_inner);
             }
         }
+        // A deferred commit wakes the worker before reads see it (they see it once durable): waiting until the commits
+        // that woke it are durable, which writes nothing more, lets the pass find their changes. A failure here is a
+        // failed flush, which makes the store refuse writes and ends the thread at the next check.
+        let _ = shared.engine.make_durable();
         let mut failures = 0u32;
         while !work.stopping() && !work.paused() && shared.engine.accepts_writes() {
             match pass(shared) {
