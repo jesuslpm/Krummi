@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs one task of Krummi on this Linux machine for a development machine elsewhere (docs/guides/linux-runner.md).
+# Runs one task of Krummi on this Linux machine for a development machine elsewhere (docs/linux-runner.md).
 # Invoke-Linux.ps1 copies this script here, pushes the commit under test to refs/runner/<sha> and calls it.
 #
 #   runner.sh init

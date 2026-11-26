@@ -168,6 +168,7 @@ values, which its catalog entry keeps.
 | `crates/krummi-bench/` | The comparative benchmark (module 6): the `krummi-bench` command, its Rust worker and engine adapters, and in `voron/` the .NET program that measures Voron; not part of the engine |
 | `docs/benchmark/` | Reports of the complete benchmark runs |
 | `docs/performance/` | Performance plan: diagnosis and optimizations to meet the benchmark thresholds |
+| `scripts/runner/` | The Linux runner: runs the build, tests, benchmarks and profiling of a commit on a Linux machine (`docs/linux-runner.md`) |
 | `odd/tasks/` | ODD executions in progress: execution document, phase log and closing report |
 | `odd/done/` | Finished ODD executions, one folder per module |
 | `.github/workflows/` | Continuous integration: the engine checks and the reduced benchmark on Linux and Windows |
@@ -247,4 +248,11 @@ python -m unittest discover -s .claude/hooks -p "test_*.py"
 python -m unittest discover -s .claude/skills/closing-report/scripts -p "test_*.py"
 python -m unittest discover -s .claude/skills/prd/scripts -p "test_*.py"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/worktree/tests/Test-Worktree.ps1
+```
+
+On Linux, the tests of the [Linux runner](docs/linux-runner.md):
+
+```bash
+bash scripts/runner/tests/test_runner.sh
+bash scripts/runner/tests/Test-InvokeLinux.sh
 ```

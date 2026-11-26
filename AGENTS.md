@@ -32,6 +32,11 @@ this does not authorize changes to tracked files such as `Cargo.lock`. Do not ru
 tests that could modify data outside disposable test temporaries without explicit authorization for those
 effects. General permission to run checks is not that authorization. Report any skipped check and why.
 
+## Linux runner
+
+`scripts/runner/Invoke-Linux.ps1` runs a commit on the Linux machine (`docs/linux-runner.md`). It is remote
+execution: use it only when the user explicitly asks for it. General permission to run checks does not cover it.
+
 ## Review reports
 
 For each requested PRD or code review, the coordinator saves the consolidated result in

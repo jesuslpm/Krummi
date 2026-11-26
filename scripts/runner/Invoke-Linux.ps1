@@ -1,7 +1,7 @@
 #Requires -Version 7.3
 <#
 .SYNOPSIS
-    Ejecuta una tarea de un commit en la máquina Linux y trae sus resultados (docs/guides/linux-runner.md).
+    Ejecuta una tarea de un commit en la máquina Linux y trae sus resultados (docs/linux-runner.md).
 .EXAMPLE
     pwsh scripts/runner/Invoke-Linux.ps1 check
 .EXAMPLE
