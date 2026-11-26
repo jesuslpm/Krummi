@@ -17,7 +17,7 @@ and its **[M]** estimates are kept as they were written.
 
 Annotated 2026-11-25: PRD 7.6 ([tables-vector-indexes.prd.md](../../prd/krummi/tables/tables-vector-indexes.prd.md)) is
 implemented on branch `feat/tables-vector-indexes`, with these departures from *Recommended design*, decided while
-building it ([execution document](../../../odd/tasks/tables-vector-indexes.md), log L10–L14):
+building it ([execution document](../../../odd/done/tables/tables-vector-indexes.md), log L10–L14):
 
 - **Trees.** Each index has two trees: `pending`, and one data tree whose keys lead with a tag (state record, generation
   header with its centroids and quantizer, counters, list sizes, postings, locator, retired generations, published

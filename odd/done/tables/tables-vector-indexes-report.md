@@ -1,7 +1,7 @@
 # Índices vectoriales aproximados implementados, medidos en Linux y aprobados por Codex
 
 Informe de cierre de `tables-vector-indexes` (2026-11-25 a 2026-11-26). Enfoque de ejecución: ODD.
-Fuente de producto: [PRD 7.6](../../docs/prd/krummi/tables/tables-vector-indexes.prd.md) (v1.2). Documento de
+Fuente de producto: [PRD 7.6](../../../docs/prd/krummi/tables/tables-vector-indexes.prd.md) (v1.2). Documento de
 ejecución: [tables-vector-indexes.md](tables-vector-indexes.md).
 
 Rama `feat/tables-vector-indexes`, sin fusionar ni publicar. La revisión cruzada de Codex aprobó en su cuarta ronda,
@@ -171,12 +171,12 @@ rango entero `7793a51..c2fbfa0` se paró con `lens_context_budget_exceeded` y se
 
 | Ronda | Informe | Alcance | Resultado | Hallazgos |
 |---|---|---|---|---|
-| 1 | [2026-11-25-code.md](../../docs/reviews/tables-vector-indexes/2026-11-25-code.md) | `7793a51..daaacd1` | `findings` | R1 y R2 (bloqueantes), R3 y R4 (mayores), R5 (menor), y dos preguntas de producto |
-| 2 | [2026-11-25-code-02.md](../../docs/reviews/tables-vector-indexes/2026-11-25-code-02.md) | `daaacd1..5eaa9ba` | `approved` | R1–R5 verificados |
-| 3 | [2026-11-26-code.md](../../docs/reviews/tables-vector-indexes/2026-11-26-code.md) | `5eaa9ba..aeed1a0` | `findings` | R6 (mayor), causado por el cambio de VI12 |
-| 4 | [2026-11-26-code-02.md](../../docs/reviews/tables-vector-indexes/2026-11-26-code-02.md) | `aeed1a0..c9d4fa8` | `approved` | R6 verificado |
+| 1 | [2026-11-25-code.md](../../../docs/reviews/tables-vector-indexes/2026-11-25-code.md) | `7793a51..daaacd1` | `findings` | R1 y R2 (bloqueantes), R3 y R4 (mayores), R5 (menor), y dos preguntas de producto |
+| 2 | [2026-11-25-code-02.md](../../../docs/reviews/tables-vector-indexes/2026-11-25-code-02.md) | `daaacd1..5eaa9ba` | `approved` | R1–R5 verificados |
+| 3 | [2026-11-26-code.md](../../../docs/reviews/tables-vector-indexes/2026-11-26-code.md) | `5eaa9ba..aeed1a0` | `findings` | R6 (mayor), causado por el cambio de VI12 |
+| 4 | [2026-11-26-code-02.md](../../../docs/reviews/tables-vector-indexes/2026-11-26-code-02.md) | `aeed1a0..c9d4fa8` | `approved` | R6 verificado |
 
-Resoluciones: [2026-11-25-code-resolutions.md](../../docs/reviews/tables-vector-indexes/2026-11-25-code-resolutions.md).
+Resoluciones: [2026-11-25-code-resolutions.md](../../../docs/reviews/tables-vector-indexes/2026-11-25-code-resolutions.md).
 
 - **R1:** quitar otra columna mientras el trabajador trabajaba borraba entradas válidas. Lee el vector por la
   identidad de su columna en cada instantánea (`732cd88`).
