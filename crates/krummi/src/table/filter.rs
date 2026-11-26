@@ -53,8 +53,8 @@ pub enum FilterCondition<'a> {
     },
 }
 
-/// A condition checked against its column, with its values as `T`: the column's elements, their ranks, or the
-/// values themselves while the condition is checked.
+/// A condition checked against its column, with its values as `T`: the column's elements or their ranks, which the
+/// rows are checked against, or the normalized values themselves, from which [`Filter::check`] builds those.
 #[derive(Debug)]
 enum Test<T> {
     Equal(T),

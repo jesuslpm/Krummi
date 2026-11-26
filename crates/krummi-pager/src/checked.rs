@@ -18,8 +18,8 @@ use crate::error::Result;
 use crate::scratch::try_reserve;
 
 /// Slots of the table of a store: 4 MiB, one per page number modulo this count, enough for the nodes of a working set
-/// of 4 GiB. A table larger than the working set it scans checks most of its leaves again on every pass: with 65,536
-/// slots (512 MiB of nodes), a scan of a 4.2 GB table took 18 % longer.
+/// of 4 GiB. A scan of a table larger than the nodes the slots hold checks most of its leaves again on every pass.
+/// Twice as many slots changed nothing on a scan of a 4.2 GB table that this count already holds, at twice the memory.
 pub const CHECKED_SLOTS: usize = 1 << 19;
 
 /// Whether the stores of the process remember checked contents (D4 of the execution).

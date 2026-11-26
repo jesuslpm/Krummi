@@ -11,3 +11,7 @@
 2026-11-26T09:34:23+00:00	bg-end	acceptance	T3b A/B
 2026-11-26T09:40:38+00:00	bg-start	acceptance	T3c A/B
 2026-11-26T09:41:44+00:00	bg-end	acceptance	T3c A/B
+2026-11-26T09:51:26+00:00	bg-start	acceptance	T3d A/B
+2026-11-26T09:52:33+00:00	bg-end	acceptance	T3d A/B
+2026-11-26T09:53:26+00:00	mark	checks	T4
+2026-11-26T09:55:21+00:00	bg-start	acceptance	final A/B

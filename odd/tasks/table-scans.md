@@ -44,10 +44,10 @@ Objective: make every table row scan cheaper (public and internal), measured bef
 |---|---|---|---|---|
 | T1 | S2 | inline | done | L4 (`work/ts/base-bench.md`, `work/ts/base-prof.tsv`) |
 | T2 | S3 | inline | done | L5 |
-| T3a | S4, S6 | inline | pending | per-page: larger table of checked nodes |
-| T3b | S4, S6 | inline | pending | per-row: `TableRow::value` of a fixed column of a current row without `RowLayout::row` |
-| T3c | S4, S6 | inline | pending | per-row: `TableRow::get` by name without hashing for few columns |
-| T3d | S4, S6 | inline | pending | filter: fixed-size values compared as order-preserving integers |
+| T3a | S4, S6 | inline | done | `69a00a8a`, L6: per-page, table of checked nodes 65,536 → 524,288 slots |
+| T3b | S4, S6 | inline | dropped | `786cd324` and its revert `ddd950f7` (tests kept), L7 |
+| T3c | S4, S6 | inline | done | `2ef2e8ad`, L8: `TableRow::get` compares the names of ≤ 8 columns |
+| T3d | S4, S6 | inline | done | `0541b9c2`, L9: filter on fixed-width values by rank |
 | T3e | S4, S6 | inline | pending | `passing`: whatever the profile after T3a–T3d still shows |
 | T4 | S6 | inline | pending | closing (checks, RDD, Codex, report) |
 
@@ -80,3 +80,35 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   - tscanp: the projection read 29 %, `lend` 25 %; per-page cost small (the table fits the memory).
   - iscanp: a full root-to-leaf `krummi_tree::get` per entry, rows at random: key search in branches 31 %, page
     reads 28 %, memcmp 16 %. Inherent to reading rows in another order; no small change found.
+- **L6** (2026-11-26) T3a `69a00a8a`: `CHECKED_SLOTS` 1 << 16 → 1 << 19 (4 MiB per open store, nodes of a 4 GiB working
+  set; C5 of the node check cache PRD keeps a fixed, internal size). Default taken without asking: 1 << 19 rather than
+  1 << 20, as it gives the same gain at half the memory. Tests: the integrity tests (`integrity_tests`, I1–I11) and
+  `checked` pin the behavior and use `with_checked_slots`. A/B base → T3a, 3 alternated rounds (`~/ts/t3a.tsv`):
+  nearest 176.6 → 157.4 ms (0.891), scan 162.7 → 140.8 (0.866), scanp 103.8 → 87.2 (0.841), tscan 0.988, tscanp
+  0.990, iscanp 0.998.
+- **L7** (2026-11-26) T3b: a fixed-width column of a current row read from its slot, without `RowLayout::row`. Tests
+  first (`every_fixed_width_column_reads_the_value_written`, `ac_l2_a_fixed_width_column_that_does_not_decode_panics_
+  when_read`), passing before and after. A/B T3a → T3b (`~/ts/t3b.tsv`): nearest 1.171, scan 1.081, tscan 1.187 (slower:
+  `decode_with` no longer inlined into `TableRow::value`, profile `~/ts/prof-t3b`). With `decode_with` forced inline
+  (`~/ts/t3b2.tsv`): nearest 0.986, tscan 0.999. No measured gain, so the code was reverted (`ddd950f7`); the tests stay.
+- **L8** (2026-11-26) T3c `2ef2e8ad`: `TableRow::get` compares the names of a table of at most 8 live columns instead of
+  hashing them. Test first: `e11_a_column_is_read_by_its_exact_name` (1 to 40 columns, names differing in case, prefix
+  and length), passing before and after. A/B T3a → T3c (`~/ts/t3c.tsv`): tscan 91.1 → 66.2 ms (0.727), scan 142.8 →
+  120.6 (0.844), nearest 1.007 (does not read by name).
+- **L9** (2026-11-26) T3d `0541b9c2`: the filter compares a fixed-width value (not text) by `element_rank`, a `u128`
+  that orders as its element, without encoding the row's value. Tests first: `the_filters_order_every_fixed_width_type`
+  (every fixed-width type, with nulls, extremes, infinities, NaN, `-0`, both UUID orders, IN with a null, NOT IN with
+  and without one, with and without an index), passing before and after; then `element_ranks_order_as_the_elements` and
+  `a_value_of_another_type_has_no_rank`. Known environmental failure on this Windows machine, also at the base
+  `76d8820`: `definitions::ac_vi9_the_changes_of_the_table` (`os error 33` copying an open store's file).
+- **L10** (2026-11-26) T3e: after T3d, `passing` spends ~7.6 % reading the vector of every row before the filter, and
+  ~9 % in `page_and_check` (about 25 ns per page). Not done: reading the filter first changes which malformed rows
+  panic (a row with a null vector and a malformed filter column would panic where it does not), against S6; the
+  per-page path is already the remembered one, and shortening it touches the pager's isolation, not a small change.
+  A/B T3c → T3d (`~/ts/t3d.tsv`, 5 rounds): nearest 157.2 → 138.0 ms (0.878).
+- **L11** (2026-11-26) RDD `review-a005a2d2888e3ecd`, `76d8820..0541b9c2`, lenses reliability, readability,
+  resilience: approved, acknowledged. R2-001 (WARNING, `filter.rs`: the comment of `Test<T>` said the values are what
+  rows are checked against) fixed; R2-002 (SUGGESTION, `checked.rs`: a one-off figure in the comment of
+  `CHECKED_SLOTS`, and why 1 << 19) fixed; R3-decimal-rank-unchecked (WARNING: the decimal rank does not check
+  precision or scale) dismissed: the element does not either (`encode_element`, `key.rs`: the mantissa only), and a
+  stored decimal over its precision panics in `decode_with` (`fits_precision`) before the filter reads it.
