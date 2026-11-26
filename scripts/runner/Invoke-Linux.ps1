@@ -11,7 +11,7 @@
 param(
     [Parameter(Mandatory, Position = 0)] [ValidateSet('check', 'build', 'bench', 'run')] [string] $Task,
     [string] $Commit = 'HEAD',
-    # Arguments of the task, in one string that the Linux shell splits and unquotes, as in `ssh host '...'`.
+    # Arguments of the task: shell text that the task's shell on Linux reads, with $KRUMMI_RESULTS already set.
     [Parameter(Position = 1)] [string] $Arguments = '',
     [string] $Repository = (Split-Path (Split-Path $PSScriptRoot))
 )
@@ -52,8 +52,10 @@ Assert-Success 'runner.sh init'
 git -C $Repository push -q --force "${destination}:krummi-runner/repo.git" "${sha}:refs/runner/$sha"
 Assert-Success 'git push'
 
+# Quoted so that the login shell passes them on untouched: $KRUMMI_RESULTS does not exist yet there.
+$quoted = $Arguments ? "'" + $Arguments.Replace("'", "'\''") + "'" : ''
 $resultsDir = $null
-ssh @sshOptions $destination "bash krummi-runner/runner.sh $Task $sha -- $Arguments" | ForEach-Object {
+ssh @sshOptions $destination "bash krummi-runner/runner.sh $Task $sha -- $quoted" | ForEach-Object {
     if ($_ -match '^RESULTS_DIR=(.+)$') { $resultsDir = $Matches[1] } else { Write-Host $_ }
 }
 $status = $LASTEXITCODE

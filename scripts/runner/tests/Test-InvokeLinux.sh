@@ -52,6 +52,9 @@ check "arguments arrive unchanged" grep -qF "a b|it's|\$HOME|say \"hi\"|" <<<"$o
 out=$(invoke run 'echo --reducido -p x')
 check "arguments with dashes arrive" grep -qx -- "--reducido -p x" <<<"$out"
 rm -rf "$scratch/repo/work"
+invoke run -Arguments 'echo data >$KRUMMI_RESULTS/extra' >/dev/null
+check "the results folder is known to the task" bash -c 'grep -qx data "$1"/work/runner/*/extra' _ "$scratch/repo"
+rm -rf "$scratch/repo/work"
 
 echo dirty >>"$scratch/repo/file"
 out=$(invoke run 'cat file')

@@ -27,27 +27,32 @@ for sha in "$first" "$second"; do
     git -C "$scratch/src" push -q "$KRUMMI_RUNNER_HOME/repo.git" "$sha:refs/runner/$sha"
 done
 
-out=$(bash "$runner" run "$first" -- cat file); status=$?
+out=$(bash "$runner" run "$first" -- 'cat file'); status=$?
 dir=$(results_of "$out")
 check "run succeeds" test "$status" -eq 0
 check "run checks out the requested commit" grep -qx one "$dir/output.log"
 check "meta records the commit" grep -qx "commit=$first" "$dir/meta.txt"
 check "meta records the exit status" grep -qx "exit=0" "$dir/meta.txt"
 
-out=$(bash "$runner" run "$second" -- sh -c 'cat file; touch leftover')
+out=$(bash "$runner" run "$second" -- 'cat file; touch leftover')
 check "a later run switches commit" grep -qx two "$(results_of "$out")/output.log"
 out=$(bash "$runner" run "$second" -- ls)
 check "untracked files do not survive to the next run" bash -c '! grep -qx leftover "$1"' _ "$(results_of "$out")/output.log"
 
-out=$(bash "$runner" run "$second" -- printf '%s|' 'a b' "it's" '$HOME'); dir=$(results_of "$out")
-check "arguments arrive unchanged" grep -qF "a b|it's|\$HOME|" "$dir/output.log"
+out=$(bash "$runner" run "$second" -- "printf '%s|' 'a b' \"it's\" '\$HOME'"); dir=$(results_of "$out")
+check "quoted arguments arrive unchanged" grep -qF "a b|it's|\$HOME|" "$dir/output.log"
 
-out=$(bash "$runner" run "$second" -- sh -c 'exit 7'); status=$?
+out=$(bash "$runner" run "$second" -- 'sh -c "exit 7"'); status=$?
 check "the exit status of the task is returned" test "$status" -eq 7
 check "a failed run keeps its results" grep -qx "exit=7" "$(results_of "$out")/meta.txt"
+bash "$runner" run "$second" -- 'false | true' >/dev/null
+check "a failure inside a pipe fails the run" test "$?" -ne 0
 
-out=$(bash "$runner" run "$second" -- sh -c 'echo data >"$KRUMMI_RESULTS/extra"')
-check "a task can leave files in the results folder" grep -qx data "$(results_of "$out")/extra"
+out=$(bash "$runner" run "$second" -- 'echo data >$KRUMMI_RESULTS/extra')
+check "the task sees the results folder" grep -qx data "$(results_of "$out")/extra"
+
+bash "$runner" check "$second" -- '-p krummi' >/dev/null 2>&1
+check "check rejects arguments instead of ignoring them" test "$?" -eq 2
 
 mkdir -p "$KRUMMI_RUNNER_HOME"
 exec 8>"$KRUMMI_RUNNER_HOME/lock"; flock -n 8

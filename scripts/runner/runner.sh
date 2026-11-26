@@ -5,7 +5,9 @@
 #   runner.sh init
 #   runner.sh <check|build|bench|run> <commit sha> [-- arguments...]
 #
-#   check  cargo fmt --check, clippy and the test suite
+# The arguments are shell text that the task's own shell reads, so they may use $KRUMMI_RESULTS, quotes and pipes.
+#
+#   check  cargo fmt --check, clippy and the test suite (no arguments)
 #   build  cargo build --release --workspace [arguments]
 #   bench  cargo run --release -p krummi-bench -- [arguments]
 #   run    the arguments as a command (examples, perf record, anything else)
@@ -32,15 +34,20 @@ commit="$2"
 shift 2
 if [ "${1:-}" = -- ]; then shift; fi
 
+arguments="$*"
 case "$task" in
-    check) command=(bash -c 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --no-fail-fast') ;;
-    build) command=(cargo build --release --workspace "$@") ;;
-    bench) command=(cargo run --release -p krummi-bench -- "$@") ;;
+    check)
+        [ -z "$arguments" ] || usage
+        line='cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --no-fail-fast'
+        ;;
+    build) line="cargo build --release --workspace $arguments" ;;
+    bench) line="cargo run --release -p krummi-bench -- $arguments" ;;
     run)
-        [ $# -gt 0 ] || usage
-        command=("$@")
+        [ -n "$arguments" ] || usage
+        line="$arguments"
         ;;
 esac
+command=(bash -o pipefail -c "$line")
 
 exec 9>"$home/lock"
 flock -n 9 || { echo "runner: hay otra ejecución en curso" >&2; exit 3; }

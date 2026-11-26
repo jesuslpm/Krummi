@@ -38,9 +38,9 @@ pwsh scripts/runner/Invoke-Linux.ps1 run 'cargo run --release -p krummi --exampl
 pwsh scripts/runner/Invoke-Linux.ps1 run 'perf record -g -o $KRUMMI_RESULTS/perf.data -- cargo run --release -p krummi --example tree_timing'
 ```
 
-- The arguments are one string that the Linux shell splits, as in `ssh host '...'`. Use single quotes in
-  PowerShell so that `$KRUMMI_RESULTS` reaches Linux, and pass them with `-Arguments` when they start with a dash.
-  For pipes or several commands use `run "bash -c '...'"`.
+- The arguments are one string of shell text, read on Linux by the task's shell, where `$KRUMMI_RESULTS` is set;
+  quotes and pipes work. Use single quotes in PowerShell so that it reaches Linux unexpanded, and pass them with
+  `-Arguments` when they start with a dash. `check` takes none.
 - Write anything worth keeping to `$KRUMMI_RESULTS`: the checkout is wiped before each run.
 - Each run leaves `output.log` and `meta.txt` (commit, command, kernel, CPU, governor, compiler, times, exit
   status). The script returns the task's exit status; 3 means that another run is in progress.
