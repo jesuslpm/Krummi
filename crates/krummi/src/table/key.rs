@@ -603,10 +603,11 @@ fn encode_element(ty: &ColumnType, value: &Value<'_>, key: &mut Vec<u8>) -> bool
     true
 }
 
-/// For a value of a fixed-width type other than text, a number that orders and equals as the bytes of its element in
-/// an ascending column of `ty` (`encode_element`): the same integer, float bits, mantissa or bytes, read so that
-/// comparing the numbers compares the elements. `None` for a value that is not of type `ty`, or a type of another
-/// width, whose element `encode_element` gives.
+/// For a value of a fixed-width type (`ColumnType::fixed_width`), a number that orders and equals as the bytes of its
+/// element in an ascending column of `ty` (`encode_element`): the same integer, float bits, mantissa or bytes, read so
+/// that comparing the numbers compares the elements. Every fixed-width type has one (a test pins it). `None` for a
+/// value that is not of type `ty`, and for text, bytes, vectors and JSON, whose elements have no fixed width: those
+/// compare by their encoded elements.
 #[inline]
 pub(crate) fn element_rank(ty: &ColumnType, value: &Value<'_>) -> Option<u128> {
     const SIGN: u128 = 1 << 127;
@@ -990,6 +991,83 @@ mod rank_tests {
                     assert_eq!(a_rank.cmp(b_rank), a.cmp(b), "{ty}: {a:?} {b:?}");
                 }
             }
+        }
+    }
+
+    /// Every type with a fixed width has a rank, and no other type has one: the filter takes the rank path by the
+    /// column's width (a range without bounds holds no value to try), so a fixed-width type without a rank would let
+    /// no row pass such a range.
+    #[test]
+    fn every_fixed_width_type_has_a_rank_and_no_other_type_has_one() {
+        use super::super::value::{VectorElement, VectorType};
+        // The match has no wildcard, so that a new type cannot compile without deciding its sample here.
+        let sample = |ty: &ColumnType| -> Value<'static> {
+            match ty {
+                ColumnType::Bool => Value::Bool(true),
+                ColumnType::I8 => Value::I8(1),
+                ColumnType::I16 => Value::I16(1),
+                ColumnType::I32 => Value::I32(1),
+                ColumnType::I64 => Value::I64(1),
+                ColumnType::U8 => Value::U8(1),
+                ColumnType::U16 => Value::U16(1),
+                ColumnType::U32 => Value::U32(1),
+                ColumnType::U64 => Value::U64(1),
+                ColumnType::F32 => Value::F32(1.0),
+                ColumnType::F64 => Value::F64(1.0),
+                ColumnType::Decimal { scale, .. } => Value::Decimal(super::super::value::Decimal {
+                    mantissa: 1,
+                    scale: *scale,
+                }),
+                ColumnType::String => Value::String("a".into()),
+                ColumnType::Bytes => Value::Bytes(vec![1].into()),
+                ColumnType::Date => Value::Date(1),
+                ColumnType::Time => Value::Time(1),
+                ColumnType::Timestamp => Value::Timestamp(1),
+                ColumnType::Duration => Value::Duration(1),
+                ColumnType::Uuid(_) => Value::Uuid(Uuid([1; 16])),
+                ColumnType::Ulid => Value::Ulid(Ulid([1; 16])),
+                ColumnType::Vector(vector) => Value::Vector(vec![0; vector.value_len()].into()),
+                ColumnType::Json => Value::Null,
+            }
+        };
+        let vector = VectorType {
+            element: VectorElement::F32,
+            dimension: 2,
+            cosine: false,
+        };
+        for ty in [
+            ColumnType::Bool,
+            ColumnType::I8,
+            ColumnType::I16,
+            ColumnType::I32,
+            ColumnType::I64,
+            ColumnType::U8,
+            ColumnType::U16,
+            ColumnType::U32,
+            ColumnType::U64,
+            ColumnType::F32,
+            ColumnType::F64,
+            ColumnType::Decimal {
+                precision: 10,
+                scale: 2,
+            },
+            ColumnType::String,
+            ColumnType::Bytes,
+            ColumnType::Date,
+            ColumnType::Time,
+            ColumnType::Timestamp,
+            ColumnType::Duration,
+            ColumnType::Uuid(UuidOrder::Rfc9562),
+            ColumnType::Uuid(UuidOrder::SqlServer),
+            ColumnType::Ulid,
+            ColumnType::Vector(vector),
+            ColumnType::Json,
+        ] {
+            assert_eq!(
+                element_rank(&ty, &sample(&ty)).is_some(),
+                ty.fixed_width().is_some(),
+                "{ty}"
+            );
         }
     }
 
