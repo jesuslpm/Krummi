@@ -39,6 +39,10 @@ check "a later run switches commit" grep -qx two "$(results_of "$out")/output.lo
 out=$(bash "$runner" run "$second" -- ls)
 check "untracked files do not survive to the next run" bash -c '! grep -qx leftover "$1"' _ "$(results_of "$out")/output.log"
 
+bash "$runner" run "$second" -- 'git init -q nested && touch nested/file' >/dev/null
+out=$(bash "$runner" run "$second" -- ls)
+check "nested repositories do not survive to the next run" bash -c '! grep -qx nested "$1"' _ "$(results_of "$out")/output.log"
+
 out=$(bash "$runner" run "$second" -- "printf '%s|' 'a b' \"it's\" '\$HOME'"); dir=$(results_of "$out")
 check "quoted arguments arrive unchanged" grep -qF "a b|it's|\$HOME|" "$dir/output.log"
 
@@ -64,6 +68,15 @@ bash "$runner" run 0000000000000000000000000000000000000000 -- true >/dev/null 2
 check "an unknown commit fails" test "$?" -ne 0
 bash "$runner" nonsense "$second" >/dev/null 2>&1
 check "an unknown task is a usage error" test "$?" -eq 2
+
+failed_inits=0
+for attempt in $(seq 40); do
+    KRUMMI_RUNNER_HOME="$scratch/cold$attempt" bash "$runner" init >/dev/null 2>&1 &
+    first_init=$!
+    KRUMMI_RUNNER_HOME="$scratch/cold$attempt" bash "$runner" init >/dev/null 2>&1 || failed_inits=$((failed_inits + 1))
+    wait "$first_init" || failed_inits=$((failed_inits + 1))
+done
+check "simultaneous first calls both succeed" test "$failed_inits" -eq 0
 
 echo "failures: $failures"
 [ "$failures" -eq 0 ]

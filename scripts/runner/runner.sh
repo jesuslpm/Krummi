@@ -25,7 +25,11 @@ usage() { echo "uso: runner.sh init | runner.sh <check|build|bench|run> <sha del
 home="${KRUMMI_RUNNER_HOME:-$HOME/krummi-runner}"
 task="${1:-}"
 mkdir -p "$home"
-[ -d "$home/repo.git" ] || git init -q --bare "$home/repo.git"
+# Its own lock, which waits: two first calls must not initialize at once, and a call made during a run must not fail here.
+(
+    flock 8
+    [ -d "$home/repo.git" ] || git init -q --bare "$home/repo.git"
+) 8>"$home/init.lock"
 [ "$task" = init ] && exit 0
 
 case "$task" in check | build | bench | run) ;; *) usage ;; esac
@@ -60,7 +64,8 @@ export CARGO_TARGET_DIR="$home/target"
 cd "$home/src"
 git fetch -q "$home/repo.git" '+refs/runner/*:refs/runner/*'
 git checkout -q --force --detach "$commit"
-git clean -qfdx
+# Twice -f: a repository that a task left inside the checkout goes too.
+git clean -qffdx
 
 started="$(date -u +%Y%m%dT%H%M%S.%3NZ)"
 export KRUMMI_RESULTS="$home/results/$started-${commit:0:12}-$task"
