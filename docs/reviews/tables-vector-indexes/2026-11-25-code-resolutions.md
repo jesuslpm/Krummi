@@ -146,3 +146,12 @@ Review record: `docs/reviews/tables-vector-indexes/2026-11-26-code.md`, wrapper 
 Checks at `42d5743`: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D warnings` clean;
 `cargo test --workspace` 1,336 passed, 1 failed, 36 ignored. The failure is the known trybuild `trees_compile`, which
 also fails on `main`.
+
+## 2026-11-26 (verification)
+
+Follow-up report: [2026-11-26-code-02.md](2026-11-26-code-02.md), fix range `aeed1a0..c9d4fa8`. Verdict, quoted:
+«Approved — R6 verified resolved; no open findings in the requested follow-up scope.»
+
+Review record: `docs/reviews/tables-vector-indexes/2026-11-26-code-02.md`, wrapper status `approved`, `threadId`
+`01a2171e-a253-7f13-b2f3-bcdee36671cc`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`.
