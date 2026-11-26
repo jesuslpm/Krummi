@@ -158,3 +158,10 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   than 3 % apart, then 10 rounds: 0.990, 5 of 10 rounds slower: noise. The opening of the store by the profiling
   program now starts the vector worker's read of the catalog; the vector modes wait for it (`wait_vector_idle`) and
   every mode takes the median of its runs. Bench power plan restored to Balanced.
+- **L19** (2026-11-26) RDD `review-7e8eaedb7168f9a4`, `d519e9a5..03b70d85` (the rebased range), lenses reliability,
+  readability: approved, acknowledged. R2-rank-gate-implicit-invariant (WARNING: nothing pins that every fixed-width
+  type has a rank, which the filter's rank gate needs) and R2-element-rank-doc-unclear (SUGGESTION) fixed in the next
+  commit, `every_fixed_width_type_has_a_rank_and_no_other_type_has_one` (its samples come from a match on
+  `ColumnType` without a wildcard) and a clearer comment of `element_rank`. R3-name-lookup-dropped-columns
+  (SUGGESTION: the linear lookup and the map might disagree after a schema change) dismissed: the map is built from
+  the same `columns` by `enumerate` (`rows.rs:328-332`), one reader per schema version.

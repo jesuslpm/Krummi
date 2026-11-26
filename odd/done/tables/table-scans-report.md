@@ -65,6 +65,13 @@ rondas y dio 0,990, con la rama más lenta en 5 de 10: es ruido.
 
 Las mejoras se mantienen sobre la base nueva.
 
+**Revisión RDD tras el rebase:** `review-7e8eaedb7168f9a4`, sobre `d519e9a5..03b70d85`, con las lentes reliability y
+readability, quedó aprobada (L19).
+- Un WARNING: nada fijaba que todo tipo de tamaño fijo tenga rango, que es lo que necesita el filtro. Se resolvió con
+  una prueba que recorre `ColumnType` con un `match` sin comodín.
+- Una SUGGESTION sobre el comentario de `element_rank`, corregido.
+- Una tercera, descartada: el mapa de nombres sale de las mismas columnas que la búsqueda lineal.
+
 **Tiempo del rebase:** la estimación era de 2 h a 3 h 30 min. Fue de 12:46:44 a 14:12:07, es decir 1 h 25 min activos.
 Con eso, el registro de fases suma 5 h 41 min activos para toda la ejecución. La pausa entre las dos sesiones (13 min
 40 s) no cuenta.
@@ -285,10 +292,9 @@ informe, no una medición.** Cambia el formato y necesita su propio PRD.
 - **El recorrido de un índice completo (`iscanp`, 1,2 s)** busca cada fila desde la raíz y en orden aleatorio. En el
   perfil, eso es un 31 % de búsqueda de claves en las ramas y un 28 % de lectura de páginas. No se encontró un cambio
   pequeño.
-- **Las dos sugerencias de la última revisión RDD:**
-  - fijar con una prueba o una aserción que todo tipo de tamaño fijo tiene rango;
-  - cubrir el rango sin límites sobre texto también en la búsqueda aproximada y en las filas pendientes. Hoy esos
-    caminos comparten `Filter::check` y `Filter::meets`.
+- **Una sugerencia de RDD:** cubrir el rango sin límites sobre texto también en la búsqueda aproximada y en las filas
+  pendientes. Hoy esos caminos comparten `Filter::check` y `Filter::meets`. La otra, fijar que todo tipo de tamaño fijo
+  tiene rango, quedó resuelta tras el rebase con `every_fixed_width_type_has_a_rank_and_no_other_type_has_one`.
 - **Los tres fallos ambientales de Windows** en `table_vector_indexes`, previos a esta rama.
 - **Windows no se midió**, por decisión del usuario.
 
