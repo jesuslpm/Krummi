@@ -1,4 +1,4 @@
-# Runner de Linux terminado y verificado en Linux; falta probarlo desde Windows
+# Runner de Linux terminado y verificado desde Windows
 
 Informe de cierre de `linux-runner` (2026-11-26). Enfoque: ODD (tarea pequeña, sin documento de ejecución).
 PRD: ninguno (herramienta sin cambio de producto).
@@ -13,8 +13,9 @@ Rama `feat/linux-runner` desde `main` (`dfba65f`), en un clon aparte. Sin `push`
 - **`check` real por el runner** (commit `ad3b650`, rustc 1.100.0): 1251 pasan, **1 falla** (`trees_compile`) y 35
   ignorados. La rama no toca Rust. Causa probable, no comprobada: el CI usa rustc 1.99.0. Clippy y formato
   pasaron. No se repitió tras las correcciones posteriores, que solo cambian los scripts del runner.
+- **Después del cierre:** `run` y `check` lanzados desde Windows funcionaron. Con rustc 1.99.0 por defecto en Linux,
+  `check` sobre `4c5fe80`: 1252 pasan, 0 fallan y 35 ignorados. El fallo anterior era de la versión del compilador.
 - **Ejecución real final** de `run` sobre `562378e` en `~/krummi-runner`: correcta.
-- **No probado:** el recorrido desde Windows (PowerShell en Windows y transporte SSH real).
 - **Hallazgos corregidos:** `$KRUMMI_RESULTS` se expandía antes de existir; `check` ignoraba argumentos;
   la limpieza conservaba repositorios anidados; dos primeras llamadas simultáneas chocaban.
 - **Revisión Codex:** [ronda 1](../reviews/linux-runner/2026-11-26-code.md),
@@ -106,8 +107,9 @@ y nada se edita en Linux.
 
 ## Pendiente (no bloqueante)
 
-- Probar desde Windows. Hasta entonces el script de Windows solo está verificado con dobles.
-- `trees_compile` con rustc 1.100.0: decidir si se fija la versión (`rust-toolchain.toml`).
+- Dos timeouts de SSH desde Windows (Wi-Fi) antes de conectar; causa no comprobada.
+- Subir Rust a 1.100.0 más adelante, en un cambio aparte (fijar la versión, `ci.yml` y mensajes esperados de
+  `trees_compile`), después de integrar el trabajo en curso.
 - Avisos RDD en `Invoke-Linux.ps1` (líneas 33-36, 48, 55-67) y `runner.sh` (51-52, 58, 75).
 - Reforzar la prueba de inicialización simultánea.
 
