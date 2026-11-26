@@ -234,9 +234,12 @@ impl Filter {
                         place: place(column),
                         element: element_column(column),
                         test: test.map(|value| encode(column, value))?,
-                        ranks: test
-                            .map(|value| element_rank(&column.ty, value).ok_or(()))
-                            .ok(),
+                        // Chosen by the column's type, so that a range without bounds, which holds no value,
+                        // takes the path of its column too.
+                        ranks: column.ty.fixed_width().and_then(|_| {
+                            test.map(|value| element_rank(&column.ty, value).ok_or(()))
+                                .ok()
+                        }),
                         values,
                         bounds,
                     });

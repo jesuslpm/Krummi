@@ -977,3 +977,55 @@ fn the_filters_order_every_fixed_width_type() {
         });
     }
 }
+
+/// VI7: a range without bounds on a text or bytes column, with and without a secondary index over it, passes every row
+/// whose column is not null, as on a column of any other type.
+#[test]
+fn an_unbounded_range_on_text_or_bytes_passes_every_row_that_is_not_null() {
+    for (ty, value) in [
+        (ColumnType::String, Value::String("alpha".into())),
+        (ColumnType::Bytes, Value::Bytes(vec![1, 2].into())),
+    ] {
+        for with_index in [false, true] {
+            stores(|store, _| {
+                let schema = Schema::new(
+                    vec![
+                        Column::new("id", ColumnType::I64).not_null(),
+                        Column::new("x", ty),
+                        Column::new("v", ColumnType::Vector(f32_vector(1, false))),
+                    ],
+                    &["id"],
+                );
+                let mut write = store.write().unwrap();
+                let table = write
+                    .open_table_with("t", TableMode::CreateNew(&schema))
+                    .unwrap();
+                for (id, x) in [(1, value.clone()), (2, Value::Null), (3, value.clone())] {
+                    let row = [
+                        ("id", Value::I64(id)),
+                        ("x", x),
+                        ("v", vector(&[id as f32])),
+                    ];
+                    write.insert_row(&table, &row).unwrap();
+                }
+                if with_index {
+                    let definition = IndexDefinition::new("by_x", vec![IndexKey::new("x")]);
+                    write
+                        .create_index(&table, &definition, IndexMode::CreateNew)
+                        .unwrap();
+                }
+                let query =
+                    Nearest::new(vector(&[0.0]), 10).with_filter(vec![FilterCondition::Range {
+                        column: "x",
+                        lower: Bound::Unbounded,
+                        upper: Bound::Unbounded,
+                    }]);
+                let found = write
+                    .nearest_exact(&table, "v", VectorMetric::L2, &query)
+                    .unwrap();
+                assert_eq!(ids(&found), [1, 3], "{ty}, index {with_index}");
+                write.commit().unwrap();
+            });
+        }
+    }
+}
