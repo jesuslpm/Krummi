@@ -1571,6 +1571,12 @@ impl crate::Store {
         self.wait_vector_idle_until(None);
     }
 
+    /// Whether the worker took its last wake-up (tests).
+    #[cfg(test)]
+    pub(crate) fn vector_wake_taken(&self) -> bool {
+        !lock(&self.shared().vectors.state).kicked
+    }
+
     /// As [`Store::wait_vector_idle`], for at most `limit`: whether the worker became idle. A worker that retries a
     /// failure, as with a damaged catalog, never does.
     #[cfg(test)]

@@ -226,9 +226,10 @@ fn ac_vi14_a_failed_commit_refuses_writes() {
     store.close().unwrap();
 }
 
-/// R6 of the Codex review of 2026-11-26, deterministic: with the journal's writer stopped, a deferred commit that
-/// creates the first vector index cannot become durable before the worker it wakes reads. The worker waits until it
-/// is durable, so once the writer goes on, the index trains.
+/// R6 of the Codex review of 2026-11-26: with the journal's writer stopped, a deferred commit that creates the first
+/// vector index cannot become durable before the worker it wakes reads. The writer goes on only once the worker took
+/// that wake-up, which leaves it microseconds to read before, against a journal write. The worker waits until the
+/// commit is durable, so the index trains.
 #[test]
 fn a_vector_index_created_by_a_deferred_commit_trains() {
     let tmp = tempfile::tempdir().unwrap();
@@ -256,7 +257,15 @@ fn a_vector_index_created_by_a_deferred_commit_trains() {
     }
     write.commit().unwrap();
     store.wait_vector_idle();
+    // Lets the journal's writer go on also when the test fails, so the store can close.
+    struct Resume<'s>(&'s Store);
+    impl Drop for Resume<'_> {
+        fn drop(&mut self) {
+            self.0.shared().engine.set_journal_paused(false);
+        }
+    }
     store.shared().engine.set_journal_paused(true);
+    let resume = Resume(&store);
     let mut write = store.write().unwrap();
     let table = write.open_table("t").unwrap();
     let definition = VectorIndexDefinition::new("near", "v", VectorMetric::L2);
@@ -264,9 +273,15 @@ fn a_vector_index_created_by_a_deferred_commit_trains() {
         .create_vector_index(&table, &definition, IndexMode::CreateNew)
         .unwrap();
     write.commit_deferred().unwrap();
-    // The worker has its wake-up; whatever it reads now is from before the commit.
-    std::thread::sleep(Duration::from_millis(100));
-    store.shared().engine.set_journal_paused(false);
+    let start = Instant::now();
+    while !store.vector_wake_taken() {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "the worker never woke"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    drop(resume);
     store.make_durable().unwrap();
     store.wait_vector_idle();
     let after = info(&store);
