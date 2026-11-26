@@ -227,9 +227,8 @@ fn ac_vi14_a_failed_commit_refuses_writes() {
 }
 
 /// R6 of the Codex review of 2026-11-26: with the journal's writer stopped, a deferred commit that creates the first
-/// vector index cannot become durable before the worker it wakes reads. The writer goes on only once the worker took
-/// that wake-up, which leaves it microseconds to read before, against a journal write. The worker waits until the
-/// commit is durable, so the index trains.
+/// vector index cannot become durable before the worker it wakes reads. The writer goes on 100 ms after the worker took
+/// that wake-up, time it has to read before. The worker waits until the commit is durable, so the index trains.
 #[test]
 fn a_vector_index_created_by_a_deferred_commit_trains() {
     let tmp = tempfile::tempdir().unwrap();
@@ -281,6 +280,7 @@ fn a_vector_index_created_by_a_deferred_commit_trains() {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
+    std::thread::sleep(Duration::from_millis(100));
     drop(resume);
     store.make_durable().unwrap();
     store.wait_vector_idle();
