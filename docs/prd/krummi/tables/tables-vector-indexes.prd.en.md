@@ -1,6 +1,6 @@
 # Approximate Vector Indexes — PRD
 
-**Version**: 1.1
+**Version**: 1.2
 **Date**: 2026-11-25
 **Parent document**: [Krummi Tables — PRD](tables.prd.en.md) (v1.0)
 
@@ -62,6 +62,18 @@ Decisions of the user of 2026-11-25:
 measure on Windows (user: «Solo Linux, anotado»). This PRD is validated on Linux x86-64 with glibc only and Windows stops
 being a criterion: the tests, AC-VI10, AC-VI11 and the measurements of VI15 are Linux's, and the PRD can close without
 Windows. It is an exception to D3 and AC18 of the [root](../krummi.prd.en.md), which carries its annotation.*
+
+*Annotation of 2026-11-26, after the Codex review (v1.2), with two decisions of the user:*
+
+- *The limit of VI15 on the p95 of inserting a row with the index (at most 10 % above the one without it) is measured
+  with durable commits (user: «Solo durables (Recomendado)»). With deferred commits, the measure is informative.*
+- *VI12 holds as written (user: «Reanudar al abrir» and «Leer el catálogo al abrir»). When the store opens, the
+  worker starts and reads the catalog in the background, also when there are no vector indexes. Because of that, the
+  tests of AC-C9 ([trees-node-check-cache.prd.en.md](../trees/trees-node-check-cache.prd.en.md)), AC-X19
+  ([trees-fixed-size.prd.en.md](../trees/trees-fixed-size.prd.en.md)) and AC-Q1
+  ([pager-written-pages.prd.en.md](../pager/pager-written-pages.prd.en.md)) wait for the worker to finish before they
+  measure. The catalog's root, which the worker reads, is checked in that read. The text of those criteria does not
+  change.*
 
 This PRD inherits everything from its ancestors. It makes precise or extends rules of its parent, of
 [tables-schema.prd.en.md](tables-schema.prd.en.md) (7.1) and of [tables-indexes.prd.en.md](tables-indexes.prd.en.md)

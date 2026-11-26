@@ -46,3 +46,7 @@
 2026-11-25T21:29:18+00:00	bg-end	acceptance	pgvector-R4
 2026-11-25T21:30:43+00:00	bg-start	review	codex-R2
 2026-11-25T21:40:58+00:00	bg-end	review	codex-R2
+2026-11-25T21:41:15+00:00	mark	wait	product question 1
+2026-11-26T06:40:17+00:00	mark	explore	VI12 resume at open
+2026-11-26T06:42:10+00:00	mark	wait	VI12 design question
+2026-11-26T06:44:54+00:00	mark	implement	VI12 resume at open

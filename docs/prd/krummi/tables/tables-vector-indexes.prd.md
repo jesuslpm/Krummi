@@ -1,6 +1,6 @@
 # Índices vectoriales aproximados — PRD
 
-**Versión**: 1.1
+**Versión**: 1.2
 **Fecha**: 2026-11-25
 **Documento padre**: [Tablas de Krummi — PRD](tables.prd.md) (v1.0)
 
@@ -59,6 +59,19 @@ Decisiones del usuario del 2026-11-25:
 en Windows (usuario: «Solo Linux, anotado»). Este PRD se valida solo en Linux x86-64 con glibc y Windows deja de ser un
 criterio: las pruebas, AC-VI10, AC-VI11 y las mediciones de VI15 son de Linux, y el PRD se puede cerrar sin Windows. Es
 una excepción a D3 y AC18 de la [raíz](../krummi.prd.md), que lleva su anotación.*
+
+*Anotación del 2026-11-26, tras la revisión con Codex (v1.2), con dos decisiones del usuario:*
+
+- *El límite de VI15 al p95 de insertar una fila con el índice (como mucho un 10 % por encima del de sin él) se mide
+  con confirmaciones durables (usuario: «Solo durables (Recomendado)»). Con confirmaciones diferidas, la medida es
+  informativa.*
+- *VI12 se cumple tal como está escrito (usuario: «Reanudar al abrir» y «Leer el catálogo al abrir»). Al abrir el
+  almacén, el trabajador arranca y lee el catálogo en segundo plano, también si no hay índices vectoriales. Por eso
+  las pruebas de AC-C9 ([trees-node-check-cache.prd.md](../trees/trees-node-check-cache.prd.md)), AC-X19
+  ([trees-fixed-size.prd.md](../trees/trees-fixed-size.prd.md)) y AC-Q1
+  ([pager-written-pages.prd.md](../pager/pager-written-pages.prd.md)) esperan a que el trabajador termine antes de
+  medir. La raíz del catálogo, que lee el trabajador, se comprueba en esa lectura. El texto de esos criterios no
+  cambia.*
 
 Este PRD hereda todo lo de sus ascendientes. Precisa o amplía reglas de su padre, de
 [tables-schema.prd.md](tables-schema.prd.md) (7.1) y de [tables-indexes.prd.md](tables-indexes.prd.md) (7.2), que
