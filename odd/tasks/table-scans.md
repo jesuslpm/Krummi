@@ -112,3 +112,11 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   `CHECKED_SLOTS`, and why 1 << 19) fixed; R3-decimal-rank-unchecked (WARNING: the decimal rank does not check
   precision or scale) dismissed: the element does not either (`encode_element`, `key.rs`: the mantissa only), and a
   stored decimal over its precision panics in `decode_with` (`fits_precision`) before the filter reads it.
+- **L12** (2026-11-26) Final A/B, base `76d8820` against `0541b9c2` (WSL, bench power plan). Profiling program, 3
+  alternated rounds (`work/ts/final-prof.md`): nearest 175.8 → 136.3 ms (0.775), scan 161.3 → 122.1 (0.757), scanv
+  162.4 → 117.2 (0.721), scanp 105.1 → 85.3 (0.812), tscan 90.9 → 66.4 (0.731), tscanp 1.003, iscanp 1.012. Bench,
+  3 rounds (`work/ts/final-bench.md`, op/s branch / base): W23 1.025, W24 1.031, W25 1.007, W26 0.989 (3 of 3 slower),
+  W27 1.001, W28 1.014, W29 0.997, W30 1.013, W31 0.989, W32 1.004. W26 and W31, the point reads, get 10 rounds.
+- **L13** (2026-11-26) W26 and W31, 10 alternated rounds (`work/ts/w26-bench.md`): W26 0.988 (4 of 10 rounds slower),
+  W31 1.005 (0 of 10). The A/A run gave W26 0.999 and loads down to 0.987: W26's −1.2 % is within the noise. Bench
+  power plan restored to Balanced.
