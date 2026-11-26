@@ -16,7 +16,9 @@
 # Exit status: the task's; 2 usage error; 3 another run is in progress.
 set -euo pipefail
 
-usage() { echo "usage: runner.sh init | runner.sh <check|build|bench|run> <commit sha> [-- arguments...]" >&2; exit 2; }
+# In braces so that bash reads the whole script before running it: Invoke-Linux.ps1 may copy it again meanwhile.
+{
+usage() { echo "uso: runner.sh init | runner.sh <check|build|bench|run> <sha del commit> [-- argumentos...]" >&2; exit 2; }
 
 home="${KRUMMI_RUNNER_HOME:-$HOME/krummi-runner}"
 task="${1:-}"
@@ -41,7 +43,7 @@ case "$task" in
 esac
 
 exec 9>"$home/lock"
-flock -n 9 || { echo "runner: another run is in progress" >&2; exit 3; }
+flock -n 9 || { echo "runner: hay otra ejecución en curso" >&2; exit 3; }
 
 # A non-interactive SSH session does not read the profile that puts cargo on PATH.
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -82,3 +84,4 @@ set -e
 # The newline first: the task's output may not end in one, and the caller reads this line.
 printf '\nRESULTS_DIR=%s\n' "$KRUMMI_RESULTS"
 exit "$status"
+}
