@@ -18,3 +18,7 @@
 2026-11-26T10:40:23+00:00	bg-end	acceptance	final A/B
 2026-11-26T10:40:49+00:00	bg-start	acceptance	W26 10 rounds
 2026-11-26T11:36:40+00:00	bg-end	acceptance	W26 10 rounds
+2026-11-26T11:37:12+00:00	bg-start	checks	workspace checks
+2026-11-26T11:47:59+00:00	bg-end	checks	workspace checks
+2026-11-26T11:50:03+00:00	bg-start	checks	workspace tests
+2026-11-26T12:00:19+00:00	bg-end	checks	workspace tests

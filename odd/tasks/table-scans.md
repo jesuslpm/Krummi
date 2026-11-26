@@ -120,3 +120,10 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
 - **L13** (2026-11-26) W26 and W31, 10 alternated rounds (`work/ts/w26-bench.md`): W26 0.988 (4 of 10 rounds slower),
   W31 1.005 (0 of 10). The A/A run gave W26 0.999 and loads down to 0.987: W26's −1.2 % is within the noise. Bench
   power plan restored to Balanced.
+- **L14** (2026-11-26) T4 checks on Windows at `3fa7a3a8`: `cargo fmt --all --check` clean; `cargo clippy --workspace
+  --all-targets -- -D warnings` clean; `cargo test --workspace --no-fail-fast` 1,343 passed, 3 failed, all three in
+  `table_vector_indexes`: `definitions::ac_vi9_the_changes_of_the_table` (`os error 33`), `worker::ac_vi3_the_index_
+  follows_the_writes` and `worker::ac_vi15_the_lists_of_large_tables` (their 120 s limits, with the binary's other
+  tests in parallel). Known environmental failures: the same three fail with the base's code (`76d8820`, whole binary:
+  32 passed, 3 failed, 262 s; the branch 33 passed, 3 failed, 213 s); `worker::` alone passes on both (Windows 39.6 s
+  and 40.6 s, Linux 46.4 s and 40.6 s), and the whole binary passes `ac_vi9` on Linux.
