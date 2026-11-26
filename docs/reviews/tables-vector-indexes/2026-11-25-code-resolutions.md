@@ -112,3 +112,37 @@ The two product questions stay open for the user.
 Review record: `docs/reviews/tables-vector-indexes/2026-11-25-code-02.md`, wrapper status `approved`, `threadId`
 `01a2149e-3efa-7992-bc08-c012efd2e929`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
 `krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+## 2026-11-26
+
+Third round: [2026-11-26-code.md](2026-11-26-code.md), the follow-up of `5eaa9ba..aeed1a0` (the VI12 change after the
+user's answers). Verdict, quoted: «Not approved — one major correction-caused regression remains open (R6).» Its
+table keeps R1–R5 resolved.
+
+Review record: `docs/reviews/tables-vector-indexes/2026-11-26-code.md`, wrapper status `findings` (open R6),
+`threadId` `01a21704-e6c2-79b1-8068-36c02ad12a09`. Telemetry: coordinator `gpt-6.1-sol` / `high`; reviewer
+`krummi-review-critical` `gpt-6-astra` / `xhigh`.
+
+### R6 — Major: deferred index creation can lose its only effective worker activation
+
+- Disposition: fixed.
+- Cause, confirmed: `commit_deferred` wakes the worker before reads see the commit, which they see only once it is
+  durable. The worker took the wake-up, read a catalog without the new index and slept. The `resume_once` calls that
+  `433843a` removed from `open_table` used to give it a second wake-up.
+- Fix (`02e3ccb`): after each wake-up, before its pass, the worker waits until the queued commits are durable
+  (`Engine::make_durable`). That is a wait on the journal's progress (`journal.rs:789-793` waits for `queued_upto`)
+  and writes nothing more, so deferred commits keep their cost. A failure there is a failed flush, which makes the
+  store refuse writes and ends the thread at its next check.
+- Tests:
+  - `table_vector_indexes::codex::r6_an_index_created_by_a_deferred_commit_trains` follows the review's public-API
+    reproduction, with the 8 MiB value in the same transaction. RED 3 of 3 before the fix (`Training`), GREEN 5 of 5
+    after.
+  - `table::vector_fault_tests::a_vector_index_created_by_a_deferred_commit_trains` stops the journal's writer
+    (`set_journal_paused`), so the commit cannot become durable before the worker reads. It lets the writer go on
+    100 ms after the worker took its wake-up. RED 10 of 10 without the wait (`f55af4a`, `7def9ed`, `42d5743`, refined
+    through two RDD reviews), GREEN after.
+- Status: claimed fixed, unverified until a follow-up review.
+
+Checks at `42d5743`: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D warnings` clean;
+`cargo test --workspace` 1,336 passed, 1 failed, 36 ignored. The failure is the known trybuild `trees_compile`, which
+also fails on `main`.
