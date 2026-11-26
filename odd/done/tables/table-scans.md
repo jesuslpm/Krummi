@@ -2,7 +2,7 @@
 
 Objective: make every table row scan cheaper (public and internal), measured before and after. Branch
 `perf/table-scans` from `feat/tables-vector-indexes` (`76d8820`). Delivery: `ask-on-risk`. Runner: `cargo test
---workspace`; measurements and profiles only in WSL 2 (user's answer, L2). Closing report: `odd/tasks/table-scans-report.md`.
+--workspace`; measurements and profiles only in WSL 2 (user's answer, L2). Closing report: `odd/done/tables/table-scans-report.md`.
 
 ## Specs
 

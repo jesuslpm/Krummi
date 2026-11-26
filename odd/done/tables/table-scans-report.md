@@ -31,9 +31,9 @@ de este informe y el del archivado. No se fusionó ni se subió nada.
 - **Revisiones:**
   - dos revisiones RDD aprobadas (sección siguiente);
   - Codex: en la ronda 1, un bloqueante (R1), corregido; en la ronda 2, aprobado con R1 verificado. Informes
-    [2026-11-26-code.md](../../docs/reviews/table-scans/2026-11-26-code.md) y
-    [2026-11-26-code-02.md](../../docs/reviews/table-scans/2026-11-26-code-02.md); resoluciones en
-    [2026-11-26-code-resolutions.md](../../docs/reviews/table-scans/2026-11-26-code-resolutions.md).
+    [2026-11-26-code.md](../../../docs/reviews/table-scans/2026-11-26-code.md) y
+    [2026-11-26-code-02.md](../../../docs/reviews/table-scans/2026-11-26-code-02.md); resoluciones en
+    [2026-11-26-code-resolutions.md](../../../docs/reviews/table-scans/2026-11-26-code-resolutions.md).
 - **Hallazgos corregidos:**
   - Codex R1, bloqueante: un rango sin límites sobre una columna de texto o bytes descartaba todas las filas. El
     camino por rangos se elegía porque el test no tenía valores que lo impidieran. Ahora se elige por el tipo de la
