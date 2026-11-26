@@ -295,6 +295,9 @@ informe, no una medición.** Cambia el formato y necesita su propio PRD.
 - **Una sugerencia de RDD:** cubrir el rango sin límites sobre texto también en la búsqueda aproximada y en las filas
   pendientes. Hoy esos caminos comparten `Filter::check` y `Filter::meets`. La otra, fijar que todo tipo de tamaño fijo
   tiene rango, quedó resuelta tras el rebase con `every_fixed_width_type_has_a_rank_and_no_other_type_has_one`.
+- **La prueba de que todo tipo de tamaño fijo tiene rango** recorre una lista escrita a mano. Un tipo nuevo necesita
+  su ejemplo en el `match`, pero nada lo obliga a figurar en la lista. Además, el ejemplo de JSON es un nulo. Son
+  avisos de `review-ddfe497b4b736b20` (L20).
 - **Los tres fallos ambientales de Windows** en `table_vector_indexes`, previos a esta rama.
 - **Windows no se midió**, por decisión del usuario.
 

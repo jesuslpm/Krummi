@@ -165,3 +165,7 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   `ColumnType` without a wildcard) and a clearer comment of `element_rank`. R3-name-lookup-dropped-columns
   (SUGGESTION: the linear lookup and the map might disagree after a schema change) dismissed: the map is built from
   the same `columns` by `enumerate` (`rows.rs:328-332`), one reader per schema version.
+- **L20** (2026-11-26) RDD `review-ddfe497b4b736b20`, `03b70d85..a30af5be`, lens reliability: approved, acknowledged.
+  R3-type-list-not-exhaustive (WARNING: the match without a wildcard forces a sample for a new type, not its place in
+  the test's list) and R3-json-sample-null (SUGGESTION: the JSON sample is a null) left as non-blocking follow-ups:
+  closing them needs a list of every `ColumnType` that the compiler checks, a change of its own.
