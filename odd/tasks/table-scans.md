@@ -48,8 +48,8 @@ Objective: make every table row scan cheaper (public and internal), measured bef
 | T3b | S4, S6 | inline | dropped | `786cd324` and its revert `ddd950f7` (tests kept), L7 |
 | T3c | S4, S6 | inline | done | `2ef2e8ad`, L8: `TableRow::get` compares the names of ≤ 8 columns |
 | T3d | S4, S6 | inline | done | `0541b9c2`, L9: filter on fixed-width values by rank |
-| T3e | S4, S6 | inline | pending | `passing`: whatever the profile after T3a–T3d still shows |
-| T4 | S6 | inline | pending | closing (checks, RDD, Codex, report) |
+| T3e | S4, S6 | inline | not done | L10: no small change that keeps S6 |
+| T4 | S6 | inline | done | L14–L16, closing report |
 
 Route: every task inline (no Writer trigger: the units depend on each other's measurements and share `rows.rs`).
 
@@ -132,3 +132,7 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   with the regression test `an_unbounded_range_on_text_or_bytes_passes_every_row_that_is_not_null` (RED before the
   fix). Codex R2 (`2026-11-26-code-02.md`, follow-up `8ed2a76f..a36cc6c8`): approved, R1 verified. Resolutions:
   `docs/reviews/table-scans/2026-11-26-code-resolutions.md`.
+- **L16** (2026-11-26) RDD `review-1d16c5c961158245`, `0541b9c2..137802c0`, lenses reliability, readability:
+  approved, acknowledged; two SUGGESTION findings left as non-blocking follow-ups (a check that every fixed-width
+  type has a rank; the unbounded text range through the approximate and pending paths). Closing report:
+  [table-scans-report.md](table-scans-report.md).
