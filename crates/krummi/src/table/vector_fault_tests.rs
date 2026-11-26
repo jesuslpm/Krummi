@@ -225,3 +225,51 @@ fn ac_vi14_a_failed_commit_refuses_writes() {
     search_is_right(&store);
     store.close().unwrap();
 }
+
+/// R6 of the Codex review of 2026-11-26, deterministic: with the journal's writer stopped, a deferred commit that
+/// creates the first vector index cannot become durable before the worker it wakes reads. The worker waits until it
+/// is durable, so once the writer goes on, the index trains.
+#[test]
+fn a_vector_index_created_by_a_deferred_commit_trains() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let ty = VectorType {
+        element: VectorElement::F32,
+        dimension: DIM as u16,
+        cosine: false,
+    };
+    let schema = Schema::new(
+        vec![
+            Column::new("id", ColumnType::I64).not_null(),
+            Column::new("v", ColumnType::Vector(ty)),
+        ],
+        &["id"],
+    );
+    let mut write = store.write().unwrap();
+    let table = write
+        .open_table_with("t", TableMode::CreateNew(&schema))
+        .unwrap();
+    for id in 0..10_500 {
+        write
+            .insert_row(&table, &[("id", Value::I64(id)), ("v", point(id))])
+            .unwrap();
+    }
+    write.commit().unwrap();
+    store.wait_vector_idle();
+    store.shared().engine.set_journal_paused(true);
+    let mut write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    let definition = VectorIndexDefinition::new("near", "v", VectorMetric::L2);
+    write
+        .create_vector_index(&table, &definition, IndexMode::CreateNew)
+        .unwrap();
+    write.commit_deferred().unwrap();
+    // The worker has its wake-up; whatever it reads now is from before the commit.
+    std::thread::sleep(Duration::from_millis(100));
+    store.shared().engine.set_journal_paused(false);
+    store.make_durable().unwrap();
+    store.wait_vector_idle();
+    let after = info(&store);
+    assert_ne!(after.state, VectorIndexState::Training, "{after:?}");
+    wait_ready(&store);
+}
