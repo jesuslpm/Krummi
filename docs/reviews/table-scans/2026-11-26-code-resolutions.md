@@ -23,3 +23,11 @@ Artifact versions: fix commit `19f1e784`.
 Review record: [2026-11-26-code.md](2026-11-26-code.md), wrapper status `findings`, `threadId`
 `01a217c4-2794-7a12-855f-72fa69d4c479`; telemetry: coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review`
 `gpt-6.1-sol`/`high`.
+
+## 2026-11-26 (verification)
+
+Report: [2026-11-26-code-02.md](2026-11-26-code-02.md), wrapper status `approved`, `threadId`
+`01a217d3-9b9b-7321-8973-47419f01284e`; telemetry: coordinator `gpt-6.1-sol`/`high`, reviewer `krummi-review`
+`gpt-6.1-sol`/`high`. Verdict: "Approved: R1 verified resolved; no open findings in the requested follow-up scope."
+
+- R1: verified resolved.

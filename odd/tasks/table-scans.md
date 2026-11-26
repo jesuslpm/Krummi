@@ -127,3 +127,8 @@ Route: every task inline (no Writer trigger: the units depend on each other's me
   tests in parallel). Known environmental failures: the same three fail with the base's code (`76d8820`, whole binary:
   32 passed, 3 failed, 262 s; the branch 33 passed, 3 failed, 213 s); `worker::` alone passes on both (Windows 39.6 s
   and 40.6 s, Linux 46.4 s and 40.6 s), and the whole binary passes `ac_vi9` on Linux.
+- **L15** (2026-11-26) Codex R1 (`docs/reviews/table-scans/2026-11-26-code.md`, `76d8820..8ed2a76f`): findings, R1
+  blocker: a range without bounds on a text or bytes column took the rank path and passed no row. Fixed in `19f1e784`
+  with the regression test `an_unbounded_range_on_text_or_bytes_passes_every_row_that_is_not_null` (RED before the
+  fix). Codex R2 (`2026-11-26-code-02.md`, follow-up `8ed2a76f..a36cc6c8`): approved, R1 verified. Resolutions:
+  `docs/reviews/table-scans/2026-11-26-code-resolutions.md`.
