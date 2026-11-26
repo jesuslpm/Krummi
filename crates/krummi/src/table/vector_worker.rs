@@ -98,7 +98,6 @@ pub(crate) struct VectorWork {
     stop: AtomicBool,
     /// A test hook: while set, the worker takes no batch.
     paused: AtomicBool,
-    /// Whether a transaction opened a table with a vector index since the store opened.
     hooks: Mutex<Hooks>,
     held: Mutex<Vec<VectorPoint>>,
     released: Condvar,

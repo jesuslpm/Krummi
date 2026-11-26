@@ -39,7 +39,6 @@ fn remembered(store: &Store) -> u64 {
     store.shared().engine.checked_remembered()
 }
 
-/// Writes every committed version into the store's pages, out of the scratch area.
 /// Opens the store in `folder` as [`Store::open`] does, then waits, for at most 2 s, until the vector index worker has
 /// read the catalog (VI12), so that its reads do not mix with what a test counts. A worker retrying a failure, as with
 /// a damaged catalog, is not waited for longer.
@@ -52,6 +51,7 @@ pub(crate) fn open_settled(
     Ok(store)
 }
 
+/// Writes every committed version into the store's pages, out of the scratch area.
 pub(crate) fn transfer(store: &Store) {
     assert!(store.shared().engine.transfer_now());
 }
