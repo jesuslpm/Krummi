@@ -4,7 +4,7 @@ Informe de cierre de `table-scans` (2026-11-26). Forma de ejecución: ODD. Orige
 `work/handoff/perf-scan-prompt.md` (mejora de rendimiento sin cambio de producto, sin PRD). Documento de ejecución:
 [table-scans.md](table-scans.md).
 
-Rama `perf/table-scans`, creada desde `feat/tables-vector-indexes` (`76d8820`), con 12 commits hasta `137802c0`, más el
+Rama `perf/table-scans`, creada desde `feat/tables-vector-indexes` (`76d8820`), con 11 commits hasta `137802c0`, más el
 de este informe y el del archivado. No se fusionó ni se subió nada.
 
 ## Resultado
@@ -89,6 +89,7 @@ Aporte de cada cambio, en su propio A/B contra el anterior:
 |---|---|---|---|---|
 | `76d8820..0541b9c2` | reliability, readability, resilience | aprobada | R2-001 (WARNING): el comentario de `Test<T>` decía que las filas se comparan con los valores; corregido en `99289503`. R2-002 (SUGGESTION): una cifra puntual en el comentario de `CHECKED_SLOTS` y sin explicar `1 << 19`; corregido en `99289503`. R3-decimal-rank-unchecked (WARNING): el rango de un decimal no comprueba precisión ni escala; descartado, porque la clave tampoco lo hace (`encode_element` usa solo la mantisa) y un decimal guardado fuera de su precisión ya paniquea en `decode_with` antes del filtro | `review-a005a2d2888e3ecd` |
 | `0541b9c2..137802c0` | reliability, readability | aprobada | R2-001 (SUGGESTION): el código no fija que todo tipo de tamaño fijo tiene rango. R3 (SUGGESTION): el rango sin límites solo se prueba por la búsqueda exacta. Las dos quedan como pendientes no bloqueantes | `review-1d16c5c961158245` |
+| `137802c0..ff3866ae` (este informe y el archivado) | readability | aprobada | R2-001 y R2-002 (WARNING): el archivado reescribió, en los informes de Codex, la ruta del registro de fases en las frases que dejan constancia del estado observado; vuelven a la ruta original. R2-003 (WARNING): la rama tenía 11 commits hasta `137802c0`, no 12. R2-004 (SUGGESTION): faltaba decir de qué lista es el ítem de riesgo. Todo corregido en el commit siguiente | `review-3c65404f3322327b` |
 
 Las evaluaciones de cada commit dieron `medium` / `under_budget`; las dos revisiones cubren toda la rama.
 
@@ -229,7 +230,7 @@ informe, no una medición.** Cambia el formato y necesita su propio PRD.
 - **Los tres fallos ambientales de Windows** en `table_vector_indexes`, previos a esta rama.
 - **Windows no se midió**, por decisión del usuario.
 
-**Riesgo:** ítem 6, por el filtro. Una divergencia entre el orden del rango y el de la clave en un tipo no cubierto
+**Riesgo:** ítem 6 de la lista de riesgo alto de ODD (ningún test atraparía la regresión), por el filtro. Una divergencia entre el orden del rango y el de la clave en un tipo no cubierto
 cambiaría resultados sin que fallara un test que no fuera de estos. Lo mitigan `element_ranks_order_as_the_elements`,
 que cubre todos los tipos de tamaño fijo en todos los pares, y `the_filters_order_every_fixed_width_type`.
 
