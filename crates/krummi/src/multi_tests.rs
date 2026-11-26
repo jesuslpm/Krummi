@@ -13,7 +13,7 @@ use super::*;
 fn ac_m16_scans_of_a_multi_value_tree_return_the_engine_s_memory() {
     let tmp = tempfile::tempdir().unwrap();
     for store in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         let mut write = store.write().unwrap();

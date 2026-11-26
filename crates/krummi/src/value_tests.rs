@@ -37,7 +37,7 @@ fn get<'t>(read: &'t ReadTransaction<'_>, key: &[u8]) -> &'t [u8] {
 fn ac_v3_a_value_off_its_leaf_is_read_where_the_engine_keeps_it() {
     let tmp = tempfile::tempdir().unwrap();
     for store in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         let engine = &store.shared().engine;
@@ -179,7 +179,7 @@ fn overlap((a, m): (u64, u64), (b, n): (u64, u64)) -> bool {
 fn ac_v6_a_read_keeps_its_values_off_their_leaf_while_writes_free_and_reuse_their_pages() {
     let tmp = tempfile::tempdir().unwrap();
     for store in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         let engine = &store.shared().engine;
@@ -343,7 +343,7 @@ fn ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier() {
     let value = pattern(run_capacity(VALUE_PAGES as usize), 4);
     let tmp = tempfile::tempdir().unwrap();
     for store in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         scatter(&store);
@@ -371,14 +371,14 @@ fn ac_v9_a_value_without_a_contiguous_hole_goes_to_the_frontier() {
     // A maximum size with room for a few pages more than the store has, fewer than the value's.
     let slack = 2 * VALUE_PAGES / 3 * PAGE_SIZE as u64;
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     scatter(&store);
     let size = store.info().size_bytes;
     store.close().unwrap();
     let options = |size: u64| StoreOptions {
         max_size: Some(size + slack),
     };
-    let on_disk = Store::open(tmp.path(), &options(size)).unwrap();
+    let on_disk = crate::check_tests::open_settled(tmp.path(), &options(size)).unwrap();
     // A temporary store cannot reopen: the same preparation, which is deterministic, reaches the same size.
     let unlimited = Store::open_temporary(&StoreOptions::default()).unwrap();
     scatter(&unlimited);

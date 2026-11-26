@@ -99,7 +99,6 @@ pub(crate) struct VectorWork {
     /// A test hook: while set, the worker takes no batch.
     paused: AtomicBool,
     /// Whether a transaction opened a table with a vector index since the store opened.
-    resumed: AtomicBool,
     hooks: Mutex<Hooks>,
     held: Mutex<Vec<VectorPoint>>,
     released: Condvar,
@@ -177,12 +176,10 @@ impl VectorWork {
         }
     }
 
-    /// Starts the thread the first time a transaction of the store opens a table with a vector index (VI12): a vector
-    /// index left with work when the store closed goes on, without the opening itself reading any page.
-    pub(crate) fn resume_once(&self, shared: &Shared) {
-        if !self.resumed.swap(true, Ordering::AcqRel) {
-            self.kick(shared);
-        }
+    /// Starts the thread when the store opens (VI12): it reads the catalog in the background, and a vector index left
+    /// with work when the store closed goes on.
+    pub(crate) fn resume(&self, shared: &Shared) {
+        self.kick(shared);
     }
 
     /// Stops the thread and waits for it: a training in progress is abandoned, a batch waiting for its turn dropped,
@@ -1568,6 +1565,17 @@ impl crate::Store {
     /// its commits durable so that new reads see them.
     #[doc(hidden)]
     pub fn wait_vector_idle(&self) {
+        self.wait_vector_idle_until(None);
+    }
+
+    /// As [`Store::wait_vector_idle`], for at most `limit`: whether the worker became idle. A worker that retries a
+    /// failure, as with a damaged catalog, never does.
+    #[cfg(test)]
+    pub(crate) fn wait_vector_idle_for(&self, limit: Duration) -> bool {
+        self.wait_vector_idle_until(Some(Instant::now() + limit))
+    }
+
+    fn wait_vector_idle_until(&self, deadline: Option<Instant>) -> bool {
         let shared = self.shared();
         let work = &shared.vectors;
         {
@@ -1579,6 +1587,9 @@ impl crate::Store {
                 {
                     break;
                 }
+                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    return false;
+                }
                 // Bounded, so a worker that ends without notifying is seen at the next check.
                 state = work
                     .wake
@@ -1588,6 +1599,7 @@ impl crate::Store {
             }
         }
         let _ = shared.engine.make_durable();
+        true
     }
 
     /// A test hook, not part of the interface: the longest a batch of the worker held the write turn and the batches

@@ -189,9 +189,14 @@ impl Store {
     /// there, and no part of one that was not. Besides `krummi.data`, an open store may keep in its folder the
     /// journal files `krummi.journal.<number>` and the `krummi.temp` subfolder, and while an index is created the
     /// `krummi.sort` subfolder of its sort; a clean close removes them, and so does the next open after a crash.
+    /// Opening starts the vector index worker, which reads the catalog in the background and goes on with the work a
+    /// vector index had when the store closed.
     pub fn open(folder: impl AsRef<Path>, options: &StoreOptions) -> Result<Store> {
         let engine = krummi_tx::Engine::open(folder, &engine_options(options))?;
-        Ok(Store::with(engine))
+        let store = Store::with(engine);
+        // The vector index worker goes on with the work the store had when it closed (VI12).
+        store.shared().vectors.resume(store.shared());
+        Ok(store)
     }
 
     /// Opens a store that lives only in memory and keeps nothing when it closes.
@@ -220,12 +225,14 @@ impl Store {
             .expect("a store is open until it closes")
     }
 
-    /// Runs `change` on the engine for a unit test that changes it, while no statistics thread holds the store.
+    /// Runs `change` on the engine for a unit test that changes it, while no statistics thread holds the store. The
+    /// vector index worker, which holds the store too, stops first and does not start again.
     #[cfg(test)]
     pub(crate) fn with_engine_mut<R>(
         &mut self,
         change: impl FnOnce(&mut krummi_tx::Engine) -> R,
     ) -> R {
+        self.shared().vectors.stop();
         let shared = self.shared.take().expect("open");
         let mut shared = Arc::try_unwrap(shared).ok().expect("no statistics thread");
         let result = change(&mut shared.engine);

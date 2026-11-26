@@ -77,12 +77,12 @@ fn read_tree_with_big_value(read: &ReadTransaction<'_>, name: &str) {
 #[test]
 fn ac_i1_each_page_and_value_is_checked_on_its_first_read() {
     let tmp = tempfile::tempdir().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree_with_big_value(&disk, "t");
     transfer(&disk);
     disk.close().unwrap();
 
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     commit_tree_with_big_value(&temporary, "t");
     transfer(&temporary);
@@ -109,7 +109,7 @@ fn ac_i1_each_page_and_value_is_checked_on_its_first_read() {
     temporary.close().unwrap();
     disk.close().unwrap();
 
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let read = disk.read().unwrap();
     let ((), reopened) = checks_of(&disk, || read_tree_with_big_value(&read, "t"));
     assert_eq!(
@@ -128,7 +128,7 @@ fn ac_i1_a_value_stays_remembered_when_its_mark_is_replaced() {
     let tmp = tempfile::tempdir().unwrap();
     let stores = krummi_pager::testing::with_checked_slots(1, || {
         [
-            Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+            crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
             Store::open_temporary(&StoreOptions::default()).unwrap(),
         ]
     });
@@ -233,11 +233,11 @@ fn ac_s4_a_write_uses_the_remembered_pages() {
 #[test]
 fn ac_s4_a_write_remembers_a_page_on_its_first_read() {
     let tmp = tempfile::tempdir().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&disk, "t", 200, 64);
     transfer(&disk);
     disk.close().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     commit_tree(&temporary, "t", 200, 64);
     transfer(&temporary);
@@ -406,14 +406,14 @@ fn damage_file(folder: &std::path::Path, page: u64, offset: usize) {
 #[test]
 fn ac_i6_a_page_damaged_while_closed_fails_on_every_read() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&store, "t", 3, 64);
     transfer(&store);
     let page = root_of(&store, "t");
     store.close().unwrap();
     damage_file(tmp.path(), page, 100);
 
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let key = long_key(1, 64);
     let read = store.read().unwrap();
     let tree = read.open_tree("t").unwrap();
@@ -434,11 +434,11 @@ fn ac_i6_a_page_damaged_while_closed_fails_on_every_read() {
 #[test]
 fn ac_i7_a_page_not_read_yet_and_damaged_while_open_fails() {
     let tmp = tempfile::tempdir().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&disk, "t", 3, 64);
     transfer(&disk);
     disk.close().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     commit_tree(&temporary, "t", 3, 64);
     transfer(&temporary);
@@ -467,13 +467,13 @@ fn ac_i7_a_page_not_read_yet_and_damaged_while_open_fails() {
 #[test]
 fn ac_s5_a_write_fails_on_every_read_of_a_damaged_page() {
     let tmp = tempfile::tempdir().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&disk, "t", 3, 64);
     transfer(&disk);
     let on_disk = root_of(&disk, "t");
     disk.close().unwrap();
     damage_file(tmp.path(), on_disk, 100);
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let mut temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     commit_tree(&temporary, "t", 3, 64);
     transfer(&temporary);
@@ -622,7 +622,7 @@ fn ac_s6(kind: Kind) {
     let [altered, other] = AC_S6_KEYS;
     for change_before in [false, true] {
         let tmp = tempfile::tempdir().unwrap();
-        let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+        let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
         let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
         for (on_disk, mut store) in [(true, disk), (false, temporary)] {
             let what = format!("{kind:?}, change before {change_before}, on disk {on_disk}");
@@ -660,7 +660,8 @@ fn ac_s6(kind: Kind) {
                 continue;
             }
             store.close().unwrap();
-            let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+            let store =
+                crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
             let read = store.read().unwrap();
             let value = kind.get(Source::Read(&read), altered);
             if change_before {
@@ -693,7 +694,7 @@ fn ac_s6_a_write_uses_a_remembered_fixed_size_leaf_altered_while_open() {
 fn ac_i9_concurrent_reads_while_pages_move() {
     let tmp = tempfile::tempdir().unwrap();
     let stores = [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ];
     concurrent_reads_while_a_write_moves_nodes(stores, |store, bad_page| {
@@ -771,12 +772,12 @@ fn ac_i10_growing_keeps_what_is_remembered() {
 #[test]
 fn ac_i11_no_memory_for_the_remembered_pages() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&store, "t", 20, 64);
     store.close().unwrap();
     let openings = krummi_pager::testing::with_remembered_commits_failing(|| {
         [
-            Store::open(tmp.path(), &StoreOptions::default()),
+            crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()),
             Store::open_temporary(&StoreOptions::default()),
         ]
     });

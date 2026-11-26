@@ -149,7 +149,7 @@ fn memory_of_page(store: &Store, page: u64) -> Memory {
 #[test]
 fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopens() {
     let tmp = tempfile::tempdir().unwrap();
-    let disk = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let disk = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let temporary = Store::open_temporary(&StoreOptions::default()).unwrap();
     for (on_disk, store) in [(true, disk), (false, temporary)] {
         store.shared().engine.set_transfer_paused(true);
@@ -203,7 +203,8 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
         }
         store.close().unwrap();
 
-        let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+        let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
+        // The vector index worker reads the catalog when the store opens (VI12), so its root is checked then.
         assert!(
             !store.shared().engine.is_remembered(page),
             "nothing remembered after reopening"
@@ -218,14 +219,8 @@ fn ac_q1_a_leaf_the_transfer_wrote_is_read_without_checks_until_the_store_reopen
             store.shared().engine.is_remembered(page),
             "its integrity, checked"
         );
-        assert!(
-            made.integrity >= 2,
-            "the catalog's root and the leaf: {made:?}"
-        );
-        assert_eq!(
-            made.stored_layout, 2,
-            "the catalog's root and the leaf: {made:?}"
-        );
+        assert!(made.integrity >= 1, "the leaf: {made:?}");
+        assert_eq!(made.stored_layout, 1, "the leaf: {made:?}");
         drop(read);
         store.close().unwrap();
     }
@@ -293,7 +288,7 @@ fn ac_q2_the_transfer_remembers_pages_but_not_values_off_their_leaf() {
 #[test]
 fn ac_q3_a_page_whose_transfer_write_fails_stays_forgotten() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     // The transfer runs on the transfer thread, which shares the faults of the thread that opened the store.
     store.shared().engine.set_transfer_paused(true);
     commit_spaced_tree(&store, "a", 3);
@@ -342,7 +337,7 @@ fn ac_q3_a_page_whose_transfer_write_fails_stays_forgotten() {
 #[test]
 fn ac_q4_damage_of_a_written_page_is_found_after_reopening() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let mut store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_spaced_tree(&store, "t", 3);
     transfer(&store);
     let page = root_of(&store, "t");
@@ -374,7 +369,7 @@ fn ac_q4_damage_of_a_written_page_is_found_after_reopening() {
     drop(read);
     store.close().unwrap();
 
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let read = store.read().unwrap();
     let tree = read.open_tree("t").unwrap();
     assert_eq!(damaged_page(read.get(&tree, &long_key(1, 64))), page);
@@ -740,7 +735,7 @@ fn ac_q9_concurrent_reads_while_overwrites_are_transferred() {
     const ROUNDS: usize = 1000;
     let tmp = tempfile::tempdir().unwrap();
     for owned in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         let store = &owned;

@@ -16,7 +16,7 @@ use super::*;
 fn ac_x14_reads_and_scans_of_a_fixed_size_tree_return_the_engine_s_memory() {
     let tmp = tempfile::tempdir().unwrap();
     for store in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         let mut write = store.write().unwrap();
@@ -76,7 +76,7 @@ fn ac_x14_reads_and_scans_of_a_fixed_size_tree_return_the_engine_s_memory() {
 #[test]
 fn ac_x17_ac_x20_validation_and_tipo_in_a_store_that_refuses_writes() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     // The transfer that fails is the one the test runs on this thread, whose faults it injects.
     store.shared().engine.set_transfer_paused(true);
     let mut write = store.write().unwrap();
@@ -151,7 +151,7 @@ fn ac_x17_ac_x20_validation_and_tipo_in_a_store_that_refuses_writes() {
     write.commit().unwrap();
 
     store.close().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let read = store.read().unwrap();
     let tree = read.open_fixed_tree("f", 8).unwrap();
     assert_eq!(read.get_fixed(&tree, 1).unwrap(), Some(&[1; 8][..]));

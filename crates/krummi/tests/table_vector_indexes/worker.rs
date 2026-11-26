@@ -251,6 +251,32 @@ fn ac_vi17_close_and_open_in_each_state() {
     store.close().unwrap();
 }
 
+/// VI12: the worker resumes when the store opens. A store closed while its index trains, opened again, has the index
+/// ready once the worker is idle, without any transaction opening the table first.
+#[test]
+fn vi12_the_worker_resumes_when_the_store_opens() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = open(tmp.path());
+    let mut write = store.write().unwrap();
+    create_table(&mut write);
+    write.commit().unwrap();
+    fill(&store, 0..12_000);
+    store.hold_vector_work(krummi::VectorPoint::Sampled, true);
+    create_index(&store);
+    assert!(store.wait_vector_held(krummi::VectorPoint::Sampled));
+    store.close().unwrap();
+    let store = open(tmp.path());
+    store.wait_vector_idle();
+    let info = info(&store);
+    assert_eq!(
+        (info.state, info.pending),
+        (VectorIndexState::Ready, 0),
+        "{info:?}"
+    );
+    assert_eq!(problems(&store), Vec::<String>::new());
+    store.close().unwrap();
+}
+
 /// VI10, VI1: emptying the table sends the index back to training and drops its entries; dropping the index or the
 /// table while the worker builds frees every page, and the worker drops what it prepared.
 #[test]

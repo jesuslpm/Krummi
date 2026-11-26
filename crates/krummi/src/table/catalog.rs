@@ -328,9 +328,6 @@ impl<'s> ReadTransaction<'s> {
         self.folder.check_name(name)?;
         let found = find_table(self.folder, &self.inner, name)?;
         let found = found.ok_or_else(|| self.folder.not_found(name))?;
-        if !found.schema.vector_indexes().is_empty() {
-            self.store.vectors.resume_once(self.store);
-        }
         Ok(ReadTable {
             serial: self.serial,
             name: name.to_owned(),
@@ -633,9 +630,6 @@ impl<'s> WriteTransaction<'s> {
     /// A handle of the table of `found`, now named `name`; the table's state joins the transaction on its first
     /// opening.
     fn join(&self, name: &str, found: Found) -> Result<WriteTable<'s>> {
-        if !found.schema.vector_indexes().is_empty() {
-            self.store.vectors.resume_once(self.store);
-        }
         let mut tables = self.tables.borrow_mut();
         if let Err(at) = tables.find(found.entry.id) {
             let name = krummi_tree::copy_str(&self.inner, name)?;
