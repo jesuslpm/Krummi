@@ -12,6 +12,7 @@
 //! equality, an IN list or a range constrains, its intervals give the candidate rows; otherwise every row of the table
 //! is read. Either way each candidate row is checked against the whole filter.
 
+use std::borrow::Borrow;
 use std::ops::Bound;
 
 use krummi_pager::{Error, Result, ValueRule};
@@ -19,7 +20,7 @@ use krummi_tree::PageSource;
 
 use super::index::EntryLayout;
 use super::index_key::{index_range, split_entry};
-use super::key::{KeyColumn, KeyRange};
+use super::key::{KeyColumn, KeyRange, element_rank};
 use super::ranges::interval;
 use super::schema::{SchemaColumn, TableSchema};
 use super::statistics::stats_column;
@@ -52,14 +53,72 @@ pub enum FilterCondition<'a> {
     },
 }
 
-/// A condition checked against its column: its values as the column's elements.
+/// A condition checked against its column, with its values as `T`: the column's elements, their ranks, or the
+/// values themselves while the condition is checked.
 #[derive(Debug)]
-enum Test {
-    Equal(Vec<u8>),
-    Range(Bound<Vec<u8>>, Bound<Vec<u8>>),
+enum Test<T> {
+    Equal(T),
+    Range(Bound<T>, Bound<T>),
     /// Sorted and without repeats.
-    In(Vec<Vec<u8>>),
-    NotIn(Vec<Vec<u8>>),
+    In(Vec<T>),
+    NotIn(Vec<T>),
+}
+
+impl<T> Test<T> {
+    /// The same condition with each value as `f` gives it, or the first failure of `f`.
+    fn map<U, E>(
+        &self,
+        mut f: impl FnMut(&T) -> std::result::Result<U, E>,
+    ) -> std::result::Result<Test<U>, E> {
+        let mut bound = |bound: &Bound<T>| -> std::result::Result<Bound<U>, E> {
+            Ok(match bound {
+                Bound::Unbounded => Bound::Unbounded,
+                Bound::Included(value) => Bound::Included(f(value)?),
+                Bound::Excluded(value) => Bound::Excluded(f(value)?),
+            })
+        };
+        Ok(match self {
+            Test::Equal(value) => Test::Equal(f(value)?),
+            Test::Range(lower, upper) => {
+                let lower = bound(lower)?;
+                Test::Range(lower, bound(upper)?)
+            }
+            Test::In(list) => Test::In(
+                list.iter()
+                    .map(&mut f)
+                    .collect::<std::result::Result<_, E>>()?,
+            ),
+            Test::NotIn(list) => {
+                Test::NotIn(list.iter().map(f).collect::<std::result::Result<_, E>>()?)
+            }
+        })
+    }
+
+    /// Whether `x`, in the order of the values, meets the condition.
+    #[inline]
+    fn passes<U: Ord + ?Sized>(&self, x: &U) -> bool
+    where
+        T: Borrow<U>,
+    {
+        match self {
+            Test::Equal(expected) => expected.borrow() == x,
+            Test::Range(lower, upper) => {
+                let above = match lower {
+                    Bound::Unbounded => true,
+                    Bound::Included(b) => x >= b.borrow(),
+                    Bound::Excluded(b) => x > b.borrow(),
+                };
+                let below = match upper {
+                    Bound::Unbounded => true,
+                    Bound::Included(b) => x <= b.borrow(),
+                    Bound::Excluded(b) => x < b.borrow(),
+                };
+                above && below
+            }
+            Test::In(list) => list.binary_search_by(|e| e.borrow().cmp(x)).is_ok(),
+            Test::NotIn(list) => list.binary_search_by(|e| e.borrow().cmp(x)).is_err(),
+        }
+    }
 }
 
 /// A condition on one column, checked.
@@ -69,7 +128,10 @@ struct Predicate {
     id: u64,
     place: usize,
     element: KeyColumn,
-    test: Test,
+    test: Test<Vec<u8>>,
+    /// For a column of a fixed-width type other than text, the same condition on the ranks of the elements
+    /// ([`element_rank`]), which a row's value meets without being encoded.
+    ranks: Option<Test<u128>>,
     /// The values given, normalized, for the interval of an index (the In list without its nulls).
     values: Vec<Value<'static>>,
     bounds: Option<(Bound<Value<'static>>, Bound<Value<'static>>)>,
@@ -164,16 +226,22 @@ impl Filter {
                     .map_err(|rule| invalid(Some(&column.name), rule))?;
                 Ok(element)
             };
-            let mut push = |column: &SchemaColumn, test, values, bounds| {
-                filter.predicates.push(Predicate {
-                    id: column.id,
-                    place: place(column),
-                    element: element_column(column),
-                    test,
-                    values,
-                    bounds,
-                })
-            };
+            // The condition on the normalized values, as elements and, for a fixed-width type, as ranks.
+            let mut push =
+                |column: &SchemaColumn, test: Test<Value<'static>>, values, bounds| -> Result<()> {
+                    filter.predicates.push(Predicate {
+                        id: column.id,
+                        place: place(column),
+                        element: element_column(column),
+                        test: test.map(|value| encode(column, value))?,
+                        ranks: test
+                            .map(|value| element_rank(&column.ty, value).ok_or(()))
+                            .ok(),
+                        values,
+                        bounds,
+                    });
+                    Ok(())
+                };
             match condition {
                 FilterCondition::Equal { value, .. } => {
                     let column = columns[0];
@@ -182,12 +250,7 @@ impl Filter {
                         continue;
                     }
                     let value = normal(column, value)?;
-                    push(
-                        column,
-                        Test::Equal(encode(column, &value)?),
-                        vec![value],
-                        None,
-                    );
+                    push(column, Test::Equal(value.clone()), vec![value], None)?;
                 }
                 FilterCondition::EqualColumns(pairs) => {
                     for (column, (_, value)) in columns.into_iter().zip(pairs) {
@@ -196,12 +259,7 @@ impl Filter {
                             continue;
                         }
                         let value = normal(column, value)?;
-                        push(
-                            column,
-                            Test::Equal(encode(column, &value)?),
-                            vec![value],
-                            None,
-                        );
+                        push(column, Test::Equal(value.clone()), vec![value], None)?;
                     }
                 }
                 FilterCondition::Range { lower, upper, .. } => {
@@ -223,15 +281,8 @@ impl Filter {
                         filter.none = true;
                         continue;
                     }
-                    let element = |bound: &Bound<Value<'static>>| -> Result<Bound<Vec<u8>>> {
-                        Ok(match bound {
-                            Bound::Unbounded => Bound::Unbounded,
-                            Bound::Included(value) => Bound::Included(encode(column, value)?),
-                            Bound::Excluded(value) => Bound::Excluded(encode(column, value)?),
-                        })
-                    };
-                    let test = Test::Range(element(&lower)?, element(&upper)?);
-                    push(column, test, Vec::new(), Some((lower, upper)));
+                    let test = Test::Range(lower.clone(), upper.clone());
+                    push(column, test, Vec::new(), Some((lower, upper)))?;
                 }
                 FilterCondition::In { values, .. } | FilterCondition::NotIn { values, .. } => {
                     let column = columns[0];
@@ -252,13 +303,12 @@ impl Filter {
                         filter.none = true;
                         continue;
                     }
-                    let (elements, values): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
-                    let test = if not {
-                        Test::NotIn(elements)
+                    let values: Vec<_> = kept.into_iter().map(|(_, value)| value).collect();
+                    if not {
+                        push(column, Test::NotIn(values), Vec::new(), None)?;
                     } else {
-                        Test::In(elements)
-                    };
-                    push(column, test, if not { Vec::new() } else { values }, None);
+                        push(column, Test::In(values.clone()), values, None)?;
+                    }
                 }
             }
         }
@@ -285,32 +335,16 @@ impl Filter {
             if matches!(value, Value::Null) {
                 return false;
             }
+            // A stored value its column cannot encode is a malformed row: it meets nothing (L2).
+            if let Some(ranks) = &predicate.ranks {
+                return element_rank(&predicate.element.ty, &value)
+                    .is_some_and(|rank| ranks.passes(&rank));
+            }
             scratch.clear();
             if predicate.element.encode(&value, scratch).is_err() {
-                // A stored value its column cannot encode is a malformed row: it meets nothing (L2).
                 return false;
             }
-            let element = scratch.as_slice();
-            match &predicate.test {
-                Test::Equal(expected) => element == expected.as_slice(),
-                Test::Range(lower, upper) => {
-                    let above = match lower {
-                        Bound::Unbounded => true,
-                        Bound::Included(b) => element >= b.as_slice(),
-                        Bound::Excluded(b) => element > b.as_slice(),
-                    };
-                    let below = match upper {
-                        Bound::Unbounded => true,
-                        Bound::Included(b) => element <= b.as_slice(),
-                        Bound::Excluded(b) => element < b.as_slice(),
-                    };
-                    above && below
-                }
-                Test::In(list) => list.binary_search_by(|e| e.as_slice().cmp(element)).is_ok(),
-                Test::NotIn(list) => list
-                    .binary_search_by(|e| e.as_slice().cmp(element))
-                    .is_err(),
-            }
+            predicate.test.passes(scratch.as_slice())
         })
     }
 

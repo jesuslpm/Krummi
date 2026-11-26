@@ -665,3 +665,315 @@ fn the_errors_of_a_search() {
         write.commit().unwrap();
     });
 }
+
+/// The values of a column of each fixed-width type for [`the_filters_order_every_fixed_width_type`], in the order of
+/// N5 of their type, each after the one before.
+fn ascending() -> Vec<(&'static str, ColumnType, Vec<Value<'static>>)> {
+    use krummi::ids::{Ulid, Uuid};
+    use krummi::table::value::{
+        DATE_MAX, DATE_MIN, DURATION_MAX, Decimal, TIME_MAX, TIMESTAMP_MAX, TIMESTAMP_MIN,
+        UuidOrder,
+    };
+    let dec = |mantissa: i128| Value::Decimal(Decimal { mantissa, scale: 3 });
+    let bytes = |at: &[(usize, u8)]| {
+        let mut b = [0u8; 16];
+        for &(i, v) in at {
+            b[i] = v;
+        }
+        b
+    };
+    let max = 10i128.pow(20) - 1;
+    vec![
+        (
+            "b",
+            ColumnType::Bool,
+            vec![Value::Bool(false), Value::Bool(true)],
+        ),
+        (
+            "i8",
+            ColumnType::I8,
+            [i8::MIN, -1, 0, 1, i8::MAX].map(Value::I8).to_vec(),
+        ),
+        (
+            "i16",
+            ColumnType::I16,
+            [i16::MIN, -300, 0, 300, i16::MAX].map(Value::I16).to_vec(),
+        ),
+        (
+            "i32",
+            ColumnType::I32,
+            [i32::MIN, -70_000, 0, 1, i32::MAX].map(Value::I32).to_vec(),
+        ),
+        (
+            "i64",
+            ColumnType::I64,
+            [i64::MIN, -(1 << 40), -256, -255, -1, 0, 255, 256, i64::MAX]
+                .map(Value::I64)
+                .to_vec(),
+        ),
+        (
+            "u8",
+            ColumnType::U8,
+            [0, 1, 200, u8::MAX].map(Value::U8).to_vec(),
+        ),
+        (
+            "u16",
+            ColumnType::U16,
+            [0, 1, 256, u16::MAX].map(Value::U16).to_vec(),
+        ),
+        (
+            "u32",
+            ColumnType::U32,
+            [0, 1 << 16, u32::MAX].map(Value::U32).to_vec(),
+        ),
+        (
+            "u64",
+            ColumnType::U64,
+            [0, 1 << 40, 1 << 63, u64::MAX].map(Value::U64).to_vec(),
+        ),
+        (
+            "f32",
+            ColumnType::F32,
+            [
+                f32::NEG_INFINITY,
+                -1e30,
+                -1.5,
+                0.0,
+                1e-30,
+                2.5,
+                f32::INFINITY,
+                f32::NAN,
+            ]
+            .map(Value::F32)
+            .to_vec(),
+        ),
+        (
+            "f64",
+            ColumnType::F64,
+            [
+                f64::NEG_INFINITY,
+                -1e300,
+                -1.5,
+                0.0,
+                1e-300,
+                2.5,
+                f64::INFINITY,
+                f64::NAN,
+            ]
+            .map(Value::F64)
+            .to_vec(),
+        ),
+        (
+            "dec",
+            ColumnType::Decimal {
+                precision: 20,
+                scale: 3,
+            },
+            [-max, -1500, -1, 0, 1, max].map(dec).to_vec(),
+        ),
+        (
+            "date",
+            ColumnType::Date,
+            [DATE_MIN, -1, 0, DATE_MAX].map(Value::Date).to_vec(),
+        ),
+        (
+            "time",
+            ColumnType::Time,
+            [0, 1, TIME_MAX].map(Value::Time).to_vec(),
+        ),
+        (
+            "ts",
+            ColumnType::Timestamp,
+            [TIMESTAMP_MIN, -1, 0, TIMESTAMP_MAX]
+                .map(Value::Timestamp)
+                .to_vec(),
+        ),
+        (
+            "dur",
+            ColumnType::Duration,
+            [-DURATION_MAX, -1, 0, DURATION_MAX]
+                .map(Value::Duration)
+                .to_vec(),
+        ),
+        (
+            "uuid_rfc",
+            ColumnType::Uuid(UuidOrder::Rfc9562),
+            [bytes(&[]), bytes(&[(15, 1)]), bytes(&[(0, 1)]), [0xFF; 16]]
+                .map(|b| Value::Uuid(Uuid(b)))
+                .to_vec(),
+        ),
+        // SQL Server compares bytes 10 to 15 first and byte 0 last.
+        (
+            "uuid_sql",
+            ColumnType::Uuid(UuidOrder::SqlServer),
+            [
+                bytes(&[]),
+                bytes(&[(0, 0xFF)]),
+                bytes(&[(3, 1)]),
+                bytes(&[(10, 1)]),
+                [0xFF; 16],
+            ]
+            .map(|b| Value::Uuid(Uuid(b)))
+            .to_vec(),
+        ),
+        (
+            "ulid",
+            ColumnType::Ulid,
+            [bytes(&[]), bytes(&[(15, 1)]), bytes(&[(0, 1)]), [0xFF; 16]]
+                .map(|b| Value::Ulid(Ulid(b)))
+                .to_vec(),
+        ),
+    ]
+}
+
+/// A condition of [`the_filters_order_every_fixed_width_type`] and the positions of its column's list it passes.
+type Ordered<'a> = (FilterCondition<'a>, Box<dyn Fn(usize) -> bool>);
+
+/// The conditions on the column `name` whose list is `values`, of type `ty`.
+fn ordered_cases<'a>(
+    name: &'a str,
+    ty: &ColumnType,
+    values: &[Value<'static>],
+) -> Vec<Ordered<'a>> {
+    let len = values.len();
+    let v = |i: usize| values[i].clone();
+    let mut cases: Vec<Ordered<'a>> = Vec::new();
+    for j in 0..len {
+        cases.push((
+            FilterCondition::Equal {
+                column: name,
+                value: v(j),
+            },
+            Box::new(move |i| i == j),
+        ));
+    }
+    cases.push((
+        FilterCondition::Range {
+            column: name,
+            lower: Bound::Included(v(1)),
+            upper: Bound::Excluded(v(len - 1)),
+        },
+        Box::new(move |i| (1..len - 1).contains(&i)),
+    ));
+    cases.push((
+        FilterCondition::Range {
+            column: name,
+            lower: Bound::Excluded(v(0)),
+            upper: Bound::Unbounded,
+        },
+        Box::new(|i| i > 0),
+    ));
+    cases.push((
+        FilterCondition::Range {
+            column: name,
+            lower: Bound::Unbounded,
+            upper: Bound::Included(v(len - 2)),
+        },
+        Box::new(move |i| i <= len - 2),
+    ));
+    cases.push((
+        FilterCondition::In {
+            column: name,
+            values: vec![v(len - 1), v(0), v(0), Value::Null],
+        },
+        Box::new(move |i| i == 0 || i == len - 1),
+    ));
+    cases.push((
+        FilterCondition::NotIn {
+            column: name,
+            values: vec![v(1), v(len - 1)],
+        },
+        Box::new(move |i| i != 1 && i != len - 1),
+    ));
+    cases.push((
+        FilterCondition::NotIn {
+            column: name,
+            values: vec![v(1), Value::Null],
+        },
+        Box::new(|_| false),
+    ));
+    // `-0` is the same value as `+0` (N4).
+    let zero = values
+        .iter()
+        .position(|value| matches!(value, Value::F32(0.0) | Value::F64(0.0)));
+    if let Some(zero) = zero {
+        let negative = match ty {
+            ColumnType::F32 => Value::F32(-0.0),
+            _ => Value::F64(-0.0),
+        };
+        cases.push((
+            FilterCondition::Equal {
+                column: name,
+                value: negative,
+            },
+            Box::new(move |i| i == zero),
+        ));
+    }
+    cases
+}
+
+/// VI7 and N5: on a column of each fixed-width type, with nulls, with and without a secondary index over it, every
+/// class of condition passes the rows SQL passes in the order of the type: the extremes, negative and positive values,
+/// the infinities, a NaN (above every other float) and `-0` (the same as `+0`); a NOT IN with a null lets no row pass,
+/// and a null in an IN list passes nothing by itself.
+#[test]
+fn the_filters_order_every_fixed_width_type() {
+    let columns = ascending();
+    let mut schema_columns = vec![
+        Column::new("id", ColumnType::I64).not_null(),
+        Column::new("v", ColumnType::Vector(f32_vector(1, false))),
+    ];
+    schema_columns.extend(columns.iter().map(|(name, ty, _)| Column::new(*name, *ty)));
+    let schema = Schema::new(schema_columns, &["id"]);
+    // Row `id` holds, in each column, the value at `id % (len + 1)` of its list, or a null at `len`.
+    let rows = 60i64;
+    let at = |id: i64, len: usize| usize::try_from(id).unwrap() % (len + 1);
+    for with_indexes in [false, true] {
+        stores(|store, _| {
+            let mut write = store.write().unwrap();
+            let table = write
+                .open_table_with("t", TableMode::CreateNew(&schema))
+                .unwrap();
+            for id in 0..rows {
+                let mut row = vec![("id", Value::I64(id)), ("v", vector(&[id as f32]))];
+                for (name, _, values) in &columns {
+                    let value = values.get(at(id, values.len())).cloned();
+                    row.push((*name, value.unwrap_or(Value::Null)));
+                }
+                write.insert_row(&table, &row).unwrap();
+            }
+            if with_indexes {
+                for (name, _, _) in &columns {
+                    let definition =
+                        IndexDefinition::new(format!("by_{name}"), vec![IndexKey::new(*name)]);
+                    write
+                        .create_index(&table, &definition, IndexMode::CreateNew)
+                        .unwrap();
+                }
+            }
+            write.commit().unwrap();
+            let read = store.read().unwrap();
+            let table = read.open_table("t").unwrap();
+            for (name, ty, values) in &columns {
+                let len = values.len();
+                for (case, (condition, pass)) in
+                    ordered_cases(name, ty, values).into_iter().enumerate()
+                {
+                    let query =
+                        Nearest::new(vector(&[0.0]), rows as usize).with_filter(vec![condition]);
+                    let found = read
+                        .nearest_exact(&table, "v", VectorMetric::L2, &query)
+                        .unwrap();
+                    let wanted: Vec<i64> = (0..rows)
+                        .filter(|&id| at(id, len) < len && pass(at(id, len)))
+                        .collect();
+                    assert_eq!(
+                        ids(&found),
+                        wanted,
+                        "{name} case {case}, indexes {with_indexes}"
+                    );
+                }
+            }
+        });
+    }
+}

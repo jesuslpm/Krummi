@@ -548,24 +548,12 @@ fn encode_element(ty: &ColumnType, value: &Value<'_>, key: &mut Vec<u8>) -> bool
     match (ty, value) {
         (ColumnType::Bool, Value::Bool(v)) => key.push(if *v { TRUE } else { FALSE }),
         (ColumnType::F32, Value::F32(v)) => {
-            let bits = v.to_bits();
-            let ordered = if bits >> 31 == 1 {
-                !bits
-            } else {
-                bits ^ (1 << 31)
-            };
             key.push(F32);
-            key.extend(ordered.to_be_bytes());
+            key.extend(ordered_f32(*v).to_be_bytes());
         }
         (ColumnType::F64, Value::F64(v)) => {
-            let bits = v.to_bits();
-            let ordered = if bits >> 63 == 1 {
-                !bits
-            } else {
-                bits ^ (1 << 63)
-            };
             key.push(F64);
-            key.extend(ordered.to_be_bytes());
+            key.extend(ordered_f64(*v).to_be_bytes());
         }
         (ColumnType::Decimal { .. }, Value::Decimal(d)) => {
             key.push(DECIMAL);
@@ -613,6 +601,64 @@ fn encode_element(ty: &ColumnType, value: &Value<'_>, key: &mut Vec<u8>) -> bool
         _ => return false,
     }
     true
+}
+
+/// For a value of a fixed-width type other than text, a number that orders and equals as the bytes of its element in
+/// an ascending column of `ty` (`encode_element`): the same integer, float bits, mantissa or bytes, read so that
+/// comparing the numbers compares the elements. `None` for a value that is not of type `ty`, or a type of another
+/// width, whose element `encode_element` gives.
+#[inline]
+pub(crate) fn element_rank(ty: &ColumnType, value: &Value<'_>) -> Option<u128> {
+    const SIGN: u128 = 1 << 127;
+    Some(match (ty, value) {
+        (ColumnType::Bool, Value::Bool(v)) => u128::from(*v),
+        (ColumnType::F32, Value::F32(v)) => u128::from(ordered_f32(*v)),
+        (ColumnType::F64, Value::F64(v)) => u128::from(ordered_f64(*v)),
+        (ColumnType::Decimal { .. }, Value::Decimal(d)) => (d.mantissa as u128) ^ SIGN,
+        (ColumnType::Uuid(order), Value::Uuid(uuid)) => u128::from_be_bytes(match order {
+            UuidOrder::Rfc9562 => uuid.0,
+            UuidOrder::SqlServer => SQL_SERVER.map(|i| uuid.0[i]),
+        }),
+        (ColumnType::Ulid, Value::Ulid(ulid)) => u128::from_be_bytes(ulid.0),
+        (
+            ColumnType::I8
+            | ColumnType::I16
+            | ColumnType::I32
+            | ColumnType::I64
+            | ColumnType::U8
+            | ColumnType::U16
+            | ColumnType::U32
+            | ColumnType::U64
+            | ColumnType::Date
+            | ColumnType::Time
+            | ColumnType::Timestamp
+            | ColumnType::Duration,
+            _,
+        ) if is_of_type(ty, value) => (integer(value)? as u128) ^ SIGN,
+        _ => return None,
+    })
+}
+
+/// The bits of `v` in the order of the floats: the sign bit flipped for a positive one, every bit for a negative one.
+#[inline]
+fn ordered_f32(v: f32) -> u32 {
+    let bits = v.to_bits();
+    if bits >> 31 == 1 {
+        !bits
+    } else {
+        bits ^ (1 << 31)
+    }
+}
+
+/// As [`ordered_f32`], for an `f64`.
+#[inline]
+fn ordered_f64(v: f64) -> u64 {
+    let bits = v.to_bits();
+    if bits >> 63 == 1 {
+        !bits
+    } else {
+        bits ^ (1 << 63)
+    }
 }
 
 fn escape(code: u8, bytes: &[u8], key: &mut Vec<u8>) {
@@ -805,4 +851,172 @@ fn decode_integer(ty: &ColumnType, code: u8, rest: &mut &[u8]) -> Option<Value<'
         ColumnType::Duration => Value::Duration(v.try_into().ok()?),
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::*;
+
+    /// Values of `ty` for the comparisons: its extremes, its neighbours of zero and pseudo-random ones, every bit
+    /// pattern for a float (NaNs and `-0` included), valid or not for the column.
+    fn values(ty: &ColumnType) -> Vec<Value<'static>> {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut words: Vec<u64> = vec![
+            0,
+            1,
+            2,
+            255,
+            256,
+            65_535,
+            1 << 31,
+            1 << 32,
+            1 << 63,
+            u64::MAX,
+            u64::MAX - 1,
+        ];
+        for _ in 0..60 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            words.push(state);
+            words.push(state >> (state % 61));
+        }
+        let signed = |w: u64| w as i64;
+        let bytes = |w: u64| {
+            let mut b = [0u8; 16];
+            b[..8].copy_from_slice(&w.to_le_bytes());
+            b[8..].copy_from_slice(&w.rotate_left(17).to_be_bytes());
+            b
+        };
+        let words = words.into_iter();
+        match ty {
+            ColumnType::Bool => vec![Value::Bool(false), Value::Bool(true)],
+            ColumnType::I8 => words.map(|w| Value::I8(w as i8)).collect(),
+            ColumnType::I16 => words.map(|w| Value::I16(w as i16)).collect(),
+            ColumnType::I32 => words.map(|w| Value::I32(w as i32)).collect(),
+            ColumnType::I64 => words
+                .flat_map(|w| [Value::I64(signed(w)), Value::I64(-signed(w >> 1))])
+                .collect(),
+            ColumnType::U8 => words.map(|w| Value::U8(w as u8)).collect(),
+            ColumnType::U16 => words.map(|w| Value::U16(w as u16)).collect(),
+            ColumnType::U32 => words.map(|w| Value::U32(w as u32)).collect(),
+            ColumnType::U64 => words.map(Value::U64).collect(),
+            ColumnType::F32 => words
+                .map(|w| Value::F32(f32::from_bits(w as u32)))
+                .chain(
+                    [
+                        0.0,
+                        -0.0,
+                        f32::NAN,
+                        -f32::NAN,
+                        f32::INFINITY,
+                        f32::NEG_INFINITY,
+                    ]
+                    .map(Value::F32),
+                )
+                .collect(),
+            ColumnType::F64 => words
+                .map(|w| Value::F64(f64::from_bits(w)))
+                .chain(
+                    [
+                        0.0,
+                        -0.0,
+                        f64::NAN,
+                        -f64::NAN,
+                        f64::INFINITY,
+                        f64::NEG_INFINITY,
+                    ]
+                    .map(Value::F64),
+                )
+                .collect(),
+            ColumnType::Decimal { scale, .. } => words
+                .flat_map(|w| [i128::from(signed(w)), -i128::from(w) * 1_000_003])
+                .map(|mantissa| {
+                    Value::Decimal(super::super::value::Decimal {
+                        mantissa,
+                        scale: *scale,
+                    })
+                })
+                .collect(),
+            ColumnType::Date => words.map(|w| Value::Date(w as i32)).collect(),
+            ColumnType::Time => words.map(|w| Value::Time(signed(w))).collect(),
+            ColumnType::Timestamp => words.map(|w| Value::Timestamp(signed(w))).collect(),
+            ColumnType::Duration => words.map(|w| Value::Duration(signed(w))).collect(),
+            ColumnType::Uuid(_) => words.map(|w| Value::Uuid(Uuid(bytes(w)))).collect(),
+            ColumnType::Ulid => words.map(|w| Value::Ulid(Ulid(bytes(w)))).collect(),
+            _ => unreachable!("a fixed-width type"),
+        }
+    }
+
+    /// The rank of a value of each fixed-width type other than text orders and equals as its element in an ascending
+    /// column: for every pair of values, comparing the ranks gives what comparing the encoded elements gives.
+    #[test]
+    fn element_ranks_order_as_the_elements() {
+        let types = [
+            ColumnType::Bool,
+            ColumnType::I8,
+            ColumnType::I16,
+            ColumnType::I32,
+            ColumnType::I64,
+            ColumnType::U8,
+            ColumnType::U16,
+            ColumnType::U32,
+            ColumnType::U64,
+            ColumnType::F32,
+            ColumnType::F64,
+            ColumnType::Decimal {
+                precision: 38,
+                scale: 2,
+            },
+            ColumnType::Date,
+            ColumnType::Time,
+            ColumnType::Timestamp,
+            ColumnType::Duration,
+            ColumnType::Uuid(UuidOrder::Rfc9562),
+            ColumnType::Uuid(UuidOrder::SqlServer),
+            ColumnType::Ulid,
+        ];
+        for ty in types {
+            let column = KeyColumn::primary(ty);
+            let encoded: Vec<(u128, Vec<u8>)> = (values(&ty).iter())
+                .map(|value| {
+                    let mut element = Vec::new();
+                    column.encode(value, &mut element).unwrap();
+                    (element_rank(&ty, value).expect("a rank"), element)
+                })
+                .collect();
+            for (a_rank, a) in &encoded {
+                for (b_rank, b) in &encoded {
+                    assert_eq!(a_rank.cmp(b_rank), a.cmp(b), "{ty}: {a:?} {b:?}");
+                }
+            }
+        }
+    }
+
+    /// A value of another type than the column's has no rank, as its element fails to encode; a text, bytes or vector
+    /// has none either, its element being of its own width.
+    #[test]
+    fn a_value_of_another_type_has_no_rank() {
+        for (ty, value) in [
+            (ColumnType::String, Value::String("a".into())),
+            (ColumnType::Bytes, Value::Bytes(vec![1].into())),
+        ] {
+            assert_eq!(element_rank(&ty, &value), None, "{ty}");
+        }
+        for (ty, value) in [
+            (ColumnType::I64, Value::I32(1)),
+            (ColumnType::U8, Value::I8(1)),
+            (ColumnType::Date, Value::I32(1)),
+            (ColumnType::F64, Value::F32(1.0)),
+            (ColumnType::Ulid, Value::Uuid(Uuid([0; 16]))),
+            (ColumnType::Bool, Value::I8(0)),
+        ] {
+            assert_eq!(element_rank(&ty, &value), None, "{ty}");
+            let mut element = Vec::new();
+            assert!(
+                KeyColumn::primary(ty).encode(&value, &mut element).is_err(),
+                "{ty}"
+            );
+        }
+    }
 }
