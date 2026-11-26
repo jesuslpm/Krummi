@@ -4,8 +4,70 @@ Informe de cierre de `table-scans` (2026-11-26). Forma de ejecución: ODD. Orige
 `work/handoff/perf-scan-prompt.md` (mejora de rendimiento sin cambio de producto, sin PRD). Documento de ejecución:
 [table-scans.md](table-scans.md).
 
-Rama `perf/table-scans`, creada desde `feat/tables-vector-indexes` (`76d8820`), con 11 commits hasta `137802c0`, más el
-de este informe y el del archivado. No se fusionó ni se subió nada.
+Rama `perf/table-scans`, creada desde `feat/tables-vector-indexes` (`76d8820`) y rebasada después sobre
+`d519e9a5`, que está 13 commits más adelante. No se fusionó ni se subió nada.
+
+Los hashes de este informe son los de antes del rebase, que son los que revisaron RDD y Codex. Sus equivalentes tras
+el rebase son:
+
+| Antes | Después | Commit |
+|---|---|---|
+| `69a00a8a` | `78e9af33` | La tabla de nodos comprobados |
+| `786cd324` | `b712df05` | Lectura de columnas fijas (revertida) |
+| `ddd950f7` | `5e2bcad0` | Su reversión |
+| `2ef2e8ad` | `9b1676b0` | Búsqueda por nombre |
+| `0541b9c2` | `0d9ad3c1` | El filtro por rango |
+| `99289503` | `3580caef` | Comentarios |
+| `19f1e784` | `4d04745a` | Corrección de R1 |
+
+Los commits de documentos siguen el mismo orden.
+
+## Tras el rebase sobre `d519e9a5`
+
+El rebase aplicó los 15 commits sin conflictos (L17).
+
+**Checks en Windows**, sobre `6bc23bd8`:
+- fmt y clippy del workspace, limpios;
+- `cargo test --workspace --no-fail-fast`: 1.346 superados y 4 fallados. Son los tres fallos ambientales conocidos y
+  `table_statistics::codex::r13_analyze_without_memory_for_its_snapshot_changes_nothing`. Esta última es
+  intermitente: después pasó 6 de 6 veces con su binario entero. La causa está en la base: el trabajador de índices
+  vectoriales, que ahora arranca al abrir el almacén, adopta el contexto de fallos de la prueba y puede consumir el
+  fallo de instantánea que la prueba inyecta para `analyze`.
+
+**Medidas nuevas** en WSL (L18, `work/ts/rebase/`).
+
+La base nueva, sola, en 3 rondas:
+
+| Recorrido | Mediana |
+|---|---|
+| nearest | 171,7 ms |
+| scan | 160,2 ms |
+| scanv | 160,6 ms |
+| scanp | 102,0 ms |
+| tscan | 91,7 ms |
+| tscanp | 34,7 ms |
+| iscanp | 1.181,8 ms |
+
+El A/B de la base nueva contra la rama, en 3 rondas alternadas:
+
+| Recorrido | Base nueva | Rama | Rama / base |
+|---|---|---|---|
+| `nearest` | 175,4 ms | 136,3 ms | 0,777 |
+| `scan` | 161,3 ms | 116,8 ms | 0,724 |
+| `scanv` | 159,6 ms | 115,6 ms | 0,724 |
+| `scanp` | 101,6 ms | 84,4 ms | 0,830 |
+| `tscan` | 91,6 ms | 66,5 ms | 0,726 |
+| `tscanp` | 34,6 ms | 34,6 ms | 0,998 |
+| `iscanp` | 1.185,9 ms | 1.187,6 ms | 1,001 |
+
+En el banco, en 3 rondas, todas las cargas dieron entre 0,989 y 1,011, salvo W26, con 0,964. W26 se repitió en 10
+rondas y dio 0,990, con la rama más lenta en 5 de 10: es ruido.
+
+Las mejoras se mantienen sobre la base nueva.
+
+**Tiempo del rebase:** la estimación era de 2 h a 3 h 30 min. Fue de 12:46:44 a 14:12:07, es decir 1 h 25 min activos.
+Con eso, el registro de fases suma 5 h 41 min activos para toda la ejecución. La pausa entre las dos sesiones (13 min
+40 s) no cuenta.
 
 ## Resultado
 
