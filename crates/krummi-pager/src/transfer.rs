@@ -59,7 +59,7 @@ pub(crate) struct Signal {
     state: Mutex<SignalState>,
     /// Wakes the transfer thread.
     wake: Condvar,
-    /// Wakes the callers waiting for a demand.
+    /// Wakes the callers waiting for a demand, or for a pass to end to pause the thread.
     answered: Condvar,
     /// Whether the transfer thread is running, changed under the lock (tests too).
     alive: Arc<AtomicBool>,
@@ -76,6 +76,8 @@ struct SignalState {
     stop: bool,
     /// No pass starts while set, but demands are served (tests).
     paused: bool,
+    /// The thread took a pass and has not ended it: pausing waits for it (tests).
+    passing: bool,
     pacing: Pacing,
     /// Demands waiting for the thread, with their tickets.
     demands: VecDeque<(u64, Demand)>,
@@ -117,6 +119,7 @@ impl Signal {
                 kept: 0,
                 stop: false,
                 paused: false,
+                passing: false,
                 pacing: Pacing::default(),
                 demands: VecDeque::new(),
                 next_ticket: 0,
@@ -180,10 +183,20 @@ impl Signal {
         self.wake.notify_one();
     }
 
-    /// Stops the thread from starting passes, or lets it go on (tests).
+    /// Stops the thread from starting passes, waiting for the pass it took, if any, to end; or lets it go on (tests).
+    /// A pass taken may not have started writing yet, so a pause that only waited for the writing could return
+    /// before the pass writes (R1 of the ci-green code review).
     pub(crate) fn set_paused(&self, paused: bool) {
-        self.lock().paused = paused;
+        let mut state = self.lock();
+        state.paused = paused;
         self.wake.notify_one();
+        // A thread that ends during the pass, by a panic, ends it too.
+        while paused && state.passing && self.alive.load(Ordering::Acquire) {
+            state = self
+                .answered
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
     }
 
     pub(crate) fn set_pacing(&self, pacing: Pacing) {
@@ -197,13 +210,18 @@ impl Signal {
     }
 
     /// Records what the thread's last work left: `kept` bytes in the scratch area, and whether to try a pass
-    /// again, once the pass interval is over. Only the thread calls it, so nobody needs waking.
+    /// again, once the pass interval is over. Only the thread calls it, so only a pause waiting for the pass to end
+    /// needs waking.
     fn after_work(&self, kept: u64, retry: bool) {
         let mut state = self.lock();
         state.kept = kept;
         if retry {
             let at = state.ready();
             state.ask(at);
+        }
+        if std::mem::take(&mut state.passing) {
+            drop(state);
+            self.answered.notify_all();
         }
     }
 
@@ -236,6 +254,7 @@ impl Signal {
         // Signals raised from here on ask for the next pass: this one may have built its list before them.
         state.due = None;
         state.last_pass = Some(Instant::now());
+        state.passing = true;
         Work::Pass
     }
 
@@ -310,5 +329,46 @@ fn run(signal: &Signal, shared: &Shared) {
             shared.report_failure();
         }
         signal.after_work(shared.scratch_bytes(), retry);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pausing waits for a pass the thread has taken but not yet ended, so no write of that pass follows the pause
+    /// (R1 of the ci-green code review); a thread that ends during the pass, by a panic, releases the wait.
+    #[test]
+    fn pausing_waits_for_a_pass_already_taken() {
+        let signal = Arc::new(Signal::new());
+        signal.alive.store(true, Ordering::Release);
+        for thread_ends in [false, true] {
+            signal.set_paused(false);
+            signal.raise(u64::MAX);
+            assert!(matches!(signal.next_work(false), Work::Pass));
+            let (paused, done) = mpsc::channel();
+            let pauser = {
+                let signal = Arc::clone(&signal);
+                std::thread::spawn(move || {
+                    signal.set_paused(true);
+                    paused.send(()).unwrap();
+                })
+            };
+            assert!(
+                done.recv_timeout(Duration::from_millis(200)).is_err(),
+                "the pause waits for the pass"
+            );
+            if thread_ends {
+                drop(Alive(Arc::clone(&signal)));
+            } else {
+                signal.after_work(0, false);
+            }
+            done.recv_timeout(Duration::from_secs(10)).unwrap();
+            pauser.join().unwrap();
+            if thread_ends {
+                // With the thread gone, pausing again never waits, though its last pass is still marked as taken.
+                signal.set_paused(true);
+            }
+        }
     }
 }
