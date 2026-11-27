@@ -299,6 +299,29 @@ mod tests {
         assert!(zeroed_words(0).unwrap().is_empty());
     }
 
+    /// P13: a table the system does not provide is the out-of-memory class with the bytes it asked for, and a table
+    /// that no address space holds fails the same way without asking.
+    #[test]
+    fn a_table_without_memory_is_out_of_memory() {
+        use crate::sys::Op;
+        use crate::sys::faults::{self, Action};
+        faults::reset();
+        faults::inject(Op::Alloc, 0, Action::Fail(std::io::ErrorKind::OutOfMemory));
+        let error = zeroed_words(CHECKED_SLOTS).err().unwrap();
+        faults::reset();
+        assert!(matches!(
+            error,
+            Error::OutOfMemory { requested } if requested == (CHECKED_SLOTS * 8) as u64
+        ));
+        let error = zeroed_words(usize::MAX).err().unwrap();
+        assert!(matches!(
+            error,
+            Error::OutOfMemory {
+                requested: u64::MAX
+            }
+        ));
+    }
+
     /// A table of four slots.
     fn small_table() -> Checked {
         Checked {
