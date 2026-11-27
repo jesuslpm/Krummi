@@ -12,8 +12,9 @@
 #   bench  cargo run --release -p krummi-bench -- [arguments]
 #   run    the arguments as a command (examples, perf record, anything else)
 #
+# A commit whose .github/workflows/ci.yml sets RUST_TOOLCHAIN runs with that version.
 # Everything lives under $KRUMMI_RUNNER_HOME (default ~/krummi-runner): repo.git (receives the pushes), src (the
-# checkout, reset on every run), target (build cache) and results/<run> (output.log, meta.txt and whatever the task
+# checkout, reset on every run), target (build cache), rustup (its own Rust) and results/<run> (output.log, meta.txt and whatever the task
 # writes to $KRUMMI_RESULTS). One run at a time, so that measurements do not disturb each other.
 # Exit status: the task's; 2 usage error; 3 another run is in progress.
 set -euo pipefail
@@ -66,6 +67,15 @@ git fetch -q "$home/repo.git" '+refs/runner/*:refs/runner/*'
 git checkout -q --force --detach "$commit"
 # Twice -f: a repository that a task left inside the checkout goes too.
 git clean -qffdx
+
+# The Rust version of the commit's CI, from a Rust installation that only the runner touches: what the user or an
+# editor adds to their own (rust-src changes compiler messages) must not change a result.
+toolchain="$(sed -n 's/^ *RUST_TOOLCHAIN: *"\([^"]*\)".*/\1/p' .github/workflows/ci.yml 2>/dev/null || true)"
+if [ -n "$toolchain" ]; then
+    export RUSTUP_HOME="$home/rustup" RUSTUP_TOOLCHAIN="$toolchain"
+    rustup toolchain list | grep -q "^$toolchain-" ||
+        rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy
+fi
 
 started="$(date -u +%Y%m%dT%H%M%S.%3NZ)"
 export KRUMMI_RESULTS="$home/results/$started-${commit:0:12}-$task"

@@ -69,6 +69,33 @@ check "an unknown commit fails" test "$?" -ne 0
 bash "$runner" nonsense "$second" >/dev/null 2>&1
 check "an unknown task is a usage error" test "$?" -eq 2
 
+# A commit whose CI pins a Rust version is run with that version, from a Rust installation of the runner's own, so
+# that nothing added to the user's installation (rust-src, for one) changes its results.
+mkdir -p "$scratch/user/.cargo/bin"
+cat >"$scratch/user/.cargo/bin/rustup" <<'SHIM'
+#!/usr/bin/env bash
+echo "$RUSTUP_HOME $*" >>"$HOME/rustup.log"
+[ "$1 $2" = "toolchain list" ] && cat "$RUSTUP_HOME/installed" 2>/dev/null
+[ "$1 $2" = "toolchain install" ] && mkdir -p "$RUSTUP_HOME" && echo "$3-host" >>"$RUSTUP_HOME/installed"
+exit 0
+SHIM
+chmod +x "$scratch/user/.cargo/bin/rustup"
+mkdir -p "$scratch/src/.github/workflows"
+printf 'env:\n  RUST_TOOLCHAIN: "1.2.3"\n' >"$scratch/src/.github/workflows/ci.yml"
+git -C "$scratch/src" add .github && git -C "$scratch/src" commit -qm ci
+pinned=$(git -C "$scratch/src" rev-parse HEAD)
+git -C "$scratch/src" push -q "$KRUMMI_RUNNER_HOME/repo.git" "$pinned:refs/runner/$pinned"
+show='echo "$RUSTUP_TOOLCHAIN|$RUSTUP_HOME"'
+out=$(HOME="$scratch/user" bash "$runner" run "$pinned" -- "$show"); dir=$(results_of "$out")
+check "the task uses the version of the commit's CI, from the runner's Rust" \
+    grep -qxF "1.2.3|$KRUMMI_RUNNER_HOME/rustup" "$dir/output.log"
+check "a missing version is installed there, with rustfmt and clippy" \
+    grep -qxF "$KRUMMI_RUNNER_HOME/rustup toolchain install 1.2.3 --profile minimal --component rustfmt,clippy" "$scratch/user/rustup.log"
+HOME="$scratch/user" bash "$runner" run "$pinned" -- true >/dev/null
+check "an installed version is not installed again" test "$(grep -c 'toolchain install' "$scratch/user/rustup.log")" -eq 1
+out=$(env -u RUSTUP_TOOLCHAIN -u RUSTUP_HOME bash "$runner" run "$second" -- "$show")
+check "a commit without a pinned version keeps the user's Rust" grep -qxF '|' "$(results_of "$out")/output.log"
+
 failed_inits=0
 for attempt in $(seq 40); do
     KRUMMI_RUNNER_HOME="$scratch/cold$attempt" bash "$runner" init >/dev/null 2>&1 &
