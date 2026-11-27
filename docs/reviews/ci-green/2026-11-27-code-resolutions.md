@@ -50,3 +50,12 @@ verification).
   Independent verifier: PASS on "no pass taken before the pause writes after it", "the pause never hangs" and
   "production behavior unchanged". RDD review `review-c3f511c408f7ac2d` (resilience, reliability) approved.
 - Status: claimed fixed, unverified until a follow-up review.
+
+## 2026-11-27 (verification)
+
+Review record: [2026-11-27-code-02.md](2026-11-27-code-02.md), follow-up of `508057df..886e4be8`; wrapper status
+`approved`; `threadId` `01a21e26-094d-7b30-aac0-bc8a2bf61365`; telemetry: coordinator `gpt-6.1-sol` / `high`,
+reviewer `krummi-review-critical` `gpt-6-astra` / `xhigh`. Verdict: "Approved — R1 verified resolved; no open
+findings or regressions in the requested follow-up scope."
+
+- R1: "verified resolved at the reviewed head by the two fix commits above."
