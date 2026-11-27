@@ -38,6 +38,7 @@ fn valid() -> TableSchema {
         schema_state: 99,
         indexes: Vec::new(),
         index_state: 98,
+        vector_indexes: Vec::new(),
     }
 }
 
@@ -45,8 +46,8 @@ fn valid() -> TableSchema {
 fn a_valid_schema_decodes_as_it_was_encoded() {
     let schema = valid();
     assert_eq!(
-        TableSchema::decode(1, &schema.encode(5, &[], TableStats::default())),
-        Some((schema.clone(), 5, vec![], TableStats::default()))
+        TableSchema::decode(1, &schema.encode(5, &[], &[], TableStats::default())),
+        Some((schema.clone(), 5, vec![], vec![], TableStats::default()))
     );
     // ST13 of the statistics PRD: the counter, the statistics tree and the last emptying come back.
     let stats = TableStats {
@@ -55,8 +56,8 @@ fn a_valid_schema_decodes_as_it_was_encoded() {
         emptied: 1_000,
     };
     assert_eq!(
-        TableSchema::decode(1, &schema.encode(5, &[], stats)),
-        Some((schema, 5, vec![], stats))
+        TableSchema::decode(1, &schema.encode(5, &[], &[], stats)),
+        Some((schema, 5, vec![], vec![], stats))
     );
 }
 
@@ -67,10 +68,10 @@ fn a_collation_decodes_as_it_was_encoded() {
     for collation in [Collation::Ci, Collation::CiAi] {
         let mut schema = valid();
         schema.columns[1].collation = Some(collation);
-        let bytes = schema.encode(5, &[], TableStats::default());
+        let bytes = schema.encode(5, &[], &[], TableStats::default());
         assert_eq!(
             TableSchema::decode(1, &bytes),
-            Some((schema.clone(), 5, vec![], TableStats::default()))
+            Some((schema.clone(), 5, vec![], vec![], TableStats::default()))
         );
         assert_eq!(bytes.len(), schema.stored_len(), "{collation}");
         // The byte after the flags of `name`: its name, its one-byte type code, its flags.
@@ -112,7 +113,7 @@ fn a_decoded_schema_that_breaks_e5_is_damage() {
         let mut schema = valid();
         break_it(&mut schema);
         assert_eq!(
-            TableSchema::decode(1, &schema.encode(5, &[], TableStats::default())),
+            TableSchema::decode(1, &schema.encode(5, &[], &[], TableStats::default())),
             None,
             "{label}"
         );
@@ -122,7 +123,7 @@ fn a_decoded_schema_that_breaks_e5_is_damage() {
 /// G6: bytes that are not a schema, whatever they are, decode as `None` and never panic.
 #[test]
 fn garbage_never_panics() {
-    let encoded = valid().encode(5, &[], TableStats::default());
+    let encoded = valid().encode(5, &[], &[], TableStats::default());
     let mut state = 0x2545_f491_4f6c_dd1du64;
     let mut next = || {
         state ^= state << 13;
@@ -149,7 +150,7 @@ fn garbage_never_panics() {
                     .collect()
             }
         }
-        if let Some((schema, _, _, _)) = TableSchema::decode(1, &bytes) {
+        if let Some((schema, _, _, _, _)) = TableSchema::decode(1, &bytes) {
             // What decodes keeps E5's invariants.
             assert!(schema.version >= 1);
             assert!(!schema.key.is_empty());
@@ -214,11 +215,11 @@ fn with_indexes() -> TableSchema {
 #[test]
 fn indexes_decode_as_they_were_encoded() {
     let schema = with_indexes();
-    let bytes = schema.encode(5, &[30, 31], TableStats::default());
+    let bytes = schema.encode(5, &[30, 31], &[], TableStats::default());
     assert_eq!(bytes.len(), schema.stored_len());
     assert_eq!(
         TableSchema::decode(1, &bytes),
-        Some((schema, 5, vec![30, 31], TableStats::default()))
+        Some((schema, 5, vec![30, 31], vec![], TableStats::default()))
     );
 }
 
@@ -245,15 +246,15 @@ fn a_decoded_index_that_breaks_its_rules_is_damage() {
         let mut schema = with_indexes();
         break_it(&mut schema);
         assert_eq!(
-            TableSchema::decode(1, &schema.encode(5, &[30, 31], TableStats::default())),
+            TableSchema::decode(1, &schema.encode(5, &[30, 31], &[], TableStats::default())),
             None,
             "{label}"
         );
     }
     // The condition of a partial index is reserved: an index with one is not Krummi's.
-    let mut bytes = with_indexes().encode(5, &[30, 31], TableStats::default());
-    // The condition's length is the last thing before the statistics part.
-    let at = bytes.len() - 24 - 4;
+    let mut bytes = with_indexes().encode(5, &[30, 31], &[], TableStats::default());
+    // The condition's length is the last thing before the statistics part and the number of vector indexes.
+    let at = bytes.len() - 2 - 24 - 4;
     bytes[at..at + 4].copy_from_slice(&1u32.to_le_bytes());
     bytes.insert(at + 4, 0);
     assert_eq!(TableSchema::decode(1, &bytes), None, "a condition");
@@ -265,7 +266,7 @@ fn a_decoded_index_that_breaks_its_rules_is_damage() {
         cosine: false,
     });
     assert_eq!(
-        TableSchema::decode(1, &schema.encode(5, &[30, 31], TableStats::default())),
+        TableSchema::decode(1, &schema.encode(5, &[30, 31], &[], TableStats::default())),
         None,
         "a vector key column"
     );
@@ -305,7 +306,7 @@ fn schema_changes_keep_the_indexes_in_step() {
 fn the_stored_identities_are_the_schemas() {
     let mut schema = with_indexes();
     schema.columns[1].default = Some(Value::String("x".repeat(1 << 16).into()));
-    let bytes = schema.encode(5, &[30, 31], TableStats::default());
+    let bytes = schema.encode(5, &[30, 31], &[], TableStats::default());
     let mut walked = Vec::new();
     assert_eq!(stored_identities(&bytes, |id| walked.push(id)), Some(5));
     let mut expected: Vec<u64> = schema.identities().collect();
@@ -318,4 +319,170 @@ fn the_stored_identities_are_the_schemas() {
     let mut longer = bytes.clone();
     longer.push(0);
     assert_eq!(stored_identities(&longer, |_| {}), None);
+}
+
+/// [`with_indexes`] with three vector columns (`v` f32, `u` f32 cosine, `bits`) and three vector indexes, two over `v`.
+fn with_vector_indexes() -> (TableSchema, Vec<VectorRoots>) {
+    let mut schema = with_indexes();
+    let vector = |id: u64, name: &str, element, cosine| SchemaColumn {
+        id,
+        name: name.into(),
+        ty: ColumnType::Vector(VectorType {
+            element,
+            dimension: 8,
+            cosine,
+        }),
+        nullable: true,
+        default: None,
+        collation: None,
+    };
+    schema
+        .columns
+        .push(vector(13, "v", VectorElement::F32, false));
+    schema
+        .columns
+        .push(vector(14, "u", VectorElement::F32, true));
+    schema
+        .columns
+        .push(vector(15, "bits", VectorElement::Bit, false));
+    let index = |id: u64, name: &str, column: u64, column_name: &str, metric| SchemaVectorIndex {
+        id,
+        name: name.into(),
+        column: SchemaIndexColumn {
+            id: column,
+            name: column_name.into(),
+        },
+        metric,
+    };
+    schema.vector_indexes = vec![
+        index(40, "a_near", 13, "v", VectorMetric::L2),
+        index(41, "b_dot", 13, "v", VectorMetric::Dot),
+        index(42, "c_cos", 14, "u", VectorMetric::Cosine),
+    ];
+    let roots = (0..3)
+        .map(|i| VectorRoots {
+            instance: i,
+            pending: 50 + i,
+            pending_count: 7 * i,
+            data: 60 + i,
+        })
+        .collect();
+    (schema, roots)
+}
+
+/// VI1, VI14: the vector indexes, their identities and their roots decode as they were encoded, and the encoding has
+/// the length that the size check counts.
+#[test]
+fn vector_indexes_decode_as_they_were_encoded() {
+    let (schema, roots) = with_vector_indexes();
+    let bytes = schema.encode(5, &[30, 31], &roots, TableStats::default());
+    assert_eq!(bytes.len(), schema.stored_len());
+    assert_eq!(
+        TableSchema::decode(1, &bytes),
+        Some((schema, 5, vec![30, 31], roots, TableStats::default()))
+    );
+}
+
+/// G6 (VI1, VI2): a vector index that Krummi would never write is damage of the catalog page.
+#[test]
+fn a_decoded_vector_index_that_breaks_its_rules_is_damage() {
+    type Break = fn(&mut TableSchema);
+    let broken: [(&str, Break); 12] = [
+        ("names out of order", |s| s.vector_indexes.swap(0, 1)),
+        ("repeated name", |s| {
+            s.vector_indexes[1].name = "a_near".into()
+        }),
+        ("a secondary index's name", |s| {
+            s.vector_indexes[0].name = "by_n".into()
+        }),
+        ("repeated identity", |s| s.vector_indexes[1].id = 40),
+        ("a secondary index's identity", |s| {
+            s.vector_indexes[0].id = 20
+        }),
+        ("same column and metric", |s| {
+            s.vector_indexes[1].metric = VectorMetric::L2
+        }),
+        ("Hamming", |s| {
+            s.vector_indexes[0].metric = VectorMetric::Hamming
+        }),
+        ("a metric the column does not admit", |s| {
+            s.vector_indexes[2].metric = VectorMetric::L2
+        }),
+        ("a column that is not a vector", |s| {
+            s.vector_indexes[0].column.id = 12
+        }),
+        ("a bit column", |s| s.vector_indexes[0].column.id = 15),
+        ("a missing column", |s| s.vector_indexes[0].column.id = 99),
+        ("an empty name", |s| {
+            s.vector_indexes[0].name = String::new()
+        }),
+    ];
+    for (label, break_it) in broken {
+        let (mut schema, roots) = with_vector_indexes();
+        break_it(&mut schema);
+        let bytes = schema.encode(5, &[30, 31], &roots, TableStats::default());
+        assert_eq!(TableSchema::decode(1, &bytes), None, "{label}");
+    }
+    // More than 64 indexes of both kinds together.
+    let (mut schema, mut roots) = with_vector_indexes();
+    let mut columns = 100;
+    while schema.index_count() <= MAX_INDEXES {
+        let name = format!("z{columns}");
+        schema.columns.push(SchemaColumn {
+            name: name.clone(),
+            id: columns,
+            ..schema.columns[3].clone()
+        });
+        schema.vector_indexes.push(SchemaVectorIndex {
+            id: 1000 + columns,
+            name: name.clone(),
+            column: SchemaIndexColumn { id: columns, name },
+            metric: VectorMetric::L2,
+        });
+        roots.push(roots[0]);
+        columns += 1;
+    }
+    let bytes = schema.encode(5, &[30, 31], &roots, TableStats::default());
+    assert_eq!(TableSchema::decode(1, &bytes), None, "65 indexes");
+    schema.vector_indexes.pop();
+    roots.pop();
+    let bytes = schema.encode(5, &[30, 31], &roots, TableStats::default());
+    assert!(TableSchema::decode(1, &bytes).is_some(), "64 indexes");
+}
+
+/// VI10, IX6: renaming a column renames it in its vector indexes; dropping it fails naming the first index, secondary
+/// or vector, in the order of the names; the stored identities include the vector indexes'.
+#[test]
+fn schema_changes_and_identities_with_vector_indexes() {
+    let (schema, roots) = with_vector_indexes();
+    let next = schema
+        .plan(&Change::Rename { from: "v", to: "w" })
+        .unwrap()
+        .unwrap()
+        .identify(7, None);
+    let names: Vec<&str> = next
+        .vector_indexes()
+        .iter()
+        .map(|i| i.column.name.as_str())
+        .collect();
+    assert_eq!(names, ["w", "w", "u"]);
+    let error = schema.plan(&Change::Drop("v")).err().unwrap();
+    assert_eq!(
+        (error.rule, error.index),
+        (SchemaRule::DropKeyColumn, Some("a_near".into()))
+    );
+    let error = schema.plan(&Change::Drop("u")).err().unwrap();
+    assert_eq!(error.index, Some("c_cos".into()));
+    assert!(schema.plan(&Change::Drop("bits")).unwrap().is_some());
+    let bytes = schema.encode(5, &[30, 31], &roots, TableStats::default());
+    let mut walked = Vec::new();
+    assert_eq!(stored_identities(&bytes, |id| walked.push(id)), Some(5));
+    let mut expected: Vec<u64> = schema.identities().collect();
+    walked.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(walked, expected);
+    assert!(walked.contains(&40) && walked.contains(&42));
+    for len in 0..bytes.len() {
+        assert_eq!(stored_identities(&bytes[..len], |_| {}), None, "{len}");
+    }
 }

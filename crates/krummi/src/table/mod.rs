@@ -6,7 +6,11 @@ mod bulk;
 pub mod catalog;
 pub mod collation;
 mod collation_tables;
+mod distance;
+#[cfg(test)]
+mod distance_tests;
 mod estimate;
+mod filter;
 mod identity;
 mod index;
 mod index_key;
@@ -15,11 +19,13 @@ mod index_key_tests;
 mod index_scan;
 #[cfg(test)]
 mod index_tests;
+mod ivf;
 pub mod json;
 pub mod key;
 mod maintain;
 #[cfg(test)]
 mod malformed_tests;
+mod nearest;
 pub mod projection;
 #[cfg(test)]
 mod projection_tests;
@@ -38,18 +44,27 @@ mod stats_fault_tests;
 #[cfg(test)]
 mod update_tests;
 pub mod value;
+#[cfg(test)]
+mod vector_fault_tests;
+mod vector_index;
+mod vector_worker;
 mod worker;
 
 pub use bulk::BulkLoadError;
 pub use catalog::{ReadTable, TableMode, WriteTable};
 pub use collation::Collation;
+pub use distance::VectorMetric;
 pub use estimate::{Condition, Estimate};
 pub(crate) use estimate::{PrivateStatistics, Retired, StatsMemory};
+pub use filter::FilterCondition;
 pub use index::{
     IndexDefinition, IndexKey, IndexMode, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
 };
 pub use index_scan::{IndexEntry, ReadIndexEntries, WriteIndexEntries};
 pub use key::{Direction, Nulls};
+#[doc(hidden)]
+pub use nearest::DEFAULT_PROBE_SHARE;
+pub use nearest::{Nearest, Neighbour, Neighbours};
 pub(crate) use projection::Projections;
 pub use projection::{ProjectedColumn, ProjectedRow, Projection};
 pub use ranges::{ReadIndexRows, ReadRows, WriteIndexRows, WriteRows};
@@ -59,6 +74,14 @@ pub use schema::{Column, Schema, SchemaColumn, TableSchema};
 pub(crate) use sequence::Sequences;
 pub use sequence::{ReadSequence, SequenceMode, WriteSequence};
 pub use statistics::{ColumnStatistics, HistogramBucket, PrefixStatistics};
+#[doc(hidden)]
+pub use vector_index::VectorRoots;
+pub use vector_index::{
+    SchemaVectorIndex, VectorIndexDefinition, VectorIndexInfo, VectorIndexState,
+};
+pub(crate) use vector_worker::VectorWork;
+#[doc(hidden)]
+pub use vector_worker::{RebuildThresholds, VectorPoint};
 #[doc(hidden)]
 pub use worker::StatisticsPoint;
 pub(crate) use worker::Work;

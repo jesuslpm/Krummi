@@ -133,6 +133,19 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
   del módulo 17 (IC13).*
 - *Fuera de alcance: «la comparación de texto sin distinguir mayúsculas» deja de estar fuera.*
 
+*Anotaciones del 2026-11-25 desde los índices vectoriales aproximados ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6):*
+
+- *Reparto, anotación de 7.6, Contenido: la búsqueda no es solo aproximada; es la híbrida de VI6, que filtra primero
+  por las condiciones relacionales y busca después, con la distancia exacta cuando pasan pocas filas. Hay además una
+  búsqueda exacta pública (VI16). «sus cargas del banco (N11)» deja de valer: la medición es la de VI15. Usuario:
+  «quisiera como objetivo ser capaz de combinar filtros normales relacionales con filtros vectoriales, donde primero se
+  filtre por los relacionales normales y luego se busquen en los vectores».*
+- *Reparto, anotación de 7.6, Fija: lo que fija queda fijado en tables-vector-indexes.prd.md. La información del
+  almacén (P12) no cambia; la del índice es una operación propia (VI11).*
+- *N11: 7.6 no añade cargas frente a Voron; compara con PostgreSQL y pgvector en su informe de cierre, sin umbral
+  (VI15).*
+- *Fuera de alcance: «Filtrar por un umbral de distancia» sigue en el módulo 17.*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

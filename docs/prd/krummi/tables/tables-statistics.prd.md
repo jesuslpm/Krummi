@@ -85,6 +85,10 @@ desde que se creó (ST4).
   plegadas; un texto cuya forma plegada pasa de 2.048 bytes también es grande, y un límite se acorta en un límite de
   valor escalar de la forma plegada (IC7, IC8).*
 
+*Anotación del 2026-11-25 desde los índices vectoriales aproximados ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6):*
+*el filtro de una búsqueda de vecinos parte de las condiciones de ST2, añade IN y NOT IN y trata los nulos como SQL,
+distinto de ST2 (VI7); las estimaciones de 7.3 no cambian.*
+
 ### Estado de partida
 
 Verificado el 2026-11-19 en el código y en los documentos de diseño:

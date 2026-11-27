@@ -1,0 +1,35 @@
+2026-11-24T06:21:21+00:00	start	plan	
+2026-11-24T06:23:13+00:00	mark	implement	T1
+2026-11-24T06:25:47+00:00	mark	implement	T2
+2026-11-24T06:27:23+00:00	bg-start	implement	T2 downloads
+2026-11-24T06:36:31+00:00	bg-end	implement	T2 downloads
+2026-11-24T06:40:22+00:00	mark	implement	T3
+2026-11-24T06:40:31+00:00	bg-start	implement	T3 ground truth
+2026-11-24T06:48:07+00:00	bg-end	implement	T3 ground truth
+2026-11-24T06:52:03+00:00	mark	acceptance	T6
+2026-11-24T06:52:03+00:00	bg-start	acceptance	T6 Windows and Linux runs
+2026-11-24T08:20:26+00:00	bg-end	acceptance	T6 Windows and Linux runs
+2026-11-24T08:20:56+00:00	bg-start	acceptance	T6 Linux run
+2026-11-24T09:29:55+00:00	bg-end	acceptance	T6 Linux run
+2026-11-24T19:34:14+00:00	mark	acceptance	T7
+2026-11-24T19:34:14+00:00	bg-start	acceptance	T6-T7 Windows fine sweep, HNSW and boost
+2026-11-24T21:54:40+00:00	bg-end	acceptance	T6-T7 Windows fine sweep, HNSW and boost
+2026-11-24T21:55:32+00:00	mark	docs	T6 report
+2026-11-24T21:59:19+00:00	mark	checks	closing checks
+2026-11-24T22:12:27+00:00	mark	review	RDD last slice
+2026-11-24T22:35:44+00:00	bg-start	review	codex-R1
+2026-11-24T22:43:19+00:00	bg-end	review	codex-R1
+2026-11-24T23:07:38+00:00	mark	fix	Codex R1 fixes (marked late, L16)
+2026-11-24T23:08:10+00:00	bg-start	fix	Linux memory run, dot product
+2026-11-24T23:15:49+00:00	bg-end	fix	Linux memory run, dot product
+2026-11-24T23:17:44+00:00	bg-start	review	codex-R2
+2026-11-24T23:21:49+00:00	bg-end	review	codex-R2
+2026-11-24T23:23:49+00:00	bg-start	fix	Linux memory run 2, 100k and 1M
+2026-11-25T00:00:08+00:00	bg-end	fix	Linux memory run 2, 100k and 1M
+2026-11-25T00:08:19+00:00	bg-start	review	codex-R3
+2026-11-25T00:11:09+00:00	bg-end	review	codex-R3
+2026-11-25T06:04:52+00:00	mark	review	codex-R4
+2026-11-25T06:04:59+00:00	bg-start	review	codex-R4
+2026-11-25T06:07:37+00:00	bg-end	review	codex-R4
+2026-11-25T06:09:33+00:00	mark	close	closing report
+2026-11-25T06:09:33+00:00	end		

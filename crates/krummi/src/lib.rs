@@ -88,11 +88,13 @@ pub mod table;
 
 pub use table::{
     BulkLoadError, Collation, Column, ColumnStatistics, Condition, Direction, Estimate,
-    HistogramBucket, IndexDefinition, IndexEntry, IndexKey, IndexMode, Nulls, PrefixStatistics,
-    ProjectedColumn, ProjectedRow, Projection, ReadIndexEntries, ReadIndexRows, ReadRows,
-    ReadSequence, ReadTable, Schema, SchemaColumn, SchemaIndex, SchemaIndexColumn, SchemaIndexKey,
-    SequenceMode, TableMode, TableRow, TableSchema, Upserted, WriteIndexEntries, WriteIndexRows,
-    WriteRows, WriteSequence, WriteTable,
+    FilterCondition, HistogramBucket, IndexDefinition, IndexEntry, IndexKey, IndexMode, Nearest,
+    Neighbour, Neighbours, Nulls, PrefixStatistics, ProjectedColumn, ProjectedRow, Projection,
+    ReadIndexEntries, ReadIndexRows, ReadRows, ReadSequence, ReadTable, RebuildThresholds, Schema,
+    SchemaColumn, SchemaIndex, SchemaIndexColumn, SchemaIndexKey, SchemaVectorIndex, SequenceMode,
+    TableMode, TableRow, TableSchema, Upserted, VectorIndexDefinition, VectorIndexInfo,
+    VectorIndexState, VectorMetric, VectorPoint, WriteIndexEntries, WriteIndexRows, WriteRows,
+    WriteSequence, WriteTable,
 };
 
 /// Maximum bytes of a tree name in UTF-8 (B4).
@@ -147,6 +149,7 @@ mod guides {
     guide!(Json, "json.md");
     guide!(Indexes, "indexes.md");
     guide!(Statistics, "statistics.md");
+    guide!(VectorIndexes, "vector-indexes.md");
 }
 
 /// Options for opening a store.
@@ -174,6 +177,8 @@ pub(crate) struct Shared {
     statistics: table::StatsMemory,
     /// Its background work on statistics (ST6 of the statistics PRD).
     work: table::Work,
+    /// Its vector indexes' worker (VI3 of the vector indexes PRD).
+    vectors: table::VectorWork,
     /// Itself, for the statistics thread it starts.
     this: std::sync::Weak<Shared>,
 }
@@ -184,9 +189,14 @@ impl Store {
     /// there, and no part of one that was not. Besides `krummi.data`, an open store may keep in its folder the
     /// journal files `krummi.journal.<number>` and the `krummi.temp` subfolder, and while an index is created the
     /// `krummi.sort` subfolder of its sort; a clean close removes them, and so does the next open after a crash.
+    /// Opening starts the vector index worker, which reads the catalog in the background and goes on with the work a
+    /// vector index had when the store closed.
     pub fn open(folder: impl AsRef<Path>, options: &StoreOptions) -> Result<Store> {
         let engine = krummi_tx::Engine::open(folder, &engine_options(options))?;
-        Ok(Store::with(engine))
+        let store = Store::with(engine);
+        // The vector index worker goes on with the work the store had when it closed (VI12).
+        store.shared().vectors.resume(store.shared());
+        Ok(store)
     }
 
     /// Opens a store that lives only in memory and keeps nothing when it closes.
@@ -202,6 +212,7 @@ impl Store {
                 projections: table::Projections::new(next_serial()),
                 statistics: table::StatsMemory::default(),
                 work: table::Work::default(),
+                vectors: table::VectorWork::default(),
                 this: this.clone(),
             })),
         }
@@ -214,12 +225,14 @@ impl Store {
             .expect("a store is open until it closes")
     }
 
-    /// Runs `change` on the engine for a unit test that changes it, while no statistics thread holds the store.
+    /// Runs `change` on the engine for a unit test that changes it, while no statistics thread holds the store. The
+    /// vector index worker, which holds the store too, stops first and does not start again.
     #[cfg(test)]
     pub(crate) fn with_engine_mut<R>(
         &mut self,
         change: impl FnOnce(&mut krummi_tx::Engine) -> R,
     ) -> R {
+        self.shared().vectors.stop();
         let shared = self.shared.take().expect("open");
         let mut shared = Arc::try_unwrap(shared).ok().expect("no statistics thread");
         let result = change(&mut shared.engine);
@@ -279,6 +292,7 @@ impl Store {
     pub fn close(mut self) -> Result<()> {
         let shared = self.shared.take().expect("a store closes once");
         shared.work.stop();
+        shared.vectors.stop();
         let shared = Arc::try_unwrap(shared)
             .ok()
             .expect("the statistics thread ended and no transaction is open");
@@ -290,6 +304,7 @@ impl Drop for Store {
     fn drop(&mut self) {
         if let Some(shared) = &self.shared {
             shared.work.stop();
+            shared.vectors.stop();
         }
     }
 }
@@ -1615,9 +1630,14 @@ impl WriteTransaction<'_> {
     /// A transaction without changes writes nothing, and waits until the commits it saw are durable.
     pub fn commit(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
+        let vectors = retired.vectors;
         // Once the commit passed its point of no return and before it lets go of the turn: only when it applies (R18),
         // and before any later writer or save (R11).
-        inner.commit_applying(true, &mut |txid| store.statistics.retire(&retired, txid))
+        inner.commit_applying(true, &mut |txid| store.statistics.retire(&retired, txid))?;
+        if vectors {
+            store.vectors.kick(store);
+        }
+        Ok(())
     }
 
     /// Commits the transaction in deferred mode: it returns without waiting for the disk, and the journal makes it
@@ -1628,7 +1648,12 @@ impl WriteTransaction<'_> {
     /// journal's queue is full.
     pub fn commit_deferred(self) -> Result<()> {
         let (inner, retired, store) = self.finish()?;
-        inner.commit_applying(false, &mut |txid| store.statistics.retire(&retired, txid))
+        let vectors = retired.vectors;
+        inner.commit_applying(false, &mut |txid| store.statistics.retire(&retired, txid))?;
+        if vectors {
+            store.vectors.kick(store);
+        }
+        Ok(())
     }
 
     /// Aborts the transaction: none of its changes apply, and the next request waiting gets the turn.

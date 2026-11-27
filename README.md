@@ -29,6 +29,9 @@ validated when written, read back without a copy, navigated and read as Krummi t
 opened, described, renamed, emptied and deleted like trees; rows inserted, updated (only the columns given), read,
 deleted and scanned from both ends by ranges of the primary key; schema changes that never rewrite rows; an atomic
 bulk load; named sequences; and generators of `ulid`, version 7 `uuid` and SQL Server sequential `uuid` values.
+Tables also have secondary indexes, statistics and estimates, and searches of the k nearest rows of a vector, exact or
+through approximate IVF-SQ8 [vector indexes](docs/prd/krummi/tables/tables-vector-indexes.prd.en.md) that a background
+thread maintains, with relational filters evaluated first.
 The product and its split into modules are in
 the [root PRD](docs/prd/krummi/krummi.prd.en.md).
 Every product change starts with a PRD in `docs/prd/krummi/<module>/` (see `CLAUDE.md`).
@@ -45,7 +48,8 @@ Step-by-step guides with every operation and data type, and examples that run as
 - **Tables:** [Tables and schemas](docs/guides/tables.md) · [Rows](docs/guides/rows.md) ·
   [Data types](docs/guides/data-types.md) · [JSON columns](docs/guides/json.md) ·
   [Secondary indexes](docs/guides/indexes.md) · [Sequences and identifiers](docs/guides/sequences-and-ids.md) ·
-  [Statistics and estimates](docs/guides/statistics.md)
+  [Statistics and estimates](docs/guides/statistics.md) ·
+  [Vector search and vector indexes](docs/guides/vector-indexes.md)
 
 ## A quick tour
 

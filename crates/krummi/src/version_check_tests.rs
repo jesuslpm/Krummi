@@ -289,7 +289,7 @@ fn ac_u7_concurrent_reads_of_versions_while_a_write_moves_them() {
     let tmp = tempfile::tempdir().unwrap();
     concurrent_reads_while_a_write_moves_nodes(
         [
-            Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+            crate::check_tests::open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
             Store::open_temporary(&StoreOptions::default()).unwrap(),
         ],
         |store, page| damage_layout(store, page),

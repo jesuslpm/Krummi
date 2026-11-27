@@ -90,6 +90,11 @@ authoritative):*
   whose folded form exceeds 2,048 bytes is also large, and a bound is shortened at a scalar value boundary of the
   folded form (IC7, IC8).*
 
+*Annotation of 2026-11-25 from the approximate vector indexes ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6, Spanish,
+authoritative):*
+*the filter of a neighbor search starts from the conditions of ST2, adds IN and NOT IN and treats nulls as SQL does,
+unlike ST2 (VI7); the estimates of 7.3 do not change.*
+
 ### Starting state
 
 Verified on 2026-11-19 in the code and in the design documents:

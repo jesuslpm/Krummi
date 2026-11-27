@@ -696,3 +696,182 @@ fn ac_l5_a_panic_through_the_transaction_discards_it() {
     write.commit().unwrap();
     store.close().unwrap();
 }
+
+/// `id i64 not null` and one nullable column of each fixed-width type, primary key `id`.
+fn fixed_columns() -> Schema {
+    let types = [
+        ("b", ColumnType::Bool),
+        ("i8", ColumnType::I8),
+        ("i16", ColumnType::I16),
+        ("i32", ColumnType::I32),
+        ("i64", ColumnType::I64),
+        ("u8", ColumnType::U8),
+        ("u16", ColumnType::U16),
+        ("u32", ColumnType::U32),
+        ("u64", ColumnType::U64),
+        ("f32", ColumnType::F32),
+        ("f64", ColumnType::F64),
+        (
+            "dec",
+            ColumnType::Decimal {
+                precision: 20,
+                scale: 3,
+            },
+        ),
+        ("date", ColumnType::Date),
+        ("time", ColumnType::Time),
+        ("ts", ColumnType::Timestamp),
+        ("dur", ColumnType::Duration),
+        (
+            "uuid",
+            ColumnType::Uuid(crate::table::value::UuidOrder::SqlServer),
+        ),
+        ("ulid", ColumnType::Ulid),
+    ];
+    let mut columns = vec![Column::new("id", ColumnType::I64).not_null()];
+    columns.extend(types.into_iter().map(|(name, ty)| Column::new(name, ty)));
+    Schema::new(columns, &["id"])
+}
+
+/// The row `id` of [`fixed_columns`]: every column null for an id divisible by 3, values that change with `id`
+/// (negative for odd ones) otherwise.
+fn fixed_row(id: i64) -> Row {
+    use crate::ids::{Ulid, Uuid};
+    use crate::table::value::Decimal;
+    let names = [
+        "b", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "dec", "date",
+        "time", "ts", "dur", "uuid", "ulid",
+    ];
+    let mut row: Row = vec![("id", Value::I64(id))];
+    if id % 3 == 0 {
+        row.extend(names.iter().map(|&name| (name, Value::Null)));
+        return row;
+    }
+    let sign = if id % 2 == 0 { 1 } else { -1 };
+    let n = sign * id * 7;
+    let byte = u8::try_from(id).unwrap();
+    row.extend([
+        ("b", Value::Bool(id % 2 == 0)),
+        ("i8", Value::I8(i8::try_from(n).unwrap())),
+        ("i16", Value::I16(i16::try_from(n * 300).unwrap())),
+        ("i32", Value::I32(i32::try_from(n * 70_000).unwrap())),
+        ("i64", Value::I64(n << 40)),
+        ("u8", Value::U8(byte * 20)),
+        ("u16", Value::U16(u16::from(byte) * 6_000)),
+        ("u32", Value::U32(u32::from(byte) * 400_000_000)),
+        ("u64", Value::U64(u64::from(byte) << 60)),
+        ("f32", Value::F32(n as f32 / 4.0)),
+        ("f64", Value::F64(n as f64 / 8.0)),
+        (
+            "dec",
+            Value::Decimal(Decimal {
+                mantissa: i128::from(n) * 1_000_003,
+                scale: 3,
+            }),
+        ),
+        ("date", Value::Date(i32::try_from(n * 1_000).unwrap())),
+        ("time", Value::Time(id * 3_600_000_000)),
+        ("ts", Value::Timestamp(n * 86_400_000_000)),
+        ("dur", Value::Duration(n * 1_000)),
+        ("uuid", Value::Uuid(Uuid([byte; 16]))),
+        ("ulid", Value::Ulid(Ulid([255 - byte; 16]))),
+    ]);
+    row
+}
+
+/// Each fixed-width column of a row of the current version, null or not, reads by position, by name and with every
+/// column the value written, read by key and scanned, in a read and in a write transaction (E11).
+#[test]
+fn every_fixed_width_column_reads_the_value_written() {
+    let store = store_with(&fixed_columns(), (0..ROWS).map(fixed_row));
+    let check = |row: &TableRow<'_>| {
+        let id = row.i64(0).unwrap();
+        let written = fixed_row(id);
+        for (position, (name, value)) in written.iter().enumerate() {
+            assert!(
+                row.value(position).unwrap().same(value),
+                "{id} {name} by position"
+            );
+            assert!(row.get(name).unwrap().same(value), "{id} {name} by name");
+        }
+        assert!(
+            row.values()
+                .zip(&written)
+                .all(|(read, (_, value))| read.same(value)),
+            "{id} every column"
+        );
+    };
+    let id = |row: &TableRow<'_>| row.i64(0).unwrap();
+    let read = store.read().unwrap();
+    let table = read.open_table("t").unwrap();
+    for i in 0..ROWS {
+        check(&read.get_row(&table, &[Value::I64(i)]).unwrap().unwrap());
+    }
+    reads_and_scans!(read, table, (0..ROWS).collect(), id, check);
+    drop(read);
+    let write = store.write().unwrap();
+    let table = write.open_table("t").unwrap();
+    reads_and_scans!(write, table, (0..ROWS).collect(), id, check);
+}
+
+/// The panic of a read of a column that does not decode (L2).
+fn malformed_panic(read: impl FnOnce()) -> String {
+    let payload = catch_unwind(AssertUnwindSafe(read)).unwrap_err();
+    match payload.downcast::<String>() {
+        Ok(text) => *text,
+        Err(payload) => (*payload.downcast::<&str>().unwrap()).to_owned(),
+    }
+}
+
+/// AC-L2: a fixed-width column of a row of the current version that does not decode, a `bool` that is neither 0 nor 1
+/// or a `date` outside its domain, panics when it is read by position, by name or with every column, with the message
+/// of a malformed row; the row's other columns read their values.
+#[test]
+fn ac_l2_a_fixed_width_column_that_does_not_decode_panics_when_read() {
+    let cases = [
+        (ColumnType::Bool, Value::Bool(true), 2u8),
+        (ColumnType::Date, Value::Date(10), 0x7F),
+    ];
+    for (ty, value, bad) in cases {
+        let schema = Schema::new(
+            vec![
+                Column::new("id", ColumnType::I64).not_null(),
+                Column::new("v", ty).not_null(),
+            ],
+            &["id"],
+        );
+        let row = |id: i64| -> Row { vec![("id", Value::I64(id)), ("v", value.clone())] };
+        let store = store_with(&schema, (0..ROWS).map(row));
+        // After the 3-byte header, the value's bytes, little-endian: the last one is the highest.
+        alter(&store, &id_key(BAD), |bytes| {
+            *bytes.last_mut().unwrap() = bad
+        });
+        let read = store.read().unwrap();
+        let table = read.open_table("t").unwrap();
+        let row = read.get_row(&table, &[Value::I64(BAD)]).unwrap().unwrap();
+        assert_eq!(row.i64(0), Some(BAD));
+        let message = "a malformed row: a column that does not decode";
+        assert_eq!(
+            malformed_panic(|| drop(row.value(1))),
+            message,
+            "{ty} by position"
+        );
+        assert_eq!(
+            malformed_panic(|| drop(row.get("v"))),
+            message,
+            "{ty} by name"
+        );
+        assert_eq!(
+            malformed_panic(|| drop(row.values().collect::<Vec<_>>())),
+            message,
+            "{ty} every column"
+        );
+        let mut scan = read.range_rows(&table, &[Value::I64(BAD)], ..).unwrap();
+        let lent = scan.next_row().unwrap().unwrap();
+        assert_eq!(
+            malformed_panic(|| drop(lent.value(1))),
+            message,
+            "{ty} lent"
+        );
+    }
+}

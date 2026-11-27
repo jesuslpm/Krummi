@@ -11,6 +11,29 @@ indexes*, built after 7.5 and before module 17, with this document as its techni
 Status: a proposal. Nothing here is implemented, built or measured. The six decisions in *Product questions* need the
 user's approval; PRD 7.6 settles them.
 
+Annotated 2026-11-24: the in-memory experiment of *Benchmarks*, steps 1 to 3, has run. Its results are in *Measured
+result* below and in the [report](../../benchmark/2026-11-24-ann-experiment.md). The rest of the document is unchanged,
+and its **[M]** estimates are kept as they were written.
+
+Annotated 2026-11-25: PRD 7.6 ([tables-vector-indexes.prd.md](../../prd/krummi/tables/tables-vector-indexes.prd.md)) is
+implemented on branch `feat/tables-vector-indexes`, with these departures from *Recommended design*, decided while
+building it ([execution document](../../../odd/done/tables/tables-vector-indexes.md), log L10–L14):
+
+- **Trees.** Each index has two trees: `pending`, and one data tree whose keys lead with a tag (state record, generation
+  header with its centroids and quantizer, counters, list sizes, postings, locator, retired generations, published
+  indicators). A published generation's old keys are deleted later in bounded batches, not in the publishing write.
+- **The build's end.** The training write fixes the table's greatest key; the backfill reads up to it, and pending keys
+  beyond it are reconciled into the building generation directly, so a build over a table that grows at its end
+  still finishes.
+- **Batches.** The worker waits, outside the turn, until its deferred commit is durable before the next batch, because
+  a read sees a deferred commit only then; a batch's size follows the whole turn it held, its commit included.
+- **Filters.** The rows that pass are counted only up to the threshold of VI6 (20,000 rows, measured); over it, the
+  postings of the probed lists are visited in SQ8 order and the filter is checked on each until the reranked number
+  pass, which chooses the same candidates as building the passing set first.
+- **Rebuilds** are automatic (VI9) when an indicator passes its threshold and grew 1.5 × since the generation was
+  published.
+- Measured on Linux with Cohere 1 M × 768 L2: 4 % of the lists give recall@10 0.9582 with a p95 of 16.4 ms.
+
 History: a first evaluation (v1) assumed that the index is maintained inside the transaction that changes the table.
 An external review relayed by the user (findings R1-1 to R1-9, *Review history* below) and a change of requirement
 the same day replaced it (v2, this document). The requirement change, verbatim: "Los índices vectoriales ANN de
@@ -486,6 +509,12 @@ Measured as **latency reduction against the exact scan**, IVF keeps about 97 % o
 10–30 % of HNSW's. IVF-SQ8 is the balanced choice for interactive latency, not for a service with many queries per
 second.
 
+Measured on 2026-11-24, in memory, one thread, at base clock (*Measured result*):
+
+- Exact scan: 0.92 s.
+- IVF-SQ8: 17.2 ms with 4 % of the lists for L2, and 20.9 ms with 7.2 % for the dot product.
+- External HNSW: 11.2 ms for L2 and 5.9 ms for the dot product.
+
 ## Risks
 
 | Risk | Consequence | Mitigation |
@@ -550,6 +579,38 @@ that does not fit in RAM. **Ground truth:** Krummi's own exact scan.
 - a write transaction's p95 with the index within 10 % of without it;
 - the worker holds the write turn ≤ 15 ms per batch.
 
+### Measured result (2026-11-24)
+
+Steps 1 to 3 ran in memory with `krummi-ann-lab`, on Windows and Linux; see the
+[report](../../benchmark/2026-11-24-ann-experiment.md). Setup: one thread, warm cache, Windows on the P cores with
+boost off (base clock).
+
+| Data set | First nprobe with recall@10 ≥ 0.95 | % of the lists | p95 | External HNSW (M 16) at recall@10 ≥ 0.95 |
+|---|---|---|---|---|
+| Cohere 1 M × 768, L2 | 40 | 4.0 | 17.20 ms | ef 320, p95 11.19 ms |
+| Cohere 1 M × 768, dot product, unnormalized | 72 | 7.2 | 20.90 ms | ef 80, p95 5.89 ms |
+| GloVe 1.19 M × 100, cosine | 160 | 14.7 | 6.18 ms | not reached: 0.9175 at ef 640, p95 19.24 ms |
+| SIFT 1 M × 128, L2 | 32 | 3.2 | 2.49 ms | not measured |
+
+- **Step 1 (quantization):** quantization alone loses almost nothing. The SQ8 scan with a rerank of 10·r candidates
+  gives recall@10 ≥ 0.978 at r = 1 and 1.0000 at r = 2 on every data set at 1 M.
+- **Step 2 (partitioning):** IVF-SQ8 with r = 2 has IVF-Flat's recall in every row, at about 1/3.5 of its p95, so
+  all the loss comes from partitioning. The 1 M IVF-SQ8 index takes 739 MiB, against 2936 MiB for IVF-Flat.
+- **Thresholds:** L2 at 1 M × 768, the reference case, meets them. Two switch criteria fire narrowly:
+  - the dot product misses the 20 ms p95 by 0.9 ms at base clock (boost makes full passes 1.7–1.8 times faster at
+    10,000 rows; it was not measured at 1 M);
+  - GloVe needs 14.7 % of the lists, at a p95 far under 20 ms.
+- **The graph:** the external HNSW is 3.5 times faster than IVF-SQ8 for the dot product and 1.5 times faster for L2,
+  a narrower gap than the estimates above suggested (IVF-SQ8 5–12 ms, HNSW 1–2 ms). It does not reach 0.95 on GloVe with M 16. It took 1169 to 1791 s to build
+  in parallel, against 579 to 773 s for IVF.
+- **Determinism:** the 12 result digests match bit for bit between Windows and Linux.
+- **Memory** (Linux, Cohere 1 M × 768, L2; one process for SQ8 then IVF, another for HNSW). These are the lab's in-memory
+  structures, not the stored index:
+  - The IVF structure holds both indexes. Their payloads add up to 3,676 MiB, it keeps 5,252 MiB allocated, and its
+    RSS grows by 7,696 MiB while it builds.
+  - The RSS grows by 4,618 MiB while `hnsw_rs` builds, against a compact estimate of 3,052 MiB (vectors and 4-byte
+    links). How much of that growth is graph and how much is temporaries cannot be told from outside `hnsw_rs`.
+
 ## When the recommendation would change
 
 | If this happens | Switch to |
@@ -578,6 +639,19 @@ unless measurements require it; DiskANN and SPANN as complete systems.
 ## Product questions
 
 All open; each needs the user's approval before the PRD.
+
+*Annotated 2026-11-25: PRD 7.6 ([tables-vector-indexes.prd.md](../../prd/krummi/tables/tables-vector-indexes.prd.md))
+decides them:*
+- *IVF-SQ8 as a new kind of index (VI1);*
+- *the backlog always evaluated exactly, with no cap (VI5);*
+- *no partition columns, because filtering first covers tenants (VI6);*
+- *the online build (VI4);*
+- *batches of at most 15 ms and training on one thread (VI3, VI4);*
+- *automatic rebuilds that the application may also request, instead of explicit ones (VI9).*
+
+*It also changes how filters are served: the search finds the rows that pass the relational filter first, and with
+the index it considers only those rows (VI6). The user kept IVF-SQ8 for every metric although two switch criteria
+fired narrowly in the experiment.*
 
 1. **A new kind of index.** An IVF vector index maintained asynchronously (A1), and the opt-in `ApproxNearest` query
    node, in PRD 7.6 (in scope since 2026-11-10). Document 5's "a vector is never a key of an index" stays true; the new kind of index is

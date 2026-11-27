@@ -30,6 +30,7 @@ use super::schema::{
     check_new, identity_key, schema_names, stored_identities, version_key,
 };
 use super::value::ColumnType;
+use super::vector_index::VectorRoots;
 use crate::{Folder, ReadTransaction, Store, WriteTransaction};
 
 /// A table opened in a read transaction: it sees the transaction's snapshot, with the rules of a
@@ -51,6 +52,8 @@ pub struct ReadTable<'s> {
     pub(super) index_roots: Vec<u64>,
     /// Its modification counter and statistics tree as the snapshot sees them (ST4, ST13 of the statistics PRD).
     pub(super) stats: TableStats,
+    /// The roots of its vector indexes' trees, in the order of [`TableSchema::vector_indexes`].
+    pub(super) vector_roots: Vec<VectorRoots>,
     /// How its rows are read.
     pub(super) reader: Arc<Reader>,
     _store: PhantomData<&'s Store>,
@@ -153,6 +156,11 @@ pub(crate) struct TableState {
     pub(super) index_roots: Vec<u64>,
     /// Its modification counter and statistics tree (ST4, ST13 of the statistics PRD).
     pub(super) stats: TableStats,
+    /// The roots of its vector indexes' trees, in the order of [`TableSchema::vector_indexes`].
+    pub(super) vector_roots: Vec<VectorRoots>,
+    /// Whether this write created, dropped or emptied one of its vector indexes, or changed rows they reflect: the
+    /// store's worker has work once it commits (VI3, VI4).
+    pub(super) vector_changed: bool,
     /// How the rows of its current schema are read and written.
     pub(super) reader: Arc<Reader>,
     /// How its row writes keep its indexes, built when a row write first needs it after a change of its schema or
@@ -203,8 +211,12 @@ impl TableState {
 
     /// The bytes of its catalog entry after the fixed part: its schema with its indexes (see [`TableSchema::encode`]).
     fn extra(&self) -> Vec<u8> {
-        self.schema
-            .encode(self.history, &self.index_roots, self.stats)
+        self.schema.encode(
+            self.history,
+            &self.index_roots,
+            &self.vector_roots,
+            self.stats,
+        )
     }
 
     /// Makes `schema` the table's current one, for every handle (E4, B9).
@@ -226,6 +238,7 @@ struct Found {
     schema: TableSchema,
     history: u64,
     index_roots: Vec<u64>,
+    vector_roots: Vec<VectorRoots>,
     stats: TableStats,
 }
 
@@ -238,7 +251,7 @@ fn find_table<S: PageSource>(folder: Folder<'_>, tx: &S, name: &str) -> Result<O
     if located.entry.kind != TreeKind::Table {
         return Err(folder.different_class(name, located.entry.kind, TreeKind::Table));
     }
-    let (schema, history, index_roots, stats) =
+    let (schema, history, index_roots, vector_roots, stats) =
         TableSchema::decode(located.entry.id, located.extra)
             .ok_or_else(|| tx.damaged(located.page))?;
     Ok(Some(Found {
@@ -246,6 +259,7 @@ fn find_table<S: PageSource>(folder: Folder<'_>, tx: &S, name: &str) -> Result<O
         schema,
         history,
         index_roots,
+        vector_roots,
         stats,
     }))
 }
@@ -332,6 +346,7 @@ impl<'s> ReadTransaction<'s> {
             schema: found.schema,
             index_roots: found.index_roots,
             stats: found.stats,
+            vector_roots: found.vector_roots,
             _store: PhantomData,
         })
     }
@@ -631,6 +646,8 @@ impl<'s> WriteTransaction<'s> {
                     schema: found.schema,
                     index_roots: found.index_roots,
                     stats: found.stats,
+                    vector_roots: found.vector_roots,
+                    vector_changed: false,
                     maintained: None,
                     deleted: false,
                     emptied: false,
@@ -736,7 +753,7 @@ impl<'s> WriteTransaction<'s> {
             &mut self.inner,
             name,
             &entry,
-            &schema.encode(history, &[], TableStats::default()),
+            &schema.encode(history, &[], &[], TableStats::default()),
         )?;
         self.join(
             name,
@@ -745,6 +762,7 @@ impl<'s> WriteTransaction<'s> {
                 schema,
                 history,
                 index_roots: Vec::new(),
+                vector_roots: Vec::new(),
                 stats: TableStats::default(),
             },
         )
@@ -755,15 +773,24 @@ impl<'s> WriteTransaction<'s> {
     /// root each (E3, IX4).
     fn empty_table(&mut self, name: &str, found: Found) -> Result<WriteTable<'s>> {
         let handle = self.join(name, found)?;
-        let (old, mut index_roots) = {
+        let (old, mut index_roots, mut vector_roots) = {
             let state = self.tables.get_mut().get(handle.id).expect("joined");
-            (state.rows_root, state.index_roots.clone())
+            (
+                state.rows_root,
+                state.index_roots.clone(),
+                state.vector_roots.clone(),
+            )
         };
         krummi_tree::free_all(&mut self.inner, old)?;
         let root = krummi_tree::create(&mut self.inner)?;
         for index_root in &mut index_roots {
             krummi_tree::free_all(&mut self.inner, *index_root)?;
             *index_root = krummi_tree::create(&mut self.inner)?;
+        }
+        // A vector index loses its entries and its pending rows and goes back to training, as another instance (VI10).
+        for roots in &mut vector_roots {
+            self.free_vector_trees(roots)?;
+            *roots = self.new_vector_trees(roots.instance + 1)?;
         }
         let state = self.tables.get_mut().get_mut(handle.id).expect("joined");
         // Its statistics go, and the rows it removes count as modifications, so older statistics are dropped (ST8).
@@ -777,6 +804,8 @@ impl<'s> WriteTransaction<'s> {
         state.emptied = true;
         state.rows_root = root;
         state.index_roots = index_roots;
+        state.vector_changed |= !vector_roots.is_empty();
+        state.vector_roots = vector_roots;
         state.count = 0;
         state.dirty = true;
         state.last = None;
@@ -789,13 +818,14 @@ impl<'s> WriteTransaction<'s> {
     fn drop_table(&mut self, name: &str, found: Found) -> Result<()> {
         let id = self.join(name, found)?.id;
         self.projections.retire_table(id);
-        let (root, history, index_roots, stats_root) = {
+        let (root, history, index_roots, stats_root, vector_roots) = {
             let state = self.tables.get_mut().get(id).expect("joined");
             (
                 state.rows_root,
                 state.history,
                 state.index_roots.clone(),
                 state.stats.root,
+                state.vector_roots.clone(),
             )
         };
         krummi_tree::free_all(&mut self.inner, root)?;
@@ -805,6 +835,9 @@ impl<'s> WriteTransaction<'s> {
         }
         for index_root in index_roots {
             krummi_tree::free_all(&mut self.inner, index_root)?;
+        }
+        for roots in &vector_roots {
+            self.free_vector_trees(roots)?;
         }
         catalog::remove(&mut self.inner, name)?;
         let state = self.tables.get_mut().get_mut(id).expect("joined");
@@ -965,6 +998,7 @@ impl<'s> WriteTransaction<'s> {
             retired
                 .indexes
                 .extend(state.removed_indexes.iter().map(|i| (state.id, *i)));
+            retired.vectors |= state.vector_changed && !state.deleted;
         }
         Ok(retired)
     }

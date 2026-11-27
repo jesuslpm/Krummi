@@ -41,8 +41,8 @@ pub const PAGE_SIZE_U64: u64 = PAGE_SIZE as u64;
 /// table's catalog entry holds its secondary indexes, their identities and its index state, IX14 of the secondary
 /// indexes PRD; `13` since it holds the modification counter and the statistics tree, ST13 of the statistics PRD; `14`
 /// since the JSON columns, JS12 of the JSON columns PRD; `15` since a `string` column keeps its collation, IC10 of
-/// the collation PRD).
-pub const FORMAT_VERSION: u32 = 15;
+/// the collation PRD; `16` since a table's catalog entry holds its vector indexes, VI14 of the vector indexes PRD).
+pub const FORMAT_VERSION: u32 = 16;
 /// Identification mark at the start of `krummi.data` (P4). The `\r\n`, `\x1a` and `\n` bytes detect text-mode
 /// transfers that would corrupt the file, as in the PNG signature.
 pub const MARK: [u8; 16] = *b"\x89Krummi\r\n\x1a\n\0\0\0\0\0";
@@ -342,7 +342,7 @@ mod tests {
             read_header_pages(&pages),
             HeaderRead::Found(Header::new_store())
         );
-        assert_eq!(Header::new_store().format_version, 15);
+        assert_eq!(Header::new_store().format_version, 16);
     }
 
     #[test]

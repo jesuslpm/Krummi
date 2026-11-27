@@ -137,6 +137,20 @@ authoritative):*
 - *Split: child PRD 7.7, Collation of text columns, is added, built after 7.5 and before module 17 (IC13).*
 - *Out of scope: "comparing text without distinguishing case" is no longer out.*
 
+*Annotations of 2026-11-25 from the approximate vector indexes ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6, Spanish,
+authoritative):*
+
+- *Split, annotation of 7.6, Content: the search is not only approximate; it is the hybrid one of VI6, which first
+  filters by the relational conditions and then searches, with the exact distance when few rows pass. There is also a
+  public exact search (VI16). "its benchmark loads (N11)" no longer holds: the measurement is that of VI15. User:
+  «quisiera como objetivo ser capaz de combinar filtros normales relacionales con filtros vectoriales, donde primero se
+  filtre por los relacionales normales y luego se busquen en los vectores».*
+- *Split, annotation of 7.6, Fixes: what it fixes is fixed in tables-vector-indexes.prd.md. The store information (P12)
+  does not change; that of the index is an operation of its own (VI11).*
+- *N11: 7.6 adds no loads against Voron; it compares with PostgreSQL and pgvector in its closing report, without a
+  threshold (VI15).*
+- *Out of scope: "Filtering by a distance threshold" remains in module 17.*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

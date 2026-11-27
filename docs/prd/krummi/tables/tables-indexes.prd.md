@@ -92,6 +92,13 @@ W30. W31 y W32 calculan en los dos motores la suma de comprobación de W26 y W27
 - *Fuera de alcance: «Intercalaciones y comparación de texto sin distinguir mayúsculas» deja de estar fuera, salvo lo
   que excluye tables-collation.prd.md.*
 
+*Anotaciones del 2026-11-25 desde los índices vectoriales aproximados ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6):*
+
+- *IX1 e IX3: el máximo de 64 índices por tabla y el tamaño del esquema cuentan también los índices vectoriales, que
+  comparten el espacio de nombres de los índices de la tabla (VI1).*
+- *IX5: quitar una columna con un índice vectorial falla como con un índice secundario (VI10).*
+- *IX6: Describir devuelve además la lista de los índices vectoriales, aparte (VI1).*
+
 ### Estado de partida
 
 Verificado el 2026-11-16 en el código y en los documentos de diseño:

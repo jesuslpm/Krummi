@@ -1,0 +1,59 @@
+2026-11-25T13:34:26+00:00	start	plan	
+2026-11-25T13:39:25+00:00	mark	implement	T2
+2026-11-25T13:48:38+00:00	mark	implement	T4
+2026-11-25T14:01:19+00:00	mark	implement	T5
+2026-11-25T14:01:46+00:00	mark	review	T4
+2026-11-25T14:07:16+00:00	mark	implement	T5
+2026-11-25T14:11:20+00:00	mark	implement	T6
+2026-11-25T15:16:11+00:00	mark	review	T6
+2026-11-25T15:37:35+00:00	bg-start	acceptance	AC-VI3 100k release
+2026-11-25T15:37:46+00:00	bg-end	acceptance	AC-VI3 100k release
+2026-11-25T15:39:54+00:00	mark	acceptance	T9
+2026-11-25T15:41:09+00:00	bg-start	acceptance	Cohere prepare and truth
+2026-11-25T15:43:37+00:00	bg-end	acceptance	Cohere prepare and truth
+2026-11-25T15:51:01+00:00	bg-start	acceptance	VI15 load 1M
+2026-11-25T15:54:49+00:00	bg-end	acceptance	VI15 load 1M
+2026-11-25T15:55:10+00:00	bg-start	acceptance	VI15 search 1M
+2026-11-25T16:15:01+00:00	bg-end	acceptance	VI15 search 1M
+2026-11-25T16:16:24+00:00	bg-start	acceptance	VI15 index, threshold, search
+2026-11-25T16:30:37+00:00	bg-end	acceptance	VI15 index, threshold, search
+2026-11-25T16:33:31+00:00	bg-start	acceptance	VI15 search lazy filter
+2026-11-25T16:44:05+00:00	bg-end	acceptance	VI15 search lazy filter
+2026-11-25T16:45:21+00:00	bg-start	acceptance	VI15 search windows
+2026-11-25T16:51:27+00:00	bg-end	acceptance	VI15 search windows
+2026-11-25T16:53:09+00:00	bg-start	acceptance	pgvector 1M
+2026-11-25T17:20:50+00:00	bg-end	acceptance	pgvector 1M
+2026-11-25T17:21:34+00:00	bg-start	acceptance	pgvector filters forced
+2026-11-25T17:45:14+00:00	bg-end	acceptance	pgvector filters forced
+2026-11-25T17:46:28+00:00	bg-start	acceptance	bench A/B 1 round
+2026-11-25T18:05:11+00:00	bg-end	acceptance	bench A/B 1 round
+2026-11-25T18:06:12+00:00	bg-start	acceptance	bench A/B 10 rounds
+2026-11-25T19:12:53+00:00	bg-end	acceptance	bench A/B 10 rounds
+2026-11-25T19:13:23+00:00	mark	checks	T10
+2026-11-25T19:17:25+00:00	mark	review	T11
+2026-11-25T19:19:43+00:00	bg-start	review	codex-R1
+2026-11-25T19:19:43+00:00	bg-end	review	codex-R1
+2026-11-25T19:20:37+00:00	bg-start	review	codex-R1
+2026-11-25T19:20:39+00:00	bg-end	review	codex-R1
+2026-11-25T19:21:24+00:00	mark	close	T11
+2026-11-25T19:22:52+00:00	mark	wait	Codex trust of the folder
+2026-11-25T19:40:05+00:00	mark	review	T11
+2026-11-25T19:40:05+00:00	bg-start	review	codex-R1
+2026-11-25T19:51:37+00:00	bg-end	review	codex-R1
+2026-11-25T21:06:13+00:00	mark	fix	Codex R1 fixes
+2026-11-25T21:06:13+00:00	mark	checks	checks after Codex R1 fixes
+2026-11-25T21:11:05+00:00	bg-start	acceptance	pgvector-R4
+2026-11-25T21:29:18+00:00	bg-end	acceptance	pgvector-R4
+2026-11-25T21:30:43+00:00	bg-start	review	codex-R2
+2026-11-25T21:40:58+00:00	bg-end	review	codex-R2
+2026-11-25T21:41:15+00:00	mark	wait	product question 1
+2026-11-26T06:40:17+00:00	mark	explore	VI12 resume at open
+2026-11-26T06:42:10+00:00	mark	wait	VI12 design question
+2026-11-26T06:44:54+00:00	mark	implement	VI12 resume at open
+2026-11-26T08:41:59+00:00	mark	review	Codex R3
+2026-11-26T08:42:05+00:00	bg-start	review	codex-R3
+2026-11-26T08:56:09+00:00	bg-end	review	codex-R3
+2026-11-26T09:10:11+00:00	bg-start	review	codex-R4
+2026-11-26T09:21:38+00:00	bg-end	review	codex-R4
+2026-11-26T09:21:59+00:00	mark	close	closing report
+2026-11-26T09:22:12+00:00	end		

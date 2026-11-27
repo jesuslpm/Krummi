@@ -1,5 +1,6 @@
 //! K14 / AC-K14 of the benchmark PRD: the benchmark is not part of the engine, so none of its packages, nor the
-//! other engines it measures, reach Krummi's library.
+//! other engines it measures, reach Krummi's library. Nor does the ANN experiment (`krummi-ann-lab`) or the libraries
+//! only it uses.
 
 use std::path::Path;
 use std::process::Command;
@@ -45,6 +46,9 @@ fn the_library_depends_on_no_package_of_the_benchmark() {
         "canopydb",
         "fjall",
         "lsm-tree",
+        "krummi-ann-lab",
+        "hnsw_rs",
+        "parquet",
     ] {
         assert!(
             !names.contains(&forbidden),

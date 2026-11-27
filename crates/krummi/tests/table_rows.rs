@@ -1245,6 +1245,60 @@ fn ac15_column_names_in_a_row() {
     });
 }
 
+/// E11: `get` reads the column of exactly the name given, in tables of few and of many columns: names that differ
+/// only in case, that are a prefix or an extension of another, of one byte or of many, each read their own value; a
+/// name the table does not have reads `None`.
+#[test]
+fn e11_a_column_is_read_by_its_exact_name() {
+    stores(|store, _| e11_columns_by_name(store));
+}
+
+fn e11_columns_by_name(store: &krummi::Store) {
+    for columns in [1usize, 2, 7, 8, 9, 40] {
+        // `id`, then `x`, `X`, `xx`, `x0`, ... : neighbours in case, prefix and length.
+        let mut names = vec!["id".to_owned()];
+        for i in 0..columns {
+            names.push(match i % 4 {
+                0 => "x".repeat(i / 4 + 1),
+                1 => "X".repeat(i / 4 + 1),
+                2 => format!("x{i}"),
+                _ => format!("col_{i}_{}", "y".repeat(i)),
+            });
+        }
+        let mut schema_columns = vec![Column::new("id", ColumnType::I64).not_null()];
+        schema_columns.extend(
+            names[1..]
+                .iter()
+                .map(|name| Column::new(name.clone(), ColumnType::I64)),
+        );
+        let table_name = format!("t{columns}");
+        let mut write = store.write().unwrap();
+        let table = create(
+            &mut write,
+            &table_name,
+            &Schema::new(schema_columns, &["id"]),
+        );
+        let row: Vec<(&str, Value<'_>)> = (names.iter().enumerate())
+            .map(|(i, name)| (name.as_str(), Value::I64(i as i64 * 10)))
+            .collect();
+        write.insert_row(&table, &row).unwrap();
+        write.commit().unwrap();
+        let read = store.read().unwrap();
+        let table = read.open_table(&table_name).unwrap();
+        let row = read.get_row(&table, &[Value::I64(0)]).unwrap().unwrap();
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(
+                row.get(name),
+                Some(Value::I64(i as i64 * 10)),
+                "{columns}: {name}"
+            );
+        }
+        for missing in ["", "ID", "i", "idd", "x ", "y", "col_3_", "xX"] {
+            assert_eq!(row.get(missing), None, "{columns}: {missing:?}");
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // AC-N2, AC6, AC7: values through a table
 

@@ -589,6 +589,8 @@ not admit zero vectors. It holds `Value::Vector(bytes)`, the elements in this la
 - **Order**: vectors have none. A vector column cannot be in the primary key (`SchemaRule::InvalidKeyColumn`) or in
   the key of an index (`SchemaRule::VectorIndexKey`); it can be an included column of an index
   ([indexes](indexes.md)). Vectors have no statistics.
+- **Searching**: the k nearest rows of a vector, exactly or through a vector index over an `f32`, `f16` or `i8` column
+  ([vector search and vector indexes](vector-indexes.md)).
 
 ```rust
 use krummi::table::value::{ColumnType, Value, VectorElement, VectorType};

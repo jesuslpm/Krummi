@@ -184,7 +184,7 @@ fn the_counter_survives_reopening_and_renaming() {
     assert_eq!(counter(&store), 30);
 }
 
-/// AC-ST11 (ST13): a store of format 12, written by 7.2, is of a previous format; a new store has the current format, 15 since the collation of text columns (IC10).
+/// AC-ST11 (ST13): a store of format 12, written by 7.2, is of a previous format; a new store has the current format, 16 since the vector indexes (VI14).
 #[test]
 fn ac_st11_a_store_of_format_12_is_of_a_previous_format() {
     let tmp = tempfile::tempdir().unwrap();
@@ -198,7 +198,7 @@ fn ac_st11_a_store_of_format_12_is_of_a_previous_format() {
     let [Some(a), Some(b)] = header_copies(&bytes[..2 * PAGE_SIZE]) else {
         panic!("both header copies")
     };
-    assert_eq!((a.format_version, b.format_version), (15, 15));
+    assert_eq!((a.format_version, b.format_version), (16, 16));
     let current = if a.revision >= b.revision { a } else { b };
     write_header_pages(
         &mut bytes[..2 * PAGE_SIZE],
@@ -211,10 +211,10 @@ fn ac_st11_a_store_of_format_12_is_of_a_previous_format() {
     match Store::open(tmp.path(), &krummi::StoreOptions::default()).err() {
         Some(Error::DifferentFormat {
             found, expected, ..
-        }) => assert_eq!((found, expected), (12, 15)),
+        }) => assert_eq!((found, expected), (12, 16)),
         other => panic!("expected a different format, got {other:?}"),
     }
     assert_eq!(std::fs::read(&data).unwrap(), bytes, "left as it was");
     let new = Store::open_temporary(&krummi::StoreOptions::default()).unwrap();
-    assert_eq!(new.info().format_version, 15);
+    assert_eq!(new.info().format_version, 16);
 }

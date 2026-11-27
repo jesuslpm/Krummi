@@ -35,8 +35,9 @@ const RANGE_BATCH: usize = 1024;
 #[cfg(test)]
 const RANGE_BATCH: usize = 4;
 
-/// The indexes of a table as its row writes keep them, in the order of their names (B5).
-pub(crate) struct Maintained(Vec<Index>);
+/// The indexes of a table as its row writes keep them, in the order of their names (B5): the secondary ones, and the
+/// place among the live columns of the column of each vector index, whose pending tree each row write marks (VI3).
+pub(crate) struct Maintained(Vec<Index>, Vec<usize>);
 
 /// An index of a table as its row writes keep it.
 struct Index {
@@ -56,7 +57,31 @@ impl Maintained {
                     layout: EntryLayout::new(schema, index),
                 })
                 .collect(),
+            (schema.vector_indexes().iter())
+                .map(|index| {
+                    schema
+                        .column_position(index.column.id)
+                        .expect("a live column of the index")
+                })
+                .collect(),
         )
+    }
+
+    /// Whether an update from `old(i)` to `new(i)` changes the vector of the vector index at `at` (VI3: an update that
+    /// leaves it as it was leaves the row out of the pending tree).
+    pub(super) fn vector_changed<'o, 'n>(
+        &self,
+        at: usize,
+        old: &impl Fn(usize) -> Value<'o>,
+        new: &impl Fn(usize) -> Value<'n>,
+    ) -> bool {
+        let place = self.1[at];
+        !old(place).same(&new(place))
+    }
+
+    /// The number of vector indexes.
+    pub(super) fn vectors(&self) -> usize {
+        self.1.len()
     }
 }
 
@@ -82,7 +107,7 @@ impl WriteTransaction<'_> {
             .get_mut()
             .get_mut(table.id)
             .expect("a live handle");
-        if state.index_roots.is_empty() {
+        if state.index_roots.is_empty() && state.vector_roots.is_empty() {
             return None;
         }
         let schema = &state.schema;
@@ -284,6 +309,32 @@ impl WriteTransaction<'_> {
         Ok(())
     }
 
+    /// Marks the row of `key` in the pending tree of each vector index of `table` for which `marked(at)` holds, in this
+    /// write (VI3): the index does not reflect the row until the worker reconciles it.
+    pub(super) fn mark_pending(
+        &mut self,
+        table: &WriteTable<'_>,
+        indexes: &Maintained,
+        key: &[u8],
+        marked: impl Fn(usize) -> bool,
+    ) -> Result<()> {
+        for at in (0..indexes.vectors()).filter(|&at| marked(at)) {
+            let root = self.live_table(table)?.vector_roots[at].pending;
+            let update = krummi_tree::set(&mut self.inner, root, key, &[])?;
+            let state = self
+                .tables
+                .get_mut()
+                .get_mut(table.id)
+                .expect("a live handle");
+            let roots = &mut state.vector_roots[at];
+            roots.pending = update.root;
+            roots.pending_count += u64::from(update.count_changed);
+            state.dirty = true;
+            state.vector_changed = true;
+        }
+        Ok(())
+    }
+
     fn add_entry(&mut self, table: &WriteTable<'_>, at: usize, entry: &RowEntry) -> Result<()> {
         let root = self.index_root(table, at);
         let update = krummi_tree::try_add(&mut self.inner, root, &entry.key, &entry.value)?;
@@ -409,6 +460,9 @@ impl WriteTransaction<'_> {
             deleted += update.removed;
             for row in steps {
                 self.apply_steps(table, row)?;
+            }
+            for key in &keys {
+                self.mark_pending(table, indexes, key, |_| true)?;
             }
             if keys.len() < RANGE_BATCH {
                 return Ok(deleted);

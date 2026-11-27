@@ -1,0 +1,16 @@
+[package]
+name = "krummi-ann-lab"
+version = "0.1.0"
+description = "In-memory experiment of design document 12: exact search, approximate SQ8 scan, IVF-Flat, IVF-SQ8 and an external HNSW"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+krummi = { path = "../krummi" }
+hnsw_rs = { version = "0.3.5", default-features = false }
+parquet = { version = "60.2.0", default-features = false, features = ["snap", "lz4", "zstd", "brotli"] }
+
+[lints]
+workspace = true

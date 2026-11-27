@@ -26,7 +26,7 @@ pub(crate) fn long_key(i: usize, len: usize) -> Vec<u8> {
 pub(crate) fn on_both(check: impl Fn(&mut Store)) {
     let tmp = tempfile::tempdir().unwrap();
     for mut store in [
-        Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+        open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
         Store::open_temporary(&StoreOptions::default()).unwrap(),
     ] {
         check(&mut store);
@@ -37,6 +37,18 @@ pub(crate) fn on_both(check: impl Fn(&mut Store)) {
 /// Contents the store remembers as checked so far.
 fn remembered(store: &Store) -> u64 {
     store.shared().engine.checked_remembered()
+}
+
+/// Opens the store in `folder` as [`Store::open`] does, then waits, for at most 2 s, until the vector index worker has
+/// read the catalog (VI12), so that its reads do not mix with what a test counts. A worker retrying a failure, as with
+/// a damaged catalog, is not waited for longer.
+pub(crate) fn open_settled(
+    folder: impl AsRef<Path>,
+    options: &StoreOptions,
+) -> crate::Result<Store> {
+    let store = Store::open(folder, options)?;
+    store.wait_vector_idle_for(std::time::Duration::from_secs(2));
+    Ok(store)
 }
 
 /// Writes every committed version into the store's pages, out of the scratch area.
@@ -340,7 +352,7 @@ fn ac_c8_concurrent_reads_with_competing_slots() {
     let tmp = tempfile::tempdir().unwrap();
     let stores = krummi_pager::testing::with_checked_slots(4, || {
         [
-            Store::open(tmp.path(), &StoreOptions::default()).unwrap(),
+            open_settled(tmp.path(), &StoreOptions::default()).unwrap(),
             Store::open_temporary(&StoreOptions::default()).unwrap(),
         ]
     });
@@ -486,7 +498,7 @@ pub(crate) fn concurrent_reads_while_a_write_moves_nodes(
 #[test]
 fn ac_c9_reopening_forgets_the_remembered_nodes() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&store, "n", 200, 64);
     transfer(&store);
     let read = |store: &Store| {
@@ -503,8 +515,14 @@ fn ac_c9_reopening_forgets_the_remembered_nodes() {
     assert!(first > 0);
     store.close().unwrap();
 
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
-    assert_eq!(remembered(&store), 0, "a new opening remembers nothing");
+    let store = open_settled(tmp.path(), &StoreOptions::default()).unwrap();
+    // The vector index worker reads the catalog when the store opens (VI12), and the opening waits for it: a new
+    // opening remembers only the catalog's root it read.
+    assert_eq!(
+        remembered(&store),
+        1,
+        "a new opening remembers nothing more"
+    );
     read(&store);
     assert_eq!(
         remembered(&store),
@@ -647,7 +665,7 @@ fn ac_x19_a_damaged_layout_of_a_fixed_size_leaf_in_the_scratch_area_fails_every_
 #[test]
 fn ac_x19_reopening_forgets_the_remembered_fixed_size_nodes() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_fixed(&store, "f", FIXED_KEYS);
     transfer(&store);
     let before = remembered(&store);
@@ -656,8 +674,14 @@ fn ac_x19_reopening_forgets_the_remembered_fixed_size_nodes() {
     assert!(first > 0);
     store.close().unwrap();
 
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
-    assert_eq!(remembered(&store), 0, "a new opening remembers nothing");
+    let store = open_settled(tmp.path(), &StoreOptions::default()).unwrap();
+    // The vector index worker reads the catalog when the store opens (VI12), and the opening waits for it: a new
+    // opening remembers only the catalog's root it read.
+    assert_eq!(
+        remembered(&store),
+        1,
+        "a new opening remembers nothing more"
+    );
     read_fixed(&store.read().unwrap(), "f", 700);
     assert_eq!(
         remembered(&store),
@@ -672,14 +696,14 @@ fn ac_x19_reopening_forgets_the_remembered_fixed_size_nodes() {
 #[test]
 fn opening_without_memory_for_the_table_fails_with_out_of_memory() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     commit_tree(&store, "n", 20, 64);
     store.close().unwrap();
 
     // More slots than the address space holds: the system can never provide them.
     let openings = krummi_pager::testing::with_checked_slots(usize::MAX / 8, || {
         [
-            Store::open(tmp.path(), &StoreOptions::default()),
+            open_settled(tmp.path(), &StoreOptions::default()),
             Store::open_temporary(&StoreOptions::default()),
         ]
     });
@@ -690,7 +714,7 @@ fn opening_without_memory_for_the_table_fails_with_out_of_memory() {
         }
     }
 
-    let store = Store::open(tmp.path(), &StoreOptions::default()).unwrap();
+    let store = open_settled(tmp.path(), &StoreOptions::default()).unwrap();
     let read = store.read().unwrap();
     let tree = read.open_tree("n").unwrap();
     assert_eq!(read.len(&tree).unwrap(), 20);

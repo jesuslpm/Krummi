@@ -363,7 +363,8 @@ result, so exact queries never use it and approximate search gets its own opt-in
    are rejected in cosine columns.
 6. **Distance units for the threshold.** *Still open.* Options: the user writes the plain `l2` distance and the engine
    squares it internally; the user writes the squared distance. Recommendation: plain L2 distance (matches pgvector and
-   the other systems); the engine compares squares.
+   the other systems); the engine compares squares. *Decided 2026-11-25 in PRD 7.6 (VI8): the search returns the
+   Euclidean distance, and order and ties follow the squared value; the user: "distancia euclídea".*
 7. **Quantization.** *Decided:* the caller quantizes `i8` and `bit` vectors; a helper in the binding may come later.
 8. **Parallel scan.** *Decided for v1:* one thread per query; the heap and kernels are written so a split by key range
    is possible later.

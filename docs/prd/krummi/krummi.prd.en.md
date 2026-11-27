@@ -52,6 +52,11 @@ product of its own, without being tied to its on-disk format.
 | D11 | **Zero-copy reads** (v1.1): reads return to the application references to engine memory, without copying the data into a caller's buffer. The references are valid as long as the read transaction that obtained them is open, and the compiler prevents using them afterwards. If a page is stored encrypted (module 9) or compressed (module 5), it is decrypted or decompressed once into the transaction's memory and the reference points there. Writes work on a copy of the page, which snapshot isolation (G3) requires. |
 | D12 | **Unsafe code** (v1.1): the Pager (module 1), with the encrypted variant that module 9 adds to it, is the only part of the engine that may use unsafe Rust code (`unsafe`). It encapsulates it behind a safe interface; the rest of the engine is forbidden from using it and an automatic check enforces this. |
 
+*Annotation of 2026-11-25 to D3 and AC18 from the approximate vector indexes
+([tables-vector-indexes.prd.en.md](tables/tables-vector-indexes.prd.en.md), 7.6): exception: that PRD is validated on
+Linux x86-64 with glibc only, because its execution has no Windows; its Windows tests and measurements stop being a
+criterion.*
+
 *Annotation of 2026-10-22 to D12: no public operation causes undefined behavior, unless another program modifies the
 store's files while it is open, which is out of scope (decision P16 of
 [pager.prd.en.md](pager/pager.prd.en.md)).*

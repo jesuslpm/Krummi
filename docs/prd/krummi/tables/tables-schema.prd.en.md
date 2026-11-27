@@ -172,6 +172,12 @@ authoritative):*
 - *E18: the primary key is measured with the folded form of its `ci` and `ci_ai` columns (IC7).*
 - *E20: the format goes up by one (IC10).*
 
+*Annotations of 2026-11-25 from the approximate vector indexes ([tables-vector-indexes.prd.md](tables-vector-indexes.prd.md), 7.6, Spanish,
+authoritative):*
+
+- *E3, E5 and E13: emptying the table, removing a column and the bulk load with a vector index follow VI10.*
+- *E20: the format goes up by one (VI14).*
+
 ### Starting state
 
 - There are no tables or sequences in the code: the catalog stores normal, multi-value and fixed-size trees, each

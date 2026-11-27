@@ -195,6 +195,9 @@ impl LiveColumn {
     }
 }
 
+/// The most live columns whose names [`TableRow::get`] compares one by one instead of looking the name up in a map.
+const NAMES_COMPARED: usize = 8;
+
 /// What reading and writing the rows of a table's current schema needs, built once per schema version and shared by
 /// the handles of the table and the rows they read.
 pub(crate) struct Reader {
@@ -580,6 +583,17 @@ impl Reader {
         }
         *current = Some(self.decode(tx, table, versions, Cow::Borrowed(key), bytes, false)?);
         Ok(())
+    }
+
+    /// The position of the live column `name`. Comparing the names of a table of a few columns costs less than hashing
+    /// `name` for the map: on a scan of W23's table that read a column by name, the hash took 16 % of the time.
+    #[inline]
+    fn position(&self, name: &str) -> Option<usize> {
+        if self.columns.len() <= NAMES_COMPARED {
+            self.columns.iter().position(|column| column.name == name)
+        } else {
+            self.names.get(name).copied()
+        }
     }
 
     /// The row that an update of `old` with `values` (one per live column, `None` for one it does not give) writes,
@@ -1122,7 +1136,7 @@ impl<'t> TableRow<'t> {
 
     /// The value of the live column `name`.
     pub fn get(&self, name: &str) -> Option<Value<'t>> {
-        self.reader.names.get(name).and_then(|&i| self.value(i))
+        self.reader.position(name).and_then(|i| self.value(i))
     }
 
     /// The name of the live column at `position`.
@@ -1456,13 +1470,14 @@ impl WriteTransaction<'_> {
         let key = reader
             .lookup_key(key)
             .map_err(|fault| fault.error(self.folder, &self.table_name(table)))?;
-        let steps = match self.maintained(table) {
+        let indexes_of_delete = self.maintained(table);
+        let steps = match &indexes_of_delete {
             None => Vec::new(),
             Some(indexes) => match krummi_tree::get(&self.inner, rows_root, &key)? {
                 None => return Ok(false),
                 Some(bytes) => {
                     let mut versions = Versions::default();
-                    self.delete_steps(table, &indexes, &reader, &mut versions, &key, bytes)?
+                    self.delete_steps(table, indexes, &reader, &mut versions, &key, bytes)?
                 }
             },
         };
@@ -1470,6 +1485,9 @@ impl WriteTransaction<'_> {
         let removed = u64::from(update.count_changed);
         self.apply_rows(table, update.root, RowCount::Removed(removed))?;
         self.apply_steps(table, steps)?;
+        if let Some(indexes) = &indexes_of_delete {
+            self.mark_pending(table, indexes, &key, |_| update.count_changed)?;
+        }
         Ok(update.count_changed)
     }
 
@@ -1533,6 +1551,9 @@ impl WriteTransaction<'_> {
                 self.follow_last(table, update.root, &key, last);
             }
             self.apply_steps(table, steps)?;
+            if let Some(indexes) = &indexes {
+                self.mark_pending(table, indexes, &key, |_| true)?;
+            }
             return Ok(Written::Inserted);
         };
         // The row it replaces is checked (L3 of the row reads PRD).
@@ -1549,20 +1570,26 @@ impl WriteTransaction<'_> {
             values[i] = None;
         }
         let old_value = |i: usize| old.value(i).expect("a live column");
-        let (encoded, steps) = match reader.patch(&old, &values) {
+        let (encoded, steps, vectors) = match reader.patch(&old, &values) {
             Some(Patch::Identical) => return Ok(Written::Updated),
             Some(Patch::Row(row)) => {
-                let steps = match &indexes {
-                    None => Vec::new(),
+                let (steps, vectors) = match &indexes {
+                    None => (Vec::new(), Vec::new()),
                     Some(indexes) => {
                         let new = |i: usize| match &values[i] {
                             Some(value) => value.reborrow(),
                             None => old_value(i),
                         };
-                        self.update_steps(table, indexes, old_value, new, &key)?
+                        let vectors = (0..indexes.vectors())
+                            .map(|at| indexes.vector_changed(at, &old_value, &new))
+                            .collect();
+                        (
+                            self.update_steps(table, indexes, old_value, new, &key)?,
+                            vectors,
+                        )
                     }
                 };
-                (row, steps)
+                (row, steps, vectors)
             }
             None => {
                 // Decoded once: the merge and the comparison both read every old value.
@@ -1576,17 +1603,20 @@ impl WriteTransaction<'_> {
                     return Ok(Written::Updated);
                 }
                 let encoded = reader.encode(&merged).map_err(|fault| fail(self, fault))?;
-                let steps = match &indexes {
-                    None => Vec::new(),
-                    Some(indexes) => self.update_steps(
-                        table,
-                        indexes,
-                        |i| old[i].reborrow(),
-                        |i| merged[i].reborrow(),
-                        &key,
-                    )?,
+                let (steps, vectors) = match &indexes {
+                    None => (Vec::new(), Vec::new()),
+                    Some(indexes) => {
+                        let (old, new) = (
+                            |i: usize| old[i].reborrow(),
+                            |i: usize| merged[i].reborrow(),
+                        );
+                        let vectors = (0..indexes.vectors())
+                            .map(|at| indexes.vector_changed(at, &old, &new))
+                            .collect();
+                        (self.update_steps(table, indexes, old, new, &key)?, vectors)
+                    }
                 };
-                (encoded, steps)
+                (encoded, steps, vectors)
             }
         };
         // A row of the same length goes where the read found it, without walking the tree again; the tree's root
@@ -1602,6 +1632,9 @@ impl WriteTransaction<'_> {
             self.apply_rows(table, update.root, RowCount::Kept)?;
         }
         self.apply_steps(table, steps)?;
+        if let Some(indexes) = &indexes {
+            self.mark_pending(table, indexes, &key, |at| vectors[at])?;
+        }
         Ok(Written::Updated)
     }
 

@@ -328,7 +328,7 @@ pub(super) fn check_definition(
     if same_key {
         return fail(SchemaRule::SameIndexKey, None);
     }
-    if adding && schema.indexes().len() >= MAX_INDEXES {
+    if adding && schema.index_count() >= MAX_INDEXES {
         return fail(SchemaRule::TooManyIndexes, None);
     }
     let index = SchemaIndex {
@@ -814,7 +814,13 @@ impl<'s> WriteTransaction<'s> {
         let (root, history) = {
             let state = self.live_table(table)?;
             let Some(at) = state.schema.index_position(name) else {
-                return Ok(());
+                // One name space: a vector index of the name is dropped the same way (VI1).
+                let vector = state.schema.vector_index_position(name);
+                drop(state);
+                return match vector {
+                    Some(at) => self.drop_vector_index(table, at),
+                    None => Ok(()),
+                };
             };
             (state.index_roots[at], state.history)
         };
@@ -849,6 +855,15 @@ impl<'s> WriteTransaction<'s> {
     ) -> Result<Option<Build>> {
         let state = self.live_table(table)?;
         let invalid = |invalid| self.folder.invalid_schema(&state.name, invalid);
+        if state.schema.vector_index(&definition.name).is_some() {
+            return Err(match mode {
+                IndexMode::CreateNew => self.folder.index_exists(&state.name, &definition.name),
+                IndexMode::CreateIfNotExists => self.folder.different_schema(
+                    &state.name,
+                    super::vector_index::other_kind(&definition.name, false),
+                ),
+            });
+        }
         if let Some(existing) = state.schema.index(&definition.name) {
             return match mode {
                 IndexMode::CreateNew => {
