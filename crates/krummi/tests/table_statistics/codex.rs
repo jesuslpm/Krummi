@@ -320,6 +320,13 @@ fn r15_name_sizes_come_before_the_columns() {
     });
 }
 
+/// Waits until the threads that the earlier commits woke are idle. They share the test thread's fault context, so a
+/// snapshot of theirs would take a failure injected for the call under test.
+fn settle(store: &Store) {
+    store.wait_statistics_idle();
+    store.wait_vector_idle();
+}
+
 /// R1 (T11): an auxiliary snapshot that cannot open fails the requesting write too.
 #[test]
 fn r1_a_failed_auxiliary_snapshot_fails_the_write() {
@@ -332,6 +339,7 @@ fn r1_a_failed_auxiliary_snapshot_fails_the_write() {
         .insert_row(&table, &[("id", Value::I64(1)), ("n", Value::I64(1))])
         .unwrap();
     write.commit().unwrap();
+    settle(&store);
     let mut write = store.write().unwrap();
     write
         .open_tree_with("previous", OpenMode::CreateNew)
@@ -578,6 +586,7 @@ fn r13_a_renewal_out_of_memory_is_dropped_and_asked_again() {
     use krummi_pager::testing::{self, Action, Op};
     stores(|store, _| {
         stale_table(store);
+        settle(store);
         let read = store.read().unwrap();
         let table = read.open_table("t").unwrap();
         testing::reset();
@@ -620,6 +629,7 @@ fn r13_analyze_without_memory_for_its_snapshot_changes_nothing() {
             .open_table_with("t", TableMode::CreateNew(&pair_schema()))
             .unwrap();
         write.commit().unwrap();
+        settle(store);
         testing::reset();
         testing::inject(
             Op::Snapshot,
@@ -866,6 +876,7 @@ fn r13_analyze_out_of_memory_after_sampling_keeps_and_later_saves() {
             .unwrap();
     }
     write.commit().unwrap();
+    settle(&store);
     testing::reset();
     testing::inject(
         Op::Snapshot,

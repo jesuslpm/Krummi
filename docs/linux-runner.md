@@ -44,6 +44,9 @@ pwsh scripts/runner/Invoke-Linux.ps1 run 'perf record -g -o $KRUMMI_RESULTS/perf
 - Write anything worth keeping to `$KRUMMI_RESULTS`: the checkout is wiped before each run.
 - Each run leaves `output.log` and `meta.txt` (commit, command, kernel, CPU, governor, compiler, times, exit
   status). The script returns the task's exit status; 3 means that another run is in progress.
+- The runner has its own Rust installation in `~/krummi-runner/rustup`, with the version that the commit's
+  `ci.yml` sets in `RUST_TOOLCHAIN`, installed on first use (it needs the network then). What you add to your own
+  Rust, such as `rust-src`, does not change its results.
 - Only one run at a time. For measurements, keep the Linux machine otherwise idle.
 - If the connection drops, the run may finish anyway; its results stay in `~/krummi-runner/results/`.
 - `perf` needs `kernel.perf_event_paranoid` of 1 or lower to sample your own processes with kernel frames.
