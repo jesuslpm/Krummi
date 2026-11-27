@@ -177,6 +177,8 @@ fn ac_e13_failures_of_the_journals_writer() {
     let mut tx = engine.write(None).unwrap();
     put(&mut tx, pages[0], "returned");
     tx.commit().unwrap();
+    // The injected panic is for the journal's writer, not for the transfer of the commit just made.
+    engine.set_transfer_paused(true);
     engine.set_journal_paused(true);
     testing::reset();
     testing::inject(Op::Write, 0, Action::Panic);
