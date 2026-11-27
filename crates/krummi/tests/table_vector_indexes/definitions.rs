@@ -287,7 +287,15 @@ fn the_most_indexes_count_both_kinds() {
 /// table frees every page; emptying the table keeps the index with new trees; all of it survives reopening.
 #[test]
 fn ac_vi9_the_changes_of_the_table() {
-    stores(|store, folder| {
+    // The test owns its store, on disk and temporary, since it closes the one on disk to reopen it: Windows locks the
+    // files of an open store, so they cannot be copied while it is open.
+    for on_disk in [true, false] {
+        let folder = tempfile::tempdir().unwrap();
+        let mut store = if on_disk {
+            open(folder.path())
+        } else {
+            Store::open_temporary(&StoreOptions::default()).unwrap()
+        };
         let schema = super::schema(f32_vector(3, false));
         // The pages of a store whose table was created and deleted, which keeps its catalog's root.
         let mut write = store.write().unwrap();
@@ -296,7 +304,7 @@ fn ac_vi9_the_changes_of_the_table() {
             .unwrap();
         write.delete_table("t").unwrap();
         write.commit().unwrap();
-        let base = in_use(store);
+        let base = in_use(&store);
         let mut write = store.write().unwrap();
         let table = write
             .open_table_with("t", TableMode::CreateNew(&schema))
@@ -339,12 +347,11 @@ fn ac_vi9_the_changes_of_the_table() {
         write.drop_index(&table, "missing").unwrap();
         write.commit().unwrap();
 
-        if let Some(folder) = folder {
-            // Reopening keeps the definitions (on disk only; the caller's store stays open).
-            let other = tempfile::tempdir().unwrap();
-            copy_store(folder, other.path());
-            let reopened = open(other.path());
-            let read = reopened.read().unwrap();
+        if on_disk {
+            // Reopening keeps the definitions.
+            store.close().unwrap();
+            store = open(folder.path());
+            let read = store.read().unwrap();
             assert_eq!(read.describe_table("u").unwrap(), described);
         }
 
@@ -367,7 +374,7 @@ fn ac_vi9_the_changes_of_the_table() {
             .unwrap();
         write.delete_table("u").unwrap();
         write.commit().unwrap();
-        assert_eq!(in_use(store), base, "every page freed");
+        assert_eq!(in_use(&store), base, "every page freed");
 
         // A table that another overwrites when it is renamed frees its vector indexes too (E2).
         let mut write = store.write().unwrap();
@@ -382,20 +389,8 @@ fn ac_vi9_the_changes_of_the_table() {
         write.rename_table("a", "b", true).unwrap();
         write.delete_table("b").unwrap();
         write.commit().unwrap();
-        assert_eq!(in_use(store), base, "every page freed");
-    });
-}
-
-/// Copies the files of the store in `from`, which is open, to `to`: a clean copy needs the store closed, so this copies
-/// only after a commit made durable, and the copy is recovered when it opens.
-fn copy_store(from: &std::path::Path, to: &std::path::Path) {
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_file()
-            && !entry.file_name().to_string_lossy().ends_with(".lock")
-        {
-            std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
-        }
+        assert_eq!(in_use(&store), base, "every page freed");
+        store.close().unwrap();
     }
 }
 
