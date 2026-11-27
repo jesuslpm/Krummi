@@ -28,3 +28,25 @@ UTC), rewrote `.atl/skill-registry.md` (modified 15:19:03 UTC). The Codex run lo
   to acknowledge the pause of a dispatched pass, a change to a helper shared by every test that pauses the transfer.
   AC-E13 passed 20 of 20 local runs after `3816274c`.
 - Status: open.
+
+## 2026-11-27 (R1 fix)
+
+Fix commits on branch `fix/transfer-pause`: `03f0b2ef` (fix and its test), `b9dd9078` (probe of the independent
+verification).
+
+### R1 — minor (pre-existing advisory): the pause helper does not acknowledge an already-dispatched transfer
+
+- Disposition: fixed.
+- Fix: `SignalState::passing` (`crates/krummi-pager/src/transfer.rs`) is set by `next_work` under the signal mutex
+  when it returns `Work::Pass`, and cleared by `after_work`, which then wakes `answered`. `Signal::set_paused(true)`
+  waits on `answered` while a pass is taken and the thread is alive; `Alive::drop` already clears `alive` and wakes
+  `answered` when the thread ends by a panic, as in AC-E13.
+- Checks: `transfer::tests::pausing_waits_for_a_pass_already_taken` failed before the fix ("the pause waits for the
+  pass") and passes after it; `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings`
+  clean; on Linux (`work/runner/20261127T174157.168Z-03f0b2efc1c5-run`) AC-E13 passed 200 of 200 runs and
+  `cargo test --workspace` passed at `03f0b2ef`; on Windows `cargo test --workspace` at `03f0b2ef` failed only
+  `worker::ac_vi3_the_index_follows_the_writes` and `worker::ac_vi15_the_lists_of_large_tables` on their 120 s limits
+  while another `cargo test` ran on the machine, and the four `worker::ac_vi*` tests then passed alone in 75 s.
+  Independent verifier: PASS on "no pass taken before the pause writes after it", "the pause never hangs" and
+  "production behavior unchanged". RDD review `review-c3f511c408f7ac2d` (resilience, reliability) approved.
+- Status: claimed fixed, unverified until a follow-up review.
