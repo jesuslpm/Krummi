@@ -142,6 +142,21 @@ in the main copy (`C:\projects\Krummi`) it is a folder. Create, list, merge and 
   the main copy nor in a worktree copy.
 - The main copy keeps every rule above unchanged.
 
+## Linux runner
+
+Main development happens on the Windows machine. Run Linux builds, tests, benchmarks and profiling on the Linux
+machine with `scripts/runner/Invoke-Linux.ps1`, never with ad hoc commands over SSH or edits there
+(`docs/linux-runner.md`).
+
+- **Commits only.** It runs a commit: commit first.
+- **Ask once.** It is remote execution: ask the user before the first use in a session, unless they already asked
+  for Linux checks or measurements.
+- **Background and one at a time.** Long runs go in the background. Exit status 3 means the runner is busy: wait,
+  do not work around it.
+- **Evidence.** Cite the run folder in `work/runner/` (`meta.txt`, `output.log`) for every Linux result or figure.
+
+A session that already runs on the Linux machine works as usual and does not need the script.
+
 ## Repository rules
 
 - Code, identifiers, comments and technical docs in English; CLI messages and PRDs in Spanish.
