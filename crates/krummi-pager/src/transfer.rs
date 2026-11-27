@@ -365,6 +365,10 @@ mod tests {
             }
             done.recv_timeout(Duration::from_secs(10)).unwrap();
             pauser.join().unwrap();
+            if thread_ends {
+                // With the thread gone, pausing again never waits, though its last pass is still marked as taken.
+                signal.set_paused(true);
+            }
         }
     }
 }
