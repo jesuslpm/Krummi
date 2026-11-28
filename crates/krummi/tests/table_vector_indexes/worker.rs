@@ -133,6 +133,11 @@ fn ac_vi15_the_index_trains_from_10000_rows() {
     });
 }
 
+/// The limit of the two slowest waits, the training of the large tables in AC-VI15 and the build under writes in VI3.
+/// In a debug build on Windows the worker tests took 75 s together alone, but these two passed 120 s when the machine
+/// also ran another test suite.
+const LOADED_LIMIT: Duration = Duration::from_secs(600);
+
 /// AC-VI15: the lists for 1 M and 1,000,001 rows, with the hook that gives the rows the training counts.
 #[test]
 fn ac_vi15_the_lists_of_large_tables() {
@@ -147,7 +152,7 @@ fn ac_vi15_the_lists_of_large_tables() {
         let start = Instant::now();
         while info(&store).state != VectorIndexState::Ready {
             store.wait_vector_idle();
-            assert!(start.elapsed() < Duration::from_secs(120));
+            assert!(start.elapsed() < LOADED_LIMIT);
         }
         assert_eq!(info(&store).lists, Some(lists), "{rows}");
         store.close().unwrap();
@@ -196,7 +201,7 @@ fn ac_vi3_the_index_follows_the_writes() {
             if seen.last() != Some(&state) {
                 seen.push(state);
             }
-            assert!(start.elapsed() < Duration::from_secs(120), "{seen:?}");
+            assert!(start.elapsed() < LOADED_LIMIT, "{seen:?}");
         }
         assert_eq!(seen.first(), Some(&VectorIndexState::Training));
         assert_eq!(seen.last(), Some(&VectorIndexState::Ready));
