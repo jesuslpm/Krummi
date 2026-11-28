@@ -60,6 +60,10 @@ column when their folded forms are equal byte by byte.
 | IC12 | **Measurement** (N11, with the annotation of 2026-11-20 of the parent): a single pass of one round of the loads W1–W32 before and after the change, and 10 to 20 rounds of those affected by it, which are those of tables, W23 to W32, whose key and schema encoding changes, and of those that in that pass deviate more than 3 % from the base. There are no new loads of the benchmark nor new thresholds: Voron tables have no collation. In addition, the closing report measures, on Windows and on Linux, with the median of 10 to 20 rounds, on a table of 100,000 rows with a `string` key of about 24 bytes of text with uppercase and accents, generated with a fixed seed, and a unique index on another equal `string` column: inserting in writes of 1,000 rows, like W23; reading by the key; and searching by the index. Each measure is compared with the same table with both columns `binary`, which is its floor. |
 | IC13 | **Closing the module**: 7.7 is built after 7.5 and before module 17, and N2 closes module 7 when 7.1, 7.2, 7.3, 7.5, 7.6 and 7.7 are closed. |
 
+*Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md); Spanish
+authoritative): Out of scope, a text prefix search, `LIKE` or "starts with" (module 17): covered by 17.3 of the
+queries.*
+
 ### Starting state
 
 Verified on 2026-11-23 in the code and in the PRDs of the ancestors and siblings:

@@ -71,6 +71,11 @@ authoritative):*
 
 - *AC-JS12: a new store has the format IC10 sets, not 14.*
 
+*Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md); Spanish
+authoritative): the requirements this PRD and the tables leave to module 17 (paths, "any" and "all", the multi-entry
+index, typed reads, the bench load that filters by a path) are covered by 17.3 of the queries; the indexes on
+expressions and which other classes of index over JSON enter, by 17.6.*
+
 ### Starting state
 
 Verified on 2026-11-21 in the code, in the PRDs of the ancestors and siblings and in the design documents:

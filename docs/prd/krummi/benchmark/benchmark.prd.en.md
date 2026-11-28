@@ -127,6 +127,11 @@ Spanish, authoritative):*
   the other engines say `no aplica` in those loads.*
 - *K9: the size of the store is also measured after W30.*
 
+*Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md), CS14; Spanish
+authoritative): K7 and *Output*: the query overhead loads also have a threshold, against the direct table operation and
+not against Voron; the report counts them with the other thresholds and K13 applies to them. K2 and K14: SQLite enters
+the bench only for the comparison without threshold in the closing reports of module 17.*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

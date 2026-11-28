@@ -151,6 +151,13 @@ authoritative):*
   threshold (VI15).*
 - *Out of scope: "Filtering by a distance threshold" remains in module 17.*
 
+*Annotations of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md), module 17; Spanish
+authoritative):*
+
+- *N7: the reserved partial indexes are built by 17.6 of the queries, together with the indexes on expressions.*
+- *N10: different schema also covers query documents and statements whose identities do not match the catalog, and
+  invalid value also covers bound values that do not meet their parameter's declaration (CS10).*
+
 ### Starting state
 
 Verified on 2026-11-09 in the code, in the PRDs of the ancestors and in the design documents:

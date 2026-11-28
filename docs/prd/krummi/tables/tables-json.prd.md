@@ -67,6 +67,11 @@ un valor `null`.
 
 - *AC-JS12: un almacén nuevo es del formato que fija IC10, no del 14.*
 
+*Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md)): los requisitos que
+este PRD y las tablas dejan al módulo 17 (rutas, «alguno» y «todos», índice multientrada, lectura tipada, la carga del
+banco que filtra por una ruta) los cubre 17.3 de las consultas; los índices sobre expresiones y qué otras clases de
+índice sobre JSON entran, 17.6.*
+
 ### Estado de partida
 
 Verificado el 2026-11-21 en el código, en los PRD de los ascendientes y hermanos y en los documentos de diseño:

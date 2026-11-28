@@ -57,6 +57,9 @@ una columna cuando sus formas plegadas son iguales byte a byte.
 | IC12 | **Medición** (N11, con la anotación del 2026-11-20 del padre): una pasada de una ronda de las cargas W1–W32 antes y después del cambio, y de 10 a 20 rondas de las afectadas por él, que son las de tablas, W23 a W32, cuya codificación de claves y de esquema cambia, y de las que en esa pasada se aparten más de un 3 % de la base. No hay cargas nuevas del banco ni umbrales nuevos: las tablas de Voron no tienen intercalación. El informe de cierre mide además, en Windows y en Linux, con la mediana de 10 a 20 rondas, sobre una tabla de 100.000 filas con una clave `string` de unos 24 bytes de texto con mayúsculas y acentos, generado con una semilla fija, y un índice único sobre otra columna `string` igual: insertar en escrituras de 1.000 filas, como W23; leer por la clave; y buscar por el índice. Cada medida se compara con la misma tabla con las dos columnas `binary`, que es su suelo. |
 | IC13 | **Cierre del módulo**: 7.7 se construye después de 7.5 y antes del módulo 17, y N2 cierra el módulo 7 cuando lo están 7.1, 7.2, 7.3, 7.5, 7.6 y 7.7. |
 
+*Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md)): Fuera de alcance,
+«Una operación de búsqueda por prefijo de texto, `LIKE` o «empieza por»: módulo 17»: la cubre 17.3 de las consultas.*
+
 ### Estado de partida
 
 Verificado el 2026-11-23 en el código y en los PRD de los ascendientes y hermanos:

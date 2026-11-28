@@ -140,6 +140,28 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 
 - *D11 y AC20: los valores de las columnas de la clave de un índice y de la clave primaria leídos de una entrada de un índice se devuelven decodificados en una copia propia de la aplicación, también el texto y los bytes; los de sus columnas incluidas, como los de una fila (decisión IX8).*
 
+*Anotaciones del 2026-11-28 desde las consultas ([queries.prd.md](queries/queries.prd.md), módulo 17):*
+
+- *Objetivos: se añade el objetivo 4, **desarrollo asistido por IA**, acotado a los agentes y herramientas que usan los
+  desarrolladores: la biblioteca les ofrece los esquemas de sus documentos, la descripción del almacén, la explicación
+  y errores con ruta, sin depender de ningún servidor MCP ni SDK de IA (CS12; P13 del documento de diseño 11).*
+- *Reparto: el módulo 17 añade las sentencias preparadas y los documentos de consulta, plan, ejecución y explicación
+  con sus JSON Schema, se reparte en los PRD hijos 17.1 a 17.13 y su objetivo es la mayor parte de las consultas del
+  SQL estándar (CS2); el módulo 18 se construye cuando el 17 está cerrado entero; el módulo 12 construye también la
+  línea de órdenes para agentes, con `--json`, y la skill del documento de diseño 10 (CS12).*
+- *D2: la superficie pública añade esos documentos y sus JSON Schema (CS3).*
+- *D5: el banco compara también con SQLite, que no es un motor de Rust, solo como información en los informes de
+  cierre del módulo 17; las cargas de sobrecoste de las consultas tienen umbral frente a las operaciones directas de
+  Krummi (CS14).*
+- *D7: los documentos tienen su propio versionado semántico, aparte del formato del almacén (CS3).*
+- *D8 y Validaciones y mensajes: nueva clase de error documento no válido (CS10).*
+- *D11 y AC20: los valores que una consulta calcula y los que pasaron por una estructura desbordada a disco se
+  devuelven en una copia propia de la aplicación (Salida de las consultas).*
+- *D12: bajo la regla de la anotación del 2026-11-10, se admiten `serde`, `serde_derive` y `serde_json`, y los crates
+  que traen según la lista que fije 17.1, solo en el crate de las consultas (CS11).*
+- *Fuera de alcance: las dependencias de servidores MCP, runtimes asíncronos y SDK de IA quedan fuera de la biblioteca
+  (CS11).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

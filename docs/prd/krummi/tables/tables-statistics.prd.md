@@ -89,6 +89,10 @@ desde que se creó (ST4).
 *el filtro de una búsqueda de vecinos parte de las condiciones de ST2, añade IN y NOT IN y trata los nulos como SQL,
 distinto de ST2 (VI7); las estimaciones de 7.3 no cambian.*
 
+*Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md)): Fuera de alcance,
+«Ajustar las estimaciones con lo que devuelven las consultas [...]: módulo 17»: queda fuera del módulo 17, con las
+directivas de estimación del documento de diseño 15.*
+
 ### Estado de partida
 
 Verificado el 2026-11-19 en el código y en los documentos de diseño:

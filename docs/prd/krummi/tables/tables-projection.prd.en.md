@@ -63,6 +63,9 @@ authoritative):*
 
 - *PY2: a `string` column is prepared with the `string` type, whatever its collation (IC1).*
 
+*Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md); Spanish
+authoritative): whether module 17's queries use the projections is fixed by 17.1 of the queries.*
+
 ### Starting state
 
 - A row that is read or traversed is read column by column, by the name or the position of the column among the live

@@ -145,6 +145,27 @@ authoritative):*
   decoded into a copy the application owns, text and bytes too; those of its included columns, as those of a row
   (decision IX8).*
 
+*Annotations of 2026-11-28 from the queries ([queries.prd.en.md](queries/queries.prd.en.md), module 17; Spanish
+authoritative):*
+
+- *Objectives: objective 4 is added, **AI-assisted development**, limited to the agents and tools developers use: the
+  library offers them the schemas of its documents, the description of the store, the explanation and errors with a
+  path, without depending on any MCP server or AI SDK (CS12; P13 of design document 11).*
+- *Split: module 17 adds prepared statements and the query, plan, execution and explanation documents with their JSON
+  Schemas, is split into child PRDs 17.1 to 17.13, and its objective is most of the queries of standard SQL (CS2);
+  module 18 is built once module 17 is closed as a whole; module 12 also builds the command line for agents, with
+  `--json`, and the skill of design document 10 (CS12).*
+- *D2: the public surface adds those documents and their JSON Schemas (CS3).*
+- *D5: the bench also compares with SQLite, which is not a Rust engine, only as information in the closing reports of
+  module 17; the query overhead loads have a threshold against Krummi's direct operations (CS14).*
+- *D7: the documents have their own semantic versioning, apart from the store format (CS3).*
+- *D8 and Validations and messages: new error class invalid document (CS10).*
+- *D11 and AC20: the values a query computes and those that went through a structure spilled to disk are returned in
+  a copy the application owns (Output of the queries).*
+- *D12: under the rule of the 2026-11-10 annotation, `serde`, `serde_derive` and `serde_json`, and the crates they
+  bring per the list 17.1 fixes, are admitted, only in the query crate (CS11).*
+- *Out of scope: dependencies on MCP servers, async runtimes and AI SDKs stay out of the library (CS11).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

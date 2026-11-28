@@ -124,6 +124,11 @@ cambian (PY7).*
 - *K7 y *Salida*: el informe cuenta 32 umbrales; los de W30–W32 son frente a las tablas de Voron con sus índices, y los demás motores dicen `no aplica` en esas cargas.*
 - *K9: el tamaño del almacén se mide también tras W30.*
 
+*Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md), CS14): K7 y *Salida*:
+tienen umbral también las cargas de sobrecoste de las consultas, frente a la operación directa de las tablas y no
+frente a Voron; el informe las cuenta con los demás umbrales y K13 vale para ellas. K2 y K14: SQLite entra en el banco
+solo para la comparación sin umbral de los informes de cierre del módulo 17.*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

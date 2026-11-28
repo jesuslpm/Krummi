@@ -105,6 +105,10 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 - *P3: `krummi.sort` es un nombre reservado de la carpeta del almacén, para los archivos temporales de crear un índice, que la apertura borra (decisión IX2 y anotación del 2026-11-18 a J2 del diario).*
 - *P13: crear un índice falla con memoria agotada cuando el sistema no da la memoria con que ordena sus entradas, también en un almacén temporal, donde solo se ordenan en memoria (decisión IX2).*
 
+*Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md), CS9): P3: el
+desbordamiento a disco de las consultas usa un nombre reservado de la carpeta del almacén que la apertura borra,
+`krummi.sort` u otro que fije 17.1 de las consultas.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

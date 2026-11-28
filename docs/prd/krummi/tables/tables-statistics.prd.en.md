@@ -95,6 +95,10 @@ authoritative):*
 *the filter of a neighbor search starts from the conditions of ST2, adds IN and NOT IN and treats nulls as SQL does,
 unlike ST2 (VI7); the estimates of 7.3 do not change.*
 
+*Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md); Spanish
+authoritative): Out of scope, adjusting the estimates with what queries return ("module 17"): stays out of module 17,
+with the estimate directives of design document 15.*
+
 ### Starting state
 
 Verified on 2026-11-19 in the code and in the design documents:

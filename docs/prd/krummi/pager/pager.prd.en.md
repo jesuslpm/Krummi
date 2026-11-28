@@ -105,6 +105,10 @@ Spanish, authoritative):*
 - *P13: creating an index fails with out of memory when the system does not give the memory with which it sorts its
   entries, also in a temporary store, where they are only sorted in memory (decision IX2).*
 
+*Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md), CS9; Spanish
+authoritative): P3: the queries' spill to disk uses a reserved name of the store folder that opening deletes,
+`krummi.sort` or another that 17.1 of the queries fixes.*
+
 ### Starting state
 
 Verified on 2026-10-22:

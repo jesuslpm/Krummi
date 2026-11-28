@@ -146,6 +146,12 @@ distinto también cubre los usos de una proyección que dependen del esquema (PY
   (VI15).*
 - *Fuera de alcance: «Filtrar por un umbral de distancia» sigue en el módulo 17.*
 
+*Anotaciones del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md), módulo 17):*
+
+- *N7: los índices parciales reservados los construye 17.6 de las consultas, con los índices sobre expresiones.*
+- *N10: esquema distinto cubre también los documentos y sentencias de consulta cuyas identidades no coinciden con el
+  catálogo, y valor no válido también los valores enlazados que no cumplen la declaración de su parámetro (CS10).*
+
 ### Estado de partida
 
 Verificado el 2026-11-09 en el código, en los PRD de los ascendientes y en los documentos de diseño:

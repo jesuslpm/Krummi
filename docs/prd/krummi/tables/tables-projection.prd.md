@@ -58,6 +58,9 @@ filas W26 y W27 y K7 del banco; todos llevan su anotación (*Anotaciones a otros
 
 - *PY2: una columna `string` se prepara con el tipo `string`, sea cual sea su intercalación (IC1).*
 
+*Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md)): «las consultas del
+módulo 17 fijarán si las usan»: lo fija 17.1 de las consultas.*
+
 ### Estado de partida
 
 - Una fila leída o recorrida se lee columna a columna, por el nombre o la posición de la columna entre las columnas
