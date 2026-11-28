@@ -61,6 +61,9 @@ filas W26 y W27 y K7 del banco; todos llevan su anotación (*Anotaciones a otros
 *Anotación del 2026-11-28 desde las consultas ([queries.prd.md](../queries/queries.prd.md)): «las consultas del
 módulo 17 fijarán si las usan»: lo fija 17.1 de las consultas.*
 
+*Anotación del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU13):
+las consultas no ocupan las proyecciones que el almacén guarda para la aplicación (PY5).*
+
 ### Estado de partida
 
 - Una fila leída o recorrida se lee columna a columna, por el nombre o la posición de la columna entre las columnas

@@ -109,6 +109,10 @@ Spanish, authoritative):*
 authoritative): P3: the queries' spill to disk uses a reserved name of the store folder that opening deletes,
 `krummi.sort` or another that 17.1 of the queries fixes.*
 
+*Annotation of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU17;
+Spanish authoritative): P3: the queries' spill to disk uses `krummi.sort`, with files of each execution's own; the
+folder is deleted when it no longer has files, and also when the store closes and opens.*
+
 ### Starting state
 
 Verified on 2026-10-22:

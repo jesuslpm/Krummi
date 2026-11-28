@@ -130,6 +130,9 @@ espacio se recupera al terminar las lecturas.*
 - *T12: un fallo de entrada y salida de esa escritura interna no lo informa ninguna operación de la aplicación al
   ocurrir, sino las peticiones de escritura siguientes y el cierre (ST9).*
 
+*Anotación del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU19):
+T4: la clase de tiempo de espera agotado cubre también el tiempo agotado de una ejecución de una consulta.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

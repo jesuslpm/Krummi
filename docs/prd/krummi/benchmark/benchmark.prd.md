@@ -129,6 +129,12 @@ tienen umbral también las cargas de sobrecoste de las consultas, frente a la op
 frente a Voron; el informe las cuenta con los demás umbrales y K13 vale para ellas. K2 y K14: SQLite entra en el banco
 solo para la comparación sin umbral de los informes de cierre del módulo 17.*
 
+*Anotación del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU22):
+K7 y Salida: tres cargas nuevas con umbral, W33 `consulta-lecturas`, W34 `consulta-intervalos` y W35
+`consulta-intervalos-de-indice`, frente a su operación directa (W26, W27, W32) y no frente a Voron; los demás motores
+dicen `no aplica`, y «Krummi cumple N de 32 umbrales» pasa a contar 35. K4 y K11: empiezan en el almacén de su
+referencia y su ejecución reducida tiene las cantidades de esa referencia.*
+
 ### Estado de partida
 
 Verificado el 2026-11-03 en el repositorio y en las fuentes públicas de cada motor:

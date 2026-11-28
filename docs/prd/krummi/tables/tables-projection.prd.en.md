@@ -66,6 +66,9 @@ authoritative):*
 *Annotation of 2026-11-28 from the queries ([queries.prd.en.md](../queries/queries.prd.en.md); Spanish
 authoritative): whether module 17's queries use the projections is fixed by 17.1 of the queries.*
 
+*Annotation of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU13;
+Spanish authoritative): queries do not take any of the projections the store keeps for the application (PY5).*
+
 ### Starting state
 
 - A row that is read or traversed is read column by column, by the name or the position of the column among the live

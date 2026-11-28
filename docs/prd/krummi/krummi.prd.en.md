@@ -166,6 +166,15 @@ authoritative):*
   bring per the list 17.1 fixes, are admitted, only in the query crate (CS11).*
 - *Out of scope: dependencies on MCP servers, async runtimes and AI SDKs stay out of the library (CS11).*
 
+*Annotations of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](queries/queries-single-table.prd.md), 17.1; Spanish
+authoritative):*
+
+- *D8 and Validations and messages: new classes **limit exceeded**, for an exhausted budget of a query execution, and
+  **cancelled**; and the names of the classes in the error object of the queries (`invalid_document`, `not_found`,
+  `io`, etc., CU19).*
+- *G6: a damaged or short spill to disk of a query fails with input/output, as that of creating an index (IX2); it is
+  not damage of the store (CU17).*
+
 ### Starting state
 
 Verified on 2026-10-22 against the repository and against the public Voron code in the RavenDB repository:

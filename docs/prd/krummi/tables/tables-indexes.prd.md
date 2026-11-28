@@ -99,6 +99,10 @@ W30. W31 y W32 calculan en los dos motores la suma de comprobación de W26 y W27
 - *IX5: quitar una columna con un índice vectorial falla como con un índice secundario (VI10).*
 - *IX6: Describir devuelve además la lista de los índices vectoriales, aparte (VI1).*
 
+*Anotación del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU17):
+IX2: crear un índice borra solo sus propios archivos de `krummi.sort`, y la carpeta cuando queda vacía, porque las
+ejecuciones de consultas pueden desbordar en ella a la vez.*
+
 ### Estado de partida
 
 Verificado el 2026-11-16 en el código y en los documentos de diseño:

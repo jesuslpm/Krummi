@@ -162,6 +162,14 @@ no contiene un almacén de Krummi (D10, decisión R6).*
 - *Fuera de alcance: las dependencias de servidores MCP, runtimes asíncronos y SDK de IA quedan fuera de la biblioteca
   (CS11).*
 
+*Anotaciones del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](queries/queries-single-table.prd.md), 17.1):*
+
+- *D8 y Validaciones y mensajes: clases nuevas **límite superado**, para un presupuesto de una ejecución de una consulta
+  agotado, y **cancelada**; y los nombres de las clases en el objeto de error de las consultas (`invalid_document`,
+  `not_found`, `io`, etc., CU19).*
+- *G6: un desbordamiento a disco de una consulta dañado o corto falla con entrada y salida, como el de crear un índice
+  (IX2); no es un daño del almacén (CU17).*
+
 ### Estado de partida
 
 Verificado el 2026-10-22 sobre el repositorio y sobre el código público de Voron en el repositorio de RavenDB:

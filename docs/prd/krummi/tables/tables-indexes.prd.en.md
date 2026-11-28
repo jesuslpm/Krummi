@@ -106,6 +106,10 @@ authoritative):*
 - *IX5: removing a column with a vector index fails like with a secondary index (VI10).*
 - *IX6: Describe also returns the list of the vector indexes, separately (VI1).*
 
+*Annotation of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU17;
+Spanish authoritative): IX2: creating an index deletes only its own files in `krummi.sort`, and the folder when it is
+left empty, because query executions may spill there at the same time.*
+
 ### Starting state
 
 Verified on 2026-11-16 in the code and in the design documents:

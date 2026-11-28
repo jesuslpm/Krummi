@@ -109,6 +109,10 @@ en sus decisiones y anotadas en él (ver [Anotaciones al padre](#anotaciones-al-
 desbordamiento a disco de las consultas usa un nombre reservado de la carpeta del almacén que la apertura borra,
 `krummi.sort` u otro que fije 17.1 de las consultas.*
 
+*Anotación del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU17):
+P3: el desbordamiento a disco de las consultas usa `krummi.sort`, con archivos propios de cada ejecución; la carpeta se
+borra cuando ya no tiene archivos, y también al cerrar y al abrir el almacén.*
+
 ### Estado de partida
 
 Verificado el 2026-10-22:

@@ -92,6 +92,34 @@ escritura vale en ella mientras dure ese estado, en las demás solo después de 
 en todas después de abortarla. Un plan que usa un índice falla en toda transacción que ya no ve el índice, y se ejecuta
 en una que todavía ve el estado anterior.
 
+*Anotaciones del 2026-11-28 desde las consultas de una tabla ([queries-single-table.prd.md](queries-single-table.prd.md), 17.1):*
+
+- *CS3 y CS12: hay un quinto tipo de documento, `store/1`, la descripción del almacén, que solo escribe Krummi, y una
+  función que reescribe un documento en la forma de Krummi sin normalizarlo (CU20).*
+- *CS8: la profundidad de nodos y expresiones es un presupuesto aparte del techo de anidación JSON de 128 (Límites de
+  17.1).*
+- *CS3, CS8, CS9, CS10 y la celda Fija de 17.1: lo que dejaban a 17.1 queda fijado en 17.1; una tabla que no existe
+  falla con no encontrado, y no con esquema distinto, cuando el documento no lleva `bind` (CU13); las formas de los
+  valores `json` pasan a 17.3 y 17.4.*
+
+### Estado de partida
+
+Verificado el 2026-11-28 en el código, en los PRD de los ascendientes y en los documentos de diseño. *Anotación del
+2026-11-28: esta sección se perdió al reescribir el borrador 0.2 y se restaura sin cambiar ninguna regla.*
+
+| Aspecto | Situación |
+|---|---|
+| Consultas | No existen: no hay árbol de consulta, planificador, planes, sentencias ni cursores de consulta. |
+| Lecturas de tablas | Leer una fila por su clave primaria; recorrer un intervalo de la clave primaria hacia delante y hacia atrás; recorrer un intervalo de un índice, devolviendo las filas o solo sus entradas; leer solo algunas columnas de una fila con una proyección (7.1, 7.2, proyecciones, lecturas de filas). Ninguna lectura filtra. |
+| Estadísticas | Estimación pública de una igualdad (también con nulo), un intervalo o una igualdad sobre un prefijo de columnas de un índice; estadísticas por columna y por prefijos de índices; analizar a petición (7.3). No hay estimación de `IN`, de prefijos de texto ni de disyunciones. |
+| Vectores | Búsqueda exacta y aproximada de los `k` vecinos más cercanos, con un filtro de igualdades, intervalos, `IN` y `NOT IN` unidos por Y (7.6). |
+| JSON | Navegación por miembros y posiciones y lectura tipada de una propiedad (7.5); no hay rutas como expresión ni condiciones sobre los elementos de un array. |
+| Texto | Intercalaciones `binary`, `ci` y `ci_ai` por columna, con su forma plegada (7.7); no hay búsqueda por prefijo de texto ni `LIKE`. |
+| Catálogo | Las tablas, columnas e índices tienen identidades aleatorias de 64 bits, y cada tabla sus marcas de estado de esquema y de índices, visibles por la descripción de la tabla (P12 del documento 11, 7.1, 7.2). |
+| Formato | La versión de formato vigente es `16`. |
+| Herramienta | No existe la herramienta de línea de comandos (módulo 12). |
+| Diseño | Los documentos de diseño 4, 8, 9, 10, 11 y 15; el 11 sustituye el formato binario de los documentos 4 y 8 por JSON tipado y fija el contrato. Los operadores de joins, agrupación, `DISTINCT`, operaciones de conjuntos, ventanas y spools están reservados por nombre en el documento 8 y no tienen diseño. |
+
 ## Actores
 
 - **Desarrollador integrador**: escribe consultas con la API fluida o como documentos JSON, las prepara, las ejecuta

@@ -93,6 +93,34 @@ state lasts, in the others only after committing it, and fails with different sc
 A plan that uses an index fails in every transaction that no longer sees the index, and is executed in one that still
 sees the earlier state.
 
+*Annotations of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](queries-single-table.prd.md), 17.1; Spanish
+authoritative):*
+
+- *CS3 and CS12: there is a fifth document type, `store/1`, the description of the store, which only Krummi writes, and
+  a function that rewrites a document in Krummi's form without normalizing it (CU20).*
+- *CS8: the depth of nodes and expressions is a budget apart from the JSON nesting ceiling of 128 (Limits of 17.1).*
+- *CS3, CS8, CS9, CS10 and the Fixes cell of 17.1: what they left to 17.1 is fixed in 17.1; a table that does not exist
+  fails with not found, not with different schema, when the document carries no `bind` (CU13); the forms of `json`
+  values move to 17.3 and 17.4.*
+
+### Starting state
+
+Verified on 2026-11-28 in the code, in the PRDs of the ancestry and in the design documents. *Annotation of
+2026-11-28: this section was lost when draft 0.2 was rewritten and is restored without changing any rule.*
+
+| Aspect | Situation |
+|---|---|
+| Queries | They do not exist: there is no query tree, planner, plans, statements or query cursors. |
+| Table reads | Reading a row by its primary key; scanning a primary key range forward and backward; scanning an index range, returning the rows or only their entries; reading only some columns of a row with a projection (7.1, 7.2, projections, row reads). No read filters. |
+| Statistics | Public estimate of an equality (also with null), a range, or an equality over a prefix of an index's columns; statistics per column and per index prefix; analyze on request (7.3). There is no estimate of `IN`, of text prefixes or of disjunctions. |
+| Vectors | Exact and approximate search for the `k` nearest neighbours, with a filter of equalities, ranges, `IN` and `NOT IN` joined by AND (7.6). |
+| JSON | Navigation by members and positions and typed reading of a property (7.5); there are no paths as an expression and no conditions over the elements of an array. |
+| Text | Collations `binary`, `ci` and `ci_ai` per column, with their folded form (7.7); there is no text prefix search and no `LIKE`. |
+| Catalog | Tables, columns and indexes have random 64-bit identities, and each table its schema and index state tokens, visible through the table description (P12 of document 11, 7.1, 7.2). |
+| Format | The current format version is `16`. |
+| Tool | The command-line tool does not exist (module 12). |
+| Design | Design documents 4, 8, 9, 10, 11 and 15; document 11 replaces the binary format of documents 4 and 8 with typed JSON and fixes the contract. The operators for joins, grouping, `DISTINCT`, set operations, windows and spools are reserved by name in document 8 and have no design. |
+
 ## Actors
 
 - **Integrating developer**: writes queries with the fluent API or as JSON documents, prepares them, executes them with

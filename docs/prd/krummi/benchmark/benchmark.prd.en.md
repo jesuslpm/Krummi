@@ -132,6 +132,12 @@ authoritative): K7 and *Output*: the query overhead loads also have a threshold,
 not against Voron; the report counts them with the other thresholds and K13 applies to them. K2 and K14: SQLite enters
 the bench only for the comparison without threshold in the closing reports of module 17.*
 
+*Annotation of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU22;
+Spanish authoritative): K7 and Output: three new loads with a threshold, W33 `consulta-lecturas`, W34
+`consulta-intervalos` and W35 `consulta-intervalos-de-indice`, against their direct operation (W26, W27, W32) and not
+against Voron; the other engines say `no aplica`, and "Krummi cumple N de 32 umbrales" counts 35. K4 and K11: they
+start from their reference's store and their reduced run has that reference's quantities.*
+
 ### Starting state
 
 Verified on 2026-11-03 in the repository and in the public sources of each engine:

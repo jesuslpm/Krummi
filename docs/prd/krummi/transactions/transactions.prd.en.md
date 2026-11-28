@@ -131,6 +131,9 @@ reads end.*
 - *T12: an input/output failure of that internal write is reported by no application operation when it happens, but
   by the following write requests and by close (ST9).*
 
+*Annotation of 2026-11-28 from the single-table queries ([queries-single-table.prd.md](../queries/queries-single-table.prd.md), CU19;
+Spanish authoritative): T4: the timeout class also covers the expired deadline of a query execution.*
+
 ### Starting state
 
 Verified on 2026-10-22:
